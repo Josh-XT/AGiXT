@@ -65,6 +65,7 @@ from ExtensionsHub import (
     import_extension_module,
     get_extension_class_name,
 )
+from SharedCache import shared_cache
 
 
 logging.basicConfig(
@@ -72,113 +73,103 @@ logging.basicConfig(
     format=getenv("LOG_FORMAT"),
 )
 
-# Cache for Stripe subscription checks to avoid API spam
-# Key: user_id, Value: (timestamp, has_subscription)
-# Cache expires after 5 minutes
-_stripe_check_cache = {}
+# Cache TTLs for SharedCache
+# SharedCache handles cross-worker synchronization via Redis
 _stripe_check_cache_ttl = 300  # 5 minutes
-
-# Cache for user company ID lookups to avoid DB queries per request
-# Key: user_id, Value: (timestamp, company_id)
-# Cache expires after 10 seconds - short enough for quick updates, long enough to batch queries
-_user_company_cache = {}
 _user_company_cache_ttl = 10  # 10 seconds
-
-# Cache for user ID lookups from email to avoid DB queries per request
-# Key: email, Value: (timestamp, user_id)
-# Cache expires after 60 seconds - user IDs don't change
-_user_id_cache = {}
 _user_id_cache_ttl = 60  # 60 seconds
-
-# Cache for validated JWT tokens to avoid DB queries per request
-# Key: token_hash, Value: (timestamp, user_dict)
-# Cache expires after 5 seconds - short for security, but enough to batch within a request cycle
-_token_validation_cache = {}
 _token_validation_cache_ttl = 5  # 5 seconds
 
 
+def _serialize_user_dict(user_dict: dict) -> dict:
+    """Convert user dict to JSON-serializable format (handles datetime fields)."""
+    from datetime import datetime
+
+    result = {}
+    for key, value in user_dict.items():
+        if isinstance(value, datetime):
+            result[key] = value.isoformat()
+        else:
+            result[key] = value
+    return result
+
+
+def _deserialize_user_dict(cached_dict: dict) -> dict:
+    """Convert cached user dict back from JSON format (handles datetime fields)."""
+    from datetime import datetime
+
+    result = {}
+    datetime_fields = {"created_at", "updated_at", "tos_accepted_at"}
+    for key, value in cached_dict.items():
+        if key in datetime_fields and value is not None and isinstance(value, str):
+            try:
+                result[key] = datetime.fromisoformat(value)
+            except ValueError:
+                result[key] = value
+        else:
+            result[key] = value
+    return result
+
+
 def get_token_validation_cached(token: str):
-    """Get cached token validation result if still valid."""
-    import time
+    """Get cached token validation result if still valid (uses SharedCache)."""
     import hashlib
 
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    if token_hash in _token_validation_cache:
-        timestamp, user_dict = _token_validation_cache[token_hash]
-        if time.time() - timestamp < _token_validation_cache_ttl:
-            return user_dict
-        else:
-            del _token_validation_cache[token_hash]
-    return None  # Cache miss
+    cached = shared_cache.get(f"token_validation:{token_hash}")
+    if cached:
+        return _deserialize_user_dict(cached)
+    return None
 
 
 def set_token_validation_cache(token: str, user_dict: dict):
-    """Cache token validation result."""
-    import time
+    """Cache token validation result (uses SharedCache)."""
     import hashlib
 
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    _token_validation_cache[token_hash] = (time.time(), user_dict)
+    serialized = _serialize_user_dict(user_dict)
+    shared_cache.set(
+        f"token_validation:{token_hash}", serialized, ttl=_token_validation_cache_ttl
+    )
 
 
 def invalidate_token_validation_cache(token: str = None):
-    """Invalidate token validation cache. If token is None, clear all."""
+    """Invalidate token validation cache. If token is None, clear all (uses SharedCache)."""
     import hashlib
 
     if token is None:
-        _token_validation_cache.clear()
+        shared_cache.delete_pattern("token_validation:*")
     else:
         token_hash = hashlib.sha256(token.encode()).hexdigest()
-        if token_hash in _token_validation_cache:
-            del _token_validation_cache[token_hash]
+        shared_cache.delete(f"token_validation:{token_hash}")
 
 
 def get_user_id_cached(email: str):
-    """Get cached user ID from email if still valid."""
-    import time
-
-    if email in _user_id_cache:
-        timestamp, user_id = _user_id_cache[email]
-        if time.time() - timestamp < _user_id_cache_ttl:
-            return user_id
-        else:
-            del _user_id_cache[email]
-    return None  # Cache miss
+    """Get cached user ID from email if still valid (uses SharedCache)."""
+    return shared_cache.get(f"user_id:{email}")
 
 
 def set_user_id_cache(email: str, user_id: str):
-    """Cache user ID from email lookup."""
-    import time
-
-    _user_id_cache[email] = (time.time(), user_id)
+    """Cache user ID from email lookup (uses SharedCache)."""
+    shared_cache.set(f"user_id:{email}", user_id, ttl=_user_id_cache_ttl)
 
 
 def get_user_company_cached(user_id: str):
-    """Get cached user company ID if still valid."""
-    import time
-
-    if user_id in _user_company_cache:
-        timestamp, company_id = _user_company_cache[user_id]
-        if time.time() - timestamp < _user_company_cache_ttl:
-            return company_id
-        else:
-            del _user_company_cache[user_id]
-    return None  # Cache miss
+    """Get cached user company ID if still valid (uses SharedCache)."""
+    return shared_cache.get(f"user_company:{user_id}")
 
 
 def set_user_company_cache(user_id: str, company_id: str):
-    """Cache user company ID."""
-    import time
-
-    _user_company_cache[user_id] = (time.time(), company_id)
+    """Cache user company ID (uses SharedCache)."""
+    shared_cache.set(f"user_company:{user_id}", company_id, ttl=_user_company_cache_ttl)
 
 
 def invalidate_user_company_cache(user_id: str = None):
-    """Invalidate user company cache. If user_id is None, clear all."""
+    """Invalidate user company cache. If user_id is None, clear all (uses SharedCache)."""
     if user_id is None:
-        _user_company_cache.clear()
-    elif user_id in _user_company_cache:
-        del _user_company_cache[user_id]
+        shared_cache.delete_pattern("user_company:*")
+    else:
+        shared_cache.delete(f"user_company:{user_id}")
 
 
 """
@@ -3373,20 +3364,17 @@ class MagicalAuth:
         Background Stripe subscription check.
         Updates user's is_active status and stripe_id preference if needed.
         This runs async and doesn't block the response.
-        Uses caching to prevent API spam.
+        Uses SharedCache to prevent API spam across workers.
         """
-        import time
         import stripe
 
-        # Check cache first to avoid Stripe API spam
-        cache_key = user_id
-        now = time.time()
-        if cache_key in _stripe_check_cache:
-            cached_time, cached_result = _stripe_check_cache[cache_key]
-            if now - cached_time < _stripe_check_cache_ttl:
-                # Cache is still valid, skip Stripe API call
-                logging.debug(f"Stripe check cache hit for {user_email}")
-                return
+        # Check SharedCache first to avoid Stripe API spam
+        cache_key = f"stripe_check:{user_id}"
+        cached_result = shared_cache.get(cache_key)
+        if cached_result is not None:
+            # Cache is still valid, skip Stripe API call
+            logging.debug(f"Stripe check cache hit for {user_email}")
+            return
 
         stripe.api_key = api_key
 
@@ -3429,8 +3417,8 @@ class MagicalAuth:
                     if has_subscription:
                         break
 
-            # Cache the result
-            _stripe_check_cache[cache_key] = (now, has_subscription)
+            # Cache the result in SharedCache
+            shared_cache.set(cache_key, has_subscription, ttl=_stripe_check_cache_ttl)
 
             # Update user active status based on subscription
             if has_subscription:

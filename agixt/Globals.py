@@ -55,7 +55,9 @@ _manager = Manager()
 MACHINE_ACTIVE_TERMINALS = _manager.dict()
 
 # Server config cache to avoid repeated database queries
-_server_config_cache = {}
+# Uses SharedCache for cross-worker consistency
+_SERVER_CONFIG_CACHE_KEY = "server_config_cache"
+_SERVER_CONFIG_CACHE_TTL = 60  # 60 seconds TTL - refreshes periodically
 _server_config_cache_loaded = False
 
 # Settings that should NEVER be loaded from database (infrastructure settings)
@@ -94,14 +96,15 @@ _ENV_ONLY_SETTINGS = {
 
 def load_server_config_cache():
     """
-    Load all server config values from the database into cache.
+    Load all server config values from the database into shared cache.
     This is called once during startup after the database is initialized.
+    Uses SharedCache for cross-worker consistency.
 
     Note: We cache ALL values including empty strings, so we can distinguish
     between "key not set" and "key explicitly set to empty" (which is used
     to disable providers at the server level).
     """
-    global _server_config_cache, _server_config_cache_loaded
+    global _server_config_cache_loaded
 
     if _server_config_cache_loaded:
         return
@@ -109,7 +112,16 @@ def load_server_config_cache():
     try:
         # Import here to avoid circular imports
         from DB import ServerConfig, get_session, decrypt_config_value
+        from SharedCache import shared_cache
 
+        # Check if already in shared cache
+        cached = shared_cache.get(_SERVER_CONFIG_CACHE_KEY)
+        if cached is not None:
+            _server_config_cache_loaded = True
+            return
+
+        # Load from database
+        config_dict = {}
         with get_session() as db:
             configs = db.query(ServerConfig).all()
             for config in configs:
@@ -117,12 +129,12 @@ def load_server_config_cache():
                 # Empty string means "explicitly cleared at server level"
                 if config.value is not None:
                     if config.is_sensitive and config.value:
-                        _server_config_cache[config.name] = decrypt_config_value(
-                            config.value
-                        )
+                        config_dict[config.name] = decrypt_config_value(config.value)
                     else:
-                        _server_config_cache[config.name] = config.value
+                        config_dict[config.name] = config.value
 
+        # Store in shared cache
+        shared_cache.set(_SERVER_CONFIG_CACHE_KEY, config_dict, ttl=_SERVER_CONFIG_CACHE_TTL)
         _server_config_cache_loaded = True
     except Exception:
         # Database not initialized yet or other error - this is expected during startup
@@ -130,9 +142,13 @@ def load_server_config_cache():
 
 
 def invalidate_server_config_cache():
-    """Invalidate the server config cache to force a reload."""
-    global _server_config_cache, _server_config_cache_loaded
-    _server_config_cache = {}
+    """Invalidate the server config cache to force a reload across all workers."""
+    global _server_config_cache_loaded
+    try:
+        from SharedCache import shared_cache
+        shared_cache.delete(_SERVER_CONFIG_CACHE_KEY)
+    except Exception:
+        pass
     _server_config_cache_loaded = False
 
 
@@ -141,10 +157,17 @@ def server_config_has_key(var_name: str) -> bool:
     Check if a key exists in server config cache (regardless of its value).
     This is used to determine if server admin explicitly set a value (even empty).
     """
-    global _server_config_cache, _server_config_cache_loaded
+    global _server_config_cache_loaded
     if not _server_config_cache_loaded:
         load_server_config_cache()
-    return var_name in _server_config_cache
+    try:
+        from SharedCache import shared_cache
+        cached = shared_cache.get(_SERVER_CONFIG_CACHE_KEY)
+        if cached is not None:
+            return var_name in cached
+    except Exception:
+        pass
+    return False
 
 
 def getenv(var_name: str, default_value: str = "") -> str:
@@ -237,11 +260,17 @@ def getenv(var_name: str, default_value: str = "") -> str:
     if env_value is not None and env_value != "":
         return env_value
 
-    # Then check server config cache (database values)
-    if _server_config_cache_loaded and var_name in _server_config_cache:
-        cached_value = _server_config_cache.get(var_name)
-        if cached_value is not None and cached_value != "":
-            return cached_value
+    # Then check server config cache (database values from shared cache)
+    if _server_config_cache_loaded:
+        try:
+            from SharedCache import shared_cache
+            cached = shared_cache.get(_SERVER_CONFIG_CACHE_KEY)
+            if cached is not None and var_name in cached:
+                cached_value = cached.get(var_name)
+                if cached_value is not None and cached_value != "":
+                    return cached_value
+        except Exception:
+            pass
 
     # Fall back to default value
     return default_value

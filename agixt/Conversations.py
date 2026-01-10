@@ -12,51 +12,41 @@ from DB import (
 from Globals import getenv, DEFAULT_USER
 from sqlalchemy.sql import func, or_
 from MagicalAuth import convert_time, get_user_id
+from SharedCache import shared_cache
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
 
-# Cache for conversation ID lookups to avoid DB queries per request
-_conversation_id_cache = {}
+# Cache TTL for conversation ID lookups (uses SharedCache)
 _conversation_id_cache_ttl = 30  # 30 seconds
 
 
 def _get_conversation_cache_key(conversation_name: str, user_id: str) -> str:
-    return f"{user_id}:{conversation_name}"
+    return f"conversation_id:{user_id}:{conversation_name}"
 
 
 def invalidate_conversation_cache(user_id: str = None, conversation_name: str = None):
-    """Invalidate conversation cache entries."""
+    """Invalidate conversation cache entries (uses SharedCache)."""
     if user_id is None:
-        _conversation_id_cache.clear()
+        shared_cache.delete_pattern("conversation_id:*")
     elif conversation_name:
         cache_key = _get_conversation_cache_key(conversation_name, str(user_id))
-        if cache_key in _conversation_id_cache:
-            del _conversation_id_cache[cache_key]
+        shared_cache.delete(cache_key)
     else:
         # Invalidate all entries for this user
-        keys_to_delete = [
-            k for k in _conversation_id_cache if k.startswith(f"{user_id}:")
-        ]
-        for k in keys_to_delete:
-            del _conversation_id_cache[k]
+        shared_cache.delete_pattern(f"conversation_id:{user_id}:*")
 
 
 def get_conversation_id_by_name(conversation_name, user_id):
-    import time
-
     user_id = str(user_id)
     cache_key = _get_conversation_cache_key(conversation_name, user_id)
 
-    # Check cache first
-    if cache_key in _conversation_id_cache:
-        timestamp, conversation_id = _conversation_id_cache[cache_key]
-        if time.time() - timestamp < _conversation_id_cache_ttl:
-            return conversation_id
-        else:
-            del _conversation_id_cache[cache_key]
+    # Check SharedCache first
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     session = get_session()
     user = session.query(User).filter(User.id == user_id).first()
@@ -78,8 +68,8 @@ def get_conversation_id_by_name(conversation_name, user_id):
         conversation_id = str(conversation.id)
     session.close()
 
-    # Cache the result
-    _conversation_id_cache[cache_key] = (time.time(), conversation_id)
+    # Cache the result in SharedCache
+    shared_cache.set(cache_key, conversation_id, ttl=_conversation_id_cache_ttl)
     return conversation_id
 
 

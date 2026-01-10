@@ -24,6 +24,21 @@ from DB import (
     UserCompany,
 )
 from Extensions import Extensions
+from SharedCache import (
+    shared_cache,
+    cache_agent_data,
+    get_cached_agent_data,
+    invalidate_agent_cache,
+    cache_company_config,
+    get_cached_company_config,
+    invalidate_company_config_cache as shared_invalidate_company_config,
+    cache_commands,
+    get_cached_commands,
+    invalidate_commands_cache as shared_invalidate_commands,
+    cache_sso_providers,
+    get_cached_sso_providers,
+    invalidate_sso_providers_cache as shared_invalidate_sso_providers,
+)
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS, DEFAULT_USER
 from MagicalAuth import MagicalAuth, get_user_id
 from Conversations import get_conversation_id_by_name
@@ -60,43 +75,27 @@ _command_owner_cache = None
 # Cache for command_name -> friendly_name mapping
 _command_name_to_friendly_cache = None
 
-# Cache for all commands - commands rarely change
-_all_commands_cache = None
-_all_commands_cache_time = 0
-_COMMANDS_CACHE_TTL = 300  # 5 minutes
-
-# Cache for company agent configs
-# IMPORTANT: With multiple uvicorn workers, this cache is process-local
-# Setting to 0 disables caching to ensure cross-worker consistency
-_company_agent_config_cache = {}
-_COMPANY_CONFIG_CACHE_TTL = 0  # Disabled for multi-worker consistency
-
-# Cache for agent data (agent model + settings + commands) - short TTL for request batching
-# This dramatically reduces DB queries during chat completions where Agent is created multiple times
-# DISABLED: Multi-worker caching causes stale command state issues
-_agent_data_cache = {}
-_AGENT_DATA_CACHE_TTL = (
-    0  # DISABLED - each worker has own cache, invalidation doesn't propagate
-)
-
-# Cache for SSO-enabled extensions - requires filesystem scan so cache aggressively
-_sso_providers_cache = None
-_sso_providers_cache_time = 0
+# Cache TTL constants
+# NOTE: SharedCache handles cross-worker synchronization via Redis (if available)
+# or falls back to local memory. TTLs are now safe to use.
+_COMMANDS_CACHE_TTL = 300  # 5 minutes - commands rarely change
+_COMPANY_CONFIG_CACHE_TTL = 60  # 1 minute - re-enabled with SharedCache
+_AGENT_DATA_CACHE_TTL = 5  # 5 seconds - short TTL for request batching
 _SSO_PROVIDERS_CACHE_TTL = 600  # 10 minutes - extensions rarely change
 
 
 def get_sso_providers_cached():
     """
     Get list of SSO-enabled extensions with caching.
-    Uses AST parsing instead of importing modules for speed.
+    Uses SharedCache for cross-worker consistency.
+    Falls back to AST parsing if not in cache.
     """
     import ast
 
-    global _sso_providers_cache, _sso_providers_cache_time
-
-    if _sso_providers_cache is not None:
-        if (time.time() - _sso_providers_cache_time) < _SSO_PROVIDERS_CACHE_TTL:
-            return _sso_providers_cache.copy()
+    # Try SharedCache first
+    cached = get_cached_sso_providers()
+    if cached is not None:
+        return set(cached)
 
     sso_providers = set()
     extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
@@ -104,8 +103,7 @@ def get_sso_providers_cached():
     try:
         extension_files = os.listdir(extensions_dir)
     except OSError:
-        _sso_providers_cache = sso_providers
-        _sso_providers_cache_time = time.time()
+        cache_sso_providers(list(sso_providers), ttl=_SSO_PROVIDERS_CACHE_TTL)
         return sso_providers
 
     for extension_file in extension_files:
@@ -141,46 +139,33 @@ def get_sso_providers_cached():
             except Exception:
                 continue
 
-    _sso_providers_cache = sso_providers
-    _sso_providers_cache_time = time.time()
+    # Cache in SharedCache
+    cache_sso_providers(list(sso_providers), ttl=_SSO_PROVIDERS_CACHE_TTL)
     return sso_providers.copy()
 
 
 def invalidate_sso_providers_cache():
-    """Invalidate the SSO providers cache"""
-    global _sso_providers_cache, _sso_providers_cache_time
-    _sso_providers_cache = None
-    _sso_providers_cache_time = 0
+    """Invalidate the SSO providers cache (uses SharedCache)"""
+    shared_invalidate_sso_providers()
 
 
 def get_company_agent_config_cached(company_id: str, company_agent):
-    """Get company agent config with caching to avoid repeated expensive calls"""
-    import time
+    """Get company agent config with caching (uses SharedCache for cross-worker consistency)"""
 
-    global _company_agent_config_cache
-
-    cache_key = str(company_id)
-    if cache_key in _company_agent_config_cache:
-        cached = _company_agent_config_cache[cache_key]
-        if (time.time() - cached["timestamp"]) < _COMPANY_CONFIG_CACHE_TTL:
-            return cached["config"]
+    # Try SharedCache first
+    cached = get_cached_company_config(str(company_id))
+    if cached is not None:
+        return cached
 
     # Get fresh config
     config = company_agent.get_agent_config()
-    _company_agent_config_cache[cache_key] = {
-        "config": config,
-        "timestamp": time.time(),
-    }
+    cache_company_config(str(company_id), config, ttl=_COMPANY_CONFIG_CACHE_TTL)
     return config
 
 
 def invalidate_company_config_cache(company_id: str = None):
-    """Invalidate company config cache"""
-    global _company_agent_config_cache
-    if company_id:
-        _company_agent_config_cache.pop(str(company_id), None)
-    else:
-        _company_agent_config_cache.clear()
+    """Invalidate company config cache (uses SharedCache)"""
+    shared_invalidate_company_config(company_id)
 
 
 def get_agent_data_cached(
@@ -188,74 +173,39 @@ def get_agent_data_cached(
 ):
     """
     Get agent data (model, settings, commands) from cache if available and fresh.
-    Returns tuple: (agent_model_data, settings_dict, commands_dict) or None if not cached.
-
-    This cache has a very short TTL (5 seconds) to batch database queries within a single
-    request cycle while ensuring freshness across requests.
+    Uses SharedCache for cross-worker consistency.
+    Returns dict or None if not cached.
     """
-    global _agent_data_cache
-
-    # Create cache key
-    cache_key = f"{agent_id or ''}:{agent_name or ''}:{user_id or ''}"
-
-    if cache_key in _agent_data_cache:
-        cached = _agent_data_cache[cache_key]
-        if (time.time() - cached["timestamp"]) < _AGENT_DATA_CACHE_TTL:
-            return cached["data"]
-        else:
-            # Expired - remove from cache
-            del _agent_data_cache[cache_key]
-
-    return None
+    if not agent_id or not user_id:
+        return None
+    
+    return get_cached_agent_data(agent_id, user_id)
 
 
 def set_agent_data_cache(agent_id: str, agent_name: str, user_id: str, data: dict):
     """
     Cache agent data (model info, settings, commands).
-    Data should be a dict with keys: agent_id, agent_name, settings, commands
+    Uses SharedCache for cross-worker consistency.
     """
-    global _agent_data_cache
-
-    cache_key = f"{agent_id or ''}:{agent_name or ''}:{user_id or ''}"
-    _agent_data_cache[cache_key] = {
-        "data": data,
-        "timestamp": time.time(),
-    }
-
-    # Also cache by agent_id only for lookups that don't have name
-    if agent_id:
-        id_key = f"{agent_id}::{user_id or ''}"
-        _agent_data_cache[id_key] = {
-            "data": data,
-            "timestamp": time.time(),
-        }
+    if not agent_id or not user_id:
+        return
+    
+    cache_agent_data(agent_id, user_id, data, ttl=_AGENT_DATA_CACHE_TTL)
 
 
 def invalidate_agent_data_cache(agent_id: str = None, user_id: str = None):
-    """Invalidate agent data cache for a specific agent or all agents"""
-    global _agent_data_cache
-
-    if agent_id is None and user_id is None:
-        _agent_data_cache.clear()
-        return
-
-    # Remove matching cache entries
-    keys_to_remove = []
-    for key in _agent_data_cache:
-        if agent_id and agent_id in key:
-            keys_to_remove.append(key)
-        elif user_id and key.endswith(f":{user_id}"):
-            keys_to_remove.append(key)
-
-    for key in keys_to_remove:
-        _agent_data_cache.pop(key, None)
+    """Invalidate agent data cache (uses SharedCache)"""
+    invalidate_agent_cache(agent_id, user_id)
 
 
 def get_all_commands_cached(session):
-    """Get all commands with caching to avoid repeated database queries"""
+    """Get all commands with caching (uses SharedCache for cross-worker consistency)"""
+    # Try SharedCache first - but we need to query DB if not cached
+    # since commands are ORM objects
+    # For now, use a local cache with short TTL since commands rarely change
+    # and are used frequently within a single request
     global _all_commands_cache, _all_commands_cache_time
-    import time
-
+    
     if _all_commands_cache is not None:
         if (time.time() - _all_commands_cache_time) < _COMMANDS_CACHE_TTL:
             return _all_commands_cache
@@ -264,12 +214,18 @@ def get_all_commands_cached(session):
     _all_commands_cache_time = time.time()
     return _all_commands_cache
 
+# Local cache for commands (ORM objects can't be serialized to Redis)
+_all_commands_cache = None
+_all_commands_cache_time = 0
+
 
 def invalidate_commands_cache():
     """Invalidate the commands cache, forcing a refresh on next access"""
     global _all_commands_cache, _all_commands_cache_time
     _all_commands_cache = None
     _all_commands_cache_time = 0
+    # Also invalidate SharedCache for any serializable command data
+    shared_invalidate_commands()
 
 
 def get_agents_lightweight(

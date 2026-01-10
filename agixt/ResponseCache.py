@@ -25,11 +25,11 @@ everything and excluding some. This is intentional because:
    - Financial data must always be fresh
 
 Key features:
-- Database-backed cache shared across ALL workers
+- Redis-backed cache shared across ALL workers (with local memory fallback)
 - Per-user cache isolation (each user has their own cache entries)
 - Automatic cache invalidation on mutations (POST, PUT, DELETE)
 - Pattern-based invalidation (e.g., creating an agent invalidates agent list)
-- TTL-based expiration with automatic cleanup
+- TTL-based expiration
 - Compression for efficient storage
 - Allowlist approach: only explicitly listed endpoints are cached
 """
@@ -38,7 +38,6 @@ import time
 import hashlib
 import logging
 import zlib
-from datetime import datetime, timedelta
 from typing import Dict, Optional, Any, Set, Callable
 from dataclasses import dataclass
 from fastapi import Request, Response
@@ -49,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CacheEntry:
-    """A cached response retrieved from the database"""
+    """A cached response retrieved from the cache"""
 
     response_body: bytes
     content_type: str
@@ -58,7 +57,10 @@ class CacheEntry:
 
 class ResponseCacheManager:
     """
-    Database-backed response cache manager shared across all workers.
+    Redis-backed response cache manager shared across all workers.
+
+    Uses SharedCache for Redis-backed storage with automatic local memory fallback.
+    This is MUCH faster than database-backed caching for HTTP response storage.
 
     Usage:
         cache_manager = ResponseCacheManager()
@@ -76,6 +78,9 @@ class ResponseCacheManager:
     The cache key includes the full path + query string, so different query params = different cache entries.
     Request body is NOT considered since we only cache GET requests (which shouldn't have bodies).
     """
+
+    # Cache key prefix for response cache entries
+    CACHE_PREFIX = "response_cache"
 
     # Endpoints that should NEVER be cached (even if they match CACHEABLE_ENDPOINTS patterns)
     # These are excluded because their data changes frequently or is security-sensitive
@@ -155,17 +160,27 @@ class ResponseCacheManager:
     }
 
     def __init__(self):
+        from SharedCache import shared_cache
+
+        self._cache = shared_cache
         self._stats = {
             "hits": 0,
             "misses": 0,
             "invalidations": 0,
-            "db_errors": 0,
+            "errors": 0,
         }
 
-    def _make_cache_key(self, path: str, query_string: str = "") -> str:
-        """Create a cache key from path and query string"""
+    def _make_cache_key(
+        self, user_id: str, path: str, query_string: str = ""
+    ) -> str:
+        """Create a cache key from user_id, path and query string"""
         full_path = f"{path}?{query_string}" if query_string else path
-        return hashlib.md5(full_path.encode()).hexdigest()
+        path_hash = hashlib.md5(full_path.encode()).hexdigest()
+        return f"{self.CACHE_PREFIX}:{user_id}:{path_hash}"
+
+    def _make_path_pattern_key(self, user_id: str, path: str) -> str:
+        """Create a key for tracking paths per user (for invalidation)"""
+        return f"{self.CACHE_PREFIX}:{user_id}:path:{path}"
 
     def _get_ttl(self, path: str) -> int:
         """Get TTL for a path based on patterns (in seconds)"""
@@ -216,49 +231,42 @@ class ResponseCacheManager:
     def get(
         self, user_id: str, path: str, query_string: str = ""
     ) -> Optional[CacheEntry]:
-        """Get a cached response from the database"""
+        """Get a cached response from Redis"""
         if not self._is_cacheable(path):
             return None
 
         try:
-            from DB import get_db_session, ResponseCache
+            import base64
 
-            cache_key = self._make_cache_key(path, query_string)
+            cache_key = self._make_cache_key(user_id, path, query_string)
+            cached_data = self._cache.get(cache_key)
 
-            with get_db_session() as session:
-                entry = (
-                    session.query(ResponseCache)
-                    .filter(
-                        ResponseCache.user_id == user_id,
-                        ResponseCache.cache_key == cache_key,
-                        ResponseCache.expires_at > datetime.utcnow(),
-                    )
-                    .first()
+            if cached_data:
+                self._stats["hits"] += 1
+                logger.debug(f"Cache HIT: user={user_id[:8]}... path={path}")
+
+                # Decompress the response body
+                try:
+                    compressed_body = base64.b64decode(cached_data["body"])
+                    response_body = zlib.decompress(compressed_body)
+                except (zlib.error, KeyError):
+                    # Fallback for uncompressed or malformed data
+                    response_body = cached_data.get("body", b"").encode() if isinstance(
+                        cached_data.get("body"), str
+                    ) else cached_data.get("body", b"")
+
+                return CacheEntry(
+                    response_body=response_body,
+                    content_type=cached_data.get("content_type", "application/json"),
+                    status_code=cached_data.get("status_code", 200),
                 )
-
-                if entry:
-                    self._stats["hits"] += 1
-                    logger.debug(f"Cache HIT: user={user_id[:8]}... path={path}")
-
-                    # Decompress the response body
-                    try:
-                        response_body = zlib.decompress(entry.response_body)
-                    except zlib.error:
-                        # Not compressed (legacy or small response)
-                        response_body = entry.response_body
-
-                    return CacheEntry(
-                        response_body=response_body,
-                        content_type=entry.content_type,
-                        status_code=entry.status_code,
-                    )
-                else:
-                    self._stats["misses"] += 1
-                    logger.debug(f"Cache MISS: user={user_id[:8]}... path={path}")
-                    return None
+            else:
+                self._stats["misses"] += 1
+                logger.debug(f"Cache MISS: user={user_id[:8]}... path={path}")
+                return None
 
         except Exception as e:
-            self._stats["db_errors"] += 1
+            self._stats["errors"] += 1
             logger.warning(f"Cache GET error: {e}")
             return None
 
@@ -271,7 +279,7 @@ class ResponseCacheManager:
         status_code: int,
         query_string: str = "",
     ):
-        """Cache a response in the database"""
+        """Cache a response in Redis"""
         if not self._is_cacheable(path):
             return
 
@@ -280,51 +288,35 @@ class ResponseCacheManager:
             return
 
         try:
-            from DB import get_db_session, ResponseCache, get_new_id
+            import base64
 
-            cache_key = self._make_cache_key(path, query_string)
+            cache_key = self._make_cache_key(user_id, path, query_string)
             ttl = self._get_ttl(path)
-            expires_at = datetime.utcnow() + timedelta(seconds=ttl)
 
             # Compress the response body for efficient storage
             compressed_body = zlib.compress(response_body, level=6)
 
-            with get_db_session() as session:
-                # Upsert: update if exists, insert if not
-                existing = (
-                    session.query(ResponseCache)
-                    .filter(
-                        ResponseCache.user_id == user_id,
-                        ResponseCache.cache_key == cache_key,
-                    )
-                    .first()
-                )
+            # Store as a dict with metadata
+            cache_data = {
+                "body": base64.b64encode(compressed_body).decode("utf-8"),
+                "content_type": content_type,
+                "status_code": status_code,
+                "path": path,
+            }
 
-                if existing:
-                    existing.response_body = compressed_body
-                    existing.content_type = content_type
-                    existing.status_code = status_code
-                    existing.path = path
-                    existing.expires_at = expires_at
-                    existing.created_at = datetime.utcnow()
-                else:
-                    new_entry = ResponseCache(
-                        id=get_new_id(),
-                        user_id=user_id,
-                        cache_key=cache_key,
-                        path=path,
-                        response_body=compressed_body,
-                        content_type=content_type,
-                        status_code=status_code,
-                        expires_at=expires_at,
-                    )
-                    session.add(new_entry)
+            self._cache.set(cache_key, cache_data, ttl=ttl)
 
-                session.commit()
-                logger.debug(f"Cache SET: user={user_id[:8]}... path={path} ttl={ttl}s")
+            # Also store a path reference for pattern-based invalidation
+            path_key = self._make_path_pattern_key(user_id, path)
+            existing_keys = self._cache.get(path_key) or []
+            if cache_key not in existing_keys:
+                existing_keys.append(cache_key)
+                self._cache.set(path_key, existing_keys, ttl=ttl + 60)
+
+            logger.debug(f"Cache SET: user={user_id[:8]}... path={path} ttl={ttl}s")
 
         except Exception as e:
-            self._stats["db_errors"] += 1
+            self._stats["errors"] += 1
             logger.warning(f"Cache SET error: {e}")
 
     def invalidate(self, user_id: str, method: str, path: str):
@@ -335,119 +327,83 @@ class ResponseCacheManager:
             return
 
         try:
-            from DB import get_db_session, ResponseCache
-            from sqlalchemy import or_
+            deleted_count = 0
 
-            with get_db_session() as session:
-                # Build filter conditions for pattern matching
-                conditions = []
-                for pattern in patterns:
-                    conditions.append(ResponseCache.path.like(f"%{pattern}%"))
+            for pattern in patterns:
+                # Delete using pattern matching
+                # Pattern: response_cache:{user_id}:path:*{pattern}*
+                pattern_key = f"{self.CACHE_PREFIX}:{user_id}:*{pattern}*"
+                deleted_count += self._cache.delete_pattern(pattern_key)
 
-                if conditions:
-                    deleted = (
-                        session.query(ResponseCache)
-                        .filter(ResponseCache.user_id == user_id, or_(*conditions))
-                        .delete(synchronize_session=False)
-                    )
-
-                    session.commit()
-                    self._stats["invalidations"] += deleted
-                    logger.debug(
-                        f"Cache INVALIDATE: user={user_id[:8]}... patterns={patterns} deleted={deleted}"
-                    )
+            self._stats["invalidations"] += deleted_count
+            logger.debug(
+                f"Cache INVALIDATE: user={user_id[:8]}... patterns={patterns} deleted={deleted_count}"
+            )
 
         except Exception as e:
-            self._stats["db_errors"] += 1
+            self._stats["errors"] += 1
             logger.warning(f"Cache INVALIDATE error: {e}")
 
     def invalidate_user(self, user_id: str):
         """Clear all caches for a user"""
         try:
-            from DB import get_db_session, ResponseCache
-
-            with get_db_session() as session:
-                deleted = (
-                    session.query(ResponseCache)
-                    .filter(ResponseCache.user_id == user_id)
-                    .delete(synchronize_session=False)
-                )
-                session.commit()
-                logger.debug(f"Cache CLEAR: user={user_id[:8]}... deleted={deleted}")
+            # Delete all keys for this user
+            pattern = f"{self.CACHE_PREFIX}:{user_id}:*"
+            deleted = self._cache.delete_pattern(pattern)
+            logger.debug(f"Cache CLEAR: user={user_id[:8]}... deleted={deleted}")
 
         except Exception as e:
-            self._stats["db_errors"] += 1
+            self._stats["errors"] += 1
             logger.warning(f"Cache CLEAR error: {e}")
 
     def clear_all(self):
-        """Clear all caches for all users"""
+        """Clear all response caches for all users"""
         try:
-            from DB import get_db_session, ResponseCache
-
-            with get_db_session() as session:
-                deleted = session.query(ResponseCache).delete(synchronize_session=False)
-                session.commit()
-                self._stats = {
-                    "hits": 0,
-                    "misses": 0,
-                    "invalidations": 0,
-                    "db_errors": 0,
-                }
-                logger.info(f"Cache CLEAR ALL: deleted={deleted} entries")
+            # Delete all response cache keys
+            pattern = f"{self.CACHE_PREFIX}:*"
+            deleted = self._cache.delete_pattern(pattern)
+            self._stats = {
+                "hits": 0,
+                "misses": 0,
+                "invalidations": 0,
+                "errors": 0,
+            }
+            logger.info(f"Cache CLEAR ALL: deleted={deleted} entries")
 
         except Exception as e:
-            self._stats["db_errors"] += 1
+            self._stats["errors"] += 1
             logger.warning(f"Cache CLEAR ALL error: {e}")
 
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics"""
         try:
-            from DB import get_db_session, ResponseCache
-            from sqlalchemy import func
+            hit_rate = (
+                self._stats["hits"]
+                / (self._stats["hits"] + self._stats["misses"])
+                * 100
+                if (self._stats["hits"] + self._stats["misses"]) > 0
+                else 0
+            )
 
-            with get_db_session() as session:
-                # Count total entries and unique users
-                total_entries = (
-                    session.query(func.count(ResponseCache.id)).scalar() or 0
-                )
-                unique_users = (
-                    session.query(
-                        func.count(func.distinct(ResponseCache.user_id))
-                    ).scalar()
-                    or 0
-                )
-
-                hit_rate = (
-                    self._stats["hits"]
-                    / (self._stats["hits"] + self._stats["misses"])
-                    * 100
-                    if (self._stats["hits"] + self._stats["misses"]) > 0
-                    else 0
-                )
-
-                return {
-                    "users": unique_users,
-                    "total_entries": total_entries,
-                    "hits": self._stats["hits"],
-                    "misses": self._stats["misses"],
-                    "hit_rate_percent": round(hit_rate, 2),
-                    "invalidations": self._stats["invalidations"],
-                    "db_errors": self._stats["db_errors"],
-                    "storage": "database",
-                }
+            return {
+                "hits": self._stats["hits"],
+                "misses": self._stats["misses"],
+                "hit_rate_percent": round(hit_rate, 2),
+                "invalidations": self._stats["invalidations"],
+                "errors": self._stats["errors"],
+                "storage": "redis" if self._cache._redis else "local_memory",
+            }
 
         except Exception as e:
             logger.warning(f"Cache stats error: {e}")
             return {
-                "users": 0,
-                "total_entries": 0,
                 "hits": self._stats["hits"],
                 "misses": self._stats["misses"],
                 "hit_rate_percent": 0,
                 "invalidations": self._stats["invalidations"],
-                "db_errors": self._stats["db_errors"],
-                "storage": "database",
-                "error": "Failed to retrieve cache statistics",
+                "errors": self._stats["errors"],
+                "storage": "unknown",
+                "error": str(e),
             }
 
 
@@ -481,7 +437,8 @@ class ResponseCacheMiddleware(BaseHTTPMiddleware):
     """
     FastAPI middleware that caches GET responses and invalidates on mutations.
 
-    Uses database storage so cache is shared across ALL workers.
+    Uses Redis (via SharedCache) for shared storage across ALL workers.
+    Falls back to local memory if Redis is unavailable.
 
     Add to app:
         from ResponseCache import ResponseCacheMiddleware
