@@ -125,8 +125,12 @@ class Conversations:
         self.conversation_id = conversation_id
         self.conversation_name = conversation_name
 
+        # Cache user_id for this instance to avoid repeated DB lookups
+        # get_user_id already uses SharedCache for cross-worker consistency
+        self._user_id = get_user_id(user)
+
         # Resolve missing ID or name from the other
-        user_id = get_user_id(user)
+        user_id = self._user_id
         if not self.conversation_id and self.conversation_name:
             self.conversation_id = get_conversation_id_by_name(
                 conversation_name=conversation_name, user_id=user_id
@@ -154,10 +158,9 @@ class Conversations:
 
         session = get_session()
         try:
-            user_data = session.query(User).filter(User.email == self.user).first()
-            if not user_data:
+            user_id = self._user_id
+            if not user_id:
                 return self.conversation_name
-            user_id = user_data.id
 
             conversation = (
                 session.query(Conversation)
@@ -175,8 +178,7 @@ class Conversations:
 
     def export_conversation(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
         conversation = (
@@ -207,8 +209,7 @@ class Conversations:
 
     def get_conversations(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         # Use a LEFT OUTER JOIN to get conversations and their messages
         conversations = (
@@ -227,8 +228,7 @@ class Conversations:
 
     def get_conversations_with_ids(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         # Use a LEFT OUTER JOIN to get conversations and their messages
         conversations = (
@@ -277,11 +277,10 @@ class Conversations:
         and last message timestamps in one batch instead of N+1 queries.
         """
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        if not user_data:
+        user_id = self._user_id
+        if not user_id:
             session.close()
             return {}
-        user_id = user_data.id
 
         # Get default agent_id once (not per conversation - they all share the same user)
         default_agent = session.query(Agent).filter(Agent.user_id == user_id).first()
@@ -348,8 +347,7 @@ class Conversations:
 
     def get_notifications(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         # Get all messages with notify=True for this user's conversations
         notifications = (
@@ -393,8 +391,7 @@ class Conversations:
             }
         """
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         # Get conversation ID
         if self.conversation_id:
@@ -522,8 +519,7 @@ class Conversations:
 
     def get_conversation(self, limit=1000, page=1):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
 
@@ -599,8 +595,7 @@ class Conversations:
 
     def fork_conversation(self, message_id):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         # Get the original conversation
         original_conversation = (
@@ -690,8 +685,7 @@ class Conversations:
 
     def get_activities(self, limit=100, page=1):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
         conversation = (
@@ -734,8 +728,7 @@ class Conversations:
 
     def get_subactivities(self, activity_id):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
         conversation = (
@@ -797,8 +790,7 @@ class Conversations:
             summarize: If True, compress long subactivity content
         """
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
         conversation = (
@@ -930,8 +922,7 @@ class Conversations:
 
     def new_conversation(self, conversation_content=[]):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         # Create a new conversation
         conversation = Conversation(name=self.conversation_name, user_id=user_id)
@@ -1081,8 +1072,7 @@ class Conversations:
         import traceback
 
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         # Use get_conversation_id() to get the stable conversation ID
         # This prevents issues during conversation renames
@@ -1170,8 +1160,7 @@ class Conversations:
             else:
                 message = message.replace("[SUBACTIVITY] ", "[ACTIVITY] ")
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         # Get conversation_id first - it's stable even if name changes
         conversation_id = self.get_conversation_id()
         # Look up by ID instead of name to handle renames during a request
@@ -1255,8 +1244,7 @@ class Conversations:
 
     def delete_conversation(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
         conversation = (
@@ -1287,8 +1275,7 @@ class Conversations:
 
     def delete_message(self, message):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         conversation = (
             session.query(Conversation)
@@ -1332,8 +1319,7 @@ class Conversations:
 
     def get_message_by_id(self, message_id):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         conversation = (
             session.query(Conversation)
@@ -1369,8 +1355,7 @@ class Conversations:
     def get_last_agent_name(self):
         # Get the last role in the conversation that isn't "user"
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
         conversation = (
@@ -1400,8 +1385,7 @@ class Conversations:
 
     def delete_message_by_id(self, message_id):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         conversation = (
             session.query(Conversation)
@@ -1441,8 +1425,7 @@ class Conversations:
         This is used when regenerating responses from an edited user message.
         """
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         conversation = (
             session.query(Conversation)
@@ -1564,8 +1547,7 @@ class Conversations:
 
     def toggle_feedback_received(self, message):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1606,8 +1588,7 @@ class Conversations:
 
     def has_received_feedback(self, message):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1648,8 +1629,7 @@ class Conversations:
 
     def update_message(self, message, new_message):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1690,8 +1670,7 @@ class Conversations:
 
     def update_message_by_id(self, message_id, new_message):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1747,8 +1726,7 @@ class Conversations:
         else:
             conversation_name = self.conversation_name
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1769,8 +1747,7 @@ class Conversations:
 
     def rename_conversation(self, new_name: str):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         # Use conversation_id for lookup if available - more stable than name
         conversation_id = self.get_conversation_id()
         conversation = (
@@ -1808,8 +1785,7 @@ class Conversations:
 
     def get_last_activity_id(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
         conversation = (
@@ -1839,8 +1815,7 @@ class Conversations:
 
     def set_conversation_summary(self, summary: str):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1864,8 +1839,7 @@ class Conversations:
 
     def get_conversation_summary(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1883,8 +1857,7 @@ class Conversations:
 
     def get_attachment_count(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1902,8 +1875,7 @@ class Conversations:
 
     def update_attachment_count(self, count: int):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1927,8 +1899,7 @@ class Conversations:
 
     def increment_attachment_count(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1971,11 +1942,10 @@ class Conversations:
         """
         session = get_session()
         try:
-            # Get current user
-            user_data = session.query(User).filter(User.email == self.user).first()
-            if not user_data:
+            # Use cached user_id
+            user_id = self._user_id
+            if not user_id:
                 raise ValueError("User not found")
-            user_id = user_data.id
 
             # Get source conversation
             source_conversation = (
@@ -2212,10 +2182,9 @@ class Conversations:
         """
         session = get_session()
         try:
-            user_data = session.query(User).filter(User.email == self.user).first()
-            if not user_data:
+            user_id = self._user_id
+            if not user_id:
                 return []
-            user_id = user_data.id
 
             # Get all shares where this user is the recipient
             shares = (
@@ -2432,10 +2401,9 @@ class Conversations:
         """
         session = get_session()
         try:
-            user_data = session.query(User).filter(User.email == self.user).first()
-            if not user_data:
+            user_id = self._user_id
+            if not user_id:
                 raise ValueError("User not found")
-            user_id = user_data.id
 
             # Find the share
             share = (
