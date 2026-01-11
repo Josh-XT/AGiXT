@@ -73,15 +73,15 @@ jobs:
           LOG_LEVEL: INFO
           AGIXT_API_KEY: just-a-test
           AGIXT_URI: http://agixt:7437
+          REDIS_HOST: redis
+          REDIS_PORT: 6379
           WORKING_DIRECTORY: /agixt/WORKSPACE
           TOKENIZERS_PARALLELISM: "false"
-          UVICORN_WORKERS: 14
+          UVICORN_WORKERS: 8
           EZLOCALAI_API_URI: https://api.ezlocal.ai/v1/
           EZLOCALAI_API_KEY: testing
           EZLOCALAI_MAX_TOKENS: "32000"
-          TZ: America/New_York
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          REDIS_URI: redis://redis:6379
     steps:
       - uses: actions/setup-python@v5.3.0
         with:
