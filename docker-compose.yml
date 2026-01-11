@@ -1,50 +1,6 @@
 services:
-  agixt:
-    image: joshxt/agixt:main
-    init: true
-    restart: unless-stopped
-    environment:
-      # Database connection - required before DB is available
-      DATABASE_TYPE: ${DATABASE_TYPE:-postgres}
-      DATABASE_NAME: ${DATABASE_NAME:-postgres}
-      DATABASE_HOST: ${DATABASE_HOST:-postgres}
-      DATABASE_PORT: ${DATABASE_PORT:-5432}
-      DATABASE_USER: ${DATABASE_USER:-postgres}
-      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
-      # Server runtime config
-      AGIXT_API_KEY: ${AGIXT_API_KEY:-}
-      UVICORN_WORKERS: ${UVICORN_WORKERS:-10}
-      TOKENIZERS_PARALLELISM: "false"
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      # Host path for SafeExecute Docker volume mounting
-      WORKING_DIRECTORY: ${WORKING_DIRECTORY}
-      # All other settings (API keys, OAuth, storage, app settings, etc.)
-      # are managed via Server Config in the database UI
-    ports:
-      - "${AGIXT_PORT:-7437}:7437"
-    volumes:
-      - ./models:/agixt/models
-      # Shared workspace volume - WORKING_DIRECTORY must be set to absolute host path
-      - ${WORKING_DIRECTORY:-./WORKSPACE}:/agixt/WORKSPACE
-      # Docker socket for SafeExecute to spawn containers
-      - /var/run/docker.sock:/var/run/docker.sock
-    depends_on:
-      - minio
-      - postgres
-  agixtinteractive:
-    image: joshxt/agixt-interactive:main
-    init: true
-    environment:
-      AGIXT_SERVER: ${AGIXT_SERVER:-http://localhost:7437}
-      APP_NAME: ${APP_NAME:-AGiXT}
-    ports:
-      - "${AGIXT_INTERACTIVE_PORT:-3437}:3437"
-    restart: unless-stopped
-    volumes:
-      - ./node_modules:/app/node_modules
   postgres:
     image: postgres
-    container_name: postgres
     ports:
       - ${AGIXTDB_PORT:-5432}:5432
     environment:
@@ -59,21 +15,74 @@ services:
       timeout: 10s
       retries: 5
     restart: unless-stopped
-  minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
-    container_name: agixt-minio
+  redis:
+    image: redis:alpine
     ports:
-      - "${MINIO_PORT:-9000}:9000"
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  minio:
+    image: minio/minio
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-    command: server /data --console-address ":9001"
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
+    command: server --console-address ":9001" /data
     volumes:
-      - ./WORKSPACE:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
+      - ./s3:/data:rw
+  agixt:
+    image: joshxt/agixt:main
+    init: true
     restart: unless-stopped
+    environment:
+      AGIXT_API_KEY: ${AGIXT_API_KEY:-None}
+      AGIXT_URI: ${AGIXT_URI:-http://localhost:7437}
+      APP_URI: ${APP_URI:-http://localhost:3437}
+      AGENT_NAME: ${AGIXT_AGENT:-XT}
+      DATABASE_TYPE: ${DATABASE_TYPE:-postgres}
+      DATABASE_NAME: ${DATABASE_NAME:-postgres}
+      DATABASE_HOST: ${DATABASE_HOST:-postgres}
+      DATABASE_PORT: ${DATABASE_PORT:-5432}
+      DATABASE_USER: ${DATABASE_USER:-postgres}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
+      STORAGE_CONTAINER: ${STORAGE_CONTAINER:-agixt-workspace}
+      S3_BUCKET: ${S3_BUCKET:-agixt-workspace}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
+      AWS_STORAGE_REGION: ${AWS_STORAGE_REGION:-us-east-1}
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-20}
+      WORKING_DIRECTORY: ${WORKING_DIRECTORY:-./WORKSPACE}
+      TOKENIZERS_PARALLELISM: "false"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DISCORD_WEBHOOK: ${DISCORD_WEBHOOK}
+      ROTATION_EXCLUSIONS: ${ROTATION_EXCLUSIONS}
+      DISCORD_WEBHOOK: ${DISCORD_WEBHOOK}
+    ports:
+      - "${AGIXT_PORT:-7437}:7437"
+    volumes:
+      - ./models:/agixt/models
+      - ${WORKING_DIRECTORY:-./WORKSPACE}:/agixt/WORKSPACE
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - minio
+      - postgres
+      - redis
+  agixtinteractive:
+    image: joshxt/agixt-interactive:main
+    environment:
+      NEXT_TELEMETRY_DISABLED: 1
+      APP_NAME: ${APP_NAME:-AGiXT}
+      AGIXT_SERVER: ${AGIXT_URI:-http://agixt:7437}
+      APP_URI: ${APP_URI:-http://localhost:3437}
+    ports:
+      - "${AGIXT_WEB_PORT:-3051}:3437"

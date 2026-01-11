@@ -2517,6 +2517,98 @@ def _is_ezlocalai_enabled() -> bool:
     return os.getenv("WITH_EZLOCALAI", "true").lower() == "true"
 
 
+# Redis container management for local mode
+REDIS_CONTAINER_NAME = "agixt-redis"
+
+
+def _is_redis_running() -> bool:
+    """Check if Redis container is running."""
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "-f", "{{.State.Running}}", REDIS_CONTAINER_NAME],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return result.returncode == 0 and result.stdout.strip() == "true"
+    except (subprocess.SubprocessError, OSError):
+        return False
+
+
+def start_redis() -> None:
+    """Start Redis container for local mode shared cache."""
+    if _is_redis_running():
+        print(f"Redis container '{REDIS_CONTAINER_NAME}' is already running.")
+        return
+
+    print("Starting Redis container...")
+
+    # Check if container exists but is stopped
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", REDIS_CONTAINER_NAME],
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            # Container exists, start it
+            subprocess.run(
+                ["docker", "start", REDIS_CONTAINER_NAME],
+                check=True,
+            )
+            print(f"Started existing Redis container '{REDIS_CONTAINER_NAME}'.")
+            return
+    except (subprocess.SubprocessError, OSError):
+        pass
+
+    # Create new container
+    redis_data_dir = REPO_ROOT / "models" / "redis"
+    redis_data_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                REDIS_CONTAINER_NAME,
+                "-p",
+                "6379:6379",
+                "-v",
+                f"{redis_data_dir}:/data",
+                "--restart",
+                "unless-stopped",
+                "redis:alpine",
+                "redis-server",
+                "--appendonly",
+                "yes",
+            ],
+            check=True,
+        )
+        print(f"Started new Redis container '{REDIS_CONTAINER_NAME}'.")
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: Failed to start Redis container: {e}")
+        print("SharedCache will fall back to local memory cache.")
+
+
+def stop_redis() -> None:
+    """Stop Redis container."""
+    if not _is_redis_running():
+        return
+
+    print("Stopping Redis container...")
+    try:
+        subprocess.run(
+            ["docker", "stop", REDIS_CONTAINER_NAME],
+            check=True,
+            capture_output=True,
+        )
+        print(f"Stopped Redis container '{REDIS_CONTAINER_NAME}'.")
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: Failed to stop Redis container: {e}")
+
+
 def _create_web_env() -> None:
     """Create .env file for web interface with values from backend .env or defaults."""
     web_env_path = WEB_DIR / ".env"
@@ -2905,6 +2997,9 @@ def _start_local(env_updates: Optional[dict] = None) -> None:
     if existing_pid and _is_process_running(existing_pid):
         raise CLIError(f"AGiXT local already running with PID {existing_pid}.")
 
+    # Start Redis container for shared cache
+    start_redis()
+
     # Set up environment
     set_environment(env_updates=env_updates, mode="local")
 
@@ -2961,7 +3056,7 @@ def _start_local(env_updates: Optional[dict] = None) -> None:
     cleanup_log_files()
 
 
-def _stop_local(stop_ezlocalai_too: bool = True) -> None:
+def _stop_local(stop_ezlocalai_too: bool = True, stop_redis_too: bool = False) -> None:
     # First, try to stop using the PID file
     pid = _read_pid(LOCAL_PID_FILE)
     stopped_by_pid = False
@@ -2997,6 +3092,13 @@ def _stop_local(stop_ezlocalai_too: bool = True) -> None:
 
     # Clean up PID file
     LOCAL_PID_FILE.unlink(missing_ok=True)
+
+    # Stop Redis if requested (usually keep running between restarts)
+    if stop_redis_too:
+        try:
+            stop_redis()
+        except Exception as e:
+            print(f"Warning: Failed to stop Redis: {e}")
 
     # Stop ezLocalai if enabled and requested
     if stop_ezlocalai_too and _is_ezlocalai_enabled():
