@@ -1,25 +1,77 @@
 # Agents
 
-Agents are a combination of a single model and a single directive. An agent can be given a task to pursue. In the course of pursuing this task, the agent may request the execution of commands through the AGiXT server. If this occurs, the result of that command will be passed back into the agent and execution will continue until the agent is satisfied that its goal is complete.
+Agents are AI personas that combine a language model provider with specific settings and capabilities. Each agent can be customized with different providers, commands, and behaviors.
 
 ## Agent Settings
 
 Agent Settings allow users to manage and configure their agents. This includes adding new agents, updating existing agents, and deleting agents as needed. Users can customize the provider and embedder used by the agent to generate responses. Additionally, users have the option to set custom settings and enable or disable specific agent commands, giving them fine control over the agent's behavior and capabilities.
 
-If the agent settings are not specified, the agent will use the default settings. The default settings are as follows:
+### Default Settings
 
-| Setting | Value | Description |
+| Setting | Default | Description |
 | --- | --- | --- |
-| `provider` | `gpt4free` | The large language model provider used by the agent to generate responses. |
-| `embedder` | `default` | The embedder used by the agent to generate embeddings. |
-| `AI_MODEL` | `gpt-3.5-turbo` | The large language model used by the agent with the selected provider to generate responses. |
-| `AI_TEMPERATURE` | `0.7` | The temperature used by the agent to generate responses. |
-| `AI_TOP_P` | `1` | The top p value used by the agent to generate responses. |
-| `MAX_TOKENS` | `4000` | The maximum number of tokens used by the agent to generate responses. |
-| `helper_agent_name` | `gpt4free` | The name of the helper agent used by the agent if it chooses to ask for help when enabled. |
-| `WEBSEARCH_TIMEOUT` | `0` | Timeout for websearches to create a deadline to stop trying. |
-| `WAIT_BETWEEN_REQUESTS` | `1` | The number of seconds to wait between requests to the LLM provider. |
-| `WAIT_AFTER_FAILURE` | `3` | The number of seconds to wait after a failure to try again to make a request to the LLM provider. |
-| `stream` | `False` | Whether or not to stream the response from the LLM provider. |
-| `WORKING_DIRECTORY` | `./WORKSPACE` | The working directory to use for the agent. |
-| `WORKING_DIRECTORY_RESTRICTED` | `True` | Whether or not to restrict the working directory to the agent's working directory. |
+| `provider` | `ezlocalai` | The AI provider used by the agent to generate responses |
+| `embedder` | `default` | The embedder used for memory operations |
+| `AI_MODEL` | Varies by provider | The model used for generating responses |
+| `AI_TEMPERATURE` | `0.7` | Controls randomness in responses (0-1) |
+| `AI_TOP_P` | `1` | Controls diversity of responses |
+| `MAX_TOKENS` | `4000` | Maximum response length |
+| `helper_agent_name` | `XT` | Helper agent for assistance requests |
+| `WEBSEARCH_TIMEOUT` | `0` | Timeout for web searches (0 = no timeout) |
+| `WAIT_BETWEEN_REQUESTS` | `1` | Seconds to wait between LLM requests |
+| `WAIT_AFTER_FAILURE` | `3` | Seconds to wait after a failed request |
+| `stream` | `False` | Enable streaming responses |
+| `WORKING_DIRECTORY` | `./WORKSPACE` | Agent's file system workspace |
+| `WORKING_DIRECTORY_RESTRICTED` | `True` | Restrict file access to workspace |
+
+## Creating an Agent
+
+### Via Web Interface
+
+1. Navigate to the AGiXT web interface at [http://localhost:3437](http://localhost:3437)
+2. Go to Agent Management
+3. Click "Create Agent"
+4. Configure the provider, model, and settings
+5. Enable desired commands
+
+### Via Python SDK
+
+```python
+from agixtsdk import AGiXTSDK
+
+agixt = AGiXTSDK(base_uri="http://localhost:7437", api_key="your_key")
+
+# Create a new agent
+agixt.add_agent(
+    agent_name="MyAgent",
+    settings={
+        "provider": "openai",
+        "AI_MODEL": "gpt-4",
+        "AI_TEMPERATURE": "0.7",
+        "MAX_TOKENS": "4000",
+    }
+)
+```
+
+## Agent Commands
+
+Commands are extension functions that agents can execute. Enable commands sparingly—only give agents the commands they need for their specific tasks.
+
+```python
+# Enable specific commands
+agixt.update_agent_commands(
+    agent_name="MyAgent",
+    commands={
+        "Web Search": True,
+        "Read File": True,
+        "Write to File": False,  # Disable if not needed
+    }
+)
+```
+
+## Best Practices
+
+1. **Use specific providers**: Choose the right provider for your use case (ezLocalai for local, OpenAI/Anthropic for cloud)
+2. **Limit commands**: Only enable commands the agent actually needs
+3. **Set appropriate timeouts**: Configure timeouts based on expected response times
+4. **Monitor token usage**: Watch token consumption, especially with cloud providers

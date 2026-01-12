@@ -1,20 +1,4 @@
 services:
-  postgres:
-    image: postgres
-    ports:
-      - ${AGIXTDB_PORT:-5432}:5432
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-postgres}
-    volumes:
-      - ./models/data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-postgres}"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    restart: unless-stopped
   redis:
     image: redis:alpine
     ports:
@@ -47,8 +31,8 @@ services:
       AGIXT_URI: ${AGIXT_URI:-http://localhost:7437}
       APP_URI: ${APP_URI:-http://localhost:3437}
       AGENT_NAME: ${AGIXT_AGENT:-XT}
-      DATABASE_TYPE: ${DATABASE_TYPE:-postgres}
-      DATABASE_NAME: ${DATABASE_NAME:-postgres}
+      DATABASE_TYPE: ${DATABASE_TYPE:-sqlite}
+      DATABASE_NAME: ${DATABASE_NAME:-models/agixt}
       DATABASE_HOST: ${DATABASE_HOST:-postgres}
       DATABASE_PORT: ${DATABASE_PORT:-5432}
       DATABASE_USER: ${DATABASE_USER:-postgres}

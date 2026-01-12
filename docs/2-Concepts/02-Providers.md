@@ -10,12 +10,11 @@ The agent's LLM provider will be the logical language model. This is generally a
 
 ### Current LLM Providers
 
-- OpenAI and Azure OpenAI (GPT-4, etc)
-- ezLocalai (Open source models)
+- OpenAI and Azure OpenAI (GPT-4o, etc)
+- ezLocalai (Open source models - **default**)
 - Anthropic (Claude)
 - Google (Gemini)
 - Hugging Face (Open source models)
-- default: gpt4free (Free providers, results may vary.)
 
 ## Vision Providers
 
@@ -23,7 +22,7 @@ Vision providers are used to get descriptions of images that are uploaded in mes
 
 ### Current Vision Providers
 
-- OpenAI (gpt-4-vision, etc)
+- OpenAI (gpt-4o, etc)
 - ezLocalai (Open source models such as `deepseek-vl-1.3b-chat`)
 - Anthropic (Claude)
 - Google (Gemini)
@@ -35,7 +34,7 @@ Image generation providers are used to generate images based on the users input.
 ### Current Image Generation Providers
 
 - OpenAI (DALL-E)
-- default: Hugging Face (Stable Diffusion)
+- Hugging Face (Stable Diffusion) - **default**
 
 ## Text to Speech (TTS) Providers
 
@@ -46,7 +45,7 @@ Text to speech providers are used to generate speech from the agent's response. 
 - OpenAI
 - ezLocalai (Voice cloning TTS)
 - Elevenlabs (Voice cloning TTS over API, listed under `agixt` Provider)
-- default: Google (gTTS)
+- Google (gTTS) - **default**
 
 ## Speech Transcription Providers
 
@@ -56,7 +55,7 @@ Speech transcription providers are used to transcribe speech from the user to te
 
 - OpenAI (Whisper)
 - ezLocalai (Open source models)
-- default: faster-whisper
+- faster-whisper - **default**
 
 ## Speech Translation Providers
 
@@ -66,7 +65,7 @@ Speech translation providers are used to translate speech from any language that
 
 - OpenAI (Whisper)
 - ezLocalai (Open source models)
-- default: faster-whisper
+- faster-whisper - **default**
 
 # Services for Providers
 
@@ -89,4 +88,3 @@ def services():
       "translation", # Audio translation to text in English
   ]
 ```
-

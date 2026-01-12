@@ -1,26 +1,144 @@
-# ezLocalai
+# ezLocalai Provider
 
-- [DevXT](https://devxt.com)
-- [ezLocalai](https://github.com/DevXT-LLC/ezlocalai)
-- [AGiXT](https://github.com/Josh-XT/AGiXT)
+[ezLocalai](https://github.com/DevXT-LLC/ezlocalai) provides complete local AI inference capabilities for AGiXT. It runs a suite of local models and handles pipelines for multimodal AI operations.
 
-ezLocalai will run a suite of local models for you and automatically handle the pipelines for using them. It is an API that turns any model multimodal. Additional functionality is built in for voice cloning text to speech (drop in a ~10 second voice clip of the person you want to clone the voice of) and a voice to text for easy voice communication as well as image generation entirely offline after the initial setup. It exposes OpenAI style endpoints for ease of use as a drop in OpenAI API replacement with more capabilities. Wrapping AGiXT around it turns your computer into an automation machine.
+## Features
 
-ezLocalai automatically scales to whatever your desired max tokens is. You just have to set them in your ezlocalai `.env` file before running it.
+- **Local LLM**: Run large language models locally (GGUF format)
+- **Vision**: Image analysis with local vision models
+- **Text-to-Speech**: Voice synthesis with voice cloning support
+- **Speech-to-Text**: Audio transcription with Whisper
+- **Image Generation**: Local Stable Diffusion support
+- **OpenAI-Compatible API**: Drop-in replacement for OpenAI endpoints
 
-Hardware requirements to run ezLocalai may be steep! Running 32k context with `Meta-Llama-3-8B-Instruct` in ezLocalai requires 23GB VRAM and only running on CPU or NVIDIA GPU is supported by ezLocalai at this time. I often run ezLocalai on my laptop with 16GB VRAM running `phi-2-dpo` with 16k max context and it works very well. You can reduce your VRAM usage by reducing your max tokens. Adjust your `GPU_LAYERS` in your ezLocalai `.env` file to reduce VRAM usage and offload to CPU.
+## Quick Start
 
-## Quick Start Guide
+ezLocalai is automatically started with AGiXT by default:
 
-Follow the instructions for setting up ezLocalai at <https://github.com/DevXT-LLC/ezlocalai>. Once you have it installed and running with your desired models, you can use it with AGiXT by following the instructions below.
+```bash
+pip install agixt
+agixt start
+```
 
-### Update your agent settings
+To disable ezLocalai:
+```bash
+agixt env WITH_EZLOCALAI=false
+agixt restart
+```
 
-1. Set `AI_PROVIDER` to `ezlocalai`.
-2. Set `EZLOCALAI_API_KEY` to your API key that you set up with ezLocalai.
-3. Set `EZLOCALAI_API_URL` to the URL that you set up with ezLocalai. The default is `http://YOUR LOCAL IP:8091`.
-4. Set `EZLOCALAI_MODEL` to whichever model you are running with `ezlocalai`.
-5. Set `EZLOCALAI_MAX_TOKENS` to the maximum number of input tokens.
-6. Set `EZLOCALAI_TEMPERATURE` to the temperature you want to use for generation. This is a float value between 0 and 1. The default is `1.33`.
-7. Set `EZLOCALAI_TOP_P` to the top_p value you want to use for generation. This is a float value between 0 and 1. The default is `0.95`.
-8. Set `EZLOCALAI_VOICE` to the voice you want to use for the generated audio. The default is `DukeNukem`. You can add cloning TTS voices to `ezlocalai` by putting any ~10 second wav file in the `voices` directory of the `ezlocalai` repository and then setting the `VOICE` variable to the name of the file without the `.wav` extension.
+To manage ezLocalai separately:
+```bash
+agixt start --ezlocalai    # Start only ezLocalai
+agixt stop --ezlocalai     # Stop only ezLocalai
+agixt logs --ezlocalai     # View ezLocalai logs
+```
+
+## Configuration
+
+Configure ezLocalai using the `agixt env` command:
+
+```bash
+# Set the default model
+agixt env DEFAULT_MODEL="bartowski/deepseek-ai_DeepSeek-R1-0528-Qwen3-8B-GGUF"
+
+# Configure token limits
+agixt env LLM_MAX_TOKENS=32768
+
+# Set vision model
+agixt env VISION_MODEL="deepseek-ai/deepseek-vl-1.3b-chat"
+
+# Configure GPU usage
+agixt env GPU_LAYERS=-1  # -1 for all layers on GPU
+```
+
+### Key Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EZLOCALAI_URI` | `http://{local_ip}:8091` | ezLocalai API endpoint |
+| `DEFAULT_MODEL` | `bartowski/deepseek-ai_DeepSeek-R1-0528-Qwen3-8B-GGUF` | Default LLM model |
+| `VISION_MODEL` | `deepseek-ai/deepseek-vl-1.3b-chat` | Vision model |
+| `LLM_MAX_TOKENS` | `32768` | Maximum token context |
+| `WHISPER_MODEL` | `base.en` | Speech-to-text model |
+| `GPU_LAYERS` | `-1` | GPU layers (-1 = all) |
+
+## Hardware Requirements
+
+ezLocalai automatically detects and configures GPU settings, but approximate requirements are:
+
+| Configuration | VRAM Needed | Notes |
+|--------------|-------------|-------|
+| 8B model @ 32k tokens | ~23GB | Requires high-end GPU |
+| 8B model @ 16k tokens | ~14GB | Mid-range gaming GPU |
+| 7B model @ 8k tokens | ~8GB | Entry-level GPU |
+| CPU only | N/A | Works but significantly slower |
+
+### Reducing VRAM Usage
+
+- Lower `LLM_MAX_TOKENS` to reduce context size
+- Adjust `GPU_LAYERS` to offload some layers to CPU
+- Use smaller quantized models (Q4, Q5)
+- Disable vision model if not needed
+
+## Agent Configuration
+
+To use ezLocalai with an agent:
+
+1. In agent settings, set:
+   - `AI_PROVIDER` = `ezlocalai`
+   - `EZLOCALAI_API_URL` = ezLocalai endpoint (default: `http://localhost:8091`)
+   - `EZLOCALAI_MODEL` = your model name
+
+2. Or use the AGiXT Python SDK:
+
+```python
+from agixtsdk import AGiXTSDK
+
+agixt = AGiXTSDK(base_uri="http://localhost:7437", api_key="your_key")
+
+agixt.update_agent_settings(
+    agent_name="MyAgent",
+    settings={
+        "AI_PROVIDER": "ezlocalai",
+        "EZLOCALAI_API_URL": "http://localhost:8091",
+        "EZLOCALAI_MODEL": "your-model-name",
+        "MAX_TOKENS": 4096,
+    }
+)
+```
+
+## Voice Cloning
+
+ezLocalai supports voice cloning for text-to-speech:
+
+1. Place a ~10 second WAV file of the voice to clone in the `voices` directory
+2. Set `EZLOCALAI_VOICE` to the filename (without `.wav` extension)
+
+Example:
+```bash
+# Copy voice sample
+cp my_voice.wav ~/.ezlocalai/voices/
+
+# Configure agent to use the voice
+agixt env EZLOCALAI_VOICE=my_voice
+```
+
+## Troubleshooting
+
+### No GPU detected
+- Ensure NVIDIA drivers are installed
+- Install NVIDIA Container Toolkit for Docker mode
+- Check `nvidia-smi` works on your system
+
+### Out of memory errors
+- Reduce `LLM_MAX_TOKENS`
+- Lower `GPU_LAYERS` to offload to CPU
+- Use a smaller model
+
+### Slow responses
+- Running on CPU is significantly slower than GPU
+- Consider using a smaller model or upgrading hardware
+
+## More Information
+
+For detailed ezLocalai documentation, see the [ezLocalai repository](https://github.com/DevXT-LLC/ezlocalai).

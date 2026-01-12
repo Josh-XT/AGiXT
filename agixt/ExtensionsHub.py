@@ -144,6 +144,10 @@ class ExtensionsHub:
         self._pricing_config_cache = None
         self._skip_global_cache = skip_global_cache
 
+        # Log configuration status for debugging
+        if self.hub_urls:
+            token_status = "configured" if self.hub_token else "NOT configured"
+
         # Load global cache on init if not skipping
         if not skip_global_cache:
             _load_global_cache()
@@ -186,9 +190,6 @@ class ExtensionsHub:
                         config_app_name = config.get("app_name", "")
                         if config_app_name == app_name or app_name in ["AGiXT", ""]:
                             self._pricing_config_cache = config
-                            logging.info(
-                                f"Loaded pricing config for {config_app_name} from {pricing_file}"
-                            )
                             return config
                 except json.JSONDecodeError as e:
                     logging.error(f"Invalid JSON in pricing file {pricing_file}: {e}")
@@ -503,7 +504,6 @@ class ExtensionsHub:
                 if is_local:
                     abs_path = os.path.abspath(os.path.expanduser(source))
                     if os.path.exists(abs_path) and os.path.isdir(abs_path):
-                        logging.info(f"Local extension source configured: {abs_path}")
                         success_count += 1
                     else:
                         logging.error(
@@ -591,7 +591,6 @@ class ExtensionsHub:
                 if is_local:
                     abs_path = os.path.abspath(os.path.expanduser(source))
                     if os.path.exists(abs_path) and os.path.isdir(abs_path):
-                        logging.info(f"Local extension source configured: {abs_path}")
                         success_count += 1
                     else:
                         logging.error(
