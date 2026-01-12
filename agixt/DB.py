@@ -6277,24 +6277,26 @@ def set_server_config(name: str, value: str, category: str = None) -> bool:
 def seed_server_config_from_env():
     """
     Seed server configuration from environment variables.
-    Only sets values that are not already in the database.
+    Creates new entries that don't exist in the database.
+    Also updates existing entries that have empty values if an env value is available.
     """
     logging.info("Seeding server configuration from environment variables...")
     seeded_count = 0
+    updated_count = 0
 
     with get_session() as db:
         for definition in SERVER_CONFIG_DEFINITIONS:
             name = definition["name"]
+            is_sensitive = definition.get("is_sensitive", False)
+
+            # Get value from environment
+            env_value = os.getenv(name, "")
 
             # Check if already exists in database
             existing = db.query(ServerConfig).filter_by(name=name).first()
 
             if not existing:
-                # Get value from environment
-                env_value = os.getenv(name, "")
-
                 # Create config entry with definition metadata
-                is_sensitive = definition.get("is_sensitive", False)
                 new_config = ServerConfig(
                     name=name,
                     value=(
@@ -6311,10 +6313,19 @@ def seed_server_config_from_env():
                 )
                 db.add(new_config)
                 seeded_count += 1
+            elif env_value and not existing.value:
+                # Update existing entry with empty value if env has a value
+                # This handles the case where token was added after initial setup
+                existing.value = (
+                    encrypt_config_value(env_value) if is_sensitive else env_value
+                )
+                updated_count += 1
 
         db.commit()
 
-    logging.info(f"Seeded {seeded_count} server configuration values from environment")
+    logging.info(
+        f"Seeded {seeded_count} new server config values, updated {updated_count} empty values from environment"
+    )
 
     # Load the config cache after seeding
     try:
