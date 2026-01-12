@@ -712,9 +712,6 @@ class Interactions:
                 if len(interactions) > 0:
                     interactions = interactions[-conversation_results:]
                     conversation_history = "\n".join(interactions)
-                    logging.info(
-                        f"[format_prompt] Including {len(interactions)} conversation interactions (conversation_results={conversation_results})"
-                    )
                 conversation_history += "\n## The assistant's recent activities:\n"
                 conversation_history += c.get_activities_with_subactivities()
         if conversation_history != "":
@@ -889,9 +886,6 @@ class Interactions:
         )
 
         if estimated_context_tokens > max_context_tokens:
-            logging.info(
-                f"[format_prompt] Context exceeds max_context_tokens ({estimated_context_tokens} > {max_context_tokens}), reducing context..."
-            )
             # Build context sections dict for reduce_context
             context_sections = {
                 "memories": context_str,  # Already retrieved memories as string
@@ -917,9 +911,6 @@ class Interactions:
 
             new_tokens = get_tokens(
                 f"{prompt}{user_input}{context_str}{conversation_history}{agent_commands}{file_contents}"
-            )
-            logging.info(
-                f"[format_prompt] Context reduced. New estimated tokens: {new_tokens}"
             )
         user_datetime = get_current_user_time(user_id=self.user_id).strftime(
             "%B %d, %Y %I:%M %p"
@@ -974,7 +965,6 @@ You have access to context management commands to reduce token usage:
         # This enables the model to use <speak> tags for voice feedback during thinking
         tts_filler = args.get("tts_filler_instructions", "")
         if tts_filler:
-            logging.info("[format_prompt] Adding TTS filler instructions to prompt")
             formatted_prompt = formatted_prompt + "\n" + tts_filler
 
         return formatted_prompt, prompt, tokens
@@ -1514,9 +1504,6 @@ Example: memories, persona, files"""
         """
         # Get all available commands with descriptions
         commands_prompt, all_command_names = self.agent.get_commands_for_selection()
-        logging.info(
-            f"[select_commands_for_task] User input: {user_input[:200]}... Total commands available: {len(all_command_names)}"
-        )
 
         if not all_command_names:
             return []
@@ -1534,9 +1521,6 @@ Example: memories, persona, files"""
             # Method 1: Exact substring match
             if cmd_lower in user_input_lower:
                 explicitly_requested_commands.append(cmd_name)
-                logging.info(
-                    f"[select_commands_for_task] User explicitly mentioned command (exact): {cmd_name}"
-                )
                 continue
             # Method 2: Check if all significant words from command name appear in user input
             # This handles cases like "update and restart the production servers" matching
@@ -1559,9 +1543,6 @@ Example: memories, persona, files"""
                 user_input_words
             ):
                 explicitly_requested_commands.append(cmd_name)
-                logging.info(
-                    f"[select_commands_for_task] User explicitly mentioned command (word match): {cmd_name}"
-                )
 
         # Build context about files
         context_parts = []
@@ -1626,11 +1607,6 @@ Web Search, Read File, Write to File, Execute Python Code"""
         )
         available_tokens_per_batch = MAX_BATCH_TOKENS - base_overhead_tokens
 
-        logging.info(
-            f"[select_commands_for_task] Base overhead: {base_overhead_tokens} tokens, "
-            f"available per batch: {available_tokens_per_batch} tokens"
-        )
-
         # Parse commands_prompt into individual command blocks (by extension sections)
         # Format: ### ExtensionName\nDescription\n- **CmdName**: CmdDesc\n...
         command_blocks = []
@@ -1656,17 +1632,9 @@ Web Search, Read File, Write to File, Execute Python Code"""
         if current_block:
             command_blocks.append("\n".join(current_block))
 
-        logging.info(
-            f"[select_commands_for_task] Split {len(all_command_names)} commands into "
-            f"{len(command_blocks)} batches based on {MAX_BATCH_TOKENS} token limit"
-        )
-
         # Log individual batch sizes for debugging
         for i, block in enumerate(command_blocks):
             block_tokens = get_tokens(block)
-            logging.info(
-                f"[select_commands_for_task] Batch {i+1}: {block_tokens} tokens"
-            )
 
         # Get conversation for logging
         c = Conversations(
@@ -1750,9 +1718,6 @@ Web Search, Read File, Write to File, Execute Python Code"""
         for cmd in explicitly_requested_commands:
             if cmd not in valid_commands:
                 valid_commands.append(cmd)
-                logging.info(
-                    f"[select_commands_for_task] Force-including explicitly requested command: {cmd}"
-                )
 
         # Remove duplicates while preserving order
         seen = set()
@@ -1769,10 +1734,6 @@ Web Search, Read File, Write to File, Execute Python Code"""
                 role=self.agent_name,
                 message=f"[SUBACTIVITY][{thinking_id}] Selected {len(valid_commands)} abilities: {', '.join(valid_commands)}",
             )
-
-        logging.info(
-            f"[select_commands_for_task] Selected {len(valid_commands)} commands: {valid_commands}"
-        )
         return valid_commands
 
     async def run(
@@ -3255,9 +3216,6 @@ Example: If user says "list my files", use:
                 # This prevents the model from continuing to think after providing the answer
                 # IMPORTANT: This check must be AFTER the streaming logic so the final answer content is yielded
                 if has_complete_answer(full_response):
-                    logging.info(
-                        "[run_stream] Complete answer detected - stopping stream early"
-                    )
                     break
 
         except Exception as e:

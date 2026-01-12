@@ -741,10 +741,6 @@ class AIProviderManager:
         # Get merged settings from all configuration levels
         merged_settings = self._get_merged_provider_settings()
 
-        logging.debug(
-            f"[AIProviderManager] Merged provider settings keys: {list(merged_settings.keys())}"
-        )
-
         extension_files = find_extension_files()
 
         for ext_file in extension_files:
@@ -796,9 +792,6 @@ class AIProviderManager:
                             else ["llm"]
                         ),
                     }
-                    logging.info(
-                        f"[AIProviderManager] Discovered AI Provider: {provider_name} (max_tokens: {self.providers[provider_name]['max_tokens']}, services: {self.providers[provider_name]['services']})"
-                    )
 
             except Exception as e:
                 logging.debug(
@@ -817,9 +810,6 @@ class AIProviderManager:
                     self.providers.items(), key=lambda x: x[1]["max_tokens"]
                 )
             }
-            logging.info(
-                f"[AIProviderManager] Initialized with {len(self.providers)} providers (sorted by max_tokens): {provider_summary}"
-            )
 
     def get_provider_for_service(
         self, service: str = "llm", tokens: int = 0, use_smartest: bool = False
@@ -846,12 +836,6 @@ class AIProviderManager:
         provider_token_limits = {
             name: provider["max_tokens"] for name, provider in self.providers.items()
         }
-        logging.debug(
-            f"[AIProviderManager] Provider token limits: {provider_token_limits}"
-        )
-        logging.debug(
-            f"[AIProviderManager] Request requires {tokens} tokens for service '{service}'"
-        )
 
         # Filter providers that support the service and have sufficient token limits
         suitable = {}
@@ -862,16 +846,10 @@ class AIProviderManager:
             if service not in provider["services"]:
                 continue
             if tokens > 0 and provider["max_tokens"] < tokens:
-                logging.debug(
-                    f"[AIProviderManager] Provider {name} filtered out: max_tokens={provider['max_tokens']} < required={tokens}"
-                )
                 continue
             suitable[name] = provider
 
         if not suitable:
-            logging.warning(
-                f"[AIProviderManager] No providers can handle {tokens} tokens for service '{service}'"
-            )
             # Reset failed providers and try again
             if self.failed_providers:
                 self.failed_providers.clear()
@@ -881,9 +859,6 @@ class AIProviderManager:
         suitable_with_tokens = {
             name: provider["max_tokens"] for name, provider in suitable.items()
         }
-        logging.info(
-            f"[AIProviderManager] Suitable providers for {tokens} tokens (service={service}): {suitable_with_tokens}"
-        )
 
         # If use_smartest, try intelligence tiers in order
         if use_smartest:
@@ -898,7 +873,7 @@ class AIProviderManager:
         # (prefer to use smaller/cheaper providers for smaller requests)
         selected_name = min(suitable.keys(), key=lambda k: suitable[k]["max_tokens"])
         logging.info(
-            f"[AIProviderManager] Selected provider: {selected_name} (max_tokens: {suitable[selected_name]['max_tokens']}) for {tokens} tokens - chose smallest suitable"
+            f"[AIProviderManager] Selected provider: {selected_name} (max_tokens: {suitable[selected_name]['max_tokens']}) for {tokens} tokens"
         )
         return suitable[selected_name]["instance"]
 
@@ -3534,13 +3509,7 @@ class Agent:
             for available_command in self.available_commands
             if available_command["enabled"] == True
         ]
-        # Debug log the selected_commands filter
-        logging.info(
-            f"[get_commands_prompt] selected_commands filter: {selected_commands}"
-        )
-        logging.info(
-            f"[get_commands_prompt] All enabled commands count: {len(command_list)}"
-        )
+
         if self.company_id and self.company_agent:
             company_command_list = [
                 available_command["friendly_name"]
@@ -3649,12 +3618,6 @@ class Agent:
                                 f"<chain_name>{command_friendly_name}</chain_name>\n"
                             )
                     agent_commands += "</execute>\n"
-
-            # Log how many commands were included
-            if selected_commands:
-                logging.info(
-                    f"[get_commands_prompt] Using {len(selected_commands)} selected commands"
-                )
 
             agent_commands += f"""## Command Execution Guidelines
 - **The assistant has commands available to use if they would be useful to provide a better user experience.**

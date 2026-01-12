@@ -5007,10 +5007,6 @@ class MagicalAuth:
 <p>This invitation link will expire once used.</p>
 <p>If you did not expect this invitation, please ignore this email.</p>""",
         )
-        if not email_send:
-            logging.info(
-                f"Failed to send invitation link {invitation_link} to {invitation.email}"
-            )
         return invitation_link
 
     def get_users_agent(self, user_id: str):

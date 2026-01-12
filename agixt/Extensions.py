@@ -907,9 +907,7 @@ class Extensions:
         )
 
         command_function, module, params = self.find_command(command_name=command_name)
-        logging.info(
-            f"Executing command: {command_name} with args: {command_args}. Command Function: {command_function}"
-        )
+        # logging.info(f"Executing command: {command_name} with args: {command_args}")
         if command_function is None:
             # Add more debugging for empty command names
             if not command_name or command_name.strip() == "":
@@ -1399,9 +1397,6 @@ class Extensions:
                             event_with_extension = event.copy()
                             event_with_extension["extension"] = class_name
                             extension_events.append(event_with_extension)
-                        logging.info(
-                            f"Found {len(extension_class.webhook_events)} webhook events for extension: {class_name}"
-                        )
             except Exception as e:
                 logging.error(
                     f"Error loading webhook events from extension {class_name}: {e}"

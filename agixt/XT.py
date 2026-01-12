@@ -542,7 +542,6 @@ Respond with ONLY: {{"suggested_conversation_name": "Different Name Here"}}"""
             # Apply the rename
             c.set_conversation_summary(summary=new_name)
             self.conversation_name = c.rename_conversation(new_name=new_name)
-            logging.info(f"Renamed conversation to: {new_name}")
 
         except Exception as e:
             import traceback
@@ -3316,7 +3315,6 @@ Your response (true or false):"""
         command_overrides = None
         # TTS streaming mode: "off", "audio_only", or "interleaved"
         tts_mode = getattr(prompt, "tts_mode", "off") or "off"
-        logging.info(f"[chat_completions_stream] tts_mode = {tts_mode}")
 
         if prompt.tools:
             command_overrides = prompt.tools
