@@ -381,8 +381,8 @@ async def update_server_config_item(
             logging.error(f"Failed to hot-reload extension hubs: {e}")
             return {
                 "status": "success",
-                "message": f"Configuration '{config_name}' updated (extension reload failed: {e})",
-                "extension_reload": {"success": False, "error": str(e)},
+                "message": f"Configuration '{config_name}' updated (extension reload failed)",
+                "extension_reload": {"success": False},
             }
 
     logging.info(f"Server config '{config_name}' updated by user {auth.user_id}")

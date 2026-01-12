@@ -297,7 +297,10 @@ async def get_cache_stats(authorization: str = Header(None)):
     Requires admin or the user's own token.
     """
     cache_manager = get_cache_manager()
-    return cache_manager.get_stats()
+    try:
+        return cache_manager.get_stats()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting cache stats")
 
 
 @app.delete("/v1/cache", tags=["Health"])

@@ -244,6 +244,6 @@ async def validate_api_key_endpoint(
     # Don't return all details for security - just confirm validity
     return {
         "valid": True,
-        "user_id": result["user_id"],
-        "scopes": result["scopes"],
+        "user_id": result.get("user_id", ""),
+        "scopes": result.get("scopes", []),
     }
