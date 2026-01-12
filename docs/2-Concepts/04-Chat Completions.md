@@ -155,6 +155,114 @@ The streaming response includes various object types for different content:
 | `remote_command.request` | Request for client-side command execution |
 | `remote_command.pending` | Stream paused waiting for client response |
 
+## Memory & Context Assembly
+
+Before generating a response, AGiXT assembles a rich context from multiple sources. This happens during `format_prompt()` in `Interactions.py`.
+
+### Context Sources
+
+The system gathers context from nine distinct sources:
+
+| Source | Description | API Parameter |
+|--------|-------------|---------------|
+| **Vector Memories** | Semantic search of trained data based on user input | `context_results` |
+| **Collection Memories** | Secondary memory collection for specialized knowledge | `inject_memories_from_collection_number` |
+| **Conversation Context** | Messages from the current conversation | `conversation_results` |
+| **Recent Messages** | Recent activity in the conversation | Automatic |
+| **Agent Activities** | Log of recent agent actions and tool usage | Automatic |
+| **Uploaded Files** | Content from files attached to the conversation | Automatic |
+| **Vision Data** | Extracted information from images | Automatic |
+| **Company Training** | Shared organizational knowledge | Company-level setting |
+| **Persona** | Agent's personality and instructions | Agent configuration |
+
+### Memory Retrieval Process
+
+```python
+# Simplified from Interactions.py format_prompt()
+
+# 1. Query vector memories based on user input
+memories = await agent_memory.get_memories(
+    user_input=user_input,
+    limit=context_results,           # Default: 5
+    min_relevance_score=0.2          # Similarity threshold
+)
+
+# 2. Query secondary collection if specified
+if inject_memories_from_collection_number > 0:
+    collection_memories = await agent_memory.get_memories(
+        user_input=user_input,
+        limit=context_results,
+        collection_number=inject_memories_from_collection_number
+    )
+    memories += collection_memories
+
+# 3. Add conversation context
+conversation_context = await conversation.get_recent_messages(
+    limit=conversation_results,  # Default: 5
+    token_limit=max_tokens // 4  # Reserve tokens for response
+)
+
+# 4. Get recent activities
+activities = await conversation.get_activities(limit=10)
+
+# 5. Include uploaded files
+file_contents = await self.get_uploaded_file_contents(conversation_id)
+```
+
+### Context Token Management
+
+AGiXT automatically manages context to stay within model token limits:
+
+```mermaid
+graph TB
+    A[Total Context Window] --> B[System Prompt]
+    A --> C[User Message]
+    A --> D[Memories]
+    A --> E[Conversation History]
+    A --> F[Available Commands]
+    A --> G[Response Budget]
+    
+    D --> D1[Truncate if too long]
+    E --> E1[Trim to recent messages]
+    F --> F1[Select relevant commands]
+```
+
+**Token Allocation Strategy:**
+- **System prompt**: Fixed allocation (~500-1000 tokens)
+- **User message**: Full allocation (user controls this)
+- **Memories**: Limited by `context_results` and truncated if oversized
+- **Conversation**: Most recent messages up to `conversation_results`
+- **Commands**: Intelligently selected based on task relevance
+- **Response**: Reserved budget (typically 25% of context)
+
+### Memory Injection Example
+
+When a user asks "What were our Q3 sales numbers?", the system:
+
+1. **Vector Search**: Queries memories with "Q3 sales numbers", finds relevant trained documents
+2. **Context Format**: Formats memories with source attribution
+3. **Injection**: Inserts into prompt:
+
+```
+# Context from agent memories:
+
+[Source: Q3_Sales_Report.pdf, Relevance: 0.89]
+Q3 2024 total revenue was $4.2M, representing 15% YoY growth...
+
+[Source: sales_meeting_notes.txt, Relevance: 0.76]
+Q3 targets were exceeded by 8%. Key drivers included...
+```
+
+### Controlling Memory Injection
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `context_results` | 5 | Max memories from vector search |
+| `conversation_results` | 5 | Max previous messages to include |
+| `inject_memories_from_collection_number` | 0 | Secondary collection to pull from (0 = none) |
+| `browse_links` | true | Auto-scrape URLs in user input |
+| `websearch` | false | Enable web search for additional context |
+
 ## Extensions System
 
 Extensions provide modular functionality that agents can use through server-side commands. Each extension is a Python class that defines one or more commands.
