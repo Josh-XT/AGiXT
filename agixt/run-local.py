@@ -141,6 +141,11 @@ async def initialize_database(is_restart=False):
         DB.cleanup_expired_cache()
         startup_timer.section_end("cleanup_expired_cache", section_start)
 
+        # Run task item migration for new scheduled task type columns
+        section_start = startup_timer.section_start()
+        DB.migrate_task_item_table()
+        startup_timer.section_end("migrate_task_item_table", section_start)
+
         # Initialize extension tables
         section_start = startup_timer.section_start()
         DB.initialize_extension_tables()
