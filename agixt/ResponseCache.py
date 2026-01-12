@@ -421,6 +421,7 @@ class ResponseCacheManager:
             }
 
         except Exception as e:
+            # Log detailed error server-side, but do not expose exception details to clients
             logger.warning(f"Cache stats error: {e}")
             return {
                 "hits": self._stats["hits"],
@@ -429,7 +430,7 @@ class ResponseCacheManager:
                 "invalidations": self._stats["invalidations"],
                 "errors": self._stats["errors"],
                 "storage": "unknown",
-                "error": str(e),
+                "error": "internal error while retrieving cache statistics",
             }
 
 
