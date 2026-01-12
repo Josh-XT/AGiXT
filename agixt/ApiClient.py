@@ -34,9 +34,10 @@ def validate_personal_access_token(token: str):
         HTTPException: If the token is invalid, expired, or revoked
     """
     from DB import get_session, PersonalAccessToken, User
+    from MagicalAuth import hash_pat_token
 
-    # Hash the token to compare with stored hash
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    # Hash the token using HMAC-SHA256 for secure comparison
+    token_hash = hash_pat_token(token)
 
     session = get_session()
     try:
