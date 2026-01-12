@@ -6983,10 +6983,12 @@ def validate_personal_access_token(token: str) -> dict:
             "token_name": pat.name,
         }
     except Exception as e:
+        # Log full error details on the server, but do not expose them to the caller
         logging.error(f"Error validating personal access token: {str(e)}")
         return {
             "valid": False,
-            "error": f"Validation error: {str(e)}",
+            # Return a generic error message to avoid leaking internal details
+            "error": "Internal validation error",
         }
     finally:
         session.close()
