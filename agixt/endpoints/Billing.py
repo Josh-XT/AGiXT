@@ -3,7 +3,7 @@ from fastapi import APIRouter, Header, HTTPException, Depends, Query
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
-from MagicalAuth import MagicalAuth, verify_api_key
+from MagicalAuth import MagicalAuth, verify_api_key, invalidate_user_scopes_cache
 from payments.pricing import PriceService
 from payments.crypto import CryptoPaymentService
 from payments.stripe_service import StripePaymentService
@@ -813,34 +813,40 @@ async def get_company_usage_totals(
             .all()
         )
 
+        if not user_companies_records:
+            return []
+
+        # Batch load all users
+        user_ids = [uc.user_id for uc in user_companies_records]
+        users = session.query(User).filter(User.id.in_(user_ids)).all()
+        users_map = {u.id: u for u in users}
+
+        # Batch load all relevant preferences (input_tokens and output_tokens)
+        prefs = (
+            session.query(UserPreferences)
+            .filter(
+                UserPreferences.user_id.in_(user_ids),
+                UserPreferences.pref_key.in_(["input_tokens", "output_tokens"]),
+            )
+            .all()
+        )
+
+        # Build lookup: user_id -> {pref_key: pref_value}
+        prefs_map = {}
+        for pref in prefs:
+            if pref.user_id not in prefs_map:
+                prefs_map[pref.user_id] = {}
+            prefs_map[pref.user_id][pref.pref_key] = pref.pref_value
+
         result = []
         for uc in user_companies_records:
-            user = session.query(User).filter(User.id == uc.user_id).first()
+            user = users_map.get(uc.user_id)
             if not user:
                 continue
 
-            # Get user's token preferences
-            input_tokens_pref = (
-                session.query(UserPreferences)
-                .filter(
-                    UserPreferences.user_id == uc.user_id,
-                    UserPreferences.pref_key == "input_tokens",
-                )
-                .first()
-            )
-            output_tokens_pref = (
-                session.query(UserPreferences)
-                .filter(
-                    UserPreferences.user_id == uc.user_id,
-                    UserPreferences.pref_key == "output_tokens",
-                )
-                .first()
-            )
-
-            input_tokens = int(input_tokens_pref.pref_value) if input_tokens_pref else 0
-            output_tokens = (
-                int(output_tokens_pref.pref_value) if output_tokens_pref else 0
-            )
+            user_prefs = prefs_map.get(uc.user_id, {})
+            input_tokens = int(user_prefs.get("input_tokens", 0) or 0)
+            output_tokens = int(user_prefs.get("output_tokens", 0) or 0)
 
             result.append(
                 {
@@ -1452,6 +1458,11 @@ async def set_super_admin(
         old_role = user_company.role_id
         user_company.role_id = 0
         session.commit()
+
+        # Invalidate user scopes cache since their role changed
+        invalidate_user_scopes_cache(
+            user_id=str(user.id), company_id=str(user_company.company_id)
+        )
 
         return {
             "success": True,
@@ -2206,6 +2217,9 @@ async def admin_change_user_role(
         user_company.role_id = role_id
         session.commit()
 
+        # Invalidate user scopes cache since their role changed
+        invalidate_user_scopes_cache(user_id=user_id, company_id=company_id)
+
         return {
             "success": True,
             "company_id": company_id,
@@ -2769,75 +2783,109 @@ async def admin_get_usage_analytics(
 
         # Get all companies with user counts
         companies = session.query(Company).all()
+        company_ids = [c.id for c in companies]
+
+        # Batch load user counts per company
+        user_counts_query = (
+            session.query(
+                UserCompany.company_id,
+                func.count(UserCompany.id).label("user_count"),
+            )
+            .filter(UserCompany.company_id.in_(company_ids))
+            .group_by(UserCompany.company_id)
+            .all()
+        )
+        user_counts_map = {row.company_id: row.user_count for row in user_counts_query}
+
+        # Batch load CompanyTokenUsage aggregates per company
+        usage_base_query = session.query(
+            CompanyTokenUsage.company_id,
+            func.coalesce(func.sum(CompanyTokenUsage.input_tokens), 0).label(
+                "input_tokens"
+            ),
+            func.coalesce(func.sum(CompanyTokenUsage.output_tokens), 0).label(
+                "output_tokens"
+            ),
+            func.coalesce(func.sum(CompanyTokenUsage.total_tokens), 0).label(
+                "total_tokens"
+            ),
+            func.count(CompanyTokenUsage.id).label("usage_count"),
+        ).filter(CompanyTokenUsage.company_id.in_(company_ids))
+
+        if start_dt:
+            usage_base_query = usage_base_query.filter(
+                CompanyTokenUsage.timestamp >= start_dt
+            )
+        if end_dt:
+            usage_base_query = usage_base_query.filter(
+                CompanyTokenUsage.timestamp <= end_dt
+            )
+
+        usage_results = usage_base_query.group_by(CompanyTokenUsage.company_id).all()
+        usage_map = {
+            row.company_id: {
+                "input_tokens": int(row.input_tokens),
+                "output_tokens": int(row.output_tokens),
+                "total_tokens": int(row.total_tokens),
+                "usage_count": int(row.usage_count),
+            }
+            for row in usage_results
+        }
+
+        # Batch load all UserCompany records
+        all_user_companies = (
+            session.query(UserCompany)
+            .filter(UserCompany.company_id.in_(company_ids))
+            .all()
+        )
+        # Group by company_id
+        company_users_map = {}
+        all_user_ids = set()
+        for uc in all_user_companies:
+            if uc.company_id not in company_users_map:
+                company_users_map[uc.company_id] = []
+            company_users_map[uc.company_id].append(uc)
+            all_user_ids.add(uc.user_id)
+
+        # Batch load all UserPreferences for token counts
+        all_prefs = (
+            session.query(UserPreferences)
+            .filter(
+                UserPreferences.user_id.in_(all_user_ids),
+                UserPreferences.pref_key.in_(["input_tokens", "output_tokens"]),
+            )
+            .all()
+        )
+        # Build lookup: {user_id: {pref_key: pref_value}}
+        prefs_map = {}
+        for pref in all_prefs:
+            if pref.user_id not in prefs_map:
+                prefs_map[pref.user_id] = {}
+            prefs_map[pref.user_id][pref.pref_key] = pref.pref_value
+
         company_data = {}
 
         for company in companies:
             company_id = str(company.id)
 
-            # Get user count for this company
-            user_count = (
-                session.query(UserCompany)
-                .filter(UserCompany.company_id == company.id)
-                .count()
-            )
+            user_count = user_counts_map.get(company.id, 0)
+            usage_result = usage_map.get(company.id)
 
-            # Build query for CompanyTokenUsage
-            usage_query = session.query(
-                func.coalesce(func.sum(CompanyTokenUsage.input_tokens), 0).label(
-                    "input_tokens"
-                ),
-                func.coalesce(func.sum(CompanyTokenUsage.output_tokens), 0).label(
-                    "output_tokens"
-                ),
-                func.coalesce(func.sum(CompanyTokenUsage.total_tokens), 0).label(
-                    "total_tokens"
-                ),
-                func.count(CompanyTokenUsage.id).label("usage_count"),
-            ).filter(CompanyTokenUsage.company_id == company.id)
-
-            if start_dt:
-                usage_query = usage_query.filter(
-                    CompanyTokenUsage.timestamp >= start_dt
-                )
-            if end_dt:
-                usage_query = usage_query.filter(CompanyTokenUsage.timestamp <= end_dt)
-
-            usage_result = usage_query.first()
-
-            # Also get cumulative from UserPreferences for users in this company
-            user_companies = (
-                session.query(UserCompany)
-                .filter(UserCompany.company_id == company.id)
-                .all()
-            )
+            # Calculate cumulative from UserPreferences for users in this company
             cumulative_input = 0
             cumulative_output = 0
-
-            for uc in user_companies:
-                input_pref = (
-                    session.query(UserPreferences)
-                    .filter(
-                        UserPreferences.user_id == uc.user_id,
-                        UserPreferences.pref_key == "input_tokens",
-                    )
-                    .first()
-                )
-                output_pref = (
-                    session.query(UserPreferences)
-                    .filter(
-                        UserPreferences.user_id == uc.user_id,
-                        UserPreferences.pref_key == "output_tokens",
-                    )
-                    .first()
-                )
-                if input_pref:
+            for uc in company_users_map.get(company.id, []):
+                user_prefs = prefs_map.get(uc.user_id, {})
+                input_val = user_prefs.get("input_tokens")
+                output_val = user_prefs.get("output_tokens")
+                if input_val:
                     try:
-                        cumulative_input += int(input_pref.pref_value)
+                        cumulative_input += int(input_val)
                     except (ValueError, TypeError):
                         pass
-                if output_pref:
+                if output_val:
                     try:
-                        cumulative_output += int(output_pref.pref_value)
+                        cumulative_output += int(output_val)
                     except (ValueError, TypeError):
                         pass
 
@@ -2975,63 +3023,102 @@ async def admin_get_company_usage_analytics(
             .all()
         )
 
+        if not user_companies:
+            return {
+                "company": {
+                    "id": str(company.id),
+                    "name": company.name,
+                    "status": getattr(company, "status", True),
+                    "token_balance": getattr(company, "token_balance", 0) or 0,
+                    "token_balance_usd": getattr(company, "token_balance_usd", 0) or 0,
+                    "tokens_used_total": getattr(company, "tokens_used_total", 0) or 0,
+                },
+                "users": [],
+                "summary": {
+                    "total_users": 0,
+                    "total_input_tokens": 0,
+                    "total_output_tokens": 0,
+                    "total_tokens": 0,
+                },
+                "date_range": {"start_date": start_date, "end_date": end_date},
+            }
+
+        # Batch load all related data
+        user_ids = [uc.user_id for uc in user_companies]
+        role_ids = {uc.role_id for uc in user_companies if uc.role_id}
+
+        # Batch load users
+        users = session.query(User).filter(User.id.in_(user_ids)).all()
+        users_map = {u.id: u for u in users}
+
+        # Batch load roles
+        from DB import UserRole
+
+        roles_map = {}
+        if role_ids:
+            roles = session.query(UserRole).filter(UserRole.id.in_(role_ids)).all()
+            roles_map = {r.id: r for r in roles}
+
+        # Batch load preferences
+        prefs = (
+            session.query(UserPreferences)
+            .filter(
+                UserPreferences.user_id.in_(user_ids),
+                UserPreferences.pref_key.in_(["input_tokens", "output_tokens"]),
+            )
+            .all()
+        )
+        prefs_map = {}
+        for pref in prefs:
+            if pref.user_id not in prefs_map:
+                prefs_map[pref.user_id] = {}
+            prefs_map[pref.user_id][pref.pref_key] = pref.pref_value
+
+        # Build audit query base
+        audit_query = session.query(CompanyTokenUsage).filter(
+            CompanyTokenUsage.company_id == company_id,
+            CompanyTokenUsage.user_id.in_(user_ids),
+        )
+        if start_dt:
+            audit_query = audit_query.filter(CompanyTokenUsage.timestamp >= start_dt)
+        if end_dt:
+            audit_query = audit_query.filter(CompanyTokenUsage.timestamp <= end_dt)
+
+        # Get all audit records (we'll group them by user_id after)
+        all_audit_records = audit_query.order_by(
+            desc(CompanyTokenUsage.timestamp)
+        ).all()
+
+        # Group audit records by user_id and limit to 50 each
+        audit_by_user = {}
+        for record in all_audit_records:
+            if record.user_id not in audit_by_user:
+                audit_by_user[record.user_id] = []
+            if len(audit_by_user[record.user_id]) < 50:
+                audit_by_user[record.user_id].append(record)
+
         users_data = []
         for uc in user_companies:
-            user = session.query(User).filter(User.id == uc.user_id).first()
+            user = users_map.get(uc.user_id)
             if not user:
                 continue
 
-            # Get user role
-            from DB import UserRole
-
-            role = session.query(UserRole).filter(UserRole.id == uc.role_id).first()
+            role = roles_map.get(uc.role_id)
             role_name = role.friendly_name if role else f"Role {uc.role_id}"
 
-            # Get cumulative tokens from UserPreferences
-            input_pref = (
-                session.query(UserPreferences)
-                .filter(
-                    UserPreferences.user_id == uc.user_id,
-                    UserPreferences.pref_key == "input_tokens",
-                )
-                .first()
-            )
-            output_pref = (
-                session.query(UserPreferences)
-                .filter(
-                    UserPreferences.user_id == uc.user_id,
-                    UserPreferences.pref_key == "output_tokens",
-                )
-                .first()
-            )
+            user_prefs = prefs_map.get(uc.user_id, {})
             input_tokens = 0
             output_tokens = 0
-            if input_pref:
-                try:
-                    input_tokens = int(input_pref.pref_value)
-                except (ValueError, TypeError):
-                    pass
-            if output_pref:
-                try:
-                    output_tokens = int(output_pref.pref_value)
-                except (ValueError, TypeError):
-                    pass
+            try:
+                input_tokens = int(user_prefs.get("input_tokens", 0) or 0)
+            except (ValueError, TypeError):
+                pass
+            try:
+                output_tokens = int(user_prefs.get("output_tokens", 0) or 0)
+            except (ValueError, TypeError):
+                pass
 
-            # Get audit trail usage for this user in this company
-            audit_query = session.query(CompanyTokenUsage).filter(
-                CompanyTokenUsage.company_id == company_id,
-                CompanyTokenUsage.user_id == uc.user_id,
-            )
-            if start_dt:
-                audit_query = audit_query.filter(
-                    CompanyTokenUsage.timestamp >= start_dt
-                )
-            if end_dt:
-                audit_query = audit_query.filter(CompanyTokenUsage.timestamp <= end_dt)
-
-            audit_records = (
-                audit_query.order_by(desc(CompanyTokenUsage.timestamp)).limit(50).all()
-            )
+            audit_records = audit_by_user.get(uc.user_id, [])
 
             users_data.append(
                 {

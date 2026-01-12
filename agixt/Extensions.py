@@ -37,6 +37,204 @@ DISABLED_EXTENSIONS = getenv("DISABLED_EXTENSIONS").replace(" ", "").split(",")
 # Cache for extension modules to prevent multiple imports
 _extension_module_cache = {}
 _extension_discovery_cache = None
+# Metadata cache: stores extension info without importing modules
+_extension_metadata_cache = None
+_extension_metadata_cache_file = os.path.join(
+    os.path.dirname(__file__), "models", "extension_metadata_cache.json"
+)
+
+
+def _get_extension_metadata_cache():
+    """
+    Get cached extension metadata (commands, settings) without importing modules.
+    This enables lazy loading - modules are only imported when commands are executed.
+    """
+    global _extension_metadata_cache
+
+    if _extension_metadata_cache is not None:
+        return _extension_metadata_cache
+
+    # Try to load from disk cache
+    try:
+        if os.path.exists(_extension_metadata_cache_file):
+            with open(_extension_metadata_cache_file, "r") as f:
+                cached = json.load(f)
+                # Validate cache has expected structure
+                if (
+                    isinstance(cached, dict)
+                    and "commands" in cached
+                    and "extensions" in cached
+                ):
+                    _extension_metadata_cache = cached
+                    logging.debug(
+                        f"Loaded extension metadata cache with {len(cached['commands'])} commands"
+                    )
+                    return _extension_metadata_cache
+    except Exception as e:
+        logging.debug(f"Could not load extension metadata cache: {e}")
+
+    # Build cache by importing modules (expensive, but only done once)
+    _extension_metadata_cache = _build_extension_metadata_cache()
+    return _extension_metadata_cache
+
+
+def _build_extension_metadata_cache():
+    """
+    Build extension metadata cache using AST parsing (no imports needed).
+    This is fast because it just parses Python files without executing them.
+    """
+    import time
+    import ast
+
+    start = time.time()
+
+    metadata = {
+        "commands": {},  # command_name -> {module_file, class_name, function_name, params, description}
+        "extensions": {},  # class_name -> {file, settings, commands, friendly_name, description, category}
+        "built_at": time.time(),
+    }
+
+    command_files = _get_cached_extension_files()
+    for command_file in command_files:
+        try:
+            with open(command_file, "r", encoding="utf-8") as f:
+                source = f.read()
+            tree = ast.parse(source, filename=command_file)
+        except Exception as e:
+            logging.debug(f"Could not parse {command_file}: {e}")
+            continue
+
+        class_name = get_extension_class_name(os.path.basename(command_file))
+        if class_name in DISABLED_EXTENSIONS:
+            continue
+
+        # Find the extension class in the AST
+        extension_class = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == class_name:
+                extension_class = node
+                break
+
+        if extension_class is None:
+            continue
+
+        # Extract class docstring
+        class_docstring = ast.get_docstring(extension_class) or ""
+
+        # Extract friendly_name and CATEGORY class attributes
+        friendly_name = None
+        category = "Automation"  # Default
+        for item in extension_class.body:
+            if isinstance(item, ast.Assign):
+                for target in item.targets:
+                    if isinstance(target, ast.Name):
+                        if target.id == "friendly_name" and isinstance(
+                            item.value, ast.Constant
+                        ):
+                            friendly_name = item.value.value
+                        elif target.id == "CATEGORY" and isinstance(
+                            item.value, ast.Constant
+                        ):
+                            category = item.value.value
+
+        # Extract __init__ parameters (settings)
+        settings = []
+        for item in extension_class.body:
+            if isinstance(item, ast.FunctionDef) and item.name == "__init__":
+                for arg in item.args.args:
+                    if arg.arg not in ("self", "kwargs"):
+                        settings.append(arg.arg)
+                # Also check **kwargs in kwonlyargs
+                for arg in item.args.kwonlyargs:
+                    if arg.arg not in ("self", "kwargs"):
+                        settings.append(arg.arg)
+                break
+
+        extension_info = {
+            "file": command_file,
+            "settings": settings,
+            "commands": [],
+            "friendly_name": friendly_name,
+            "description": class_docstring,
+            "category": category,
+        }
+
+        # Find self.commands assignments in __init__
+        # Look for self.commands = { ... } dictionary
+        commands_dict = {}
+        for item in extension_class.body:
+            if isinstance(item, ast.FunctionDef) and item.name == "__init__":
+                for stmt in ast.walk(item):
+                    if isinstance(stmt, ast.Assign):
+                        for target in stmt.targets:
+                            if (
+                                isinstance(target, ast.Attribute)
+                                and isinstance(target.value, ast.Name)
+                                and target.value.id == "self"
+                                and target.attr == "commands"
+                            ):
+                                # Found self.commands = {...}
+                                if isinstance(stmt.value, ast.Dict):
+                                    for key, val in zip(
+                                        stmt.value.keys, stmt.value.values
+                                    ):
+                                        if isinstance(key, ast.Constant) and isinstance(
+                                            val, ast.Attribute
+                                        ):
+                                            cmd_name = key.value
+                                            func_name = val.attr
+                                            commands_dict[cmd_name] = func_name
+
+        # Extract function parameters and docstrings for each command
+        for cmd_name, func_name in commands_dict.items():
+            params = {}
+            cmd_docstring = ""
+            for item in extension_class.body:
+                # Check both sync and async function definitions
+                if (
+                    isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and item.name == func_name
+                ):
+                    cmd_docstring = ast.get_docstring(item) or cmd_name
+                    for arg in item.args.args:
+                        if arg.arg != "self":
+                            # Get annotation if present
+                            annotation = ""
+                            if arg.annotation:
+                                if isinstance(arg.annotation, ast.Name):
+                                    annotation = f"<class '{arg.annotation.id}'>"
+                                elif isinstance(arg.annotation, ast.Constant):
+                                    annotation = str(arg.annotation.value)
+                            params[arg.arg] = annotation
+                    break
+
+            cmd_info = {
+                "module_file": command_file,
+                "class_name": class_name,
+                "function_name": func_name,
+                "params": params,
+                "description": cmd_docstring,
+            }
+            metadata["commands"][cmd_name] = cmd_info
+            extension_info["commands"].append(cmd_name)
+
+        metadata["extensions"][class_name] = extension_info
+
+    # Save to disk cache
+    try:
+        os.makedirs(os.path.dirname(_extension_metadata_cache_file), exist_ok=True)
+        with open(_extension_metadata_cache_file, "w") as f:
+            json.dump(metadata, f, indent=2)
+        logging.info(
+            f"Saved extension metadata cache with {len(metadata['commands'])} commands"
+        )
+    except Exception as e:
+        logging.debug(f"Could not save extension metadata cache: {e}")
+
+    elapsed = time.time() - start
+    logging.info(f"Built extension metadata cache in {elapsed:.2f}s (AST parsing)")
+
+    return metadata
 
 
 def _get_cached_extension_module(command_file):
@@ -65,9 +263,18 @@ def _get_cached_extension_files():
 
 def invalidate_extension_cache():
     """Invalidate the extension discovery cache to force rediscovery"""
-    global _extension_discovery_cache, _extension_module_cache
+    global _extension_discovery_cache, _extension_module_cache, _extension_metadata_cache
     _extension_discovery_cache = None
     _extension_module_cache.clear()
+    _extension_metadata_cache = None
+
+    # Remove disk cache
+    try:
+        if os.path.exists(_extension_metadata_cache_file):
+            os.remove(_extension_metadata_cache_file)
+            logging.info("Removed extension metadata cache file")
+    except Exception as e:
+        logging.debug(f"Could not remove metadata cache file: {e}")
 
     # Also invalidate ExtensionsHub path cache
     try:
@@ -230,35 +437,82 @@ class Extensions:
             .all()
         )
 
-        steps = []
-        for step in chain_steps:
-            agent_name = session.query(Agent).get(step.agent_id).name
-            prompt = {}
-            if step.target_chain_id:
-                prompt["chain_name"] = (
-                    session.query(ChainDB).get(step.target_chain_id).name
-                )
-            elif step.target_command_id:
-                prompt["command_name"] = (
-                    session.query(Command).get(step.target_command_id).name
-                )
-            elif step.target_prompt_id:
-                prompt["prompt_name"] = (
-                    session.query(Prompt).get(step.target_prompt_id).name
-                )
+        if not chain_steps:
+            chain_data = {
+                "id": chain_db.id,
+                "chain_name": chain_db.name,
+                "steps": [],
+                "description": chain_db.description if chain_db.description else "",
+            }
+            session.close()
+            return chain_data
 
-            # Retrieve argument data for the step
-            arguments = (
+        # Batch load all related data to avoid N+1 queries
+        agent_ids = {step.agent_id for step in chain_steps if step.agent_id}
+        chain_ids = {
+            step.target_chain_id for step in chain_steps if step.target_chain_id
+        }
+        command_ids = {
+            step.target_command_id for step in chain_steps if step.target_command_id
+        }
+        prompt_ids = {
+            step.target_prompt_id for step in chain_steps if step.target_prompt_id
+        }
+        step_ids = {step.id for step in chain_steps}
+
+        # Batch queries
+        agents_map = {}
+        if agent_ids:
+            agents = session.query(Agent).filter(Agent.id.in_(agent_ids)).all()
+            agents_map = {a.id: a.name for a in agents}
+
+        chains_map = {}
+        if chain_ids:
+            chains = session.query(ChainDB).filter(ChainDB.id.in_(chain_ids)).all()
+            chains_map = {c.id: c.name for c in chains}
+
+        commands_map = {}
+        if command_ids:
+            commands = session.query(Command).filter(Command.id.in_(command_ids)).all()
+            commands_map = {c.id: c.name for c in commands}
+
+        prompts_map = {}
+        if prompt_ids:
+            prompts = session.query(Prompt).filter(Prompt.id.in_(prompt_ids)).all()
+            prompts_map = {p.id: p.name for p in prompts}
+
+        # Batch load all arguments for all steps
+        step_arguments = {}
+        if step_ids:
+            all_args = (
                 session.query(Argument, ChainStepArgument)
                 .join(ChainStepArgument, ChainStepArgument.argument_id == Argument.id)
-                .filter(ChainStepArgument.chain_step_id == step.id)
+                .filter(ChainStepArgument.chain_step_id.in_(step_ids))
                 .all()
             )
+            for argument, chain_step_argument in all_args:
+                if chain_step_argument.chain_step_id not in step_arguments:
+                    step_arguments[chain_step_argument.chain_step_id] = {}
+                step_arguments[chain_step_argument.chain_step_id][
+                    argument.name
+                ] = chain_step_argument.value
 
-            prompt_args = {}
-            for argument, chain_step_argument in arguments:
-                prompt_args[argument.name] = chain_step_argument.value
+        steps = []
+        for step in chain_steps:
+            agent_name = agents_map.get(step.agent_id, "Unknown")
+            prompt = {}
+            if step.target_chain_id:
+                prompt["chain_name"] = chains_map.get(step.target_chain_id, "Unknown")
+            elif step.target_command_id:
+                prompt["command_name"] = commands_map.get(
+                    step.target_command_id, "Unknown"
+                )
+            elif step.target_prompt_id:
+                prompt["prompt_name"] = prompts_map.get(
+                    step.target_prompt_id, "Unknown"
+                )
 
+            prompt_args = step_arguments.get(step.id, {})
             prompt.update(prompt_args)
 
             step_data = {
@@ -279,6 +533,10 @@ class Extensions:
         return chain_data
 
     def get_chains_with_args(self):
+        """
+        Get all chains with their argument requirements.
+        OPTIMIZED: Batch loads all chain data in a single pass instead of N queries.
+        """
         skip_args = [
             "command_list",
             "context",
@@ -289,96 +547,204 @@ class Extensions:
             "working_directory",
             "helper_agent_name",
         ]
-        chains = []
-        for chain_name in self.chains:
-            chain_data = self.get_chain(chain_name=chain_name)
-            description = chain_data["description"]
-            steps = chain_data["steps"]
+
+        if not self.chains:
+            return []
+
+        # Batch load all chains data in one go
+        session = get_session()
+        try:
+            user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+            default_user_id = user_data.id if user_data else None
+
+            # Get all chains we need
+            chain_names = self.chains
+            all_chain_dbs = (
+                session.query(ChainDB)
+                .filter(
+                    ChainDB.name.in_(chain_names),
+                    (ChainDB.user_id == self.user_id)
+                    | (ChainDB.user_id == default_user_id),
+                )
+                .all()
+            )
+
+            # Build lookup: name -> chain_db (prefer user's chains over default)
+            chain_lookup = {}
+            for cdb in all_chain_dbs:
+                if cdb.name not in chain_lookup or cdb.user_id == self.user_id:
+                    chain_lookup[cdb.name] = cdb
+
+            if not chain_lookup:
+                return []
+
+            # Batch load all chain steps
+            chain_ids = [cdb.id for cdb in chain_lookup.values()]
+            all_chain_steps = (
+                session.query(ChainStep)
+                .filter(ChainStep.chain_id.in_(chain_ids))
+                .order_by(ChainStep.chain_id, ChainStep.step_number)
+                .all()
+            )
+
+            # Group steps by chain_id
+            steps_by_chain = {}
+            for step in all_chain_steps:
+                if step.chain_id not in steps_by_chain:
+                    steps_by_chain[step.chain_id] = []
+                steps_by_chain[step.chain_id].append(step)
+
+            # Batch load all agents, chains, commands, prompts for all steps
+            agent_ids = {s.agent_id for s in all_chain_steps if s.agent_id}
+            target_chain_ids = {
+                s.target_chain_id for s in all_chain_steps if s.target_chain_id
+            }
+            command_ids = {
+                s.target_command_id for s in all_chain_steps if s.target_command_id
+            }
+            prompt_ids = {
+                s.target_prompt_id for s in all_chain_steps if s.target_prompt_id
+            }
+            step_ids = {s.id for s in all_chain_steps}
+
+            agents_map = {}
+            if agent_ids:
+                agents = session.query(Agent).filter(Agent.id.in_(agent_ids)).all()
+                agents_map = {a.id: a.name for a in agents}
+
+            chains_map = {}
+            if target_chain_ids:
+                chains = (
+                    session.query(ChainDB)
+                    .filter(ChainDB.id.in_(target_chain_ids))
+                    .all()
+                )
+                chains_map = {c.id: c.name for c in chains}
+
+            commands_map = {}
+            if command_ids:
+                commands = (
+                    session.query(Command).filter(Command.id.in_(command_ids)).all()
+                )
+                commands_map = {c.id: c.name for c in commands}
+
+            prompts_map = {}
+            if prompt_ids:
+                prompts = session.query(Prompt).filter(Prompt.id.in_(prompt_ids)).all()
+                prompts_map = {p.id: p.name for p in prompts}
+
+            # Batch load all arguments
+            step_arguments = {}
+            if step_ids:
+                all_args = (
+                    session.query(Argument, ChainStepArgument)
+                    .join(
+                        ChainStepArgument, ChainStepArgument.argument_id == Argument.id
+                    )
+                    .filter(ChainStepArgument.chain_step_id.in_(step_ids))
+                    .all()
+                )
+                for argument, chain_step_argument in all_args:
+                    if chain_step_argument.chain_step_id not in step_arguments:
+                        step_arguments[chain_step_argument.chain_step_id] = {}
+                    step_arguments[chain_step_argument.chain_step_id][
+                        argument.name
+                    ] = chain_step_argument.value
+
+        finally:
+            session.close()
+
+        # Now build results without any additional DB queries
+        chains_result = []
+        for chain_name in chain_names:
+            chain_db = chain_lookup.get(chain_name)
+            if not chain_db:
+                continue
+
+            description = chain_db.description or ""
+            steps = steps_by_chain.get(chain_db.id, [])
             prompt_args = []
+
             for step in steps:
                 try:
-                    prompt = step["prompt"]
-                    if "chain_name" in prompt:
-                        if "command_name" not in prompt:
-                            prompt["command_name"] = prompt["chain_name"]
-                    prompt_category = (
-                        prompt["category"] if "category" in prompt else "Default"
-                    )
-                    if "prompt_name" in prompt:
+                    prompt = {}
+                    prompt_args_for_step = step_arguments.get(step.id, {})
+                    prompt.update(prompt_args_for_step)
+
+                    if step.target_chain_id:
+                        prompt["chain_name"] = chains_map.get(
+                            step.target_chain_id, "Unknown"
+                        )
+                        prompt["command_name"] = prompt["chain_name"]
+                    elif step.target_command_id:
+                        prompt["command_name"] = commands_map.get(
+                            step.target_command_id, "Unknown"
+                        )
+                    elif step.target_prompt_id:
+                        prompt_name = prompts_map.get(step.target_prompt_id, "")
+                        prompt["prompt_name"] = prompt_name
+
+                    prompt_category = prompt.get("category", "Default")
+
+                    if "prompt_name" in prompt and prompt["prompt_name"]:
                         prompt_content = self.prompts.get_prompt(
                             prompt_name=prompt["prompt_name"],
                             prompt_category=prompt_category,
                         )
-                        args = self.prompts.get_prompt_args(
-                            prompt_text=prompt_content,
-                        )
+                        args = self.prompts.get_prompt_args(prompt_text=prompt_content)
                     elif "command_name" in prompt:
                         args = self.get_command_args(
                             command_name=prompt["command_name"]
                         )
                     else:
                         args = []
+
                     for arg in args:
                         if arg not in prompt_args and arg not in skip_args:
-                            # Only expose args that don't already have values in the chain step
-                            # If the arg already has a non-empty value in the prompt, skip it
                             existing_value = prompt.get(arg)
                             if existing_value is None or existing_value == "":
                                 prompt_args.append(arg)
                 except Exception as e:
                     logging.error(f"Error getting chain args for {chain_name}: {e}")
-            chains.append(
+
+            chains_result.append(
                 {
                     "chain_name": chain_name,
                     "description": description,
                     "args": prompt_args,
                 }
             )
-        return chains
+
+        return chains_result
 
     def load_commands(self):
+        """
+        Load commands using cached metadata for fast discovery.
+        Modules are only imported when commands are actually executed (lazy loading).
+        """
         try:
             settings = self.agent_config["settings"]
         except:
             settings = {}
         commands = []
-        # Use cached extension discovery
-        command_files = _get_cached_extension_files()
-        for command_file in command_files:
-            # Import the module using cached helper function
-            module = _get_cached_extension_module(command_file)
-            if module is None:
-                continue
 
-            # Get the expected class name from the module
-            class_name = get_extension_class_name(os.path.basename(command_file))
+        # Use metadata cache for fast command discovery
+        metadata = _get_extension_metadata_cache()
 
-            # Check if module is in disabled extensions
+        for cmd_name, cmd_info in metadata.get("commands", {}).items():
+            class_name = cmd_info["class_name"]
             if class_name in DISABLED_EXTENSIONS:
                 continue
 
-            # Check if the class exists and is a subclass of Extensions
-            attr = getattr(module, class_name, None)
-            if (
-                attr is not None
-                and inspect.isclass(attr)
-                and issubclass(attr, Extensions)
-            ):
-                command_class = attr(**settings)
-                if hasattr(command_class, "commands"):
-                    for (
-                        command_name,
-                        command_function,
-                    ) in command_class.commands.items():
-                        params = self.get_command_params(command_function)
-                        commands.append(
-                            (
-                                command_name,
-                                getattr(module, class_name),
-                                command_function.__name__,
-                                params,
-                            )
-                        )
+            # Store command info for lazy loading - don't import module yet
+            commands.append(
+                (
+                    cmd_name,
+                    cmd_info,  # Store metadata instead of actual class
+                    cmd_info["function_name"],
+                    cmd_info["params"],
+                )
+            )
 
         # Add chains as commands
         if hasattr(self, "chains_with_args") and self.chains_with_args:
@@ -399,55 +765,87 @@ class Extensions:
         return commands
 
     def find_command(self, command_name: str):
+        """
+        Find a command by name. Uses lazy loading - only imports the module
+        when the command is actually being executed.
+        """
         # Protect against empty command names
         if not command_name or command_name.strip() == "":
             logging.error("Empty command name provided")
             return None, None, None
 
-        for name, module, function_name, params in self.commands:
-            if module.__name__ in DISABLED_EXTENSIONS:
-                continue
+        try:
+            settings = self.agent_config.get("settings", {})
+        except:
+            settings = {}
+
+        for name, module_or_info, function_name, params in self.commands:
             if name == command_name:
-                if isinstance(module, type):  # It's a class
-                    command_function = getattr(module, function_name)
-                    return command_function, module, params
-                else:  # It's a function (for chains)
-                    return module, None, params
+                # Check if this is a chain (callable) or extension metadata (dict)
+                if callable(module_or_info):
+                    # It's a chain function
+                    return module_or_info, None, params
+
+                if isinstance(module_or_info, dict):
+                    # Lazy loading: import module now that we need it
+                    cmd_info = module_or_info
+                    class_name = cmd_info["class_name"]
+
+                    if class_name in DISABLED_EXTENSIONS:
+                        continue
+
+                    module_file = cmd_info["module_file"]
+                    module = _get_cached_extension_module(module_file)
+                    if module is None:
+                        logging.error(
+                            f"Could not import module for command {command_name}"
+                        )
+                        return None, None, None
+
+                    ext_class = getattr(module, class_name, None)
+                    if ext_class is None:
+                        logging.error(f"Class {class_name} not found in module")
+                        return None, None, None
+
+                    command_function = getattr(ext_class, function_name, None)
+                    if command_function is None:
+                        logging.error(
+                            f"Function {function_name} not found in class {class_name}"
+                        )
+                        return None, None, None
+
+                    return command_function, ext_class, params
+                else:
+                    # Legacy: it's already an imported class
+                    module = module_or_info
+                    if (
+                        hasattr(module, "__name__")
+                        and module.__name__ in DISABLED_EXTENSIONS
+                    ):
+                        continue
+                    if isinstance(module, type):
+                        command_function = getattr(module, function_name)
+                        return command_function, module, params
+
         return None, None, None
 
     def get_extension_settings(self):
+        """
+        Get extension settings using cached metadata (no module imports needed).
+        """
         settings = {}
-        # Use cached extension discovery
-        command_files = _get_cached_extension_files()
-        for command_file in command_files:
-            # Import the module using cached helper function
-            module = _get_cached_extension_module(command_file)
-            if module is None:
-                continue
 
-            # Get the expected class name from the module
-            class_name = get_extension_class_name(os.path.basename(command_file))
+        # Use metadata cache - no module imports needed
+        metadata = _get_extension_metadata_cache()
 
-            # Check if module is in disabled extensions
+        for class_name, ext_info in metadata.get("extensions", {}).items():
             if class_name in DISABLED_EXTENSIONS:
                 continue
 
-            # Check if the class exists and is a subclass of Extensions
-            attr = getattr(module, class_name, None)
-            if (
-                attr is not None
-                and inspect.isclass(attr)
-                and issubclass(attr, Extensions)
-            ):
-                command_class = attr()
-                params = self.get_command_params(command_class.__init__)
-                # Remove self and kwargs from params
-                if "self" in params:
-                    del params["self"]
-                if "kwargs" in params:
-                    del params["kwargs"]
-                if params != {}:
-                    settings[class_name] = params
+            ext_settings = ext_info.get("settings", [])
+            if ext_settings:
+                # Convert list of setting names to dict format
+                settings[class_name] = {name: "" for name in ext_settings}
 
         # Use self.chains_with_args instead of iterating over self.chains
         if self.chains_with_args:
@@ -509,9 +907,7 @@ class Extensions:
         )
 
         command_function, module, params = self.find_command(command_name=command_name)
-        logging.info(
-            f"Executing command: {command_name} with args: {command_args}. Command Function: {command_function}"
-        )
+        # logging.info(f"Executing command: {command_name} with args: {command_args}")
         if command_function is None:
             # Add more debugging for empty command names
             if not command_name or command_name.strip() == "":
@@ -817,125 +1213,66 @@ class Extensions:
         return value
 
     def get_extensions(self):
+        """
+        Get list of extensions with their commands using cached metadata.
+        No module imports needed - uses AST-parsed metadata cache.
+        """
         commands = []
-        # Use cached extension discovery
-        command_files = _get_cached_extension_files()
-        for command_file in command_files:
-            # Import the module using cached helper function
-            module = _get_cached_extension_module(command_file)
-            if module is None:
-                continue
+        metadata = _get_extension_metadata_cache()
 
-            # Get the expected class name from the module
-            class_name = get_extension_class_name(os.path.basename(command_file))
+        # Get category descriptions in one batch query
+        category_descriptions = {}
+        try:
+            from DB import get_db_session, ExtensionCategory
 
-            # Check if module is in disabled extensions
+            with get_db_session() as session:
+                categories = session.query(ExtensionCategory).all()
+                category_descriptions = {
+                    c.name: c.description or "" for c in categories
+                }
+        except Exception as e:
+            logging.debug(f"Could not get category descriptions: {e}")
+
+        for class_name, ext_info in metadata.get("extensions", {}).items():
             if class_name in DISABLED_EXTENSIONS:
                 continue
 
-            # Check if the class exists and is a subclass of Extensions
-            ext_class = getattr(module, class_name, None)
-            is_extensions_subclass = False
-            if ext_class is not None and inspect.isclass(ext_class):
-                # Use the module's Extensions class reference for comparison
-                # since extensions import "from Extensions import Extensions"
-                try:
-                    extensions_base = getattr(module, "Extensions", None)
-                    if extensions_base and issubclass(ext_class, extensions_base):
-                        is_extensions_subclass = True
-                    else:
-                        # Fallback: check if it's a subclass of the current Extensions class
-                        is_extensions_subclass = issubclass(ext_class, Extensions)
-                except (TypeError, AttributeError):
-                    is_extensions_subclass = False
+            # Get extension name from file path
+            extension_file = os.path.basename(ext_info["file"])
+            extension_name = extension_file.split(".")[0]
+            extension_name = extension_name.replace("_", " ").title()
+            if extension_name == "Agixt Actions":
+                extension_name = "AGiXT Actions"
 
-            if is_extensions_subclass:
-                try:
-                    command_class = ext_class()
-                except Exception as e:
-                    logging.error(
-                        f"Error instantiating extension class {class_name}: {e}"
-                    )
-                    continue
+            # Build commands list from cached metadata
+            extension_commands = []
+            for cmd_name in ext_info.get("commands", []):
+                cmd_info = metadata["commands"].get(cmd_name, {})
+                extension_commands.append(
+                    {
+                        "friendly_name": cmd_name,
+                        "description": cmd_info.get("description", cmd_name),
+                        "command_name": cmd_info.get("function_name", ""),
+                        "command_args": cmd_info.get("params", {}),
+                    }
+                )
 
-                extension_name = os.path.basename(command_file).split(".")[0]
-                extension_name = extension_name.replace("_", " ").title()
-
-                # Get friendly_name from the extension class if it has one
-                friendly_name = None
-                if hasattr(command_class, "friendly_name"):
-                    friendly_name = command_class.friendly_name
-
-                try:
-                    extension_description = inspect.getdoc(command_class)
-                except:
-                    extension_description = extension_name
-                constructor = inspect.signature(command_class.__init__)
-                params = constructor.parameters
-                extension_settings = [
-                    name for name in params if name != "self" and name != "kwargs"
-                ]
-                extension_commands = []
-                if hasattr(command_class, "commands"):
-                    try:
-                        for (
-                            command_name,
-                            command_function,
-                        ) in command_class.commands.items():
-                            params = self.get_command_params(command_function)
-                            try:
-                                command_description = inspect.getdoc(command_function)
-                            except:
-                                command_description = command_name
-                            extension_commands.append(
-                                {
-                                    "friendly_name": command_name,
-                                    "description": command_description,
-                                    "command_name": command_function.__name__,
-                                    "command_args": params,
-                                }
-                            )
-                    except Exception as e:
-                        logging.error(f"Error getting commands: {e}")
-                if extension_name == "Agixt Actions":
-                    extension_name = "AGiXT Actions"
-
-                # Get category information from database or extension class
-                category_name = "Automation"  # Default category
-                category_description = ""
-
-                # Try to get category from the extension class
-                if hasattr(command_class, "CATEGORY"):
-                    category_name = command_class.CATEGORY
-
-                # Get category description from database if available
-                try:
-                    from DB import get_db_session, ExtensionCategory
-
-                    with get_db_session() as session:
-                        category = (
-                            session.query(ExtensionCategory)
-                            .filter_by(name=category_name)
-                            .first()
-                        )
-                        if category:
-                            category_description = category.description or ""
-                except Exception as e:
-                    logging.debug(f"Could not get category description: {e}")
-
-                # Only add extensions that have commands (filters out OAuth extensions without credentials)
-                if extension_commands:
-                    commands.append(
-                        {
-                            "extension_name": extension_name,
-                            "friendly_name": friendly_name,  # Will be None if not defined
-                            "description": extension_description,
-                            "settings": extension_settings,
-                            "commands": extension_commands,
-                            "category": category_name,
-                            "category_description": category_description,
-                        }
-                    )
+            # Only add extensions that have commands
+            if extension_commands:
+                category_name = ext_info.get("category", "Automation")
+                commands.append(
+                    {
+                        "extension_name": extension_name,
+                        "friendly_name": ext_info.get("friendly_name"),
+                        "description": ext_info.get("description", extension_name),
+                        "settings": ext_info.get("settings", []),
+                        "commands": extension_commands,
+                        "category": category_name,
+                        "category_description": category_descriptions.get(
+                            category_name, ""
+                        ),
+                    }
+                )
 
         # Add Custom Automation as an extension only if chains_with_args is initialized
         if hasattr(self, "chains_with_args") and self.chains_with_args:
@@ -954,23 +1291,7 @@ class Extensions:
                     }
                 )
 
-            # Get category information for Custom Automation
             category_name = "Core Abilities"
-            category_description = ""
-            try:
-                from DB import get_db_session, ExtensionCategory
-
-                with get_db_session() as session:
-                    category = (
-                        session.query(ExtensionCategory)
-                        .filter_by(name=category_name)
-                        .first()
-                    )
-                    if category:
-                        category_description = category.description or ""
-            except Exception as e:
-                logging.debug(f"Could not get category description: {e}")
-
             commands.append(
                 {
                     "extension_name": "Custom Automation",
@@ -979,7 +1300,9 @@ class Extensions:
                     "settings": [],
                     "commands": chain_commands,
                     "category": category_name,
-                    "category_description": category_description,
+                    "category_description": category_descriptions.get(
+                        category_name, ""
+                    ),
                 }
             )
 
@@ -1074,9 +1397,6 @@ class Extensions:
                             event_with_extension = event.copy()
                             event_with_extension["extension"] = class_name
                             extension_events.append(event_with_extension)
-                        logging.info(
-                            f"Found {len(extension_class.webhook_events)} webhook events for extension: {class_name}"
-                        )
             except Exception as e:
                 logging.error(
                     f"Error loading webhook events from extension {class_name}: {e}"

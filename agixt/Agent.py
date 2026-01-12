@@ -24,6 +24,21 @@ from DB import (
     UserCompany,
 )
 from Extensions import Extensions
+from SharedCache import (
+    shared_cache,
+    cache_agent_data,
+    get_cached_agent_data,
+    invalidate_agent_cache,
+    cache_company_config,
+    get_cached_company_config,
+    invalidate_company_config_cache as shared_invalidate_company_config,
+    cache_commands,
+    get_cached_commands,
+    invalidate_commands_cache as shared_invalidate_commands,
+    cache_sso_providers,
+    get_cached_sso_providers,
+    invalidate_sso_providers_cache as shared_invalidate_sso_providers,
+)
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS, DEFAULT_USER
 from MagicalAuth import MagicalAuth, get_user_id
 from Conversations import get_conversation_id_by_name
@@ -60,35 +75,27 @@ _command_owner_cache = None
 # Cache for command_name -> friendly_name mapping
 _command_name_to_friendly_cache = None
 
-# Cache for all commands - commands rarely change
-_all_commands_cache = None
-_all_commands_cache_time = 0
-_COMMANDS_CACHE_TTL = 300  # 5 minutes
-
-# Cache for company agent configs
-# IMPORTANT: With multiple uvicorn workers, this cache is process-local
-# Setting to 0 disables caching to ensure cross-worker consistency
-_company_agent_config_cache = {}
-_COMPANY_CONFIG_CACHE_TTL = 0  # Disabled for multi-worker consistency
-
-# Cache for SSO-enabled extensions - requires filesystem scan so cache aggressively
-_sso_providers_cache = None
-_sso_providers_cache_time = 0
+# Cache TTL constants
+# NOTE: SharedCache handles cross-worker synchronization via Redis (if available)
+# or falls back to local memory. TTLs are now safe to use.
+_COMMANDS_CACHE_TTL = 300  # 5 minutes - commands rarely change
+_COMPANY_CONFIG_CACHE_TTL = 60  # 1 minute - re-enabled with SharedCache
+_AGENT_DATA_CACHE_TTL = 5  # 5 seconds - short TTL for request batching
 _SSO_PROVIDERS_CACHE_TTL = 600  # 10 minutes - extensions rarely change
 
 
 def get_sso_providers_cached():
     """
     Get list of SSO-enabled extensions with caching.
-    This scans the extensions directory for OAuth components which is expensive.
+    Uses SharedCache for cross-worker consistency.
+    Falls back to AST parsing if not in cache.
     """
-    import importlib.util
+    import ast
 
-    global _sso_providers_cache, _sso_providers_cache_time
-
-    if _sso_providers_cache is not None:
-        if (time.time() - _sso_providers_cache_time) < _SSO_PROVIDERS_CACHE_TTL:
-            return _sso_providers_cache.copy()
+    # Try SharedCache first
+    cached = get_cached_sso_providers()
+    if cached is not None:
+        return set(cached)
 
     sso_providers = set()
     extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
@@ -96,8 +103,7 @@ def get_sso_providers_cached():
     try:
         extension_files = os.listdir(extensions_dir)
     except OSError:
-        _sso_providers_cache = sso_providers
-        _sso_providers_cache_time = time.time()
+        cache_sso_providers(list(sso_providers), ttl=_SSO_PROVIDERS_CACHE_TTL)
         return sso_providers
 
     for extension_file in extension_files:
@@ -105,66 +111,100 @@ def get_sso_providers_cached():
             try:
                 extension_name = extension_file.replace(".py", "")
                 file_path = os.path.join(extensions_dir, extension_file)
-                spec = importlib.util.spec_from_file_location(extension_name, file_path)
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
 
-                # Check if the extension has OAuth components
-                has_sso_class = hasattr(module, f"{extension_name.capitalize()}SSO")
-                has_sso_function = hasattr(module, "sso")
-                has_oauth_scopes = hasattr(module, "SCOPES")
+                # Use AST parsing instead of importing - much faster
+                with open(file_path, "r", encoding="utf-8") as f:
+                    source = f.read()
+                tree = ast.parse(source, filename=file_path)
+
+                # Look for SSO indicators in the AST
+                has_sso_class = False
+                has_sso_function = False
+                has_oauth_scopes = False
+
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.ClassDef):
+                        if node.name == f"{extension_name.capitalize()}SSO":
+                            has_sso_class = True
+                    elif isinstance(node, ast.FunctionDef):
+                        if node.name == "sso":
+                            has_sso_function = True
+                    elif isinstance(node, ast.Assign):
+                        for target in node.targets:
+                            if isinstance(target, ast.Name) and target.id == "SCOPES":
+                                has_oauth_scopes = True
 
                 if has_sso_class or has_sso_function or has_oauth_scopes:
                     sso_providers.add(extension_name)
             except Exception:
                 continue
 
-    _sso_providers_cache = sso_providers
-    _sso_providers_cache_time = time.time()
+    # Cache in SharedCache
+    cache_sso_providers(list(sso_providers), ttl=_SSO_PROVIDERS_CACHE_TTL)
     return sso_providers.copy()
 
 
 def invalidate_sso_providers_cache():
-    """Invalidate the SSO providers cache"""
-    global _sso_providers_cache, _sso_providers_cache_time
-    _sso_providers_cache = None
-    _sso_providers_cache_time = 0
+    """Invalidate the SSO providers cache (uses SharedCache)"""
+    shared_invalidate_sso_providers()
 
 
 def get_company_agent_config_cached(company_id: str, company_agent):
-    """Get company agent config with caching to avoid repeated expensive calls"""
-    import time
+    """Get company agent config with caching (uses SharedCache for cross-worker consistency)"""
 
-    global _company_agent_config_cache
-
-    cache_key = str(company_id)
-    if cache_key in _company_agent_config_cache:
-        cached = _company_agent_config_cache[cache_key]
-        if (time.time() - cached["timestamp"]) < _COMPANY_CONFIG_CACHE_TTL:
-            return cached["config"]
+    # Try SharedCache first
+    cached = get_cached_company_config(str(company_id))
+    if cached is not None:
+        return cached
 
     # Get fresh config
     config = company_agent.get_agent_config()
-    _company_agent_config_cache[cache_key] = {
-        "config": config,
-        "timestamp": time.time(),
-    }
+    cache_company_config(str(company_id), config, ttl=_COMPANY_CONFIG_CACHE_TTL)
     return config
 
 
 def invalidate_company_config_cache(company_id: str = None):
-    """Invalidate company config cache"""
-    global _company_agent_config_cache
-    if company_id:
-        _company_agent_config_cache.pop(str(company_id), None)
-    else:
-        _company_agent_config_cache.clear()
+    """Invalidate company config cache (uses SharedCache)"""
+    shared_invalidate_company_config(company_id)
+
+
+def get_agent_data_cached(
+    agent_id: str = None, agent_name: str = None, user_id: str = None
+):
+    """
+    Get agent data (model, settings, commands) from cache if available and fresh.
+    Uses SharedCache for cross-worker consistency.
+    Returns dict or None if not cached.
+    """
+    if not agent_id or not user_id:
+        return None
+
+    return get_cached_agent_data(agent_id, user_id)
+
+
+def set_agent_data_cache(agent_id: str, agent_name: str, user_id: str, data: dict):
+    """
+    Cache agent data (model info, settings, commands).
+    Uses SharedCache for cross-worker consistency.
+    """
+    if not agent_id or not user_id:
+        return
+
+    cache_agent_data(agent_id, user_id, data, ttl=_AGENT_DATA_CACHE_TTL)
+
+
+def invalidate_agent_data_cache(agent_id: str = None, user_id: str = None):
+    """Invalidate agent data cache (uses SharedCache)"""
+    invalidate_agent_cache(agent_id, user_id)
 
 
 def get_all_commands_cached(session):
-    """Get all commands with caching to avoid repeated database queries"""
+    """Get all commands with caching (uses SharedCache for cross-worker consistency)"""
+    # Try SharedCache first - but we need to query DB if not cached
+    # since commands are ORM objects
+    # For now, use a local cache with short TTL since commands rarely change
+    # and are used frequently within a single request
     global _all_commands_cache, _all_commands_cache_time
-    import time
 
     if _all_commands_cache is not None:
         if (time.time() - _all_commands_cache_time) < _COMMANDS_CACHE_TTL:
@@ -175,11 +215,18 @@ def get_all_commands_cached(session):
     return _all_commands_cache
 
 
+# Local cache for commands (ORM objects can't be serialized to Redis)
+_all_commands_cache = None
+_all_commands_cache_time = 0
+
+
 def invalidate_commands_cache():
     """Invalidate the commands cache, forcing a refresh on next access"""
     global _all_commands_cache, _all_commands_cache_time
     _all_commands_cache = None
     _all_commands_cache_time = 0
+    # Also invalidate SharedCache for any serializable command data
+    shared_invalidate_commands()
 
 
 def get_agents_lightweight(
@@ -425,10 +472,6 @@ def _resolve_command_by_name(session, command_name):
                 .options(joinedload(Command.extension))
                 .filter(Command.name == friendly_name)
                 .all()
-            )
-            logging.info(
-                f"[_resolve_command_by_name] Mapped command_name '{command_name}' "
-                f"to friendly_name '{friendly_name}', found {len(commands)} matches"
             )
 
     if not commands:
@@ -694,10 +737,6 @@ class AIProviderManager:
         # Get merged settings from all configuration levels
         merged_settings = self._get_merged_provider_settings()
 
-        logging.debug(
-            f"[AIProviderManager] Merged provider settings keys: {list(merged_settings.keys())}"
-        )
-
         extension_files = find_extension_files()
 
         for ext_file in extension_files:
@@ -749,9 +788,6 @@ class AIProviderManager:
                             else ["llm"]
                         ),
                     }
-                    logging.info(
-                        f"[AIProviderManager] Discovered AI Provider: {provider_name} (max_tokens: {self.providers[provider_name]['max_tokens']}, services: {self.providers[provider_name]['services']})"
-                    )
 
             except Exception as e:
                 logging.debug(
@@ -770,9 +806,6 @@ class AIProviderManager:
                     self.providers.items(), key=lambda x: x[1]["max_tokens"]
                 )
             }
-            logging.info(
-                f"[AIProviderManager] Initialized with {len(self.providers)} providers (sorted by max_tokens): {provider_summary}"
-            )
 
     def get_provider_for_service(
         self, service: str = "llm", tokens: int = 0, use_smartest: bool = False
@@ -799,12 +832,6 @@ class AIProviderManager:
         provider_token_limits = {
             name: provider["max_tokens"] for name, provider in self.providers.items()
         }
-        logging.debug(
-            f"[AIProviderManager] Provider token limits: {provider_token_limits}"
-        )
-        logging.debug(
-            f"[AIProviderManager] Request requires {tokens} tokens for service '{service}'"
-        )
 
         # Filter providers that support the service and have sufficient token limits
         suitable = {}
@@ -815,16 +842,10 @@ class AIProviderManager:
             if service not in provider["services"]:
                 continue
             if tokens > 0 and provider["max_tokens"] < tokens:
-                logging.debug(
-                    f"[AIProviderManager] Provider {name} filtered out: max_tokens={provider['max_tokens']} < required={tokens}"
-                )
                 continue
             suitable[name] = provider
 
         if not suitable:
-            logging.warning(
-                f"[AIProviderManager] No providers can handle {tokens} tokens for service '{service}'"
-            )
             # Reset failed providers and try again
             if self.failed_providers:
                 self.failed_providers.clear()
@@ -834,15 +855,12 @@ class AIProviderManager:
         suitable_with_tokens = {
             name: provider["max_tokens"] for name, provider in suitable.items()
         }
-        logging.info(
-            f"[AIProviderManager] Suitable providers for {tokens} tokens (service={service}): {suitable_with_tokens}"
-        )
 
         # If use_smartest, try intelligence tiers in order
         if use_smartest:
             for tier in self.intelligence_tiers:
                 if tier in suitable:
-                    logging.info(
+                    logging.debug(
                         f"[AIProviderManager] Selected smartest provider: {tier} (max_tokens: {suitable[tier]['max_tokens']}) for {tokens} tokens"
                     )
                     return suitable[tier]["instance"]
@@ -850,8 +868,8 @@ class AIProviderManager:
         # Otherwise, select provider with lowest max_tokens that can handle the request
         # (prefer to use smaller/cheaper providers for smaller requests)
         selected_name = min(suitable.keys(), key=lambda k: suitable[k]["max_tokens"])
-        logging.info(
-            f"[AIProviderManager] Selected provider: {selected_name} (max_tokens: {suitable[selected_name]['max_tokens']}) for {tokens} tokens - chose smallest suitable"
+        logging.debug(
+            f"[AIProviderManager] Selected provider: {selected_name} (max_tokens: {suitable[selected_name]['max_tokens']}) for {tokens} tokens"
         )
         return suitable[selected_name]["instance"]
 
@@ -1189,6 +1207,9 @@ def delete_agent(agent_name=None, agent_id=None, user=DEFAULT_USER):
     if not deleted:
         return {"message": "Agent deletion was not completed."}, 500
 
+    # Invalidate agent data cache
+    invalidate_agent_data_cache(agent_id=agent_id_value)
+
     # Emit webhook event for agent deletion
     import asyncio
 
@@ -1236,6 +1257,9 @@ def rename_agent(agent_name, new_name, user=DEFAULT_USER, company_id=None):
     old_name = agent.name
     agent.name = new_name
     session.commit()
+
+    # Invalidate agent data cache
+    invalidate_agent_data_cache(agent_id=str(agent.id))
 
     # Emit webhook event for agent rename
     import asyncio
@@ -1619,11 +1643,18 @@ def clone_agent(agent_id, new_agent_name, user=DEFAULT_USER):
         session.query(AgentCommand).filter(AgentCommand.agent_id == agent_id).all()
     )
 
+    # Batch load all commands referenced by the agent commands
+    command_ids = [ac.command_id for ac in source_commands]
+    commands_map = {}
+    if command_ids:
+        commands = session.query(Command).filter(Command.id.in_(command_ids)).all()
+        commands_map = {c.id: c.name for c in commands}
+
     commands_dict = {}
     for ac in source_commands:
-        command = session.query(Command).filter(Command.id == ac.command_id).first()
-        if command:
-            commands_dict[command.name] = ac.state
+        command_name = commands_map.get(ac.command_id)
+        if command_name:
+            commands_dict[command_name] = ac.state
 
     session.close()
 
@@ -1824,7 +1855,6 @@ class Agent:
                                         agent_command["enabled"] = True
             return agent_extensions
         else:
-            logging.info("No company_id found.")
             return agent_extensions
 
     def load_config_keys(self):
@@ -1906,6 +1936,18 @@ class Agent:
             session.close()
 
     def get_agent_config(self):
+        # Check cache first - short TTL for request batching
+        cached = get_agent_data_cached(
+            agent_id=str(self.agent_id) if self.agent_id else None,
+            agent_name=self.agent_name,
+            user_id=str(self.user_id),
+        )
+        if cached and cached.get("config"):
+            # Update agent_id from cache if we didn't have it
+            if not self.agent_id and cached.get("agent_id"):
+                self.agent_id = cached["agent_id"]
+            return cached["config"].copy()  # Return copy to prevent mutation
+
         session = get_session()
 
         # CRITICAL: Begin a new transaction to ensure we see committed data from other workers
@@ -2200,6 +2242,18 @@ class Agent:
         for command in enabled_commands:
             config["commands"][command] = True
         session.close()
+
+        # Cache the result for short-term reuse within request cycle
+        set_agent_data_cache(
+            agent_id=str(self.agent_id) if self.agent_id else None,
+            agent_name=self.agent_name,
+            user_id=str(self.user_id),
+            data={
+                "agent_id": str(self.agent_id) if self.agent_id else None,
+                "agent_name": self.agent_name,
+                "config": config,
+            },
+        )
         return config
 
     async def inference(
@@ -2243,11 +2297,6 @@ class Agent:
 
             provider_name = provider.__class__.__name__.replace("aiprovider_", "")
 
-            # Log inference request with selected provider
-            logging.info(
-                f"[Inference] Agent '{self.agent_name}' using provider '{provider_name}' with {input_tokens} input tokens (attempt {attempt + 1}/{max_retries})"
-            )
-
             # Emit webhook event for inference start
             await webhook_emitter.emit_event(
                 event_type="agent.inference.started",
@@ -2287,11 +2336,6 @@ class Agent:
                     output_tokens = get_tokens(answer)
                     self.auth.increase_token_counts(
                         input_tokens=input_tokens, output_tokens=output_tokens
-                    )
-
-                    # Log inference completion with token counts
-                    logging.info(
-                        f"[Inference] Completed: {input_tokens} input tokens, {output_tokens} output tokens via '{provider_name}'"
                     )
 
                     answer = str(answer).replace("\\_", "_")
@@ -2372,10 +2416,6 @@ class Agent:
             return ""
 
         provider_name = provider.__class__.__name__.replace("aiprovider_", "")
-        logging.info(
-            f"[Vision Inference] Agent '{self.agent_name}' using provider '{provider_name}' with {input_tokens} input tokens"
-        )
-
         try:
             answer = await provider.inference(
                 prompt=prompt,
@@ -2386,10 +2426,6 @@ class Agent:
             output_tokens = get_tokens(answer)
             self.auth.increase_token_counts(
                 input_tokens=input_tokens, output_tokens=output_tokens
-            )
-
-            logging.info(
-                f"[Vision Inference] Completed: {input_tokens} input tokens, {output_tokens} output tokens via '{provider_name}'"
             )
 
             answer = str(answer).replace("\\_", "_")
@@ -2816,10 +2852,12 @@ class Agent:
             if new_extension["commands"] == [] and not settings_with_values:
                 continue
             new_extensions.append(new_extension)
+
         for extension in new_extensions:
             for command in extension["commands"]:
-                if command["friendly_name"] in self.AGENT_CONFIG["commands"]:
-                    raw_value = self.AGENT_CONFIG["commands"][command["friendly_name"]]
+                friendly_name = command["friendly_name"]
+                if friendly_name in self.AGENT_CONFIG["commands"]:
+                    raw_value = self.AGENT_CONFIG["commands"][friendly_name]
                     computed_enabled = str(raw_value).lower() == "true"
                     command["enabled"] = computed_enabled
                 else:
@@ -2955,14 +2993,11 @@ class Agent:
                         continue
 
                 # Now handle the agent command association
-                try:
-                    agent_command = (
-                        session.query(AgentCommand)
-                        .filter_by(agent_id=self.agent_id, command_id=command.id)
-                        .first()
-                    )
-                except:
-                    agent_command = None
+                agent_command = (
+                    session.query(AgentCommand)
+                    .filter_by(agent_id=self.agent_id, command_id=command.id)
+                    .first()
+                )
 
                 if agent_command:
                     agent_command.state = enabled
@@ -2973,15 +3008,9 @@ class Agent:
                         state=enabled,
                     )
                     session.add(agent_command)
-                    logging.info(
-                        f"[update_agent_config] Created new AgentCommand with state={enabled}"
-                    )
 
                 # Force flush to ensure the change is staged
                 session.flush()
-                logging.info(
-                    f"[update_agent_config] Flushed command state change for {command_name}"
-                )
         else:
             for setting_name, setting_value in new_config.items():
                 agent_setting = (
@@ -3004,30 +3033,14 @@ class Agent:
 
         try:
             session.commit()
-            logging.info(f"Agent {self.agent_name} configuration updated successfully.")
 
             # Invalidate ALL caches to ensure other workers see the updated data
             # This is critical for multi-worker scenarios
             invalidate_company_config_cache()  # Clear company config cache
             invalidate_commands_cache()  # Clear commands cache
-            logging.info(
-                f"[update_agent_config] Caches invalidated after config update"
-            )
-
-            # Verify the commit by re-querying
-            if config_key == "commands":
-                for command_name, enabled in new_config.items():
-                    command = _resolve_command_by_name(session, command_name)
-                    if command:
-                        verify_ac = (
-                            session.query(AgentCommand)
-                            .filter_by(agent_id=self.agent_id, command_id=command.id)
-                            .first()
-                        )
-                        logging.info(
-                            f"[update_agent_config] VERIFY after commit: {command_name} -> "
-                            f"state={verify_ac.state if verify_ac else 'NOT FOUND'}"
-                        )
+            invalidate_agent_data_cache(
+                agent_id=str(self.agent_id)
+            )  # Clear agent data cache
 
             # Emit webhook event for agent configuration update
             import asyncio
@@ -3235,6 +3248,13 @@ class Agent:
             session.close()
 
     def get_agent_id(self):
+        # Check cache first
+        cached = get_agent_data_cached(
+            agent_name=self.agent_name, user_id=str(self.user_id)
+        )
+        if cached and cached.get("agent_id"):
+            return cached["agent_id"]
+
         session = get_session()
         agent = (
             session.query(AgentModel)
@@ -3465,13 +3485,7 @@ class Agent:
             for available_command in self.available_commands
             if available_command["enabled"] == True
         ]
-        # Debug log the selected_commands filter
-        logging.info(
-            f"[get_commands_prompt] selected_commands filter: {selected_commands}"
-        )
-        logging.info(
-            f"[get_commands_prompt] All enabled commands count: {len(command_list)}"
-        )
+
         if self.company_id and self.company_agent:
             company_command_list = [
                 available_command["friendly_name"]
@@ -3580,12 +3594,6 @@ class Agent:
                                 f"<chain_name>{command_friendly_name}</chain_name>\n"
                             )
                     agent_commands += "</execute>\n"
-
-            # Log how many commands were included
-            if selected_commands:
-                logging.info(
-                    f"[get_commands_prompt] Using {len(selected_commands)} selected commands"
-                )
 
             agent_commands += f"""## Command Execution Guidelines
 - **The assistant has commands available to use if they would be useful to provide a better user experience.**
@@ -3813,9 +3821,6 @@ class Agent:
 
             if wallet_incomplete:
                 # Create a new wallet
-                logging.info(
-                    f"Wallet missing or incomplete for agent {self.agent_name} ({agent.id}). Creating new wallet..."
-                )
                 try:
                     private_key, passphrase, address = create_solana_wallet()
 
@@ -3851,9 +3856,6 @@ class Agent:
                         session.add(address_setting)
 
                     session.commit()
-                    logging.info(
-                        f"Successfully created new wallet for agent {self.agent_name} ({agent.id})."
-                    )
 
                     # Refresh the variables after successful creation
                     private_key_value = private_key_setting.value

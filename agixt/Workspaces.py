@@ -286,10 +286,8 @@ def add_to_workspace_manager(workspace_manager_class):
             _file_watcher_lock_file = open(lock_file_path, "w")
             fcntl.flock(_file_watcher_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             # We got the lock, so we should start the watcher
-            logging.info("Acquired file watcher lock, starting watcher...")
         except (IOError, OSError) as e:
             # Another worker already has the lock and is running the watcher
-            logging.info("File watcher already started by another worker")
             return
 
         if not hasattr(self, "observer") or not self.observer.is_alive():
@@ -302,7 +300,6 @@ def add_to_workspace_manager(workspace_manager_class):
                 self.observer.daemon = True  # Make sure it's a daemon thread
                 self.observer.start()
                 _file_watcher_started = True
-                logging.info("Workspace file watcher started successfully with inotify")
             except OSError as e:
                 if e.errno == 24:  # EMFILE - too many open files / inotify limit
                     logging.warning(
@@ -321,9 +318,6 @@ def add_to_workspace_manager(workspace_manager_class):
                         self.observer.daemon = True
                         self.observer.start()
                         _file_watcher_started = True
-                        logging.info(
-                            "Workspace file watcher started successfully with polling (fallback)"
-                        )
                     except Exception as poll_error:
                         logging.error(f"Failed to start polling observer: {poll_error}")
                         self.observer = None
@@ -366,10 +360,6 @@ def add_to_workspace_manager(workspace_manager_class):
                 if self.observer.is_alive():
                     self.observer.stop()
                     self.observer.join(timeout=5)  # Add timeout to prevent hanging
-                    if self.observer.is_alive():
-                        logging.warning("File watcher didn't stop cleanly")
-                    else:
-                        logging.info("Stopped workspace file watcher")
             except Exception as e:
                 logging.error(f"Error stopping file watcher: {e}")
         else:
@@ -383,7 +373,7 @@ def add_to_workspace_manager(workspace_manager_class):
                 _file_watcher_lock_file = None
                 _file_watcher_started = False
             except Exception as e:
-                logging.debug(f"Error releasing file watcher lock: {e}")
+                pass
 
     # Add the new methods to the class
     workspace_manager_class.start_file_watcher = start_file_watcher
@@ -1001,10 +991,6 @@ class WorkspaceManager(SecurityValidationMixin):
                             relative_path.as_posix(),
                             target_file,
                         )
-
-            logging.info(
-                f"Copied {files_copied} workspace files from {source_agent_id}/{source_conversation_id} to {target_agent_id}/{target_conversation_id}"
-            )
             return files_copied
 
         except Exception as e:
@@ -1176,16 +1162,11 @@ class WorkspaceManager(SecurityValidationMixin):
             try:
                 self.container = self.driver.create_container(container_name)
             except Exception as e:
-                logging.error(f"Failed to create container {container_name}: {e}")
-
                 # Fallback: If we're using local storage and the directory exists,
                 # try to use it directly despite the libcloud error
                 if self.backend == "local":
                     container_path = Path(self.workspace_dir, container_name)
                     if container_path.exists() and container_path.is_dir():
-                        logging.warning(
-                            f"Container directory exists at {container_path}, attempting to use it directly"
-                        )
                         # Force libcloud to recognize the existing directory
                         try:
                             # For local driver, we can force the container to be recognized
@@ -1193,9 +1174,6 @@ class WorkspaceManager(SecurityValidationMixin):
 
                             self.container = Container(
                                 name=container_name, extra={}, driver=self.driver
-                            )
-                            logging.info(
-                                f"Successfully using existing container directory"
                             )
                             return
                         except Exception as fallback_error:

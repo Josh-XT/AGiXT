@@ -552,9 +552,6 @@ class WebhookEventEmitter:
 
             # Send HTTP request
             async with httpx.AsyncClient(timeout=webhook.timeout) as client:
-                logger.info(
-                    f"Making HTTP request with payload: {json.dumps(payload, default=str)[:200]}..."
-                )
                 response = await client.post(
                     webhook.target_url, json=payload, headers=headers
                 )

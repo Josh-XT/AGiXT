@@ -712,9 +712,6 @@ class Interactions:
                 if len(interactions) > 0:
                     interactions = interactions[-conversation_results:]
                     conversation_history = "\n".join(interactions)
-                    logging.info(
-                        f"[format_prompt] Including {len(interactions)} conversation interactions (conversation_results={conversation_results})"
-                    )
                 conversation_history += "\n## The assistant's recent activities:\n"
                 conversation_history += c.get_activities_with_subactivities()
         if conversation_history != "":
@@ -889,9 +886,6 @@ class Interactions:
         )
 
         if estimated_context_tokens > max_context_tokens:
-            logging.info(
-                f"[format_prompt] Context exceeds max_context_tokens ({estimated_context_tokens} > {max_context_tokens}), reducing context..."
-            )
             # Build context sections dict for reduce_context
             context_sections = {
                 "memories": context_str,  # Already retrieved memories as string
@@ -917,9 +911,6 @@ class Interactions:
 
             new_tokens = get_tokens(
                 f"{prompt}{user_input}{context_str}{conversation_history}{agent_commands}{file_contents}"
-            )
-            logging.info(
-                f"[format_prompt] Context reduced. New estimated tokens: {new_tokens}"
             )
         user_datetime = get_current_user_time(user_id=self.user_id).strftime(
             "%B %d, %Y %I:%M %p"
@@ -974,7 +965,6 @@ You have access to context management commands to reduce token usage:
         # This enables the model to use <speak> tags for voice feedback during thinking
         tts_filler = args.get("tts_filler_instructions", "")
         if tts_filler:
-            logging.info("[format_prompt] Adding TTS filler instructions to prompt")
             formatted_prompt = formatted_prompt + "\n" + tts_filler
 
         return formatted_prompt, prompt, tokens
@@ -1514,9 +1504,6 @@ Example: memories, persona, files"""
         """
         # Get all available commands with descriptions
         commands_prompt, all_command_names = self.agent.get_commands_for_selection()
-        logging.info(
-            f"[select_commands_for_task] User input: {user_input[:200]}... Total commands available: {len(all_command_names)}"
-        )
 
         if not all_command_names:
             return []
@@ -1534,9 +1521,6 @@ Example: memories, persona, files"""
             # Method 1: Exact substring match
             if cmd_lower in user_input_lower:
                 explicitly_requested_commands.append(cmd_name)
-                logging.info(
-                    f"[select_commands_for_task] User explicitly mentioned command (exact): {cmd_name}"
-                )
                 continue
             # Method 2: Check if all significant words from command name appear in user input
             # This handles cases like "update and restart the production servers" matching
@@ -1559,9 +1543,6 @@ Example: memories, persona, files"""
                 user_input_words
             ):
                 explicitly_requested_commands.append(cmd_name)
-                logging.info(
-                    f"[select_commands_for_task] User explicitly mentioned command (word match): {cmd_name}"
-                )
 
         # Build context about files
         context_parts = []
@@ -1626,11 +1607,6 @@ Web Search, Read File, Write to File, Execute Python Code"""
         )
         available_tokens_per_batch = MAX_BATCH_TOKENS - base_overhead_tokens
 
-        logging.info(
-            f"[select_commands_for_task] Base overhead: {base_overhead_tokens} tokens, "
-            f"available per batch: {available_tokens_per_batch} tokens"
-        )
-
         # Parse commands_prompt into individual command blocks (by extension sections)
         # Format: ### ExtensionName\nDescription\n- **CmdName**: CmdDesc\n...
         command_blocks = []
@@ -1656,17 +1632,9 @@ Web Search, Read File, Write to File, Execute Python Code"""
         if current_block:
             command_blocks.append("\n".join(current_block))
 
-        logging.info(
-            f"[select_commands_for_task] Split {len(all_command_names)} commands into "
-            f"{len(command_blocks)} batches based on {MAX_BATCH_TOKENS} token limit"
-        )
-
         # Log individual batch sizes for debugging
         for i, block in enumerate(command_blocks):
             block_tokens = get_tokens(block)
-            logging.info(
-                f"[select_commands_for_task] Batch {i+1}: {block_tokens} tokens"
-            )
 
         # Get conversation for logging
         c = Conversations(
@@ -1750,9 +1718,6 @@ Web Search, Read File, Write to File, Execute Python Code"""
         for cmd in explicitly_requested_commands:
             if cmd not in valid_commands:
                 valid_commands.append(cmd)
-                logging.info(
-                    f"[select_commands_for_task] Force-including explicitly requested command: {cmd}"
-                )
 
         # Remove duplicates while preserving order
         seen = set()
@@ -1769,10 +1734,6 @@ Web Search, Read File, Write to File, Execute Python Code"""
                 role=self.agent_name,
                 message=f"[SUBACTIVITY][{thinking_id}] Selected {len(valid_commands)} abilities: {', '.join(valid_commands)}",
             )
-
-        logging.info(
-            f"[select_commands_for_task] Selected {len(valid_commands)} commands: {valid_commands}"
-        )
         return valid_commands
 
     async def run(
@@ -2243,10 +2204,6 @@ Web Search, Read File, Write to File, Execute Python Code"""
         self._client_tools = {}
 
         if command_overrides:
-            logging.info(
-                f"[run_stream] Processing command_overrides: {command_overrides}"
-            )
-
             # Check if any tool requests exclusive mode (disable all other commands)
             exclusive_mode = any(
                 tool.get("exclusive", False) for tool in command_overrides
@@ -2255,9 +2212,6 @@ Web Search, Read File, Write to File, Execute Python Code"""
 
             if exclusive_mode:
                 # Disable ALL commands first, then enable only the requested ones
-                logging.info(
-                    "[run_stream] Exclusive mode enabled - disabling all commands first"
-                )
                 for cmd in self.agent.available_commands:
                     cmd["enabled"] = False
 
@@ -2270,9 +2224,6 @@ Web Search, Read File, Write to File, Execute Python Code"""
                     if func_name:
                         # Store the full function definition for later use in execution_agent
                         self._client_tools[func_name] = func_def
-                        logging.info(
-                            f"[run_stream] Registered client-defined tool: {func_name}"
-                        )
 
                         # Add a pseudo-command to available_commands so the agent knows about it
                         # This allows the command to appear in the prompt and be called
@@ -2299,30 +2250,22 @@ Web Search, Read File, Write to File, Execute Python Code"""
                             "extension_name": "__client__",  # Special marker for client-defined tools
                         }
                         self.agent.available_commands.append(client_command)
-                        logging.info(
-                            f"[run_stream] Added client command to available_commands: {func_name}"
-                        )
                     continue
 
                 # Handle legacy format (type is the command name)
                 tool_type = tool.get("type")
-                logging.info(f"[run_stream] Looking for command: {tool_type}")
                 # Find the command in available_commands list and enable it
                 # This allows CLI/API to enable specific commands for this request
                 for available_command in self.agent.available_commands:
                     if available_command["friendly_name"] == tool_type:
                         # Always enable when specified in tools (not toggle)
                         available_command["enabled"] = True
-                        logging.info(f"[run_stream] Enabled command: {tool_type}")
                         # If enabling Execute Terminal Command, disable Execute Shell
                         # to ensure the agent uses the remote terminal instead
                         if tool_type == "Execute Terminal Command":
                             for cmd in self.agent.available_commands:
                                 if cmd["friendly_name"] == "Execute Shell":
                                     cmd["enabled"] = False
-                                    logging.info(
-                                        "[run_stream] Disabled Execute Shell in favor of Execute Terminal Command"
-                                    )
                                     break
                         break
 
@@ -2337,10 +2280,6 @@ Web Search, Read File, Write to File, Execute Python Code"""
 
         # Enable command selection if commands are available and this is the main user interaction
         enable_command_selection = kwargs.get("enable_command_selection", log_output)
-
-        logging.info(
-            f"[run_stream] Command selection check: disable_commands={'disable_commands' in kwargs}, searching={searching}, enable_command_selection={enable_command_selection}, has_commands_placeholder={has_commands_placeholder}"
-        )
 
         if (
             "disable_commands" not in kwargs
@@ -2373,7 +2312,6 @@ Web Search, Read File, Write to File, Execute Python Code"""
                     thinking_id=thinking_id,
                 )
             except Exception as e:
-                logging.error(f"[run_stream] Error in command selection: {e}")
                 selected_commands = None
 
         # Always include client-defined tools regardless of command selection
@@ -2382,9 +2320,6 @@ Web Search, Read File, Write to File, Execute Python Code"""
             for client_tool_name in self._client_tools.keys():
                 if client_tool_name not in selected_commands:
                     selected_commands.append(client_tool_name)
-                    logging.info(
-                        f"[run_stream] Force-included client tool: {client_tool_name}"
-                    )
 
         # Store selected_commands as instance variable to persist across continuation loops
         self._selected_commands = selected_commands
@@ -2395,20 +2330,14 @@ Web Search, Read File, Write to File, Execute Python Code"""
         # Add TTS filler instructions if TTS mode is enabled
         # This allows the model to generate <speak> tags with filler phrases during thinking
         tts_enabled = str(kwargs.get("tts", "false")).lower() == "true"
-        logging.info(
-            f"[run_stream] TTS check - kwargs.tts={kwargs.get('tts')}, tts_enabled={tts_enabled}"
-        )
+
         if not tts_enabled:
             # Also check agent settings for tts_provider
             agent_settings = self.agent.AGENT_CONFIG.get("settings", {})
             tts_provider = agent_settings.get("tts_provider", "")
             tts_enabled = tts_provider and tts_provider not in ("None", "", None)
-            logging.info(
-                f"[run_stream] TTS check from agent settings - tts_provider={tts_provider}, tts_enabled={tts_enabled}"
-            )
 
         if tts_enabled:
-            logging.info("[run_stream] Adding TTS filler instructions to kwargs")
             kwargs[
                 "tts_filler_instructions"
             ] = """
@@ -2489,9 +2418,6 @@ Example: If user says "list my files", use:
 </execute>
 """
                 formatted_prompt = f"{formatted_prompt}\n{cli_instructions}"
-                logging.info(
-                    "[run_stream] Injected CLI mode instructions for Execute Terminal Command"
-                )
 
         # Anonymize AGiXT server URL
         if self.outputs in formatted_prompt:
@@ -3255,9 +3181,6 @@ Example: If user says "list my files", use:
                 # This prevents the model from continuing to think after providing the answer
                 # IMPORTANT: This check must be AFTER the streaming logic so the final answer content is yielded
                 if has_complete_answer(full_response):
-                    logging.info(
-                        "[run_stream] Complete answer detected - stopping stream early"
-                    )
                     break
 
         except Exception as e:
@@ -3273,9 +3196,6 @@ Example: If user says "list my files", use:
         # The CLI will handle the command execution and submit the result
         # The next user interaction will pick up from there
         if remote_command_yielded:
-            logging.info(
-                "[run_stream] Remote command yielded - skipping continuation loop"
-            )
             # Yield a final completion indicator
             yield {
                 "type": "remote_command_pending",
@@ -3313,10 +3233,6 @@ Example: If user says "list my files", use:
             # Also check if there's NO answer at all - we need to prompt for one
             has_no_answer = "<answer>" not in self.response.lower()
 
-            logging.info(
-                f"[continuation_loop] count={continuation_count}, has_new_execution={has_new_execution}, has_incomplete_answer={has_incomplete_answer}, has_no_answer={has_no_answer}, has_complete={has_complete_answer(self.response)}"
-            )
-
             # Continue if: new execution, incomplete answer, OR no answer at all (need to prompt for one)
             should_continue = (
                 has_new_execution or has_incomplete_answer or has_no_answer
@@ -3324,16 +3240,9 @@ Example: If user says "list my files", use:
 
             if not should_continue:
                 # Has a complete answer or nothing more to do
-                logging.info(
-                    "[continuation_loop] Breaking: has complete answer or nothing to continue"
-                )
                 break
 
             continuation_count += 1
-            logging.info(
-                f"[continuation_loop] Continuing iteration {continuation_count}"
-            )
-
             # Compress the response to prevent context explosion
             # This summarizes long outputs and truncates verbose thinking
             compressed_response = self.compress_response_for_continuation(
@@ -3345,10 +3254,6 @@ Example: If user says "list my files", use:
             # Log compression stats
             original_tokens = get_tokens(self.response)
             compressed_tokens = get_tokens(compressed_response)
-            if original_tokens > compressed_tokens:
-                logging.info(
-                    f"[continuation_loop] Compressed response: {original_tokens} -> {compressed_tokens} tokens ({100 - (compressed_tokens * 100 // original_tokens)}% reduction)"
-                )
 
             if has_new_execution:
 
@@ -3484,16 +3389,10 @@ Analyze the actual output shown and continue with your response.
                             and open_tag not in continuation_detected_tags
                         ):
                             continuation_detected_tags.add(open_tag)
-                            logging.info(
-                                f"[continuation_loop] Tag detected: {open_tag}, current_tag was: {continuation_current_tag}"
-                            )
                             continuation_current_tag = tag_name
                             continuation_current_tag_content = ""
                             if tag_name == "answer":
                                 continuation_in_answer = True
-                                logging.info(
-                                    f"[continuation_loop] Answer tag detected, continuation_in_answer=True"
-                                )
                             break
 
                     # Check for closing tags in the window
@@ -3696,9 +3595,6 @@ Analyze the actual output shown and continue with your response.
                                 ]
                                 # Skip if it looks like an opening tag
                                 if delta and not re.match(r"^\s*<[a-zA-Z]", delta):
-                                    logging.info(
-                                        f"[continuation_loop] Yielding answer delta: {repr(delta[:50]) if len(delta) > 50 else repr(delta)}"
-                                    )
                                     yield {
                                         "type": "answer",
                                         "content": delta,
@@ -3717,28 +3613,17 @@ Analyze the actual output shown and continue with your response.
                 # Update processed_length to track what we've handled
                 processed_length = len(self.response)
 
-                logging.info(
-                    f"[continuation_loop] After iteration {continuation_count}: continuation_response length={len(continuation_response)}, total response length={len(self.response)}, has_complete={has_complete_answer(self.response)}, has_answer_tag={'<answer>' in self.response.lower()}"
-                )
-
                 # If we got a COMPLETE answer (properly closed, not inside thinking), we're done
                 # Use has_complete_answer to handle edge cases like <thinking> inside <answer>
                 if has_complete_answer(self.response):
-                    logging.info("[continuation_loop] Breaking: got complete answer")
                     break
 
                 # If we hit an execute tag, continue loop to handle it
                 if "</execute>" in continuation_response:
-                    logging.info(
-                        "[continuation_loop] Continuing: new execute tag found"
-                    )
                     continue
 
                 # If we still don't have an answer, continue to prompt for one
                 if "<answer>" not in self.response.lower():
-                    logging.info(
-                        "[continuation_loop] Continuing: still no answer tag in response"
-                    )
                     continue
 
             except Exception as e:
@@ -3748,25 +3633,14 @@ Analyze the actual output shown and continue with your response.
                 logging.error(traceback.format_exc())
                 break
 
-        # Log why we exited the loop
-        logging.info(
-            f"[continuation_loop] Exited loop: count={continuation_count}, max={max_continuation_loops}, has_complete={has_complete_answer(self.response)}, has_answer={'<answer>' in self.response.lower()}"
-        )
-
         # Extract final answer using proper top-level detection
         # This handles cases where <answer> appears inside <thinking> blocks
         final_answer = ""
         if "<answer>" in self.response.lower():
             final_answer = extract_top_level_answer(self.response)
-            logging.info(
-                f"[run_stream] extract_top_level_answer returned: {repr(final_answer[:100]) if final_answer else 'EMPTY'}..."
-            )
 
         if not final_answer:
             # No top-level answer found, use full response
-            logging.warning(
-                f"[run_stream] No top-level answer found, using full response (length={len(self.response)})"
-            )
             final_answer = self.response
 
         # Clean final answer - ALSO REMOVE <answer> tags that might be left over

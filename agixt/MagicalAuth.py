@@ -25,10 +25,12 @@ from DB import (
     PersonalAccessTokenCompanyAccess,
     CompanyExtensionCommand,
     CompanyExtensionSetting,
+    TrialDomain,
 )
 from payments.pricing import PriceService
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
+from sqlalchemy import text
 from sendgrid.helpers.mail import Mail
 from sendgrid import SendGridAPIClient
 from Models import (
@@ -63,6 +65,7 @@ from ExtensionsHub import (
     import_extension_module,
     get_extension_class_name,
 )
+from SharedCache import shared_cache
 
 
 logging.basicConfig(
@@ -70,11 +73,181 @@ logging.basicConfig(
     format=getenv("LOG_FORMAT"),
 )
 
-# Cache for Stripe subscription checks to avoid API spam
-# Key: user_id, Value: (timestamp, has_subscription)
-# Cache expires after 5 minutes
-_stripe_check_cache = {}
+# Cache TTLs for SharedCache
+# SharedCache handles cross-worker synchronization via Redis
 _stripe_check_cache_ttl = 300  # 5 minutes
+_user_company_cache_ttl = 10  # 10 seconds
+_user_id_cache_ttl = 60  # 60 seconds
+_token_validation_cache_ttl = 5  # 5 seconds
+
+
+def _serialize_user_dict(user_dict: dict) -> dict:
+    """Convert user dict to JSON-serializable format (handles datetime fields)."""
+    from datetime import datetime
+
+    result = {}
+    for key, value in user_dict.items():
+        if isinstance(value, datetime):
+            result[key] = value.isoformat()
+        else:
+            result[key] = value
+    return result
+
+
+def _deserialize_user_dict(cached_dict: dict) -> dict:
+    """Convert cached user dict back from JSON format (handles datetime fields)."""
+    from datetime import datetime
+
+    result = {}
+    datetime_fields = {"created_at", "updated_at", "tos_accepted_at"}
+    for key, value in cached_dict.items():
+        if key in datetime_fields and value is not None and isinstance(value, str):
+            try:
+                result[key] = datetime.fromisoformat(value)
+            except ValueError:
+                result[key] = value
+        else:
+            result[key] = value
+    return result
+
+
+def get_token_validation_cached(token: str):
+    """Get cached token validation result if still valid (uses SharedCache)."""
+    import hashlib
+
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    cached = shared_cache.get(f"token_validation:{token_hash}")
+    if cached:
+        return _deserialize_user_dict(cached)
+    return None
+
+
+def set_token_validation_cache(token: str, user_dict: dict):
+    """Cache token validation result (uses SharedCache)."""
+    import hashlib
+
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    serialized = _serialize_user_dict(user_dict)
+    shared_cache.set(
+        f"token_validation:{token_hash}", serialized, ttl=_token_validation_cache_ttl
+    )
+
+
+def invalidate_token_validation_cache(token: str = None):
+    """Invalidate token validation cache. If token is None, clear all (uses SharedCache)."""
+    import hashlib
+
+    if token is None:
+        shared_cache.delete_pattern("token_validation:*")
+    else:
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        shared_cache.delete(f"token_validation:{token_hash}")
+
+
+def get_user_id_cached(email: str):
+    """Get cached user ID from email if still valid (uses SharedCache)."""
+    return shared_cache.get(f"user_id:{email}")
+
+
+def set_user_id_cache(email: str, user_id: str):
+    """Cache user ID from email lookup (uses SharedCache)."""
+    shared_cache.set(f"user_id:{email}", user_id, ttl=_user_id_cache_ttl)
+
+
+def get_user_company_cached(user_id: str):
+    """Get cached user company ID if still valid (uses SharedCache)."""
+    return shared_cache.get(f"user_company:{user_id}")
+
+
+def set_user_company_cache(user_id: str, company_id: str):
+    """Cache user company ID (uses SharedCache)."""
+    shared_cache.set(f"user_company:{user_id}", company_id, ttl=_user_company_cache_ttl)
+
+
+def invalidate_user_company_cache(user_id: str = None):
+    """Invalidate user company cache. If user_id is None, clear all (uses SharedCache)."""
+    if user_id is None:
+        shared_cache.delete_pattern("user_company:*")
+    else:
+        shared_cache.delete(f"user_company:{user_id}")
+
+
+# User scopes cache TTL - 60 seconds (short enough to catch role changes quickly)
+_user_scopes_cache_ttl = 60
+
+
+def get_user_scopes_cached(user_id: str, company_id: str):
+    """Get cached user scopes if still valid (uses SharedCache)."""
+    cache_key = f"user_scopes:{user_id}:{company_id}"
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        # Convert list back to set
+        return set(cached) if isinstance(cached, list) else None
+    return None
+
+
+def set_user_scopes_cache(user_id: str, company_id: str, scopes: set):
+    """Cache user scopes (uses SharedCache). Converts set to list for JSON serialization."""
+    cache_key = f"user_scopes:{user_id}:{company_id}"
+    # Convert set to list for JSON serialization
+    shared_cache.set(cache_key, list(scopes), ttl=_user_scopes_cache_ttl)
+
+
+def invalidate_user_scopes_cache(user_id: str = None, company_id: str = None):
+    """
+    Invalidate user scopes cache.
+    - If both are None: clear all user scopes caches
+    - If only user_id: clear all scopes for that user across all companies
+    - If only company_id: clear all users' scopes in that company
+    - If both: clear specific user/company combo
+    """
+    if user_id is None and company_id is None:
+        shared_cache.delete_pattern("user_scopes:*")
+    elif user_id is not None and company_id is None:
+        shared_cache.delete_pattern(f"user_scopes:{user_id}:*")
+    elif user_id is None and company_id is not None:
+        shared_cache.delete_pattern(f"user_scopes:*:{company_id}")
+    else:
+        shared_cache.delete(f"user_scopes:{user_id}:{company_id}")
+
+
+def promote_superadmin_if_needed(session, user_id: str, email: str, company_id: str):
+    """
+    Check if the user's email matches SUPERADMIN_EMAIL and promote them to super admin (role 0).
+
+    This is called after a user is associated with a company to ensure the configured
+    superadmin email always has role 0 access.
+
+    Args:
+        session: Database session
+        user_id: The user's ID
+        email: The user's email address
+        company_id: The company ID to check/update the role for
+    """
+    superadmin_email = getenv("SUPERADMIN_EMAIL").lower()
+    if not superadmin_email or email.lower() != superadmin_email:
+        return
+
+    # Check if user already has role 0 in this company
+    user_company = (
+        session.query(UserCompany)
+        .filter(
+            UserCompany.user_id == user_id,
+            UserCompany.company_id == company_id,
+        )
+        .first()
+    )
+
+    if user_company and user_company.role_id != 0:
+        logging.info(
+            f"Promoting user {email} to super admin (role 0) in company {company_id} "
+            f"(was role {user_company.role_id}) due to SUPERADMIN_EMAIL configuration"
+        )
+        user_company.role_id = 0
+        session.commit()
+        # Invalidate caches since role changed
+        invalidate_user_scopes_cache(user_id=user_id, company_id=str(company_id))
+
 
 """
 Required environment variables:
@@ -91,6 +264,7 @@ Required environment variables:
 - STRIPE_API_KEY: Stripe API key
 - REGISTRATION_DISABLED: Registration disabled flag
 - APP_URI: App URI
+- SUPERADMIN_EMAIL: Email address to automatically promote to super admin (role 0)
 """
 
 
@@ -341,6 +515,40 @@ def send_email(email: str, subject: str, body: str, return_details: bool = False
         return make_result(False, None, error_msg)
 
 
+def is_email_configured():
+    """
+    Check if any email provider is properly configured.
+
+    Returns:
+        bool: True if at least one email provider is configured, False otherwise
+    """
+    # Check SendGrid
+    if getenv("SENDGRID_API_KEY") and getenv("SENDGRID_FROM_EMAIL"):
+        return True
+    # Check Mailgun
+    if (
+        getenv("MAILGUN_API_KEY")
+        and getenv("MAILGUN_DOMAIN")
+        and getenv("MAILGUN_FROM_EMAIL")
+    ):
+        return True
+    # Check Microsoft
+    if (
+        getenv("MICROSOFT_CLIENT_ID")
+        and getenv("MICROSOFT_CLIENT_SECRET")
+        and getenv("MICROSOFT_EMAIL_ADDRESS")
+    ):
+        return True
+    # Check Google
+    if (
+        getenv("GOOGLE_CLIENT_ID")
+        and getenv("GOOGLE_CLIENT_SECRET")
+        and getenv("GOOGLE_EMAIL_ADDRESS")
+    ):
+        return True
+    return False
+
+
 def is_admin(email: str = "USER", api_key: str = None):
     """
     Check if a user has admin-level access (role_id <= 2: super_admin, tenant_admin, or company_admin).
@@ -553,6 +761,11 @@ def verify_api_key(authorization: str = Header(None)):
                 db.close()
                 return user_dict
 
+            # Check cache first for JWT tokens (short TTL for security)
+            cached_user = get_token_validation_cached(authorization)
+            if cached_user is not None:
+                return cached_user
+
             # Check if token is blacklisted before validating
             db = get_session()
             blacklisted_token = (
@@ -578,6 +791,8 @@ def verify_api_key(authorization: str = Header(None)):
             user_dict = user.__dict__
             user_dict.pop("_sa_instance_state")
             db.close()
+            # Cache the validation result for a short time
+            set_token_validation_cache(authorization, user_dict.copy())
             return user_dict
         except Exception as e:
             logging.info(f"Error verifying API Key: {str(e)}")
@@ -668,6 +883,11 @@ def get_user_id(user):
         else:
             raise HTTPException(status_code=404, detail="User not found in dict.")
 
+    # Check cache first for email lookups
+    cached = get_user_id_cached(user)
+    if cached is not None:
+        return cached
+
     # Handle string (email)
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
@@ -676,6 +896,8 @@ def get_user_id(user):
         raise HTTPException(status_code=404, detail=f"User {user} not found.")
     try:
         user_id = user_data.id
+        # Cache the result
+        set_user_id_cache(user, user_id)
     except Exception as e:
         session.close()
         raise HTTPException(status_code=404, detail=f"User {user} not found.")
@@ -689,6 +911,10 @@ def get_user_company_id(user):
     if isinstance(user, dict):
         user_id = user.get("id")
         if user_id:
+            # Check cache first
+            cached = get_user_company_cached(str(user_id))
+            if cached is not None:
+                return cached if cached != "__NONE__" else None
             # Look up company from UserCompany table
             session = get_session()
             try:
@@ -700,8 +926,11 @@ def get_user_company_id(user):
                 if user_company and user_company.company_id is not None:
                     company_id_str = str(user_company.company_id)
                     if company_id_str.lower() in ["none", "null", ""]:
+                        set_user_company_cache(str(user_id), "__NONE__")
                         return None
+                    set_user_company_cache(str(user_id), company_id_str)
                     return company_id_str
+                set_user_company_cache(str(user_id), "__NONE__")
                 return None
             finally:
                 session.close()
@@ -716,6 +945,10 @@ def get_user_company_id(user):
         user_data = session.query(User).filter(User.email == user).first()
         if user_data is None:
             return None
+        # Check cache for this user_id
+        cached = get_user_company_cached(str(user_data.id))
+        if cached is not None:
+            return cached if cached != "__NONE__" else None
         user_company = (
             session.query(UserCompany)
             .filter(UserCompany.user_id == user_data.id)
@@ -724,8 +957,11 @@ def get_user_company_id(user):
         if user_company and user_company.company_id is not None:
             company_id_str = str(user_company.company_id)
             if company_id_str.lower() in ["none", "null", ""]:
+                set_user_company_cache(str(user_data.id), "__NONE__")
                 return None
+            set_user_company_cache(str(user_data.id), company_id_str)
             return company_id_str
+        set_user_company_cache(str(user_data.id), "__NONE__")
         return None
     finally:
         session.close()
@@ -988,12 +1224,336 @@ class MagicalAuth:
             )
             return user_company is not None
 
+    def get_user_data_optimized(self, ip_address: str = None) -> dict:
+        """
+        Optimized single-query method to fetch all user data for /v1/user endpoint.
+
+        This combines login validation, preferences, companies, agents, and scopes
+        into a single database session, dramatically reducing round-trips.
+
+        Returns dict with:
+        - user: User object
+        - preferences: dict of user preferences
+        - companies: list of company dicts with agents and scopes included
+        - is_super_admin: bool
+
+        Raises HTTPException on auth failures.
+        """
+        import threading
+        from Agent import get_agents_lightweight
+        from DB import default_role_scopes as db_default_role_scopes
+
+        if self.user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid token. Please log in.")
+
+        session = get_session()
+        try:
+            # === 1. Validate token (check blacklist) ===
+            blacklisted = (
+                session.query(TokenBlacklist)
+                .filter(TokenBlacklist.token == self.token)
+                .first()
+            )
+            if blacklisted:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Token has been revoked. Please log in again.",
+                )
+
+            # === 2. Get user with single query ===
+            user = session.query(User).filter(User.id == self.user_id).first()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            # === 3. Get user preferences ===
+            user_prefs_list = (
+                session.query(UserPreferences)
+                .filter(UserPreferences.user_id == self.user_id)
+                .all()
+            )
+            user_preferences = {x.pref_key: x.pref_value for x in user_prefs_list}
+
+            # Set defaults
+            if "input_tokens" not in user_preferences:
+                user_preferences["input_tokens"] = 0
+            if "output_tokens" not in user_preferences:
+                user_preferences["output_tokens"] = 0
+            if "phone_number" not in user_preferences:
+                user_preferences["phone_number"] = ""
+
+            # === 4. Get user companies with JOIN (single query) ===
+            user_companies = (
+                session.query(UserCompany)
+                .options(joinedload(UserCompany.company))
+                .filter(UserCompany.user_id == self.user_id)
+                .all()
+            )
+
+            # Check if super admin
+            is_super_admin = any(uc.role_id == 0 for uc in user_companies)
+
+            # === 5. Billing check (fast, synchronous) ===
+            wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
+            price_service = PriceService()
+            try:
+                token_price = price_service.get_token_price()
+            except Exception:
+                token_price = 1
+
+            billing_enabled = token_price > 0
+            wallet_paywall_enabled = (
+                bool(wallet_address)
+                and str(wallet_address).lower() != "none"
+                and billing_enabled
+            )
+
+            if wallet_paywall_enabled:
+                has_balance = self._has_sufficient_token_balance(
+                    session, user_companies
+                )
+                if not has_balance:
+                    user.is_active = False
+                    session.commit()
+                    raise HTTPException(
+                        status_code=402,
+                        detail={
+                            "message": "Insufficient token balance. Please top up your tokens.",
+                            "customer_session": {
+                                "client_secret": None,
+                                "company_id": self.company_id,
+                            },
+                            "wallet_address": wallet_address,
+                            "token_price_per_million_usd": float(token_price),
+                        },
+                    )
+                user_preferences["wallet_address"] = wallet_address
+                user_preferences["token_price_per_million_usd"] = float(token_price)
+
+            # === 6. User requirements check ===
+            user_requirements = self.registration_requirements()
+            missing_requirements = []
+            if user_requirements:
+                for key, value in user_requirements.items():
+                    if key not in user_preferences and key != "stripe_id":
+                        missing_requirements.append({key: value})
+
+            if (
+                "verify_email" not in user_preferences
+                and getenv("EMAIL_VERIFICATION_ENABLED").lower() == "true"
+            ):
+                missing_requirements.append({"verify_email": True})
+                threading.Thread(
+                    target=self._send_email_verification_async, daemon=True
+                ).start()
+            elif "verify_email" in user_preferences:
+                del user_preferences["verify_email"]
+
+            if missing_requirements:
+                user_preferences["missing_requirements"] = missing_requirements
+
+            # Clean up sensitive fields
+            for key in ["email", "first_name", "last_name"]:
+                if key in user_preferences:
+                    del user_preferences[key]
+
+            # === 7. Get agents for all companies (batch query) ===
+            company_ids = [str(uc.company_id) for uc in user_companies]
+            default_agent_id = user_preferences.get("agent_id")
+
+            agents_by_company = {}
+            if company_ids:
+                agents_by_company = get_agents_lightweight(
+                    user_id=str(self.user_id),
+                    company_ids=company_ids,
+                    default_agent_id=default_agent_id,
+                    include_commands=True,
+                )
+
+            # === 8. Get scopes for all companies (batch) ===
+            # Pre-fetch all scope data we need for all companies
+            all_default_role_scopes = (
+                session.query(DefaultRoleScope, Scope)
+                .join(Scope, DefaultRoleScope.scope_id == Scope.id)
+                .all()
+            )
+            role_to_scopes = {}
+            for drs, scope in all_default_role_scopes:
+                if drs.role_id not in role_to_scopes:
+                    role_to_scopes[drs.role_id] = set()
+                role_to_scopes[drs.role_id].add(scope.name)
+
+            # All scopes for super admin
+            all_scopes = None
+            if is_super_admin:
+                all_scopes_query = session.query(Scope).all()
+                all_scopes = {s.name for s in all_scopes_query}
+
+            # Pre-fetch custom role scopes for this user across all companies
+            custom_scopes_query = (
+                session.query(UserCustomRole.company_id, Scope.name)
+                .join(CustomRole, CustomRole.id == UserCustomRole.custom_role_id)
+                .join(CustomRoleScope, CustomRoleScope.custom_role_id == CustomRole.id)
+                .join(Scope, Scope.id == CustomRoleScope.scope_id)
+                .filter(
+                    UserCustomRole.user_id == self.user_id,
+                    CustomRole.is_active == True,
+                )
+                .all()
+            )
+            custom_scopes_by_company = {}
+            for company_id, scope_name in custom_scopes_query:
+                cid = str(company_id)
+                if cid not in custom_scopes_by_company:
+                    custom_scopes_by_company[cid] = set()
+                custom_scopes_by_company[cid].add(scope_name)
+
+            # Pre-fetch extension configurations for ext:* wildcard expansion
+            ext_configs_query = (
+                session.query(
+                    CompanyExtensionCommand.company_id,
+                    CompanyExtensionCommand.extension_name,
+                )
+                .filter(CompanyExtensionCommand.company_id.in_(company_ids))
+                .distinct()
+                .all()
+            )
+            ext_settings_query = (
+                session.query(
+                    CompanyExtensionSetting.company_id,
+                    CompanyExtensionSetting.extension_name,
+                )
+                .filter(CompanyExtensionSetting.company_id.in_(company_ids))
+                .distinct()
+                .all()
+            )
+            ext_by_company = {cid: set() for cid in company_ids}
+            for company_id, ext_name in ext_configs_query:
+                ext_by_company[str(company_id)].add(ext_name)
+            for company_id, ext_name in ext_settings_query:
+                ext_by_company[str(company_id)].add(ext_name)
+
+            # Pre-fetch ext scopes for wildcard expansion
+            ext_scopes_all = session.query(Scope).filter(Scope.name.like("ext:%")).all()
+
+            # === 9. Build companies response with scopes ===
+            companies = []
+            for uc in user_companies:
+                company = uc.company
+                if not company:
+                    continue
+
+                cid = str(company.id)
+                role_id = uc.role_id
+
+                # Calculate scopes for this company
+                if is_super_admin or role_id == 0:
+                    company_scopes = all_scopes
+                else:
+                    company_scopes = set(role_to_scopes.get(role_id, set()))
+
+                    # Handle wildcards from default_role_scopes definition
+                    if role_id in db_default_role_scopes:
+                        has_ext_wildcard = "ext:*" in db_default_role_scopes[role_id]
+
+                        for pattern in db_default_role_scopes[role_id]:
+                            if pattern == "ext:*":
+                                continue
+                            if (
+                                pattern.endswith(":*")
+                                or ":*:" in pattern
+                                or pattern == "*"
+                            ):
+                                if not pattern.startswith("ext:"):
+                                    company_scopes.add(pattern)
+
+                        # Expand ext:* to configured extensions only
+                        if has_ext_wildcard:
+                            configured_exts = ext_by_company.get(cid, set())
+                            if configured_exts:
+                                for scope in ext_scopes_all:
+                                    parts = scope.name.split(":")
+                                    if len(parts) >= 2 and parts[1] in configured_exts:
+                                        company_scopes.add(scope.name)
+
+                    # Add custom role scopes
+                    company_scopes.update(custom_scopes_by_company.get(cid, set()))
+
+                company_dict = {
+                    "id": cid,
+                    "company_id": (
+                        str(company.company_id) if company.company_id else None
+                    ),
+                    "name": company.name,
+                    "agent_name": company.agent_name,
+                    "status": company.status,
+                    "address": company.address,
+                    "phone_number": company.phone_number,
+                    "email": company.email,
+                    "website": company.website,
+                    "city": company.city,
+                    "state": company.state,
+                    "zip_code": company.zip_code,
+                    "country": company.country,
+                    "notes": company.notes,
+                    "user_limit": company.user_limit,
+                    "token_balance": company.token_balance,
+                    "token_balance_usd": company.token_balance_usd,
+                    "tokens_used_total": company.tokens_used_total,
+                    "role_id": role_id,
+                    "primary": cid == str(self.company_id),
+                    "agents": agents_by_company.get(cid, []),
+                    "scopes": list(company_scopes) if company_scopes else [],
+                }
+                companies.append(company_dict)
+
+            # === 10. Background Stripe check (non-blocking) ===
+            billing_paused = getenv("BILLING_PAUSED", "false").lower() == "true"
+            api_key = getenv("STRIPE_API_KEY")
+            if (
+                not billing_paused
+                and api_key
+                and api_key.lower() != "none"
+                and user.email != getenv("DEFAULT_USER")
+                and not user.email.endswith(".xt")
+            ):
+                user_email = user.email
+                user_id = self.user_id
+                stripe_id = user_preferences.get("stripe_id")
+                company_ids_for_stripe = [uc.company_id for uc in user_companies]
+
+                def _background_stripe_check():
+                    try:
+                        self._background_stripe_subscription_check(
+                            api_key,
+                            user_email,
+                            user_id,
+                            stripe_id,
+                            company_ids_for_stripe,
+                        )
+                    except Exception as e:
+                        logging.debug(f"Background Stripe check failed: {e}")
+
+                threading.Thread(target=_background_stripe_check, daemon=True).start()
+
+            return {
+                "user": user,
+                "preferences": user_preferences,
+                "companies": companies,
+                "is_super_admin": is_super_admin,
+            }
+
+        finally:
+            session.close()
+
     def get_user_scopes(self, company_id: str = None) -> set:
         """
         Get all scopes available to the current user for a specific company.
         This combines scopes from their default role and any custom roles.
         Also includes wildcard patterns from default_role_scopes for proper
         frontend scope checking (e.g., ext:* for company admins).
+
+        Results are cached for 60 seconds to improve performance since
+        permission checks happen frequently.
 
         Args:
             company_id: The company to check scopes for. Defaults to user's current company.
@@ -1008,6 +1568,11 @@ class MagicalAuth:
 
         if not company_id:
             company_id = self.company_id
+
+        # Check cache first
+        cached_scopes = get_user_scopes_cached(self.user_id, company_id)
+        if cached_scopes is not None:
+            return cached_scopes
 
         scopes = set()
 
@@ -1113,6 +1678,8 @@ class MagicalAuth:
             )
             scopes.update(s.name for s in custom_role_scopes)
 
+        # Cache the computed scopes for future calls
+        set_user_scopes_cache(self.user_id, company_id, scopes)
         return scopes
 
     def has_scope(self, scope: str, company_id: str = None) -> bool:
@@ -1518,6 +2085,27 @@ class MagicalAuth:
             session.close()
             raise HTTPException(status_code=404, detail="User not found")
         if str(user.id) == str(user_id):
+            # Check if this user should be promoted to super admin
+            superadmin_email = getenv("SUPERADMIN_EMAIL").lower()
+            if superadmin_email and user.email.lower() == superadmin_email:
+                # Check all user companies and promote to role 0 if not already
+                user_companies = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.user_id == user_id)
+                    .all()
+                )
+                for uc in user_companies:
+                    if uc.role_id != 0:
+                        logging.info(
+                            f"Promoting user {user.email} to super admin (role 0) in company {uc.company_id} "
+                            f"(was role {uc.role_id}) due to SUPERADMIN_EMAIL configuration"
+                        )
+                        uc.role_id = 0
+                        session.commit()
+                        invalidate_user_scopes_cache(
+                            user_id=str(user_id), company_id=str(uc.company_id)
+                        )
+            session.close()
             return user
         session.close()
         self.add_failed_login(ip_address=ip_address)
@@ -2196,8 +2784,18 @@ class MagicalAuth:
                 )
                 session.add(user_company)
                 session.commit()
-                agixt = InternalClient()
-                agixt.login(email=new_user.email, otp=pyotp.TOTP(mfa_token).now())
+                # Check if this user should be promoted to super admin
+                promote_superadmin_if_needed(
+                    session=session,
+                    user_id=str(new_user_db.id),
+                    email=self.email,
+                    company_id=str(company_id),
+                )
+                # Invalidate user company cache since company membership changed
+                invalidate_user_company_cache(str(new_user_db.id))
+                # Create agent directly without login overhead
+                agixt = InternalClient(api_key=None, user=new_user.email)
+                agixt._user = new_user.email
                 default_agent = get_default_agent()
                 if company_id is not None:
                     default_agent["settings"]["company_id"] = str(invitation.company_id)
@@ -2208,11 +2806,7 @@ class MagicalAuth:
                     agent_name=company.agent_name,
                     settings=default_agent["settings"],
                     commands=default_agent["commands"],
-                    training_urls=(
-                        default_agent["training_urls"]
-                        if "training_urls" in default_agent
-                        else []
-                    ),
+                    training_urls=default_agent.get("training_urls", []),
                 )
             else:
                 # If email ends in .xt, skip this part
@@ -2327,7 +2921,7 @@ class MagicalAuth:
 
     def delete_company(self, company_id):
         """
-        Delete a company and remove all associated user relationships.
+        Delete a company and remove all associated records.
 
         Authorization:
         - Super admins can delete any company (via has_scope)
@@ -2348,19 +2942,161 @@ class MagicalAuth:
             session.close()
             raise HTTPException(status_code=404, detail="Company not found")
 
-        # Get users in the company and remove them from the company
-        user_companies = (
-            session.query(UserCompany)
-            .filter(UserCompany.company_id == company.id)
-            .all()
-        )
-        for user_company in user_companies:
-            session.delete(user_company)
-        session.commit()
-        # Delete the company
-        session.delete(company)
-        session.commit()
-        session.close()
+        try:
+            # Delete in order of dependencies (most dependent first)
+
+            # Import all models needed for cascade delete
+            from DB import (
+                CompanyChain,
+                CompanyChainStep,
+                CompanyChainStepArgument,
+                CompanyPrompt,
+                CompanyPromptCategory,
+                CompanyPromptArgument,
+                CompanyExtensionCommand,
+                CompanyExtensionSetting,
+                CustomRole,
+                UserCustomRole,
+                Invitation,
+                WebhookOutgoing,
+                CompanyTokenUsage,
+                PaymentTransaction,
+                TrialDomain,
+            )
+
+            # Clear parent reference on child companies (set their company_id to null)
+            # This prevents orphaned child companies from pointing to a deleted parent
+            session.query(Company).filter(Company.company_id == company_id).update(
+                {"company_id": None}, synchronize_session=False
+            )
+
+            # Get all company chains first
+            company_chains = (
+                session.query(CompanyChain)
+                .filter(CompanyChain.company_id == company_id)
+                .all()
+            )
+            for chain in company_chains:
+                # Delete chain step arguments
+                session.query(CompanyChainStepArgument).filter(
+                    CompanyChainStepArgument.chain_step_id.in_(
+                        session.query(CompanyChainStep.id).filter(
+                            CompanyChainStep.chain_id == chain.id
+                        )
+                    )
+                ).delete(synchronize_session=False)
+                # Delete chain steps
+                session.query(CompanyChainStep).filter(
+                    CompanyChainStep.chain_id == chain.id
+                ).delete(synchronize_session=False)
+            # Delete chains
+            session.query(CompanyChain).filter(
+                CompanyChain.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete company prompt arguments (depends on prompts)
+            session.query(CompanyPromptArgument).filter(
+                CompanyPromptArgument.prompt_id.in_(
+                    session.query(CompanyPrompt.id).filter(
+                        CompanyPrompt.company_id == company_id
+                    )
+                )
+            ).delete(synchronize_session=False)
+            # Delete company prompts (depends on categories)
+            session.query(CompanyPrompt).filter(
+                CompanyPrompt.company_id == company_id
+            ).delete(synchronize_session=False)
+            session.query(CompanyPromptCategory).filter(
+                CompanyPromptCategory.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete extension settings and commands
+            session.query(CompanyExtensionCommand).filter(
+                CompanyExtensionCommand.company_id == company_id
+            ).delete(synchronize_session=False)
+            session.query(CompanyExtensionSetting).filter(
+                CompanyExtensionSetting.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete custom roles
+            session.query(CustomRole).filter(
+                CustomRole.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete invitations
+            session.query(Invitation).filter(
+                Invitation.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete webhooks
+            session.query(WebhookOutgoing).filter(
+                WebhookOutgoing.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete token usage records
+            session.query(CompanyTokenUsage).filter(
+                CompanyTokenUsage.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete payment transactions
+            session.query(PaymentTransaction).filter(
+                PaymentTransaction.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete trial domains
+            session.query(TrialDomain).filter(
+                TrialDomain.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete user company relationships
+            session.query(UserCompany).filter(
+                UserCompany.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete user custom role assignments for this company
+            session.query(UserCustomRole).filter(
+                UserCustomRole.company_id == company_id
+            ).delete(synchronize_session=False)
+
+            # Delete extension tables that may have company_id FK (using raw SQL since these are dynamically loaded)
+            extension_tables = [
+                "Ticket",
+                "TicketStatus",
+                "TicketPriority",
+                "TicketType",
+                "TicketTemplate",
+                "TicketNote",
+                "ActivityLog",
+                "Contact",
+                "Asset",
+                "AssetTemplate",
+                "AssetItem",
+                "AssetFile",
+                "approved_ip_range",
+                "Secret",
+                "SecretItem",
+                "Integration",
+                "webhook_outgoing",
+            ]
+            for table in extension_tables:
+                try:
+                    session.execute(
+                        text(f"DELETE FROM {table} WHERE company_id = :company_id"),
+                        {"company_id": company_id},
+                    )
+                except Exception:
+                    # Table may not exist or may not have company_id column
+                    pass
+
+            # Finally delete the company
+            session.delete(company)
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+
         return "Company deleted successfully"
 
     def delete_user_from_company(self, company_id: str, target_user_id: str):
@@ -2398,6 +3134,8 @@ class MagicalAuth:
 
         session.delete(user_company)
         session.commit()
+        # Invalidate user company cache since company membership changed
+        invalidate_user_company_cache(str(target_user_id))
 
         return "User removed from company successfully"
 
@@ -2544,6 +3282,8 @@ class MagicalAuth:
         if user_company:
             user_company.role_id = role_id
             session.commit()
+            # Invalidate user scopes cache since their role changed
+            invalidate_user_scopes_cache(user_id=user_id, company_id=company_id)
         else:
             session.close()
             raise HTTPException(
@@ -2672,7 +3412,10 @@ class MagicalAuth:
                     if key not in user_preferences and key != "stripe_id":
                         missing_requirements.append({key: value})
 
-            if "verify_email" not in user_preferences and getenv("SENDGRID_API_KEY"):
+            if (
+                "verify_email" not in user_preferences
+                and getenv("EMAIL_VERIFICATION_ENABLED").lower() == "true"
+            ):
                 missing_requirements.append({"verify_email": True})
                 # Don't block on sending email verification - do it async
                 threading.Thread(
@@ -2739,20 +3482,17 @@ class MagicalAuth:
         Background Stripe subscription check.
         Updates user's is_active status and stripe_id preference if needed.
         This runs async and doesn't block the response.
-        Uses caching to prevent API spam.
+        Uses SharedCache to prevent API spam across workers.
         """
-        import time
         import stripe
 
-        # Check cache first to avoid Stripe API spam
-        cache_key = user_id
-        now = time.time()
-        if cache_key in _stripe_check_cache:
-            cached_time, cached_result = _stripe_check_cache[cache_key]
-            if now - cached_time < _stripe_check_cache_ttl:
-                # Cache is still valid, skip Stripe API call
-                logging.debug(f"Stripe check cache hit for {user_email}")
-                return
+        # Check SharedCache first to avoid Stripe API spam
+        cache_key = f"stripe_check:{user_id}"
+        cached_result = shared_cache.get(cache_key)
+        if cached_result is not None:
+            # Cache is still valid, skip Stripe API call
+            logging.debug(f"Stripe check cache hit for {user_email}")
+            return
 
         stripe.api_key = api_key
 
@@ -2795,8 +3535,8 @@ class MagicalAuth:
                     if has_subscription:
                         break
 
-            # Cache the result
-            _stripe_check_cache[cache_key] = (now, has_subscription)
+            # Cache the result in SharedCache
+            shared_cache.set(cache_key, has_subscription, ttl=_stripe_check_cache_ttl)
 
             # Update user active status based on subscription
             if has_subscription:
@@ -3035,7 +3775,7 @@ class MagicalAuth:
                     if key != "stripe_id":
                         missing_requirements.append({key: value})
         if "verify_email" not in user_preferences:
-            if getenv("SENDGRID_API_KEY"):
+            if getenv("EMAIL_VERIFICATION_ENABLED").lower() == "true":
                 missing_requirements.append({"verify_email": True})
                 self.send_email_verification_link()
         else:
@@ -3051,7 +3791,8 @@ class MagicalAuth:
         return user_preferences
 
     def send_email_code(self):
-        if not getenv("SENDGRID_API_KEY"):
+        # Check if any email provider is configured
+        if not is_email_configured():
             return False
         session = get_session()
         user = session.query(User).filter(User.email == self.email).first()
@@ -3181,7 +3922,8 @@ class MagicalAuth:
 
     def send_email_verification_link(self):
         """
-        Use sendgrid to send a verification email to the user with a link to verify their email address
+        Send a verification email to the user with a link to verify their email address.
+        Uses the configured email provider (sendgrid, mailgun, microsoft, or google).
         Link will go to magic_link ?verify_email=Code associated with their account
         Just use the mfa_token encrypted with the user's email and the current date
         """
@@ -3788,6 +4530,111 @@ class MagicalAuth:
         session.close()
         return response
 
+    def get_accessible_company_ids(self, include_children: bool = True) -> List[str]:
+        """
+        Get list of all company IDs that the user has access to, including child companies
+        where the user is an admin of the parent company.
+
+        Args:
+            include_children: If True, include child companies where user is admin of parent.
+
+        Returns:
+            List of company IDs the user can access.
+        """
+        # Start with direct company memberships
+        direct_companies = self.get_user_companies()
+
+        if not include_children:
+            return direct_companies
+
+        accessible = set(direct_companies)
+
+        with get_session() as db:
+            # For each company where user is admin (role_id <= 1), add all child companies
+            admin_company_ids = []
+            for company_id in direct_companies:
+                user_company = (
+                    db.query(UserCompany)
+                    .filter(
+                        UserCompany.user_id == self.user_id,
+                        UserCompany.company_id == company_id,
+                    )
+                    .first()
+                )
+                # Role 0 = super admin, Role 1 = company admin
+                if user_company and user_company.role_id <= 1:
+                    admin_company_ids.append(company_id)
+
+            # Get all child companies recursively for admin companies
+            def get_child_companies(parent_id: str, visited: set) -> List[str]:
+                if parent_id in visited:
+                    return []
+                visited.add(parent_id)
+
+                children = (
+                    db.query(Company).filter(Company.company_id == parent_id).all()
+                )
+                result = []
+                for child in children:
+                    child_id = str(child.id)
+                    result.append(child_id)
+                    # Recursively get grandchildren
+                    result.extend(get_child_companies(child_id, visited))
+                return result
+
+            for admin_company_id in admin_company_ids:
+                visited = set()
+                child_ids = get_child_companies(admin_company_id, visited)
+                accessible.update(child_ids)
+
+        return list(accessible)
+
+    def can_access_company(self, company_id: str) -> bool:
+        """
+        Check if the user can access a specific company.
+        This includes direct membership OR being an admin of a parent company.
+
+        Args:
+            company_id: The company ID to check access for.
+
+        Returns:
+            True if user can access the company, False otherwise.
+        """
+        if company_id in self.get_user_companies():
+            return True
+
+        # Check if user is admin of any parent company in the hierarchy
+        with get_session() as db:
+            current_id = company_id
+            visited = set()
+
+            while current_id and current_id not in visited:
+                visited.add(current_id)
+
+                company = db.query(Company).filter(Company.id == current_id).first()
+                if not company:
+                    break
+
+                parent_id = str(company.company_id) if company.company_id else None
+                if not parent_id:
+                    break
+
+                # Check if user is admin of the parent company
+                user_company = (
+                    db.query(UserCompany)
+                    .filter(
+                        UserCompany.user_id == self.user_id,
+                        UserCompany.company_id == parent_id,
+                    )
+                    .first()
+                )
+                if user_company and user_company.role_id <= 1:
+                    return True
+
+                current_id = parent_id
+
+        return False
+
     def get_user_companies_with_roles(self) -> List[dict]:
         """
         Get list of company IDs that the user has access to.
@@ -3874,7 +4721,8 @@ class MagicalAuth:
     def get_invitations(self, company_id=None):
         if not company_id:
             company_id = self.get_user_company_id()
-        if str(company_id) not in self.get_user_companies():
+        # Check if user can access this company (direct or via parent admin)
+        if not self.can_access_company(str(company_id)):
             raise HTTPException(
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions.",
@@ -3908,7 +4756,8 @@ class MagicalAuth:
             )
             if not invitation:
                 raise HTTPException(status_code=404, detail="Invitation not found")
-            if str(invitation.company_id) not in self.get_user_companies():
+            # Check if user can access this company (direct or via parent admin)
+            if not self.can_access_company(str(invitation.company_id)):
                 raise HTTPException(
                     status_code=403,
                     detail="Unauthorized. Insufficient permissions.",
@@ -3932,7 +4781,8 @@ class MagicalAuth:
             return "Invitation deleted successfully"
 
     def create_invitation(self, invitation: InvitationCreate) -> InvitationResponse:
-        if str(invitation.company_id) not in self.get_user_companies():
+        # Check if user can access the requested company (direct or via parent admin)
+        if not self.can_access_company(str(invitation.company_id)):
             invitation.company_id = self.get_user_company_id()
         if getenv("STRIPE_API_KEY") != "":
             if not self.check_user_limit(invitation.company_id):
@@ -3943,7 +4793,17 @@ class MagicalAuth:
         with get_session() as db:
             try:
                 # Check if user has appropriate scope to create invitations
-                if not self.has_scope("users:write", invitation.company_id):
+                # First check direct scope, then check if admin of parent company
+                has_permission = self.has_scope("users:write", invitation.company_id)
+                if not has_permission:
+                    # Check if user is admin of a parent company
+                    if str(invitation.company_id) not in self.get_user_companies():
+                        # User doesn't have direct membership, check parent admin
+                        has_permission = self.can_access_company(
+                            str(invitation.company_id)
+                        )
+
+                if not has_permission:
                     raise HTTPException(
                         status_code=403,
                         detail="Unauthorized. Insufficient permissions.",
@@ -3992,6 +4852,8 @@ class MagicalAuth:
                     )
                     db.add(user_company)
                     db.commit()
+                    # Invalidate user company cache since company membership changed
+                    invalidate_user_company_cache(str(user.id))
                     # send an email letting the user know they have been added to the company
                     company = (
                         db.query(Company)
@@ -4145,10 +5007,6 @@ class MagicalAuth:
 <p>This invitation link will expire once used.</p>
 <p>If you did not expect this invitation, please ignore this email.</p>""",
         )
-        if not email_send:
-            logging.info(
-                f"Failed to send invitation link {invitation_link} to {invitation.email}"
-            )
         return invitation_link
 
     def get_users_agent(self, user_id: str):
@@ -4185,12 +5043,19 @@ class MagicalAuth:
                 )
                 db.add(user_company)
                 db.commit()
+                # Invalidate user company cache since company membership changed
+                invalidate_user_company_cache(str(self.user_id))
                 return True
             except SQLAlchemyError as e:
                 db.rollback()
                 raise HTTPException(status_code=500, detail=str(e))
 
     def get_user_company_id(self):
+        # Check cache first
+        if self.user_id:
+            cached = get_user_company_cached(str(self.user_id))
+            if cached is not None:
+                return cached if cached != "__NONE__" else None
         try:
             with get_session() as db:
                 user_company = (
@@ -4202,8 +5067,14 @@ class MagicalAuth:
                     company_id_str = str(user_company.company_id)
                     # Don't return "None" string
                     if company_id_str.lower() in ["none", "null", ""]:
+                        if self.user_id:
+                            set_user_company_cache(str(self.user_id), "__NONE__")
                         return None
+                    if self.user_id:
+                        set_user_company_cache(str(self.user_id), company_id_str)
                     return company_id_str
+                if self.user_id:
+                    set_user_company_cache(str(self.user_id), "__NONE__")
                 return None
         except Exception as e:
             return None
@@ -4251,11 +5122,40 @@ class MagicalAuth:
                 )
                 .first()
             )
-            if not user_company:
-                return None
-            return (
-                user_company.role_id if user_company else 3
-            )  # Default to regular user
+            if user_company:
+                return user_company.role_id
+
+            # If no direct membership, check if user is admin of a parent company
+            # Admin of parent company gets the same role in child companies
+            current_id = company_id
+            visited = set()
+
+            while current_id and current_id not in visited:
+                visited.add(current_id)
+
+                company = db.query(Company).filter(Company.id == current_id).first()
+                if not company:
+                    break
+
+                parent_id = str(company.company_id) if company.company_id else None
+                if not parent_id:
+                    break
+
+                # Check if user is admin of the parent company
+                parent_user_company = (
+                    db.query(UserCompany)
+                    .filter(
+                        UserCompany.user_id == self.user_id,
+                        UserCompany.company_id == parent_id,
+                    )
+                    .first()
+                )
+                if parent_user_company and parent_user_company.role_id <= 1:
+                    return parent_user_company.role_id
+
+                current_id = parent_id
+
+            return None
 
     def convert_uuid_to_str(self, obj):
         if isinstance(obj, dict):
@@ -4861,44 +5761,45 @@ class MagicalAuth:
                 )
                 db.add(user_company)
                 db.commit()
-                agixt = InternalClient()
+                # Check if this user should be promoted to super admin
+                promote_superadmin_if_needed(
+                    session=db,
+                    user_id=str(self.user_id),
+                    email=self.email,
+                    company_id=str(new_company.id),
+                )
+                # Invalidate user company cache since company membership changed
+                invalidate_user_company_cache(str(self.user_id))
+
+                # Create company XT API user inline (avoid separate MagicalAuth instance)
                 company_email = f"{str(new_company.id)}@{str(new_company.id)}.xt"
-                auth = MagicalAuth()
-                auth.register(
-                    new_user=Register(
-                        email=company_email,
-                        first_name="XT",
-                        last_name="API",
-                    ),
-                    verify_email=False,
+                mfa_token = pyotp.random_base32()
+                company_user = User(
+                    email=company_email,
+                    first_name="XT",
+                    last_name="API",
+                    mfa_token=mfa_token,
+                    is_active=True,
                 )
-                # Get mfa token by email
-                company_user = (
-                    db.query(User).filter(User.email == company_email).first()
-                )
-                mfa_token = company_user.mfa_token
+                db.add(company_user)
                 new_company.token = mfa_token
                 db.commit()
-                totp = pyotp.TOTP(mfa_token)
-                agixt.login(email=company_email, otp=totp.now())
+
+                # Create company-level agent with direct InternalClient setup
+                agixt = InternalClient(api_key=None, user=company_email)
+                # Set user directly to avoid login overhead - we just need to create the agent
+                agixt._user = company_email
                 default_agent = get_default_agent()
                 agixt.add_agent(
                     agent_name=agent_name,
-                    settings=(
-                        default_agent["settings"] if "settings" in default_agent else {}
-                    ),
-                    commands=(
-                        default_agent["commands"] if "commands" in default_agent else {}
-                    ),
-                    training_urls=(
-                        default_agent["training_urls"]
-                        if "training_urls" in default_agent
-                        else []
-                    ),
+                    settings=default_agent.get("settings", {}),
+                    commands=default_agent.get("commands", {}),
+                    training_urls=default_agent.get("training_urls", []),
                 )
                 response = {
                     "id": str(new_company.id),
                     "name": new_company.name,
+                    "_default_agent": default_agent,  # Pass to caller to avoid redundant call
                 }
                 return response
             except SQLAlchemyError as e:
@@ -4938,19 +5839,19 @@ class MagicalAuth:
             country=country,
             notes=notes,
         )
-        agixt = self.get_user_agent_session()
-        # Just create an agent associated with the company like we do at registration
-        default_agent = get_default_agent()
+
+        # Create user-level agent - reuse default_agent from create_company to avoid redundant call
+        default_agent = company.pop("_default_agent", None) or get_default_agent()
         default_agent["settings"]["company_id"] = company["id"]
+
+        # Use direct InternalClient setup to avoid login overhead
+        agixt = InternalClient(api_key=None, user=self.email)
+        agixt._user = self.email
         agixt.add_agent(
             agent_name=agent_name,
             settings=default_agent["settings"],
             commands=default_agent["commands"],
-            training_urls=(
-                default_agent["training_urls"]
-                if "training_urls" in default_agent
-                else []
-            ),
+            training_urls=default_agent.get("training_urls", []),
         )
         return company
 
@@ -6082,10 +6983,12 @@ def validate_personal_access_token(token: str) -> dict:
             "token_name": pat.name,
         }
     except Exception as e:
+        # Log full error details on the server, but do not expose them to the caller
         logging.error(f"Error validating personal access token: {str(e)}")
         return {
             "valid": False,
-            "error": f"Validation error: {str(e)}",
+            # Return a generic error message to avoid leaking internal details
+            "error": "Internal validation error",
         }
     finally:
         session.close()

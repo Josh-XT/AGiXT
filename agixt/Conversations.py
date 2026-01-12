@@ -12,15 +12,42 @@ from DB import (
 from Globals import getenv, DEFAULT_USER
 from sqlalchemy.sql import func, or_
 from MagicalAuth import convert_time, get_user_id
+from SharedCache import shared_cache
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
 
+# Cache TTL for conversation ID lookups (uses SharedCache)
+_conversation_id_cache_ttl = 30  # 30 seconds
+
+
+def _get_conversation_cache_key(conversation_name: str, user_id: str) -> str:
+    return f"conversation_id:{user_id}:{conversation_name}"
+
+
+def invalidate_conversation_cache(user_id: str = None, conversation_name: str = None):
+    """Invalidate conversation cache entries (uses SharedCache)."""
+    if user_id is None:
+        shared_cache.delete_pattern("conversation_id:*")
+    elif conversation_name:
+        cache_key = _get_conversation_cache_key(conversation_name, str(user_id))
+        shared_cache.delete(cache_key)
+    else:
+        # Invalidate all entries for this user
+        shared_cache.delete_pattern(f"conversation_id:{user_id}:*")
+
 
 def get_conversation_id_by_name(conversation_name, user_id):
     user_id = str(user_id)
+    cache_key = _get_conversation_cache_key(conversation_name, user_id)
+
+    # Check SharedCache first
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     session = get_session()
     user = session.query(User).filter(User.id == user_id).first()
     conversation = (
@@ -40,6 +67,9 @@ def get_conversation_id_by_name(conversation_name, user_id):
     else:
         conversation_id = str(conversation.id)
     session.close()
+
+    # Cache the result in SharedCache
+    shared_cache.set(cache_key, conversation_id, ttl=_conversation_id_cache_ttl)
     return conversation_id
 
 
@@ -95,8 +125,12 @@ class Conversations:
         self.conversation_id = conversation_id
         self.conversation_name = conversation_name
 
+        # Cache user_id for this instance to avoid repeated DB lookups
+        # get_user_id already uses SharedCache for cross-worker consistency
+        self._user_id = get_user_id(user)
+
         # Resolve missing ID or name from the other
-        user_id = get_user_id(user)
+        user_id = self._user_id
         if not self.conversation_id and self.conversation_name:
             self.conversation_id = get_conversation_id_by_name(
                 conversation_name=conversation_name, user_id=user_id
@@ -124,10 +158,9 @@ class Conversations:
 
         session = get_session()
         try:
-            user_data = session.query(User).filter(User.email == self.user).first()
-            if not user_data:
+            user_id = self._user_id
+            if not user_id:
                 return self.conversation_name
-            user_id = user_data.id
 
             conversation = (
                 session.query(Conversation)
@@ -145,8 +178,7 @@ class Conversations:
 
     def export_conversation(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
         conversation = (
@@ -177,8 +209,7 @@ class Conversations:
 
     def get_conversations(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         # Use a LEFT OUTER JOIN to get conversations and their messages
         conversations = (
@@ -197,8 +228,7 @@ class Conversations:
 
     def get_conversations_with_ids(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         # Use a LEFT OUTER JOIN to get conversations and their messages
         conversations = (
@@ -242,52 +272,68 @@ class Conversations:
         return agent_id
 
     def get_conversations_with_detail(self):
+        """
+        OPTIMIZED: Single query to get all conversation details with notifications
+        and last message timestamps in one batch instead of N+1 queries.
+        """
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
+        if not user_id:
+            session.close()
+            return {}
 
-        # Add notification check to the query
+        # Get default agent_id once (not per conversation - they all share the same user)
+        default_agent = session.query(Agent).filter(Agent.user_id == user_id).first()
+        default_agent_id = str(default_agent.id) if default_agent else None
+
+        # Subquery to get max message timestamp per conversation
+        last_message_subq = (
+            session.query(
+                Message.conversation_id,
+                func.max(Message.timestamp).label("last_message_time"),
+            )
+            .group_by(Message.conversation_id)
+            .subquery()
+        )
+
+        # Single query: conversations with notification count and last message time
         conversations = (
             session.query(
                 Conversation,
                 func.count(Message.id)
                 .filter(Message.notify == True)
                 .label("notification_count"),
+                last_message_subq.c.last_message_time,
             )
             .outerjoin(Message, Message.conversation_id == Conversation.id)
+            .outerjoin(
+                last_message_subq,
+                last_message_subq.c.conversation_id == Conversation.id,
+            )
             .filter(Conversation.user_id == user_id)
             .filter(Message.id != None)
-            .group_by(Conversation)
+            .group_by(Conversation.id, last_message_subq.c.last_message_time)
             .all()
         )
-        # If the agent's company_id does not match
-        result = {
-            str(conversation.id): {
+
+        # Build result dict with all data from single query
+        result = {}
+        for conversation, notification_count, last_message_time in conversations:
+            # Use last message time if available, otherwise use conversation updated_at
+            effective_updated_at = last_message_time or conversation.updated_at
+            result[str(conversation.id)] = {
                 "name": conversation.name,
-                "agent_id": self.get_agent_id(user_id),
+                "agent_id": default_agent_id,
                 "created_at": convert_time(conversation.created_at, user_id=user_id),
-                "updated_at": convert_time(conversation.updated_at, user_id=user_id),
+                "updated_at": convert_time(effective_updated_at, user_id=user_id),
                 "has_notifications": notification_count > 0,
                 "summary": (
-                    conversation.summary if Conversation.summary else "None available"
+                    conversation.summary if conversation.summary else "None available"
                 ),
-                "attachment_count": conversation.attachment_count,
+                "attachment_count": conversation.attachment_count or 0,
             }
-            for conversation, notification_count in conversations
-        }
-        for id, conversation in result.items():
-            # Get the last message for each conversation to update the updated_at field
-            last_message = (
-                session.query(Message)
-                .filter(Message.conversation_id == id)
-                .order_by(Message.timestamp.desc())
-                .first()
-            )
-            if last_message:
-                conversation["updated_at"] = convert_time(
-                    last_message.timestamp, user_id=user_id
-                )
-        # Reorder the result by updated_at with latest first
+
+        # Sort by updated_at descending (most recent first)
         result = dict(
             sorted(
                 result.items(),
@@ -301,8 +347,7 @@ class Conversations:
 
     def get_notifications(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         # Get all messages with notify=True for this user's conversations
         notifications = (
@@ -346,8 +391,7 @@ class Conversations:
             }
         """
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         # Get conversation ID
         if self.conversation_id:
@@ -475,8 +519,7 @@ class Conversations:
 
     def get_conversation(self, limit=1000, page=1):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
 
@@ -552,8 +595,7 @@ class Conversations:
 
     def fork_conversation(self, message_id):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         # Get the original conversation
         original_conversation = (
@@ -566,7 +608,6 @@ class Conversations:
         )
 
         if not original_conversation:
-            logging.info(f"No conversation found to fork.")
             session.close()
             return None
 
@@ -581,7 +622,6 @@ class Conversations:
         )
 
         if not target_message:
-            logging.info(f"Target message not found.")
             session.close()
             return None
 
@@ -597,7 +637,6 @@ class Conversations:
         )
 
         if not messages:
-            logging.info(f"No messages found in the conversation to fork.")
             session.close()
             return None
 
@@ -629,9 +668,6 @@ class Conversations:
             session.commit()
             forked_conversation_id = str(new_conversation.id)
 
-            logging.info(
-                f"Conversation forked successfully. New conversation ID: {forked_conversation_id}"
-            )
             return new_conversation_name
 
         except Exception as e:
@@ -643,8 +679,7 @@ class Conversations:
 
     def get_activities(self, limit=100, page=1):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
         conversation = (
@@ -687,8 +722,7 @@ class Conversations:
 
     def get_subactivities(self, activity_id):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
         conversation = (
@@ -750,8 +784,7 @@ class Conversations:
             summarize: If True, compress long subactivity content
         """
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
         conversation = (
@@ -883,8 +916,7 @@ class Conversations:
 
     def new_conversation(self, conversation_content=[]):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         # Create a new conversation
         conversation = Conversation(name=self.conversation_name, user_id=user_id)
@@ -979,9 +1011,6 @@ class Conversations:
                         timestamp=interaction.get("timestamp"),
                     )
                     completed_activity_id = message_id
-                    logging.info(
-                        f"Using existing completed activities with ID {completed_activity_id}"
-                    )
                 elif message != "[ACTIVITY] Completed activities.":
                     # Normal message processing - skip if it's a Completed activities we already have
                     self.log_interaction(
@@ -1034,8 +1063,7 @@ class Conversations:
         import traceback
 
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         # Use get_conversation_id() to get the stable conversation ID
         # This prevents issues during conversation renames
@@ -1123,8 +1151,7 @@ class Conversations:
             else:
                 message = message.replace("[SUBACTIVITY] ", "[ACTIVITY] ")
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         # Get conversation_id first - it's stable even if name changes
         conversation_id = self.get_conversation_id()
         # Look up by ID instead of name to handle renames during a request
@@ -1208,8 +1235,7 @@ class Conversations:
 
     def delete_conversation(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
         conversation = (
@@ -1221,7 +1247,6 @@ class Conversations:
             .first()
         )
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
 
@@ -1233,11 +1258,14 @@ class Conversations:
         ).delete()
         session.commit()
         session.close()
+        # Invalidate cache for this conversation
+        invalidate_conversation_cache(
+            user_id=str(user_id), conversation_name=self.conversation_name
+        )
 
     def delete_message(self, message):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         conversation = (
             session.query(Conversation)
@@ -1249,7 +1277,6 @@ class Conversations:
         )
 
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
         message_id = (
@@ -1270,9 +1297,6 @@ class Conversations:
         )
 
         if not message:
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             session.close()
             return
         session.delete(message)
@@ -1281,8 +1305,7 @@ class Conversations:
 
     def get_message_by_id(self, message_id):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         conversation = (
             session.query(Conversation)
@@ -1294,7 +1317,6 @@ class Conversations:
         )
 
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
         message = (
@@ -1307,9 +1329,6 @@ class Conversations:
         )
 
         if not message:
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             session.close()
             return
         session.close()
@@ -1318,8 +1337,7 @@ class Conversations:
     def get_last_agent_name(self):
         # Get the last role in the conversation that isn't "user"
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
         conversation = (
@@ -1349,8 +1367,7 @@ class Conversations:
 
     def delete_message_by_id(self, message_id):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         conversation = (
             session.query(Conversation)
@@ -1362,7 +1379,6 @@ class Conversations:
         )
 
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
         message = (
@@ -1375,9 +1391,6 @@ class Conversations:
         )
 
         if not message:
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             session.close()
             return
         session.delete(message)
@@ -1390,8 +1403,7 @@ class Conversations:
         This is used when regenerating responses from an edited user message.
         """
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
 
         conversation = (
             session.query(Conversation)
@@ -1403,7 +1415,6 @@ class Conversations:
         )
 
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
 
@@ -1418,9 +1429,6 @@ class Conversations:
         )
 
         if not target_message:
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             session.close()
             return
 
@@ -1513,8 +1521,7 @@ class Conversations:
 
     def toggle_feedback_received(self, message):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1524,7 +1531,6 @@ class Conversations:
             .first()
         )
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
         message_id = (
@@ -1544,9 +1550,6 @@ class Conversations:
             .first()
         )
         if not message:
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             session.close()
             return
         message.feedback_received = not message.feedback_received
@@ -1555,8 +1558,7 @@ class Conversations:
 
     def has_received_feedback(self, message):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1566,7 +1568,6 @@ class Conversations:
             .first()
         )
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
         message_id = (
@@ -1587,9 +1588,6 @@ class Conversations:
         )
         if not message:
             session.close()
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             return
         feedback_received = message.feedback_received
         session.close()
@@ -1597,8 +1595,7 @@ class Conversations:
 
     def update_message(self, message, new_message):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1608,7 +1605,6 @@ class Conversations:
             .first()
         )
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
         message_id = (
@@ -1628,9 +1624,6 @@ class Conversations:
             .first()
         )
         if not message:
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             session.close()
             return
         message.content = new_message
@@ -1639,8 +1632,7 @@ class Conversations:
 
     def update_message_by_id(self, message_id, new_message):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1650,7 +1642,6 @@ class Conversations:
             .first()
         )
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
 
@@ -1664,9 +1655,6 @@ class Conversations:
         )
 
         if not message:
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             session.close()
             return
 
@@ -1696,8 +1684,7 @@ class Conversations:
         else:
             conversation_name = self.conversation_name
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1718,8 +1705,7 @@ class Conversations:
 
     def rename_conversation(self, new_name: str):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         # Use conversation_id for lookup if available - more stable than name
         conversation_id = self.get_conversation_id()
         conversation = (
@@ -1746,15 +1732,18 @@ class Conversations:
             session.commit()
         conversation.name = new_name
         # Also update internal state so future lookups use the new name
+        old_name = self.conversation_name
         self.conversation_name = new_name
         session.commit()
         session.close()
+        # Invalidate cache for both old and new names
+        invalidate_conversation_cache(user_id=str(user_id), conversation_name=old_name)
+        invalidate_conversation_cache(user_id=str(user_id), conversation_name=new_name)
         return new_name
 
     def get_last_activity_id(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
         conversation = (
@@ -1784,8 +1773,7 @@ class Conversations:
 
     def set_conversation_summary(self, summary: str):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1809,8 +1797,7 @@ class Conversations:
 
     def get_conversation_summary(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1828,8 +1815,7 @@ class Conversations:
 
     def get_attachment_count(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1847,8 +1833,7 @@ class Conversations:
 
     def update_attachment_count(self, count: int):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1872,8 +1857,7 @@ class Conversations:
 
     def increment_attachment_count(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == self.user).first()
-        user_id = user_data.id
+        user_id = self._user_id
         conversation = (
             session.query(Conversation)
             .filter(
@@ -1916,11 +1900,10 @@ class Conversations:
         """
         session = get_session()
         try:
-            # Get current user
-            user_data = session.query(User).filter(User.email == self.user).first()
-            if not user_data:
+            # Use cached user_id
+            user_id = self._user_id
+            if not user_id:
                 raise ValueError("User not found")
-            user_id = user_data.id
 
             # Get source conversation
             source_conversation = (
@@ -2035,16 +2018,8 @@ class Conversations:
                         .first()
                     )
 
-                    logging.info(
-                        f"🔍 Looking for source agent in conversation {source_conversation.id}"
-                    )
-                    logging.info(
-                        f"🔍 Found source agent message: {source_agent_name is not None}"
-                    )
-
                     if source_agent_name:
                         source_agent_name = source_agent_name.role
-                        logging.info(f"🔍 Source agent name: {source_agent_name}")
 
                         # Get agent IDs
                         source_agent = (
@@ -2055,10 +2030,6 @@ class Conversations:
                             )
                             .first()
                         )
-                        logging.info(
-                            f"🔍 Source agent found: {source_agent is not None}, ID: {source_agent.id if source_agent else 'N/A'}"
-                        )
-
                         # For target, use the same agent name but with target user
                         target_agent = (
                             session.query(Agent)
@@ -2068,15 +2039,9 @@ class Conversations:
                             )
                             .first()
                         )
-                        logging.info(
-                            f"🔍 Target agent found: {target_agent is not None}"
-                        )
 
                         # If target agent doesn't exist for DEFAULT_USER, create it
                         if not target_agent and share_type == "public":
-                            logging.info(
-                                f"🔧 Creating target agent {source_agent_name} for DEFAULT_USER"
-                            )
                             target_agent = Agent(
                                 name=source_agent_name,
                                 user_id=target_user_id,
@@ -2084,23 +2049,8 @@ class Conversations:
                             )
                             session.add(target_agent)
                             session.commit()  # Commit agent before workspace copy
-                            logging.info(
-                                f"✅ Created target agent {source_agent_name} for DEFAULT_USER with ID {target_agent.id}"
-                            )
-                        elif target_agent:
-                            logging.info(
-                                f"✅ Using existing target agent with ID {target_agent.id}"
-                            )
 
                         if source_agent and target_agent:
-                            logging.info(f"📁 Attempting to copy workspace files:")
-                            logging.info(
-                                f"   Source: agent_id={source_agent.id}, conversation_id={source_conversation.id}"
-                            )
-                            logging.info(
-                                f"   Target: agent_id={target_agent.id}, conversation_id={shared_conversation.id}"
-                            )
-
                             files_copied = (
                                 workspace_manager.copy_conversation_workspace(
                                     source_agent_id=str(source_agent.id),
@@ -2108,9 +2058,6 @@ class Conversations:
                                     target_agent_id=str(target_agent.id),
                                     target_conversation_id=str(shared_conversation.id),
                                 )
-                            )
-                            logging.info(
-                                f"✅ Copied {files_copied} workspace files for shared conversation"
                             )
                         else:
                             logging.warning(
@@ -2157,10 +2104,9 @@ class Conversations:
         """
         session = get_session()
         try:
-            user_data = session.query(User).filter(User.email == self.user).first()
-            if not user_data:
+            user_id = self._user_id
+            if not user_id:
                 return []
-            user_id = user_data.id
 
             # Get all shares where this user is the recipient
             shares = (
@@ -2377,10 +2323,9 @@ class Conversations:
         """
         session = get_session()
         try:
-            user_data = session.query(User).filter(User.email == self.user).first()
-            if not user_data:
+            user_id = self._user_id
+            if not user_id:
                 raise ValueError("User not found")
-            user_id = user_data.id
 
             # Find the share
             share = (

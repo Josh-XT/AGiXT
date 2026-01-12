@@ -30,6 +30,14 @@ class TaskModel(BaseModel):
     priority: Optional[int] = 1
     estimated_hours: Optional[str] = None
     conversation_id: str = None
+    # Task type: 'prompt' (default), 'command', or 'deployment'
+    task_type: Optional[str] = "prompt"
+    # For command tasks: the shell command/script to execute
+    command_script: Optional[str] = None
+    # For deployment tasks: reference to deployment ID
+    deployment_id: Optional[str] = None
+    # Target machines for command/deployment tasks (JSON array of machine IDs)
+    target_machines: Optional[str] = None
 
 
 class ReoccurringTaskModel(BaseModel):
@@ -44,6 +52,14 @@ class ReoccurringTaskModel(BaseModel):
     priority: Optional[int] = 1
     estimated_hours: Optional[str] = None
     conversation_id: Optional[str] = None
+    # Task type: 'prompt' (default), 'command', or 'deployment'
+    task_type: Optional[str] = "prompt"
+    # For command tasks: the shell command/script to execute
+    command_script: Optional[str] = None
+    # For deployment tasks: reference to deployment ID
+    deployment_id: Optional[str] = None
+    # Target machines for command/deployment tasks (JSON array of machine IDs)
+    target_machines: Optional[str] = None
 
 
 class ModifyTaskModel(BaseModel):
@@ -211,6 +227,10 @@ async def new_task(
         priority=task.priority if task.priority else 1,
         estimated_hours=task.estimated_hours,
         memory_collection=task.conversation_id,  # This ensures context preservation
+        task_type=task.task_type if task.task_type else "prompt",
+        command_script=task.command_script,
+        deployment_id=task.deployment_id,
+        target_machines=task.target_machines,
     )
     return ResponseMessage(message=f"Task created for agent '{task.agent_name}'.")
 
@@ -261,9 +281,13 @@ async def new_reoccurring_task(
         priority=task.priority if task.priority else 1,
         estimated_hours=task.estimated_hours,
         memory_collection=task.conversation_id,  # This ensures context preservation
+        task_type=task.task_type if task.task_type else "prompt",
+        command_script=task.command_script,
+        deployment_id=task.deployment_id,
+        target_machines=task.target_machines,
     )
     return ResponseMessage(
-        message=f"Reoccurring task created for agent '{task.agent_name}'."
+        message=f"Reoccurring task created for agent '{task.agent_name}'.'"
     )
 
 

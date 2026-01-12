@@ -237,13 +237,12 @@ async def validate_api_key_endpoint(
     """
     result = validate_personal_access_token(token)
     if not result["valid"]:
-        raise HTTPException(
-            status_code=401, detail=result.get("error", "Invalid token")
-        )
+        # Do not expose internal validation error details to the client
+        raise HTTPException(status_code=401, detail="Invalid token")
 
     # Don't return all details for security - just confirm validity
     return {
         "valid": True,
-        "user_id": result["user_id"],
-        "scopes": result["scopes"],
+        "user_id": result.get("user_id", ""),
+        "scopes": result.get("scopes", []),
     }

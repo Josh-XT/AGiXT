@@ -138,6 +138,7 @@ class ExtensionsHub:
         )
         self.hub_urls = getenv("EXTENSIONS_HUB")
         self.hub_token = getenv("EXTENSIONS_HUB_TOKEN")
+        self.hub_branch = getenv("EXTENSIONS_HUB_BRANCH")  # Optional branch override
         # Instance cache (falls back to global cache)
         self._extension_paths_cache = None
         self._pricing_config_cache = None
@@ -628,9 +629,13 @@ class ExtensionsHub:
                 "--depth",
                 "1",
                 "--template=",
-                authenticated_url,
-                hub_path,
             ]
+
+            # Add branch flag if specified
+            if self.hub_branch:
+                cmd.extend(["-b", self.hub_branch])
+
+            cmd.extend([authenticated_url, hub_path])
 
             # Set environment to avoid git template issues
             env = os.environ.copy()

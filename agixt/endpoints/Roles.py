@@ -12,6 +12,7 @@ from MagicalAuth import (
     MagicalAuth,
     verify_api_key,
     require_scope,
+    invalidate_user_scopes_cache,
 )
 from Models import (
     ScopeResponse,
@@ -351,10 +352,14 @@ async def create_custom_role(
         db.add(new_role)
         db.flush()  # Get the ID
 
+        # Batch load all requested scopes
+        scopes = db.query(Scope).filter(Scope.id.in_(role.scope_ids)).all()
+        scopes_map = {str(s.id): s for s in scopes}
+
         # Assign scopes
         assigned_scopes = []
         for scope_id in role.scope_ids:
-            scope = db.query(Scope).filter(Scope.id == scope_id).first()
+            scope = scopes_map.get(str(scope_id))
             if scope:
                 role_scope = CustomRoleScope(
                     custom_role_id=new_role.id,
@@ -502,9 +507,15 @@ async def update_custom_role(
                 CustomRoleScope.custom_role_id == custom_role.id
             ).delete()
 
+            # Batch load all requested scopes
+            scopes_for_assignment = (
+                db.query(Scope).filter(Scope.id.in_(role_update.scope_ids)).all()
+            )
+            scopes_map = {str(s.id): s for s in scopes_for_assignment}
+
             # Add new scope assignments
             for scope_id in role_update.scope_ids:
-                scope = db.query(Scope).filter(Scope.id == scope_id).first()
+                scope = scopes_map.get(str(scope_id))
                 if scope:
                     role_scope = CustomRoleScope(
                         custom_role_id=custom_role.id,
@@ -513,6 +524,16 @@ async def update_custom_role(
                     db.add(role_scope)
 
         db.commit()
+
+        # Invalidate scopes cache for all users who have this role assigned
+        # (Their effective scopes may have changed)
+        user_assignments = (
+            db.query(UserCustomRole.user_id)
+            .filter(UserCustomRole.custom_role_id == custom_role.id)
+            .all()
+        )
+        for (uid,) in user_assignments:
+            invalidate_user_scopes_cache(user_id=uid, company_id=company_id)
 
         # Fetch updated scopes
         scopes = (
@@ -579,10 +600,22 @@ async def delete_custom_role(
             )
 
         role_name = custom_role.name
+        company_id = str(custom_role.company_id)
+
+        # Get all users who have this role before deleting
+        user_assignments = (
+            db.query(UserCustomRole.user_id)
+            .filter(UserCustomRole.custom_role_id == custom_role.id)
+            .all()
+        )
 
         # Delete the role (cascade will handle scope assignments and user assignments)
         db.delete(custom_role)
         db.commit()
+
+        # Invalidate scopes cache for all users who had this role
+        for (uid,) in user_assignments:
+            invalidate_user_scopes_cache(user_id=uid, company_id=company_id)
 
         logging.info(f"Deleted custom role '{role_name}' (ID: {role_id})")
 
@@ -681,6 +714,9 @@ async def assign_user_custom_role(
         db.add(user_custom_role)
         db.commit()
 
+        # Invalidate user scopes cache since their permissions changed
+        invalidate_user_scopes_cache(user_id=assignment.user_id, company_id=company_id)
+
         # Fetch scopes for response
         scopes = (
             db.query(Scope)
@@ -772,6 +808,9 @@ async def remove_user_custom_role(
 
         db.delete(assignment)
         db.commit()
+
+        # Invalidate user scopes cache since their permissions changed
+        invalidate_user_scopes_cache(user_id=user_id, company_id=company_id)
 
         logging.info(
             f"Removed custom role {custom_role_id} from user {user_id} in company {company_id}"

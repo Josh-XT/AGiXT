@@ -8,8 +8,10 @@ from Models import (
     Register,
     CompanyResponse,
     InvitationCreate,
+    InvitationCreateByRole,
     InvitationResponse,
     ToggleCommandPayload,
+    ToggleExtensionCommandsPayload,
     ResponseMessage,
     NewCompanyInput,
     NewCompanyResponse,
@@ -17,7 +19,7 @@ from Models import (
     UpdateCompanyInput,
     UpdateUserRole,
 )
-from DB import TokenBlacklist, get_session
+from DB import TokenBlacklist, get_session, default_roles
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response
 from MagicalAuth import (
@@ -138,6 +140,48 @@ async def delete_invitation(
         )
 
 
+# Create invitation for a specific company using role name
+@app.post(
+    "/v1/companies/{company_id}/invitations",
+    response_model=InvitationResponse,
+    summary="Create an invitation for a company",
+    tags=["Companies"],
+)
+async def create_company_invitation(
+    company_id: str,
+    invitation: InvitationCreateByRole,
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    try:
+        auth = MagicalAuth(token=authorization)
+
+        # Convert role name to role_id
+        role_id = 3  # Default to "user"
+        role_name = invitation.role.lower().strip() if invitation.role else "user"
+        for role in default_roles:
+            if role["name"] == role_name:
+                role_id = role["id"]
+                break
+
+        # Create the internal invitation object
+        internal_invitation = InvitationCreate(
+            email=invitation.email,
+            company_id=company_id,
+            role_id=role_id,
+        )
+
+        return auth.create_invitation(internal_invitation)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error in create_company_invitation endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while creating the invitation: {str(e)}",
+        )
+
+
 @app.get(
     "/v1/user/exists",
     response_model=bool,
@@ -165,16 +209,12 @@ async def get_user(
     token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     auth = MagicalAuth(token=token)
     client_ip = request.headers.get("X-Forwarded-For") or request.client.host
-    user_data = auth.login(ip_address=client_ip)
-    # Smart preferences: fast token balance check (blocks if no tokens),
-    # but Stripe subscription checks happen in background
-    user_preferences = auth.get_user_preferences_smart()
-    companies = auth.get_user_companies_with_roles()
 
-    # Include scopes for each company to eliminate separate /v1/user/scopes calls
-    for company in companies:
-        company_scopes = auth.get_user_scopes(company["id"])
-        company["scopes"] = list(company_scopes)
+    # Use optimized single-session method that fetches everything at once
+    data = auth.get_user_data_optimized(ip_address=client_ip)
+    user_data = data["user"]
+    user_preferences = data["preferences"]
+    companies = data["companies"]  # Already includes agents and scopes
 
     response_data = {
         "id": auth.user_id,
@@ -199,7 +239,7 @@ async def get_user(
         "tos_accepted_at": response_data.get("tos_accepted_at"),
     }
     etag_string = json.dumps(etag_data, sort_keys=True, default=str)
-    etag = f'"{hashlib.md5(etag_string.encode()).hexdigest()}"'
+    etag = f'"{hashlib.sha256(etag_string.encode()).hexdigest()}"'
 
     # If client sent If-None-Match and it matches, return 304 Not Modified
     if if_none_match and if_none_match == etag:
@@ -321,6 +361,11 @@ async def logout_user(
         )
         session.add(blacklist_entry)
         session.commit()
+
+        # Invalidate the token validation cache for this token
+        from MagicalAuth import invalidate_token_validation_cache
+
+        invalidate_token_validation_cache(token)
 
         # Cleanup expired tokens (optional - can be done periodically)
         expired_tokens = (
@@ -797,6 +842,63 @@ async def toggle_command(
         new_config={payload.command_name: payload.enable}, config_key="commands"
     )
     return ResponseMessage(message=update_config)
+
+
+@app.patch(
+    "/v1/companies/{company_id}/extension/commands",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Toggle all commands for a specific extension for company agent",
+    description="Enables or disables all commands for a specific extension for a company's team agent.",
+)
+async def toggle_company_extension_commands(
+    company_id: str,
+    payload: ToggleExtensionCommandsPayload,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    ApiClient = auth.get_company_agent_session(company_id=company_id)
+    if not ApiClient:
+        raise HTTPException(
+            status_code=404, detail="Company not found or access denied"
+        )
+    token = ApiClient.headers.get("Authorization")
+    company_auth = MagicalAuth(token=token)
+    agent = Agent(
+        agent_name=auth.get_company_agent_name(),
+        user=company_auth.email,
+        ApiClient=ApiClient,
+    )
+
+    # Get all extensions to find the commands for the specified extension
+    extensions = agent.get_agent_extensions()
+
+    # Find the extension and get all its commands
+    extension_commands = []
+    for extension in extensions:
+        if extension["extension_name"] == payload.extension_name:
+            for command in extension["commands"]:
+                extension_commands.append(command["friendly_name"])
+            break
+
+    if not extension_commands:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Extension '{payload.extension_name}' not found or has no commands",
+        )
+
+    # Create a config update for all commands in the extension
+    new_config = {command: payload.enable for command in extension_commands}
+
+    # Update the agent configuration
+    update_config = agent.update_agent_config(
+        new_config=new_config, config_key="commands"
+    )
+
+    return ResponseMessage(
+        message=f"Successfully {'enabled' if payload.enable else 'disabled'} {len(extension_commands)} commands for extension '{payload.extension_name}'"
+    )
 
 
 # Rename company

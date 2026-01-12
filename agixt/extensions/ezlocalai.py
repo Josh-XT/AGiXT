@@ -257,12 +257,6 @@ class ezlocalai(Extensions):
             messages.append({"role": "user", "content": content})
         else:
             messages.append({"role": "user", "content": prompt})
-
-        prompt_len = len(prompt) if prompt else 0
-        logging.info(
-            f"[ezlocalai] Sending prompt with {prompt_len} characters, ~{prompt_len // 4} estimated tokens"
-        )
-
         try:
             payload = {
                 "model": model,

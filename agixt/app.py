@@ -125,6 +125,27 @@ async def lifespan(app: FastAPI):
         _load_global_cache()
         logging.debug("Extensions hub cache loaded for worker")
 
+        # Pre-warm extension module cache to speed up first request
+        # This imports all extension modules once at startup rather than on first request
+        try:
+            import time
+
+            start_time = time.time()
+            from Extensions import (
+                _get_cached_extension_files,
+                _get_cached_extension_module,
+            )
+
+            extension_files = _get_cached_extension_files()
+            loaded_count = 0
+            for ext_file in extension_files:
+                mod = _get_cached_extension_module(ext_file)
+                if mod:
+                    loaded_count += 1
+            elapsed = (time.time() - start_time) * 1000
+        except Exception as e:
+            logging.warning(f"Failed to pre-warm extension cache: {e}")
+
         workspace_manager.start_file_watcher()
         await task_monitor.start()
         yield
@@ -276,7 +297,10 @@ async def get_cache_stats(authorization: str = Header(None)):
     Requires admin or the user's own token.
     """
     cache_manager = get_cache_manager()
-    return cache_manager.get_stats()
+    try:
+        return cache_manager.get_stats()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting cache stats")
 
 
 @app.delete("/v1/cache", tags=["Health"])
@@ -489,10 +513,6 @@ async def serve_file(
 
         # For cloud storage, collect content and return directly
         else:
-            logging.info(
-                f"Using S3 direct content for agent_id='{agent_id}', conversation_id='{conversation_id}', filename='{filename}'"
-            )
-
             try:
                 file_content = b""
                 async for chunk in workspace_manager.stream_file(
@@ -528,7 +548,6 @@ async def serve_file(
                 )
 
         # This should not be reached for S3, but kept for local storage
-        logging.info(f"Creating StreamingResponse for {filename}")
         return StreamingResponse(
             file_iterator(),
             media_type=content_type,

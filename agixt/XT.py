@@ -274,6 +274,7 @@ class AGiXT:
             api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
         self.api_key = api_key
         self.auth = MagicalAuth(token=api_key)
+        self.user_id = self.auth.user_id  # Cache user_id for reuse
         self.conversation = None
         self.conversation_id = None
         self.conversation_name = None
@@ -311,6 +312,7 @@ class AGiXT:
             else DEFAULT_SETTINGS
         )
         self.chain = Chain(user=self.user_email)
+        self.prompts_manager = Prompts(user=self.user_email)  # Cache Prompts instance
         self.agent_workspace = self.agent.working_directory
         os.makedirs(self.agent_workspace, exist_ok=True)
         self.conversation_workspace = os.path.join(
@@ -340,9 +342,7 @@ class AGiXT:
         Returns:
             list: List of available prompts
         """
-        return Prompts(user=self.user_email).get_prompts(
-            prompt_category=prompt_category
-        )
+        return self.prompts_manager.get_prompts(prompt_category=prompt_category)
 
     async def chains(self):
         """
@@ -422,9 +422,8 @@ class AGiXT:
             return  # Only rename new conversations
 
         try:
-            c = Conversations(
-                conversation_name=self.conversation_name, user=self.user_email
-            )
+            # Use existing conversation instance instead of creating new one
+            c = self.conversation
 
             # Default fallback name
             new_name = datetime.now().strftime("Conversation Created %Y-%m-%d %I:%M %p")
@@ -543,7 +542,6 @@ Respond with ONLY: {{"suggested_conversation_name": "Different Name Here"}}"""
             # Apply the rename
             c.set_conversation_summary(summary=new_name)
             self.conversation_name = c.rename_conversation(new_name=new_name)
-            logging.info(f"Renamed conversation to: {new_name}")
 
         except Exception as e:
             import traceback
@@ -660,9 +658,7 @@ Your response (true or false):"""
         )
 
         # Log complexity decision for debugging
-        log_complexity_decision(
-            complexity_score, user_input[:100] if user_input else ""
-        )
+        # log_complexity_decision(complexity_score, user_input[:100] if user_input else "")
 
         # Determine use_smartest based on complexity scoring
         if "use_smartest" not in kwargs:
@@ -3317,7 +3313,6 @@ Your response (true or false):"""
         command_overrides = None
         # TTS streaming mode: "off", "audio_only", or "interleaved"
         tts_mode = getattr(prompt, "tts_mode", "off") or "off"
-        logging.info(f"[chat_completions_stream] tts_mode = {tts_mode}")
 
         if prompt.tools:
             command_overrides = prompt.tools
@@ -3871,9 +3866,6 @@ Your response (true or false):"""
                     if is_complete:
                         # Final answer received - store it
                         final_answer = content
-                        logging.info(
-                            f"[chat_stream] Complete answer received (has_streamed_progressively={has_streamed_progressively}): {content[:100]}..."
-                        )
                         # Only send if we haven't been streaming progressively
                         # This handles command results that return in one shot
                         if not has_streamed_progressively:
@@ -3999,9 +3991,6 @@ Your response (true or false):"""
                     else:
                         # Progressive answer streaming - send each token
                         has_streamed_progressively = True
-                        logging.debug(
-                            f"[chat_stream] Progressive token: {repr(content[:50])}"
-                        )
 
                         # Stream text chunk (unless audio_only mode)
                         if tts_mode != "audio_only":

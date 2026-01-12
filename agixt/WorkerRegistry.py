@@ -55,7 +55,6 @@ class WorkerRegistry:
             if task:
                 self._conversation_tasks[conversation_id] = task
 
-            logger.info(f"Registered conversation {conversation_id} for user {user_id}")
             return conversation_id
 
     def unregister_conversation(self, conversation_id: str) -> bool:
@@ -77,8 +76,6 @@ class WorkerRegistry:
             if conversation_id in self._conversation_tasks:
                 del self._conversation_tasks[conversation_id]
 
-            if removed:
-                logger.info(f"Unregistered conversation {conversation_id}")
             return removed
 
     def get_conversation_info(self, conversation_id: str) -> Optional[Dict]:

@@ -11,6 +11,7 @@ from DB import (
     process_embedding_for_storage,
 )
 from middleware import log_silenced_exception
+from SharedCache import shared_cache
 import spacy
 from numpy import array, linalg, ndarray
 from collections import Counter
@@ -284,22 +285,40 @@ def get_base_collection_name(user: str, agent_name: str) -> str:
     return snake(f"{user}_{agent_name}")
 
 
+# Cache for agent ID lookups to avoid DB queries per request
+_AGENT_ID_CACHE_TTL = 30  # 30 seconds
+
+
+def _get_agent_id_cache_key(agent_name: str, email: str) -> str:
+    return f"agent_id:{email}:{agent_name}"
+
+
 def get_agent_id(agent_name: str, email: str) -> str:
     """
     Gets the agent ID for the given agent name and user.
+    Uses shared caching to reduce database queries across workers.
     """
+    cache_key = _get_agent_id_cache_key(agent_name, email)
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     session = get_session()
     try:
         user = session.query(User).filter_by(email=email).first()
         agent = session.query(Agent).filter_by(name=agent_name, user_id=user.id).first()
         if agent:
-            return str(agent.id)
+            agent_id = str(agent.id)
         else:
             agent = session.query(Agent).filter_by(user_id=user.id).first()
             if agent:
-                return str(agent.id)
+                agent_id = str(agent.id)
             else:
-                return None
+                agent_id = None
+        # Cache the result using shared cache
+        if agent_id is not None:
+            shared_cache.set(cache_key, agent_id, ttl=_AGENT_ID_CACHE_TTL)
+        return agent_id
     finally:
         session.close()
 
