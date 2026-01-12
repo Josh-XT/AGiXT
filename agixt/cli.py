@@ -37,7 +37,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 XTSYS_ROOT = REPO_ROOT.parent  # Parent of AGiXT folder
 LOCAL_SCRIPT = Path(__file__).resolve().parent / "run-local.py"
 DOCKER_COMPOSE_FILE_STABLE = REPO_ROOT / "docker-compose.yml"
-DOCKER_COMPOSE_FILE_DEV = REPO_ROOT / "docker-compose-dev.yml"
 ENV_FILE = REPO_ROOT / ".env"
 WEB_DIR = XTSYS_ROOT / "web"
 STATE_DIR = Path.home() / ".agixt"
@@ -2455,7 +2454,7 @@ def set_environment(env_updates=None, mode="docker"):
         else:  # docker mode
             dockerfile = "docker-compose.yml"
             if env_vars["AGIXT_BRANCH"] != "stable":
-                dockerfile = "docker-compose-dev.yml"
+                dockerfile = "docker-compose.yml"
             print("Pulling latest Docker images...")
             try:
                 subprocess.run(
@@ -2891,7 +2890,7 @@ def _ensure_local_requirements() -> None:
 
 def _ensure_docker_requirements() -> None:
     # Check for docker-compose.yml to verify we're in AGiXT repository
-    if not DOCKER_COMPOSE_FILE_STABLE.exists() and not DOCKER_COMPOSE_FILE_DEV.exists():
+    if not DOCKER_COMPOSE_FILE_STABLE.exists():
         raise CLIError(
             f"Docker compose files not found in {REPO_ROOT}. "
             "Run this command from the AGiXT repository checkout."
@@ -3136,8 +3135,6 @@ def _determine_compose_file() -> Path:
     branch = os.environ.get("AGIXT_BRANCH")
     if branch is None:
         branch = _read_env_var_from_file("AGIXT_BRANCH")
-    if branch and branch.lower() != "stable" and DOCKER_COMPOSE_FILE_DEV.exists():
-        return DOCKER_COMPOSE_FILE_DEV
     return DOCKER_COMPOSE_FILE_STABLE
 
 
@@ -3159,7 +3156,7 @@ def _start_docker(env_updates: Optional[dict] = None) -> None:
     # Determine which compose file to use
     dockerfile = "docker-compose.yml"
     if env_vars["AGIXT_BRANCH"] != "stable":
-        dockerfile = "docker-compose-dev.yml"
+        dockerfile = "docker-compose.yml"
 
     print("Starting AGiXT via Docker...")
     print("Press Ctrl+C to stop the containers and exit.")

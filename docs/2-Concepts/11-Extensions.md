@@ -20,7 +20,7 @@ def __init__(self, **kwargs):
     self.api_key = kwargs["api_key"] if "api_key" in kwargs else ""
     
     # Agent and conversation context
-    self.agent_name = kwargs["agent_name"] if "agent_name" in kwargs else "gpt4free"
+    self.agent_name = kwargs["agent_name"] if "agent_name" in kwargs else "XT"
     self.conversation_name = kwargs["conversation_name"] if "conversation_name" in kwargs else ""
     self.conversation_id = kwargs["conversation_id"] if "conversation_id" in kwargs else None
     
