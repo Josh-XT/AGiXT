@@ -2249,6 +2249,8 @@ def get_default_env_vars():
         "HEALTH_CHECK_MAX_FAILURES": "3",
         "RESTART_COOLDOWN": "60",
         "INITIAL_STARTUP_DELAY": "180",
+        # Super admin configuration
+        "SUPERADMIN_EMAIL": "josh@devxt.com",
         # ezLocalai Configuration (local AI inference)
         "GPU_LAYERS": "-1",
         "MAIN_GPU": "0",

@@ -91,6 +91,7 @@ _ENV_ONLY_SETTINGS = {
     "CREATE_AGIXT_AGENT",
     "DISABLED_EXTENSIONS",
     "DISABLED_PROVIDERS",
+    "SUPERADMIN_EMAIL",
 }
 
 
@@ -248,6 +249,7 @@ def getenv(var_name: str, default_value: str = "") -> str:
         "LOW_BALANCE_WARNING_THRESHOLD": "10000000",  # 10M tokens
         "TOKEN_WARNING_INCREMENT": "1000000",  # 1M tokens
         "TZ": "UTC",
+        "SUPERADMIN_EMAIL": "josh@devxt.com",
     }
     if var_name == "MAGIC_LINK_URL":
         var_name = "APP_URI"

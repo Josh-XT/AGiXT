@@ -211,6 +211,44 @@ def invalidate_user_scopes_cache(user_id: str = None, company_id: str = None):
         shared_cache.delete(f"user_scopes:{user_id}:{company_id}")
 
 
+def promote_superadmin_if_needed(session, user_id: str, email: str, company_id: str):
+    """
+    Check if the user's email matches SUPERADMIN_EMAIL and promote them to super admin (role 0).
+
+    This is called after a user is associated with a company to ensure the configured
+    superadmin email always has role 0 access.
+
+    Args:
+        session: Database session
+        user_id: The user's ID
+        email: The user's email address
+        company_id: The company ID to check/update the role for
+    """
+    superadmin_email = getenv("SUPERADMIN_EMAIL").lower()
+    if not superadmin_email or email.lower() != superadmin_email:
+        return
+
+    # Check if user already has role 0 in this company
+    user_company = (
+        session.query(UserCompany)
+        .filter(
+            UserCompany.user_id == user_id,
+            UserCompany.company_id == company_id,
+        )
+        .first()
+    )
+
+    if user_company and user_company.role_id != 0:
+        logging.info(
+            f"Promoting user {email} to super admin (role 0) in company {company_id} "
+            f"(was role {user_company.role_id}) due to SUPERADMIN_EMAIL configuration"
+        )
+        user_company.role_id = 0
+        session.commit()
+        # Invalidate caches since role changed
+        invalidate_user_scopes_cache(user_id=user_id, company_id=str(company_id))
+
+
 """
 Required environment variables:
 
@@ -226,6 +264,7 @@ Required environment variables:
 - STRIPE_API_KEY: Stripe API key
 - REGISTRATION_DISABLED: Registration disabled flag
 - APP_URI: App URI
+- SUPERADMIN_EMAIL: Email address to automatically promote to super admin (role 0)
 """
 
 
@@ -2046,6 +2085,27 @@ class MagicalAuth:
             session.close()
             raise HTTPException(status_code=404, detail="User not found")
         if str(user.id) == str(user_id):
+            # Check if this user should be promoted to super admin
+            superadmin_email = getenv("SUPERADMIN_EMAIL").lower()
+            if superadmin_email and user.email.lower() == superadmin_email:
+                # Check all user companies and promote to role 0 if not already
+                user_companies = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.user_id == user_id)
+                    .all()
+                )
+                for uc in user_companies:
+                    if uc.role_id != 0:
+                        logging.info(
+                            f"Promoting user {user.email} to super admin (role 0) in company {uc.company_id} "
+                            f"(was role {uc.role_id}) due to SUPERADMIN_EMAIL configuration"
+                        )
+                        uc.role_id = 0
+                        session.commit()
+                        invalidate_user_scopes_cache(
+                            user_id=str(user_id), company_id=str(uc.company_id)
+                        )
+            session.close()
             return user
         session.close()
         self.add_failed_login(ip_address=ip_address)
@@ -2724,6 +2784,13 @@ class MagicalAuth:
                 )
                 session.add(user_company)
                 session.commit()
+                # Check if this user should be promoted to super admin
+                promote_superadmin_if_needed(
+                    session=session,
+                    user_id=str(new_user_db.id),
+                    email=self.email,
+                    company_id=str(company_id),
+                )
                 # Invalidate user company cache since company membership changed
                 invalidate_user_company_cache(str(new_user_db.id))
                 # Create agent directly without login overhead
@@ -5698,6 +5765,13 @@ class MagicalAuth:
                 )
                 db.add(user_company)
                 db.commit()
+                # Check if this user should be promoted to super admin
+                promote_superadmin_if_needed(
+                    session=db,
+                    user_id=str(self.user_id),
+                    email=self.email,
+                    company_id=str(new_company.id),
+                )
                 # Invalidate user company cache since company membership changed
                 invalidate_user_company_cache(str(self.user_id))
 
