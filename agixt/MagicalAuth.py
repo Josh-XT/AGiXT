@@ -81,6 +81,30 @@ _user_id_cache_ttl = 60  # 60 seconds
 _token_validation_cache_ttl = 5  # 5 seconds
 
 
+def hash_pat_token(token: str) -> str:
+    """
+    Securely hash a Personal Access Token using HMAC-SHA256.
+    
+    Uses AGIXT_API_KEY as the secret key, making the hash useless without
+    knowing the secret (even if database is compromised).
+    
+    Args:
+        token: The PAT token string to hash
+        
+    Returns:
+        str: The HMAC-SHA256 hex digest of the token
+    """
+    import hmac
+    import hashlib
+    
+    secret_key = os.getenv("AGIXT_API_KEY", "")
+    return hmac.new(
+        secret_key.encode(),
+        token.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+
 def _serialize_user_dict(user_dict: dict) -> dict:
     """Convert user dict to JSON-serializable format (handles datetime fields)."""
     from datetime import datetime
@@ -6502,7 +6526,7 @@ class MagicalAuth:
         token_bytes = secrets.token_bytes(32)
         token_value = f"agixt_{token_bytes.hex()}"
         token_prefix = token_value[:16]  # "agixt_" + first 10 hex chars
-        token_hash = hashlib.sha256(token_value.encode()).hexdigest()
+        token_hash = hash_pat_token(token_value)
 
         from DB import (
             PersonalAccessToken,
@@ -6808,7 +6832,7 @@ class MagicalAuth:
             token_bytes = secrets.token_bytes(32)
             new_token_value = f"agixt_{token_bytes.hex()}"
             new_token_prefix = new_token_value[:16]
-            new_token_hash = hashlib.sha256(new_token_value.encode()).hexdigest()
+            new_token_hash = hash_pat_token(new_token_value)
 
             # Update the token record with new hash
             old_token.token_prefix = new_token_prefix
@@ -6928,8 +6952,6 @@ def validate_personal_access_token(token: str) -> dict:
     Returns:
         dict with validation info including user_id, scopes, etc.
     """
-    import hashlib
-
     if not token or not token.startswith("agixt_"):
         return {
             "valid": False,
@@ -6938,7 +6960,7 @@ def validate_personal_access_token(token: str) -> dict:
 
     from DB import PersonalAccessToken
 
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    token_hash = hash_pat_token(token)
 
     session = get_session()
     try:
