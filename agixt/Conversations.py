@@ -608,7 +608,6 @@ class Conversations:
         )
 
         if not original_conversation:
-            logging.info(f"No conversation found to fork.")
             session.close()
             return None
 
@@ -623,7 +622,6 @@ class Conversations:
         )
 
         if not target_message:
-            logging.info(f"Target message not found.")
             session.close()
             return None
 
@@ -639,7 +637,6 @@ class Conversations:
         )
 
         if not messages:
-            logging.info(f"No messages found in the conversation to fork.")
             session.close()
             return None
 
@@ -671,9 +668,6 @@ class Conversations:
             session.commit()
             forked_conversation_id = str(new_conversation.id)
 
-            logging.info(
-                f"Conversation forked successfully. New conversation ID: {forked_conversation_id}"
-            )
             return new_conversation_name
 
         except Exception as e:
@@ -1017,9 +1011,6 @@ class Conversations:
                         timestamp=interaction.get("timestamp"),
                     )
                     completed_activity_id = message_id
-                    logging.info(
-                        f"Using existing completed activities with ID {completed_activity_id}"
-                    )
                 elif message != "[ACTIVITY] Completed activities.":
                     # Normal message processing - skip if it's a Completed activities we already have
                     self.log_interaction(
@@ -1256,7 +1247,6 @@ class Conversations:
             .first()
         )
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
 
@@ -1287,7 +1277,6 @@ class Conversations:
         )
 
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
         message_id = (
@@ -1308,9 +1297,6 @@ class Conversations:
         )
 
         if not message:
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             session.close()
             return
         session.delete(message)
@@ -1331,7 +1317,6 @@ class Conversations:
         )
 
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
         message = (
@@ -1344,9 +1329,6 @@ class Conversations:
         )
 
         if not message:
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             session.close()
             return
         session.close()
@@ -1397,7 +1379,6 @@ class Conversations:
         )
 
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
         message = (
@@ -1410,9 +1391,6 @@ class Conversations:
         )
 
         if not message:
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             session.close()
             return
         session.delete(message)
@@ -1437,7 +1415,6 @@ class Conversations:
         )
 
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
 
@@ -1452,9 +1429,6 @@ class Conversations:
         )
 
         if not target_message:
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             session.close()
             return
 
@@ -1557,7 +1531,6 @@ class Conversations:
             .first()
         )
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
         message_id = (
@@ -1577,9 +1550,6 @@ class Conversations:
             .first()
         )
         if not message:
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             session.close()
             return
         message.feedback_received = not message.feedback_received
@@ -1598,7 +1568,6 @@ class Conversations:
             .first()
         )
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
         message_id = (
@@ -1619,9 +1588,6 @@ class Conversations:
         )
         if not message:
             session.close()
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             return
         feedback_received = message.feedback_received
         session.close()
@@ -1639,7 +1605,6 @@ class Conversations:
             .first()
         )
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
         message_id = (
@@ -1659,9 +1624,6 @@ class Conversations:
             .first()
         )
         if not message:
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             session.close()
             return
         message.content = new_message
@@ -1680,7 +1642,6 @@ class Conversations:
             .first()
         )
         if not conversation:
-            logging.info(f"No conversation found.")
             session.close()
             return
 
@@ -1694,9 +1655,6 @@ class Conversations:
         )
 
         if not message:
-            logging.info(
-                f"No message found with ID '{message_id}' in conversation '{self.conversation_name}'."
-            )
             session.close()
             return
 
@@ -2060,16 +2018,8 @@ class Conversations:
                         .first()
                     )
 
-                    logging.info(
-                        f"🔍 Looking for source agent in conversation {source_conversation.id}"
-                    )
-                    logging.info(
-                        f"🔍 Found source agent message: {source_agent_name is not None}"
-                    )
-
                     if source_agent_name:
                         source_agent_name = source_agent_name.role
-                        logging.info(f"🔍 Source agent name: {source_agent_name}")
 
                         # Get agent IDs
                         source_agent = (
@@ -2080,10 +2030,6 @@ class Conversations:
                             )
                             .first()
                         )
-                        logging.info(
-                            f"🔍 Source agent found: {source_agent is not None}, ID: {source_agent.id if source_agent else 'N/A'}"
-                        )
-
                         # For target, use the same agent name but with target user
                         target_agent = (
                             session.query(Agent)
@@ -2093,15 +2039,9 @@ class Conversations:
                             )
                             .first()
                         )
-                        logging.info(
-                            f"🔍 Target agent found: {target_agent is not None}"
-                        )
 
                         # If target agent doesn't exist for DEFAULT_USER, create it
                         if not target_agent and share_type == "public":
-                            logging.info(
-                                f"🔧 Creating target agent {source_agent_name} for DEFAULT_USER"
-                            )
                             target_agent = Agent(
                                 name=source_agent_name,
                                 user_id=target_user_id,
@@ -2109,23 +2049,8 @@ class Conversations:
                             )
                             session.add(target_agent)
                             session.commit()  # Commit agent before workspace copy
-                            logging.info(
-                                f"✅ Created target agent {source_agent_name} for DEFAULT_USER with ID {target_agent.id}"
-                            )
-                        elif target_agent:
-                            logging.info(
-                                f"✅ Using existing target agent with ID {target_agent.id}"
-                            )
 
                         if source_agent and target_agent:
-                            logging.info(f"📁 Attempting to copy workspace files:")
-                            logging.info(
-                                f"   Source: agent_id={source_agent.id}, conversation_id={source_conversation.id}"
-                            )
-                            logging.info(
-                                f"   Target: agent_id={target_agent.id}, conversation_id={shared_conversation.id}"
-                            )
-
                             files_copied = (
                                 workspace_manager.copy_conversation_workspace(
                                     source_agent_id=str(source_agent.id),
@@ -2133,9 +2058,6 @@ class Conversations:
                                     target_agent_id=str(target_agent.id),
                                     target_conversation_id=str(shared_conversation.id),
                                 )
-                            )
-                            logging.info(
-                                f"✅ Copied {files_copied} workspace files for shared conversation"
                             )
                         else:
                             logging.warning(

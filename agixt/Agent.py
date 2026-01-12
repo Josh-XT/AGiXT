@@ -473,10 +473,6 @@ def _resolve_command_by_name(session, command_name):
                 .filter(Command.name == friendly_name)
                 .all()
             )
-            logging.info(
-                f"[_resolve_command_by_name] Mapped command_name '{command_name}' "
-                f"to friendly_name '{friendly_name}', found {len(commands)} matches"
-            )
 
     if not commands:
         return None
@@ -864,7 +860,7 @@ class AIProviderManager:
         if use_smartest:
             for tier in self.intelligence_tiers:
                 if tier in suitable:
-                    logging.info(
+                    logging.debug(
                         f"[AIProviderManager] Selected smartest provider: {tier} (max_tokens: {suitable[tier]['max_tokens']}) for {tokens} tokens"
                     )
                     return suitable[tier]["instance"]
@@ -872,7 +868,7 @@ class AIProviderManager:
         # Otherwise, select provider with lowest max_tokens that can handle the request
         # (prefer to use smaller/cheaper providers for smaller requests)
         selected_name = min(suitable.keys(), key=lambda k: suitable[k]["max_tokens"])
-        logging.info(
+        logging.debug(
             f"[AIProviderManager] Selected provider: {selected_name} (max_tokens: {suitable[selected_name]['max_tokens']}) for {tokens} tokens"
         )
         return suitable[selected_name]["instance"]
@@ -1859,7 +1855,6 @@ class Agent:
                                         agent_command["enabled"] = True
             return agent_extensions
         else:
-            logging.info("No company_id found.")
             return agent_extensions
 
     def load_config_keys(self):
@@ -2302,11 +2297,6 @@ class Agent:
 
             provider_name = provider.__class__.__name__.replace("aiprovider_", "")
 
-            # Log inference request with selected provider
-            logging.info(
-                f"[Inference] Agent '{self.agent_name}' using provider '{provider_name}' with {input_tokens} input tokens (attempt {attempt + 1}/{max_retries})"
-            )
-
             # Emit webhook event for inference start
             await webhook_emitter.emit_event(
                 event_type="agent.inference.started",
@@ -2346,11 +2336,6 @@ class Agent:
                     output_tokens = get_tokens(answer)
                     self.auth.increase_token_counts(
                         input_tokens=input_tokens, output_tokens=output_tokens
-                    )
-
-                    # Log inference completion with token counts
-                    logging.info(
-                        f"[Inference] Completed: {input_tokens} input tokens, {output_tokens} output tokens via '{provider_name}'"
                     )
 
                     answer = str(answer).replace("\\_", "_")
@@ -2431,10 +2416,6 @@ class Agent:
             return ""
 
         provider_name = provider.__class__.__name__.replace("aiprovider_", "")
-        logging.info(
-            f"[Vision Inference] Agent '{self.agent_name}' using provider '{provider_name}' with {input_tokens} input tokens"
-        )
-
         try:
             answer = await provider.inference(
                 prompt=prompt,
@@ -2445,10 +2426,6 @@ class Agent:
             output_tokens = get_tokens(answer)
             self.auth.increase_token_counts(
                 input_tokens=input_tokens, output_tokens=output_tokens
-            )
-
-            logging.info(
-                f"[Vision Inference] Completed: {input_tokens} input tokens, {output_tokens} output tokens via '{provider_name}'"
             )
 
             answer = str(answer).replace("\\_", "_")
@@ -3056,7 +3033,6 @@ class Agent:
 
         try:
             session.commit()
-            logging.info(f"Agent {self.agent_name} configuration updated successfully.")
 
             # Invalidate ALL caches to ensure other workers see the updated data
             # This is critical for multi-worker scenarios
@@ -3845,9 +3821,6 @@ class Agent:
 
             if wallet_incomplete:
                 # Create a new wallet
-                logging.info(
-                    f"Wallet missing or incomplete for agent {self.agent_name} ({agent.id}). Creating new wallet..."
-                )
                 try:
                     private_key, passphrase, address = create_solana_wallet()
 
@@ -3883,9 +3856,6 @@ class Agent:
                         session.add(address_setting)
 
                     session.commit()
-                    logging.info(
-                        f"Successfully created new wallet for agent {self.agent_name} ({agent.id})."
-                    )
 
                     # Refresh the variables after successful creation
                     private_key_value = private_key_setting.value

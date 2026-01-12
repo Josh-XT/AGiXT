@@ -658,9 +658,7 @@ Your response (true or false):"""
         )
 
         # Log complexity decision for debugging
-        log_complexity_decision(
-            complexity_score, user_input[:100] if user_input else ""
-        )
+        # log_complexity_decision(complexity_score, user_input[:100] if user_input else "")
 
         # Determine use_smartest based on complexity scoring
         if "use_smartest" not in kwargs:
@@ -3868,9 +3866,6 @@ Your response (true or false):"""
                     if is_complete:
                         # Final answer received - store it
                         final_answer = content
-                        logging.info(
-                            f"[chat_stream] Complete answer received (has_streamed_progressively={has_streamed_progressively}): {content[:100]}..."
-                        )
                         # Only send if we haven't been streaming progressively
                         # This handles command results that return in one shot
                         if not has_streamed_progressively:
@@ -3996,9 +3991,6 @@ Your response (true or false):"""
                     else:
                         # Progressive answer streaming - send each token
                         has_streamed_progressively = True
-                        logging.debug(
-                            f"[chat_stream] Progressive token: {repr(content[:50])}"
-                        )
 
                         # Stream text chunk (unless audio_only mode)
                         if tts_mode != "audio_only":

@@ -143,9 +143,6 @@ async def lifespan(app: FastAPI):
                 if mod:
                     loaded_count += 1
             elapsed = (time.time() - start_time) * 1000
-            logging.info(
-                f"Extension module cache warmed: {loaded_count} modules in {elapsed:.0f}ms"
-            )
         except Exception as e:
             logging.warning(f"Failed to pre-warm extension cache: {e}")
 
@@ -513,10 +510,6 @@ async def serve_file(
 
         # For cloud storage, collect content and return directly
         else:
-            logging.info(
-                f"Using S3 direct content for agent_id='{agent_id}', conversation_id='{conversation_id}', filename='{filename}'"
-            )
-
             try:
                 file_content = b""
                 async for chunk in workspace_manager.stream_file(
@@ -552,7 +545,6 @@ async def serve_file(
                 )
 
         # This should not be reached for S3, but kept for local storage
-        logging.info(f"Creating StreamingResponse for {filename}")
         return StreamingResponse(
             file_iterator(),
             media_type=content_type,

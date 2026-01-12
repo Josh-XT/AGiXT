@@ -405,9 +405,6 @@ class Chain:
                 )
                 if command:
                     command.name = new_name
-                    logging.info(
-                        f"Updated command name from '{old_name}' to '{new_name}'"
-                    )
 
             session.commit()
             # Invalidate the commands cache since we renamed a command
@@ -887,9 +884,6 @@ class Chain:
                         command_id=command.id
                     ).delete()
                     session.delete(command)
-                    logging.info(
-                        f"Deleted command '{chain_name}' associated with chain"
-                    )
 
             session.delete(chain)
             session.commit()
@@ -1636,7 +1630,6 @@ class Chain:
                 # Delete any AgentCommand entries for this command
                 session.query(AgentCommand).filter_by(command_id=command.id).delete()
                 session.delete(command)
-                logging.info(f"Deleted command '{chain_name}' associated with chain")
 
         session.delete(chain)
         session.commit()
@@ -1695,9 +1688,6 @@ class Chain:
                 )
                 if command:
                     command.name = chain_name
-                    logging.info(
-                        f"Updated command name from '{old_name}' to '{chain_name}'"
-                    )
 
         session.commit()
         # Invalidate the commands cache if name or description changed
