@@ -84,25 +84,21 @@ _token_validation_cache_ttl = 5  # 5 seconds
 def hash_pat_token(token: str) -> str:
     """
     Securely hash a Personal Access Token using HMAC-SHA256.
-    
+
     Uses AGIXT_API_KEY as the secret key, making the hash useless without
     knowing the secret (even if database is compromised).
-    
+
     Args:
         token: The PAT token string to hash
-        
+
     Returns:
         str: The HMAC-SHA256 hex digest of the token
     """
     import hmac
     import hashlib
-    
+
     secret_key = os.getenv("AGIXT_API_KEY", "")
-    return hmac.new(
-        secret_key.encode(),
-        token.encode(),
-        hashlib.sha256
-    ).hexdigest()
+    return hmac.new(secret_key.encode(), token.encode(), hashlib.sha256).hexdigest()
 
 
 def _serialize_user_dict(user_dict: dict) -> dict:
