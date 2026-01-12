@@ -2592,14 +2592,24 @@ Your response (true or false):"""
                                                     file_name,
                                                 )
                                             )
+                                            # Ensure the final path stays within the agent workspace
+                                            workspace_root = os.path.abspath(self.agent_workspace)
+                                            abs_file_path = os.path.abspath(file_path)
+                                            if os.path.commonpath(
+                                                [workspace_root, abs_file_path]
+                                            ) != workspace_root:
+                                                logging.error(
+                                                    f"[chat_completions] Refusing to write repo ZIP outside workspace: {abs_file_path}"
+                                                )
+                                                continue
                                             os.makedirs(
-                                                os.path.dirname(file_path),
+                                                os.path.dirname(abs_file_path),
                                                 exist_ok=True,
                                             )
-                                            with open(file_path, "wb") as f:
+                                            with open(abs_file_path, "wb") as f:
                                                 f.write(response.content)
                                             logging.info(
-                                                f"[chat_completions] Downloaded GitHub repo to: {file_path}"
+                                                f"[chat_completions] Downloaded GitHub repo to: {abs_file_path}"
                                             )
                                             # Append as dict with file_name and file_url for consistency
                                             file_url = f"{self.outputs}/{conversation_id}/{file_name}"
