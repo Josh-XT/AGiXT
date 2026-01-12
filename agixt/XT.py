@@ -2585,30 +2585,39 @@ Your response (true or false):"""
                                                 response = requests.get(repo_url)
                                         if response.status_code == 200:
                                             file_name = f"{user}_{repo}_{tool_github_branch}.zip"
-                                            file_path = os.path.normpath(
-                                                os.path.join(
-                                                    self.agent_workspace,
-                                                    conversation_id,
-                                                    file_name,
+                                            # Build a path under the agent workspace and ensure it stays within it
+                                            workspace_root = os.path.abspath(self.agent_workspace)
+                                            file_path = os.path.abspath(
+                                                os.path.normpath(
+                                                    os.path.join(
+                                                        self.agent_workspace,
+                                                        conversation_id,
+                                                        file_name,
+                                                    )
                                                 )
                                             )
-                                            os.makedirs(
-                                                os.path.dirname(file_path),
-                                                exist_ok=True,
-                                            )
-                                            with open(file_path, "wb") as f:
-                                                f.write(response.content)
-                                            logging.info(
-                                                f"[chat_completions] Downloaded GitHub repo to: {file_path}"
-                                            )
-                                            # Append as dict with file_name and file_url for consistency
-                                            file_url = f"{self.outputs}/{conversation_id}/{file_name}"
-                                            files.append(
-                                                {
-                                                    "file_name": file_name,
-                                                    "file_url": file_url,
-                                                }
-                                            )
+                                            if os.path.commonpath([workspace_root, file_path]) != workspace_root:
+                                                logging.warning(
+                                                    f"[chat_completions] Refusing to write GitHub repo outside workspace: {file_path}"
+                                                )
+                                            else:
+                                                os.makedirs(
+                                                    os.path.dirname(file_path),
+                                                    exist_ok=True,
+                                                )
+                                                with open(file_path, "wb") as f:
+                                                    f.write(response.content)
+                                                logging.info(
+                                                    f"[chat_completions] Downloaded GitHub repo to: {file_path}"
+                                                )
+                                                # Append as dict with file_name and file_url for consistency
+                                                file_url = f"{self.outputs}/{conversation_id}/{file_name}"
+                                                files.append(
+                                                    {
+                                                        "file_name": file_name,
+                                                        "file_url": file_url,
+                                                    }
+                                                )
                                     except Exception as e:
                                         logging.error(
                                             f"[chat_completions] Failed to download GitHub repo: {e}"
