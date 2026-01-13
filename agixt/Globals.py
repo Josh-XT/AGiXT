@@ -57,7 +57,7 @@ MACHINE_ACTIVE_TERMINALS = _manager.dict()
 # Server config cache to avoid repeated database queries
 # Uses SharedCache for cross-worker consistency
 _SERVER_CONFIG_CACHE_KEY = "server_config_cache"
-_SERVER_CONFIG_CACHE_TTL = 60  # 60 seconds TTL - refreshes periodically
+_SERVER_CONFIG_CACHE_TTL = 3600  # 1 hour TTL - longer for stability without Redis
 _server_config_cache_loaded = False
 
 # Settings that should NEVER be loaded from database (infrastructure settings)
@@ -176,6 +176,7 @@ def server_config_has_key(var_name: str) -> bool:
 
 
 def getenv(var_name: str, default_value: str = "") -> str:
+    global _server_config_cache_loaded
     default_values = {
         "AGIXT_URI": "http://localhost:7437",
         "APP_URI": "http://localhost:3437",
@@ -239,11 +240,22 @@ def getenv(var_name: str, default_value: str = "") -> str:
         return env_value
 
     # Then check server config cache (database values from shared cache)
+    # Try to load cache if not already loaded (handles multi-worker scenarios)
+    if not _server_config_cache_loaded:
+        load_server_config_cache()
+
     if _server_config_cache_loaded:
         try:
             from SharedCache import shared_cache
 
             cached = shared_cache.get(_SERVER_CONFIG_CACHE_KEY)
+            
+            # If cache expired (returned None), try to reload it
+            if cached is None:
+                _server_config_cache_loaded = False
+                load_server_config_cache()
+                cached = shared_cache.get(_SERVER_CONFIG_CACHE_KEY)
+            
             if cached is not None and var_name in cached:
                 cached_value = cached.get(var_name)
                 if cached_value is not None and cached_value != "":
