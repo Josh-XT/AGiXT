@@ -1,85 +1,190 @@
 # Examples
 
-We plan to build more examples but would love to see what you build with AGiXT.  If you have an example you would like to share, please submit a pull request to add it to this page.
+We welcome community examples! If you have an example you would like to share, please submit a pull request.
 
-## Expert Agent Example
+## Quick Start with Python SDK
 
-Example of a basic AGiXT expert agent:  Create your agent, make it learn from whichever files or websites you want. You can try it out in the same notebook and in the web interface.
+```python
+from agixtsdk import AGiXTSDK
 
-You can open this file in a Jupyter Notebook and run the code cells to see the example in action.
+# Connect to AGiXT
+agixt = AGiXTSDK(base_uri="http://localhost:7437", api_key="your_api_key")
 
-- [ezLocalai Example](https://github.com/Josh-XT/AGiXT/blob/main/examples/AGiXT-Expert-ezLocalai.ipynb)
-- [OpenAI Example](https://github.com/Josh-XT/AGiXT/blob/main/examples/AGiXT-Expert-OAI.ipynb)
+# Chat with an agent
+response = agixt.chat(
+    agent_name="XT",
+    user_input="Hello! What can you help me with?",
+    conversation_name="my_chat"
+)
+print(response)
+```
 
-## Voice Chat Example
+## OpenAI-Compatible Chat Completions
 
-Example of a basic AGiXT voice chat: Make the agent listen to you saying a specific word that makes it take what you say, send it to the agent, and then execute an AGiXT function. In this example, you can use two different wake functions, `chat` and `instruct`. When this example is running, and you say each of the wake words, it will take the words you say after that, send them to the agent, and respond back to you with an audio response.
+AGiXT provides an OpenAI-compatible API, so you can use the standard OpenAI Python package:
 
-You can open this file in a Jupyter Notebook and run the code cells to see the example in action. <https://github.com/Josh-XT/AGiXT/blob/main/examples/Voice.ipynb>
+```python
+import openai
 
-## OpenAI Style Chat Completions Endpoint Example
+openai.base_url = "http://localhost:7437/v1/"
+openai.api_key = "your_agixt_api_key"
 
-See the details of this [pull request](https://github.com/Josh-XT/AGiXT/pull/1149) for example usage of the chat completions endpoint in AGiXT.
+response = openai.chat.completions.create(
+    model="XT",  # Agent name
+    messages=[
+        {"role": "user", "content": "What is the capital of France?"}
+    ],
+    max_tokens=4096,
+    temperature=0.7,
+)
+print(response.choices[0].message.content)
+```
 
-- Built in accommodations for uploading audio, files, or images to the pipeline of chat completions.
-- Adds support for the `gpt-4-vision-preview` model allowing images to be uploaded with the same syntax. Follow syntax from OpenAI documentation on how your request should look to send images <https://platform.openai.com/docs/guides/vision>
-- Adds support for vision models being used with [ezLocalai](https://github.com/DevXT-LLC/ezlocalai) using the same OpenAI endpoint syntax mentioned above.
-- Audio upload support through the chat completions endpoint has been implemented.
-- File upload support through the chat completions endpoint has been implemented.
-- Website scraping by giving the URL through the chat completions endpoint as been implemented.
+## Multi-Modal Chat (Images, Audio, Files)
 
-Example of URL scraping, file, image, and audio uploads below in a single endpoint that also prompts the agent:
+Send images, audio, or files through the chat completions endpoint:
 
 ```python
 import openai
 
 response = openai.chat.completions.create(
-    model="THE AGENTS NAME GOES HERE",
+    model="XT",
     messages=[
-        {
-            "conversation_name": "The conversation name", # The conversation name goes here
-            "prompt_category": "Default",  # Optional, default will be "Default"
-            "prompt_name": "Chat",  # Optional, the prompt template name goes here, default will be "Chat"
-            "context_results": 5,  # Optional, default will be 5
-            "websearch": false, # Set to true to enable websearch, default is false
-            "websearch_depth": 0, # Set to the number of depth you want to websearch to go (3 would go 3 links deep per link it scrapes)
-        },
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": "YOUR USER INPUT TO THE AGENT GOES HERE"},
+                {"type": "text", "text": "What can you tell me about this image?"},
                 {
                     "type": "image_url",
-                    "image_url": {  # Will download the image and send it to the vision model
-                        "url": f"https://www.visualwatermark.com/images/add-text-to-photos/add-text-to-image-3.webp"
-                    },
-                },
-                {
-                    "type": "text_url",  # Or just "url"
-                    "url": {  # Content of the text or URL for it to be scraped
-                        "url": "https://agixt.com"
-                    },
-                    "collection_number": 0,  # Optional field, defaults to 0.
-                },
-                {
-                    "type": "application_url",
-                    "url": {  # Will scrape mime type `application` into the agent's memory
-                        "url": "data:application/pdf;base64,base64_encoded_pdf_here"
-                    },
-                    "collection_number": 0,  # Optional field, defaults to 0.
-                },
-                {
-                    "type": "audio_url",
-                    "url": {  # Will transcribe the audio and send it to the agent in the same way as text. Enables easy voice chat.
-                        "url": "data:audio/wav;base64,base64_encoded_audio_here"
+                    "image_url": {
+                        "url": "https://example.com/image.jpg"
                     },
                 },
             ],
         },
     ],
-    max_tokens=4096,
-    temperature=0.7,
-    top_p=0.9,
+    user="my_conversation",  # Conversation name
 )
 print(response.choices[0].message.content)
 ```
+
+### Additional Content Types
+
+```python
+# Web URL scraping
+{
+    "type": "text_url",
+    "text_url": {"url": "https://agixt.com"},
+}
+
+# PDF or document upload (base64 encoded)
+{
+    "type": "application_url",
+    "application_url": {
+        "url": "data:application/pdf;base64,base64_encoded_pdf_here"
+    },
+}
+
+# Audio transcription (base64 encoded)
+{
+    "type": "audio_url",
+    "audio_url": {
+        "url": "data:audio/wav;base64,base64_encoded_audio_here"
+    },
+}
+```
+
+## Training an Agent on Documents
+
+```python
+from agixtsdk import AGiXTSDK
+
+agixt = AGiXTSDK(base_uri="http://localhost:7437", api_key="your_key")
+
+# Learn from a website
+agixt.learn_url(
+    agent_name="XT",
+    url="https://docs.example.com",
+    collection_number="0"
+)
+
+# Learn from a GitHub repository
+agixt.learn_github_repo(
+    agent_name="XT",
+    github_repo="Josh-XT/AGiXT",
+    collection_number="0"
+)
+
+# Now ask questions about the learned content
+response = agixt.chat(
+    agent_name="XT",
+    user_input="What is AGiXT?",
+    conversation_name="research"
+)
+```
+
+## Running a Chain (Workflow)
+
+```python
+from agixtsdk import AGiXTSDK
+
+agixt = AGiXTSDK(base_uri="http://localhost:7437", api_key="your_key")
+
+# Run a predefined chain
+result = agixt.run_chain(
+    chain_name="Research and Summarize",
+    user_input="Analyze the latest trends in AI",
+    agent_name="XT",
+    all_responses=False  # Return only final result
+)
+print(result)
+```
+
+## Enabling Agent Commands
+
+```python
+from agixtsdk import AGiXTSDK
+
+agixt = AGiXTSDK(base_uri="http://localhost:7437", api_key="your_key")
+
+# Enable specific commands for an agent
+agixt.update_agent_commands(
+    agent_name="XT",
+    commands={
+        "Web Search": True,
+        "Read Website Content": True,
+        "Write to File": True,
+    }
+)
+```
+
+## CLI Usage Examples
+
+```bash
+# Start a new conversation
+agixt conversations -
+
+# Send a prompt to the default agent
+agixt prompt "Explain quantum computing in simple terms"
+
+# Specify an agent
+agixt prompt "Write a Python function to sort a list" --agent XT
+
+# View conversation history
+agixt conversations
+```
+
+## Voice Chat Example
+
+For voice interaction capabilities, see the Jupyter notebook example:
+- [Voice Chat Example](https://github.com/Josh-XT/AGiXT/blob/main/examples/Voice.ipynb)
+
+## Expert Agent Example
+
+Create an expert agent that learns from your documentation:
+- [ezLocalai Example](https://github.com/Josh-XT/AGiXT/blob/main/examples/AGiXT-Expert-ezLocalai.ipynb)
+- [OpenAI Example](https://github.com/Josh-XT/AGiXT/blob/main/examples/AGiXT-Expert-OAI.ipynb)
+
+## More Examples
+
+Check the [examples directory](https://github.com/Josh-XT/AGiXT/tree/main/examples) in the AGiXT repository for more Jupyter notebooks and sample code.

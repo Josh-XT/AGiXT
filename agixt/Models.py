@@ -42,6 +42,7 @@ class InvitationCreate(BaseModel):
     email: str
     company_id: Optional[str] = None
     role_id: int
+    skip_email: Optional[bool] = False
 
 
 class InvitationCreateByRole(BaseModel):

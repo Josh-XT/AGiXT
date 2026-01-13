@@ -14,5 +14,5 @@
 1. Set `AI_PROVIDER` to `openai`.
 2. Set `OPENAI_API_URI` to `https://api.x.ai/v1`
 3. Set `OPENAI_API_KEY` to your xAI API key.
-4. Set `OPENAI_MODEL` to `grok-beta` or your preferred xAI model.
+4. Set `OPENAI_MODEL` to `grok-3` or your preferred xAI model.
 5. Set `OPENAI_MAX_TOKENS` to the maximum number of input tokens.

@@ -60,6 +60,7 @@ import jwt
 import json
 import uuid
 import os
+import urllib.parse
 from ExtensionsHub import (
     find_extension_files,
     import_extension_module,
@@ -79,6 +80,33 @@ _stripe_check_cache_ttl = 300  # 5 minutes
 _user_company_cache_ttl = 10  # 10 seconds
 _user_id_cache_ttl = 60  # 60 seconds
 _token_validation_cache_ttl = 5  # 5 seconds
+
+
+def hash_pat_token(token: str) -> str:
+    """
+    Securely hash a Personal Access Token using PBKDF2-HMAC-SHA256.
+
+    Uses AGIXT_API_KEY as the salt, making the hash computationally expensive
+    and resistant to brute-force attacks even if the database is compromised.
+
+    Args:
+        token: The PAT token string to hash
+
+    Returns:
+        str: The PBKDF2 hex digest of the token
+    """
+    import hashlib
+
+    salt = os.getenv("AGIXT_API_KEY", "").encode()
+    # PBKDF2 with 100,000 iterations provides strong brute-force resistance
+    # while maintaining reasonable validation performance
+    dk = hashlib.pbkdf2_hmac(
+        hash_name="sha256",
+        password=token.encode(),
+        salt=salt,
+        iterations=100000,
+    )
+    return dk.hex()
 
 
 def _serialize_user_dict(user_dict: dict) -> dict:
@@ -1873,7 +1901,8 @@ class MagicalAuth:
         )
         self.email = email.lower()
         session = get_session()
-        user = session.query(User).filter(User.email == self.email).first()
+        # Only consider active users as "existing" - inactive users can re-register
+        user = session.query(User).filter(User.email == self.email, User.is_active == True).first()
         if not user:
             self.send_email_code()
             self.send_sms_code()
@@ -1881,6 +1910,151 @@ class MagicalAuth:
             return False
         session.close()
         return True
+
+    def user_exists_any(self, email: str) -> bool:
+        """
+        Check if a user exists with this email, regardless of active status.
+        """
+        self.email = email.lower()
+        session = get_session()
+        user = session.query(User).filter(User.email == self.email).first()
+        session.close()
+        return user is not None
+
+    def reactivate_user_with_invitation(self, email: str, invitation_id: str, first_name: str = None, last_name: str = None) -> dict:
+        """
+        Reactivate an inactive user and add them to the invited company.
+        """
+        email = email.lower()
+        with get_session() as session:
+            # Get the invitation
+            invitation = session.query(Invitation).filter(
+                Invitation.id == invitation_id
+            ).first()
+            
+            if not invitation:
+                return {"error": "Invalid invitation"}
+            
+            # Get the inactive user
+            user = session.query(User).filter(
+                User.email == email,
+                User.is_active == False
+            ).first()
+            
+            if not user:
+                return {"error": "User not found"}
+            
+            # Update user info if provided
+            if first_name:
+                user.first_name = first_name
+            if last_name:
+                user.last_name = last_name
+            
+            # Reactivate the user
+            user.is_active = True
+            
+            # Check if user is already in this company
+            existing_membership = session.query(UserCompany).filter(
+                UserCompany.user_id == user.id,
+                UserCompany.company_id == invitation.company_id
+            ).first()
+            
+            if existing_membership:
+                session.commit()
+                return {"already_in_company": True, "user_id": str(user.id)}
+            
+            # Add user to the new company
+            new_membership = UserCompany(
+                user_id=user.id,
+                company_id=invitation.company_id,
+                role_id=invitation.role_id
+            )
+            session.add(new_membership)
+            
+            # Mark invitation as accepted
+            invitation.is_accepted = True
+            session.commit()
+            
+            # Invalidate cache
+            invalidate_user_company_cache(str(user.id))
+            
+            # Generate login link for the user
+            totp = pyotp.TOTP(user.mfa_token)
+            otp_uri = totp.provisioning_uri(name=email, issuer_name=getenv("APP_NAME"))
+            login = Login(email=email, token=totp.now())
+            magic_link = self.send_magic_link(
+                ip_address="user_reactivation", login=login, send_link=False
+            )
+            
+            return {
+                "reactivated": True,
+                "added_to_company": True,
+                "otp_uri": otp_uri,
+                "magic_link": magic_link,
+                "message": "Your account has been reactivated and you have been added to the company."
+            }
+
+    def handle_existing_user_invitation(self, email: str, invitation_id: str) -> dict:
+        """
+        Handle registration attempt for a user that already exists.
+        If they're not in the invited company, add them to it.
+        If they're already in the company, return a conflict indicator.
+        """
+        email = email.lower()
+        with get_session() as session:
+            # Get the invitation
+            invitation = session.query(Invitation).filter(
+                Invitation.id == invitation_id
+            ).first()
+            
+            if not invitation:
+                return {"error": "Invalid invitation"}
+            
+            # Get the existing user
+            user = session.query(User).filter(
+                User.email == email,
+                User.is_active == True
+            ).first()
+            
+            if not user:
+                return {"error": "User not found"}
+            
+            # Check if user is already in this company
+            existing_membership = session.query(UserCompany).filter(
+                UserCompany.user_id == user.id,
+                UserCompany.company_id == invitation.company_id
+            ).first()
+            
+            if existing_membership:
+                return {"already_in_company": True, "user_id": str(user.id)}
+            
+            # Add user to the new company
+            new_membership = UserCompany(
+                user_id=user.id,
+                company_id=invitation.company_id,
+                role_id=invitation.role_id
+            )
+            session.add(new_membership)
+            
+            # Mark invitation as accepted
+            invitation.is_accepted = True
+            session.commit()
+            
+            # Invalidate cache
+            invalidate_user_company_cache(str(user.id))
+            
+            # Generate login link for the user
+            totp = pyotp.TOTP(user.mfa_token)
+            login = Login(email=email, token=totp.now())
+            magic_link = self.send_magic_link(
+                ip_address="invitation_acceptance", login=login, send_link=False
+            )
+            
+            return {
+                "added_to_company": True,
+                "magic_link": magic_link,
+                "message": "You have been added to the company. Use the link to log in."
+            }
 
     def add_failed_login(self, ip_address):
         session = get_session()
@@ -4735,7 +4909,13 @@ class MagicalAuth:
                 .all()
             )
             response = []
+            app_uri = getenv("APP_URI") or "http://localhost:3437"
             for invitation in invitations:
+                # Get company name for the link
+                company = db.query(Company).filter(Company.id == invitation.company_id).first()
+                company_name = company.name if company else ""
+                company_encoded = urllib.parse.quote(company_name) if company_name else ""
+                invitation_link = f"{app_uri}?invitation_id={invitation.id}&email={invitation.email}&company={company_encoded}"
                 response.append(
                     {
                         "id": str(invitation.id),
@@ -4745,6 +4925,7 @@ class MagicalAuth:
                         "inviter_id": str(invitation.inviter_id),
                         "created_at": invitation.created_at,
                         "is_accepted": invitation.is_accepted,
+                        "invitation_link": invitation_link,
                     }
                 )
             return response
@@ -4916,7 +5097,30 @@ class MagicalAuth:
                 )
 
                 if existing_invitation:
-                    invitation_link = self.send_invitation_email(existing_invitation)
+                    # Resend invitation email (unless skip_email is True)
+                    if invitation.skip_email:
+                        app_uri = getenv("APP_URI")
+                        company = (
+                            db.query(Company)
+                            .filter(Company.id == invitation.company_id)
+                            .first()
+                        )
+                        company_name = company.name if company else "our platform"
+                        company_encoded = (
+                            company_name.replace("+", "%2B")
+                            .replace("/", "%2F")
+                            .replace("=", "%3D")
+                            .replace(" ", "%20")
+                            .replace(":", "%3A")
+                            .replace("?", "%3F")
+                            .replace("&", "%26")
+                            .replace("#", "%23")
+                            .replace(";", "%3B")
+                            .replace("@", "%40")
+                        )
+                        invitation_link = f"{app_uri}?invitation_id={existing_invitation.id}&email={existing_invitation.email}&company={company_encoded}"
+                    else:
+                        invitation_link = self.send_invitation_email(existing_invitation)
                     return InvitationResponse(
                         id=str(existing_invitation.id),
                         invitation_link=invitation_link,
@@ -4939,8 +5143,30 @@ class MagicalAuth:
                 db.commit()
                 db.refresh(new_invitation)
 
-                # Send invitation email
-                invitation_link = self.send_invitation_email(new_invitation)
+                # Send invitation email (unless skip_email is True)
+                if invitation.skip_email:
+                    app_uri = getenv("APP_URI")
+                    company = (
+                        db.query(Company)
+                        .filter(Company.id == invitation.company_id)
+                        .first()
+                    )
+                    company_name = company.name if company else "our platform"
+                    company_encoded = (
+                        company_name.replace("+", "%2B")
+                        .replace("/", "%2F")
+                        .replace("=", "%3D")
+                        .replace(" ", "%20")
+                        .replace(":", "%3A")
+                        .replace("?", "%3F")
+                        .replace("&", "%26")
+                        .replace("#", "%23")
+                        .replace(";", "%3B")
+                        .replace("@", "%40")
+                    )
+                    invitation_link = f"{app_uri}?invitation_id={new_invitation.id}&email={new_invitation.email}&company={company_encoded}"
+                else:
+                    invitation_link = self.send_invitation_email(new_invitation)
 
                 response = {
                     "id": str(new_invitation.id),
@@ -5280,14 +5506,17 @@ class MagicalAuth:
                                 role_name = "user"
                             user = user_company.user
                             user_id = str(user.id)
+                            # Show inactive users with "Inactive" role so admins can manage them
+                            display_role = role_name if user.is_active else "Inactive"
+                            display_role_id = user_company.role_id if user.is_active else 0
                             if user_id not in unique_users:
                                 unique_users[user_id] = UserResponse(
                                     id=user_id,
                                     email=user.email,
                                     first_name=user.first_name,
                                     last_name=user.last_name,
-                                    role=role_name,
-                                    role_id=user_company.role_id,
+                                    role=display_role,
+                                    role_id=display_role_id,
                                 )
 
                     company_data = {
@@ -5335,14 +5564,17 @@ class MagicalAuth:
                                     role_name = "user"
                                 user = user_company.user
                                 user_id = str(user.id)
+                                # Show inactive users with "Inactive" role so admins can manage them
+                                display_role = role_name if user.is_active else "Inactive"
+                                display_role_id = user_company.role_id if user.is_active else 0
                                 if user_id not in child_unique_users:
                                     child_unique_users[user_id] = UserResponse(
                                         id=user_id,
                                         email=user.email,
                                         first_name=user.first_name,
                                         last_name=user.last_name,
-                                        role=role_name,
-                                        role_id=user_company.role_id,
+                                        role=display_role,
+                                        role_id=display_role_id,
                                     )
 
                             child_data = {
@@ -6502,7 +6734,7 @@ class MagicalAuth:
         token_bytes = secrets.token_bytes(32)
         token_value = f"agixt_{token_bytes.hex()}"
         token_prefix = token_value[:16]  # "agixt_" + first 10 hex chars
-        token_hash = hashlib.sha256(token_value.encode()).hexdigest()
+        token_hash = hash_pat_token(token_value)
 
         from DB import (
             PersonalAccessToken,
@@ -6808,7 +7040,7 @@ class MagicalAuth:
             token_bytes = secrets.token_bytes(32)
             new_token_value = f"agixt_{token_bytes.hex()}"
             new_token_prefix = new_token_value[:16]
-            new_token_hash = hashlib.sha256(new_token_value.encode()).hexdigest()
+            new_token_hash = hash_pat_token(new_token_value)
 
             # Update the token record with new hash
             old_token.token_prefix = new_token_prefix
@@ -6928,8 +7160,6 @@ def validate_personal_access_token(token: str) -> dict:
     Returns:
         dict with validation info including user_id, scopes, etc.
     """
-    import hashlib
-
     if not token or not token.startswith("agixt_"):
         return {
             "valid": False,
@@ -6938,7 +7168,7 @@ def validate_personal_access_token(token: str) -> dict:
 
     from DB import PersonalAccessToken
 
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    token_hash = hash_pat_token(token)
 
     session = get_session()
     try:

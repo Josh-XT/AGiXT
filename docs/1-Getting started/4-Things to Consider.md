@@ -1,17 +1,62 @@
 # Things to Consider
 
-To attempt to manage expectations, here are some things to consider when using AGiXT with large language models.
+To help manage expectations, here are some things to consider when using AGiXT with large language models.
 
 ## Context and Token Limits
 
-Think of AI like a speed-reader with a short-term memory. It can scan through a lot of information quickly, but it can't hold all of it in its mind at once. This limit to what it can remember at any given time is what we call its 'token limit'.
+Think of AI like a speed-reader with a short-term memory. It can scan through a lot of information quickly, but it can't hold all of it in mind at once. This limit is called the 'token limit'.
 
-If you hand the AI a huge book and ask, "What's the entire premise of this story?", it can't answer right away. It's like asking someone to read a whole book in a split second and summarize it instantly. The AI, like a human, doesn't have the time (or token capacity) to process all that information at once.
+If you ask the AI "What's the entire premise of this story?" for a huge book, it can't answer right away. However, specific questions like "What color is Sally's hair?" are easier because the AI only needs to find that specific information.
 
-However, if you ask a more specific question like, "What color is Sally's hair in the book?", the AI doesn't need to go through the entire book. It can scan quickly to find that specific information. That's because this question only requires context about Sally's hair, not the entire book.
-
-In other words, different tasks require different amounts of context. A full technical review might need to consider the whole document, as it needs a comprehensive understanding. But a single step of the review could focus on a specific aspect, requiring less context. It's all about matching the AI's token capacity to the task at hand.
+**Key takeaway**: Different tasks require different amounts of context. Match your queries to the AI's token capacity for best results.
 
 ## Local Model Expectations
 
-While it is absolutely fascinating to run local models, it is important to understand that they are not very good at making decisions currently. This seems to apply to most models that can currently be run locally (as of August 16, 2023.) This is only being mentioned to help manage expectations of what local models can do. They are great for generating text and can absolutely be used for many things within AGiXT, but I would not recommend giving local models command access due to their lower logical reasoning capabilities. You may get poor results attempting autonomous execution with local models.  Local models are best utilized within Chains where you define to run commands based on the text responses that you predefine and the LLM never knows that it can or cannot run commands.  This is the best way to utilize local models in AGiXT currently.
+Running local models with ezLocalai is fascinating and private, but understand their current limitations:
+
+- **Reasoning capabilities**: Local models generally have lower logical reasoning compared to cloud models like GPT-4 or Claude
+- **Best use cases**: Text generation, summarization, following predefined workflows
+- **Recommended approach**: Use local models within Chains where you define commands based on text responses rather than giving them autonomous command access
+- **Performance**: Expect slower responses on CPU. GPU acceleration with CUDA significantly improves speed
+
+**Note**: Local model capabilities are rapidly improving. What's stated here may change as new models are released.
+
+## GPU and VRAM Considerations
+
+When using ezLocalai with local models:
+
+| Model Size | Approximate VRAM Needed | Context Length |
+|------------|------------------------|----------------|
+| 7B parameters | ~8-12GB | 8k-16k tokens |
+| 8B parameters | ~10-14GB | 16k-32k tokens |
+| 13B parameters | ~16-20GB | 8k-16k tokens |
+| Vision models | +2-4GB additional | Varies |
+
+Reduce VRAM usage by:
+- Lowering `LLM_MAX_TOKENS` 
+- Adjusting `GPU_LAYERS` to offload some layers to CPU
+- Using smaller quantized models (Q4, Q5)
+
+## Extension Command Security
+
+When enabling commands for agents:
+
+- **Enable sparingly**: Only give agents access to commands they need for their specific task
+- **Avoid enabling all commands**: Too many options can cause "hallucinations" where the agent generates irrelevant responses
+- **Use Chains for complex workflows**: Define explicit steps rather than giving autonomous command access
+
+## API Provider Costs
+
+When using cloud providers (OpenAI, Anthropic, Google, etc.):
+
+- **Monitor usage**: API calls can add up quickly, especially with large context windows
+- **Set limits**: Configure appropriate rate limits and spending caps
+- **Use local inference**: ezLocalai provides free local AI capabilities if you have the hardware
+
+## Data Privacy
+
+Consider where your data goes:
+
+- **Cloud providers**: Your conversations and files may be sent to third-party APIs
+- **Local inference**: With ezLocalai, all processing stays on your machine
+- **Hybrid approach**: Use local models for sensitive data, cloud models for general tasks

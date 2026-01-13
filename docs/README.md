@@ -62,7 +62,22 @@ AGiXT is not just another AI framework—it's a complete automation platform tha
 
 ### 📥 Installation
 
-#### Option 1: Docker Installation (Recommended)
+#### Option 1: PyPI Installation (Recommended)
+
+The simplest way to get started:
+
+```bash
+pip install agixt
+agixt start
+```
+
+That's it! AGiXT automatically handles Docker setup and starts all services.
+
+> 🤖 **ezLocalai Included**: By default, AGiXT starts with [ezLocalai](https://github.com/DevXT-LLC/ezlocalai) for local AI inference. This provides local LLM, vision, TTS, and STT capabilities out of the box. To disable, set `WITH_EZLOCALAI=false` in your environment.
+
+#### Option 2: Development Installation
+
+For development or customization:
 
 ```bash
 git clone https://github.com/Josh-XT/AGiXT
@@ -71,16 +86,10 @@ pip install -e .
 agixt start
 ```
 
-The script automatically handles Docker setup and starts all services.
-
-> 🤖 **ezLocalai Included**: By default, AGiXT starts with [ezLocalai](https://github.com/DevXT-LLC/ezlocalai) for local AI inference. This provides local LLM, vision, TTS, and STT capabilities out of the box. To disable, set `WITH_EZLOCALAI=false` in your environment.
-
-#### Option 2: Local Installation (Without Docker)
+#### Option 3: Local Installation (Without Docker)
 
 ```bash
-git clone https://github.com/Josh-XT/AGiXT
-cd AGiXT
-pip install -e .
+pip install agixt
 agixt start --local
 ```
 

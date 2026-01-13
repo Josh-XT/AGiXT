@@ -3693,28 +3693,56 @@ def discover_extension_models():
     """
     import importlib
     import glob
+    import sys
 
     extension_models = []
-    extensions_dir = os.path.join(os.path.dirname(__file__), "extensions")
-    command_files = glob.glob(os.path.join(extensions_dir, "*.py"))
+    
+    # Collect all extension directories to search
+    extensions_dirs = []
+    
+    # Default extensions directory
+    default_ext_dir = os.path.join(os.path.dirname(__file__), "extensions")
+    if os.path.exists(default_ext_dir):
+        extensions_dirs.append(default_ext_dir)
+    
+    # Also check EXTENSIONS_HUB for local paths
+    hub_urls = os.environ.get("EXTENSIONS_HUB", "")
+    if hub_urls:
+        for source in hub_urls.split(","):
+            source = source.strip()
+            if source and not source.startswith("http"):
+                # It's a local path
+                abs_path = os.path.abspath(os.path.expanduser(source))
+                if os.path.exists(abs_path) and os.path.isdir(abs_path):
+                    extensions_dirs.append(abs_path)
+                    # Make sure it's in sys.path
+                    if abs_path not in sys.path:
+                        sys.path.insert(0, abs_path)
+    
+    for extensions_dir in extensions_dirs:
+        command_files = glob.glob(os.path.join(extensions_dir, "*.py"))
 
-    for command_file in command_files:
-        module_name = os.path.splitext(os.path.basename(command_file))[0]
-        try:
-            module = importlib.import_module(f"extensions.{module_name}")
+        for command_file in command_files:
+            module_name = os.path.splitext(os.path.basename(command_file))[0]
+            try:
+                # Try to import from the directory
+                if extensions_dir == default_ext_dir:
+                    module = importlib.import_module(f"extensions.{module_name}")
+                else:
+                    module = importlib.import_module(module_name)
 
-            # Check if the module has any classes that inherit from ExtensionDatabaseMixin
-            for attr_name in dir(module):
-                attr = getattr(module, attr_name)
-                if isinstance(attr, type) and issubclass(attr, ExtensionDatabaseMixin):
-                    if attr is not ExtensionDatabaseMixin and hasattr(
-                        attr, "extension_models"
-                    ):
-                        extension_models.extend(attr.extension_models)
-        except Exception as e:
-            logging.debug(
-                f"Could not import extension {module_name} for model discovery: {e}"
-            )
+                # Check if the module has any classes that inherit from ExtensionDatabaseMixin
+                for attr_name in dir(module):
+                    attr = getattr(module, attr_name)
+                    if isinstance(attr, type) and issubclass(attr, ExtensionDatabaseMixin):
+                        if attr is not ExtensionDatabaseMixin and hasattr(
+                            attr, "extension_models"
+                        ):
+                            extension_models.extend(attr.extension_models)
+            except Exception as e:
+                logging.debug(
+                    f"Could not import extension {module_name} for model discovery: {e}"
+                )
 
     return extension_models
 
@@ -3723,6 +3751,12 @@ def initialize_extension_tables():
     """
     Initialize all extension database tables
     """
+    # First, ensure all tables in Base.metadata are created (includes association tables)
+    try:
+        Base.metadata.create_all(engine, checkfirst=True)
+    except Exception as e:
+        logging.debug(f"Error in create_all for extension tables: {e}")
+
     models = discover_extension_models()
     for model in models:
         # Check if table has already been created by ExtensionDatabaseMixin
@@ -6243,24 +6277,26 @@ def set_server_config(name: str, value: str, category: str = None) -> bool:
 def seed_server_config_from_env():
     """
     Seed server configuration from environment variables.
-    Only sets values that are not already in the database.
+    Creates new entries that don't exist in the database.
+    Also updates existing entries that have empty values if an env value is available.
     """
     logging.info("Seeding server configuration from environment variables...")
     seeded_count = 0
+    updated_count = 0
 
     with get_session() as db:
         for definition in SERVER_CONFIG_DEFINITIONS:
             name = definition["name"]
+            is_sensitive = definition.get("is_sensitive", False)
+
+            # Get value from environment
+            env_value = os.getenv(name, "")
 
             # Check if already exists in database
             existing = db.query(ServerConfig).filter_by(name=name).first()
 
             if not existing:
-                # Get value from environment
-                env_value = os.getenv(name, "")
-
                 # Create config entry with definition metadata
-                is_sensitive = definition.get("is_sensitive", False)
                 new_config = ServerConfig(
                     name=name,
                     value=(
@@ -6277,10 +6313,19 @@ def seed_server_config_from_env():
                 )
                 db.add(new_config)
                 seeded_count += 1
+            elif env_value and not existing.value:
+                # Update existing entry with empty value if env has a value
+                # This handles the case where token was added after initial setup
+                existing.value = (
+                    encrypt_config_value(env_value) if is_sensitive else env_value
+                )
+                updated_count += 1
 
         db.commit()
 
-    logging.info(f"Seeded {seeded_count} server configuration values from environment")
+    logging.info(
+        f"Seeded {seeded_count} new server config values, updated {updated_count} empty values from environment"
+    )
 
     # Load the config cache after seeding
     try:

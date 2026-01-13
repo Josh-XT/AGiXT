@@ -2592,11 +2592,23 @@ Your response (true or false):"""
                                                     file_name,
                                                 )
                                             )
+                                            # Validate path stays within workspace to prevent path traversal
+                                            abs_workspace = os.path.abspath(
+                                                self.agent_workspace
+                                            )
+                                            abs_file_path = os.path.abspath(file_path)
+                                            if not abs_file_path.startswith(
+                                                abs_workspace + os.sep
+                                            ):
+                                                logging.error(
+                                                    f"[chat_completions] Invalid file path: attempt to access outside workspace"
+                                                )
+                                                continue
                                             os.makedirs(
-                                                os.path.dirname(file_path),
+                                                os.path.dirname(abs_file_path),
                                                 exist_ok=True,
                                             )
-                                            with open(file_path, "wb") as f:
+                                            with open(abs_file_path, "wb") as f:
                                                 f.write(response.content)
                                             logging.info(
                                                 f"[chat_completions] Downloaded GitHub repo to: {file_path}"
@@ -2797,10 +2809,15 @@ Your response (true or false):"""
                                                     file_name,
                                                 )
                                             )
-                                            if file_path.startswith(
+                                            # Validate path stays within workspace to prevent path traversal
+                                            abs_workspace = os.path.abspath(
                                                 self.agent_workspace
+                                            )
+                                            abs_file_path = os.path.abspath(file_path)
+                                            if abs_file_path.startswith(
+                                                abs_workspace + os.sep
                                             ):
-                                                with open(file_path, "wb") as f:
+                                                with open(abs_file_path, "wb") as f:
                                                     f.write(file_data)
                                                 files.append(
                                                     {
@@ -3593,10 +3610,15 @@ Your response (true or false):"""
                                                     file_name,
                                                 )
                                             )
-                                            if file_path.startswith(
+                                            # Validate path stays within workspace to prevent path traversal
+                                            abs_workspace = os.path.abspath(
                                                 self.agent_workspace
+                                            )
+                                            abs_file_path = os.path.abspath(file_path)
+                                            if abs_file_path.startswith(
+                                                abs_workspace + os.sep
                                             ):
-                                                with open(file_path, "wb") as f:
+                                                with open(abs_file_path, "wb") as f:
                                                     f.write(file_data)
                                                 files.append(
                                                     {
