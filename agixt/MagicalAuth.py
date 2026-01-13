@@ -1317,6 +1317,22 @@ class MagicalAuth:
                 .all()
             )
 
+            # === 4.5. Check if this user should be promoted to super admin ===
+            # This ensures SUPERADMIN_EMAIL takes effect for existing users
+            superadmin_email = getenv("SUPERADMIN_EMAIL", "").lower()
+            if superadmin_email and user.email.lower() == superadmin_email:
+                for uc in user_companies:
+                    if uc.role_id != 0:
+                        logging.info(
+                            f"Promoting user {user.email} to super admin (role 0) in company {uc.company_id} "
+                            f"(was role {uc.role_id}) due to SUPERADMIN_EMAIL configuration"
+                        )
+                        uc.role_id = 0
+                        session.commit()
+                        invalidate_user_scopes_cache(
+                            user_id=str(self.user_id), company_id=str(uc.company_id)
+                        )
+
             # Check if super admin
             is_super_admin = any(uc.role_id == 0 for uc in user_companies)
 
