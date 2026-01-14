@@ -752,9 +752,7 @@ class SystemNotificationReceipt(Base):
     user = relationship("User")
 
     __table_args__ = (
-        UniqueConstraint(
-            "notification_id", "user_id", name="uix_notification_user"
-        ),
+        UniqueConstraint("notification_id", "user_id", name="uix_notification_user"),
     )
 
 
@@ -3774,15 +3772,15 @@ def discover_extension_models():
     import sys
 
     extension_models = []
-    
+
     # Collect all extension directories to search
     extensions_dirs = []
-    
+
     # Default extensions directory
     default_ext_dir = os.path.join(os.path.dirname(__file__), "extensions")
     if os.path.exists(default_ext_dir):
         extensions_dirs.append(default_ext_dir)
-    
+
     # Also check EXTENSIONS_HUB for local paths
     hub_urls = os.environ.get("EXTENSIONS_HUB", "")
     if hub_urls:
@@ -3796,7 +3794,7 @@ def discover_extension_models():
                     # Make sure it's in sys.path
                     if abs_path not in sys.path:
                         sys.path.insert(0, abs_path)
-    
+
     for extensions_dir in extensions_dirs:
         command_files = glob.glob(os.path.join(extensions_dir, "*.py"))
 
@@ -3812,7 +3810,9 @@ def discover_extension_models():
                 # Check if the module has any classes that inherit from ExtensionDatabaseMixin
                 for attr_name in dir(module):
                     attr = getattr(module, attr_name)
-                    if isinstance(attr, type) and issubclass(attr, ExtensionDatabaseMixin):
+                    if isinstance(attr, type) and issubclass(
+                        attr, ExtensionDatabaseMixin
+                    ):
                         if attr is not ExtensionDatabaseMixin and hasattr(
                             attr, "extension_models"
                         ):
