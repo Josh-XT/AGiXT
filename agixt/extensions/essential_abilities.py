@@ -321,6 +321,8 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "List Discarded Context": self.list_discarded_context,
             # Feedback Commands
             "Send Feedback to Development Team": self.send_feedback_to_dev_team,
+            # Codebase Mapping
+            "Create or Update Codebase Map": self.create_or_update_codebase_map,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -9376,3 +9378,812 @@ On the sidebar, expanding `Automation` reveals the following pages:
         except Exception as e:
             logging.error(f"Failed to send feedback to development team: {str(e)}")
             return f"We apologize, but there was an error sending your feedback: {str(e)}. Please try again later or contact support directly."
+
+    async def create_or_update_codebase_map(
+        self,
+        path: str = "",
+        update_file: str = "",
+    ) -> str:
+        """
+        Create or update a comprehensive map of a codebase within the workspace.
+
+        This command scans the specified directory (or entire workspace) and generates
+        a detailed architecture map including file purposes, dependencies, data flows,
+        and navigation guides. The map is saved to docs/CODEBASE_MAP.md.
+
+        Args:
+            path (str): Directory path relative to workspace to map. Use "" for entire workspace,
+                       or a subdirectory like "src/" or "backend/". Must be within workspace.
+            update_file (str): If specified, only update the map based on changes to this specific
+                              file rather than rescanning everything. Useful for incremental updates.
+
+        Returns:
+            str: Status message indicating success with location of generated map, or error message.
+
+        Notes:
+            - Respects .gitignore patterns and skips binary/generated files automatically
+            - For large codebases, content is chunked and analyzed in batches
+            - Creates docs/CODEBASE_MAP.md with architecture diagrams, module guides, and navigation
+            - If map already exists, it will be updated with new analysis
+            - Token counts are included to help understand codebase complexity
+        """
+        from Globals import get_tokens
+        import fnmatch
+        import datetime
+
+        # Default patterns to always ignore (common non-code files and directories)
+        DEFAULT_IGNORE_DIRS = {
+            ".git",
+            ".svn",
+            ".hg",
+            "node_modules",
+            "__pycache__",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+            "venv",
+            ".venv",
+            "env",
+            ".env",
+            "dist",
+            "build",
+            ".next",
+            ".nuxt",
+            ".output",
+            "coverage",
+            ".coverage",
+            ".nyc_output",
+            "target",
+            "vendor",
+            ".bundle",
+            ".cargo",
+            ".tox",
+            "eggs",
+            ".eggs",
+            "*.egg-info",
+            "htmlcov",
+            ".hypothesis",
+        }
+
+        DEFAULT_IGNORE_FILES = {
+            ".DS_Store",
+            "Thumbs.db",
+            "*.pyc",
+            "*.pyo",
+            "*.so",
+            "*.dylib",
+            "*.dll",
+            "*.exe",
+            "*.o",
+            "*.a",
+            "*.lib",
+            "*.class",
+            "*.jar",
+            "*.war",
+            "*.egg",
+            "*.whl",
+            "*.lock",
+            "package-lock.json",
+            "yarn.lock",
+            "pnpm-lock.yaml",
+            "bun.lockb",
+            "Cargo.lock",
+            "poetry.lock",
+            "Gemfile.lock",
+            "composer.lock",
+            "*.png",
+            "*.jpg",
+            "*.jpeg",
+            "*.gif",
+            "*.ico",
+            "*.svg",
+            "*.webp",
+            "*.mp3",
+            "*.mp4",
+            "*.wav",
+            "*.avi",
+            "*.mov",
+            "*.pdf",
+            "*.zip",
+            "*.tar",
+            "*.gz",
+            "*.rar",
+            "*.7z",
+            "*.woff",
+            "*.woff2",
+            "*.ttf",
+            "*.eot",
+            "*.otf",
+            "*.min.js",
+            "*.min.css",
+            "*.map",
+            "*.chunk.js",
+            "*.bundle.js",
+        }
+
+        TEXT_EXTENSIONS = {
+            ".py",
+            ".js",
+            ".ts",
+            ".jsx",
+            ".tsx",
+            ".vue",
+            ".svelte",
+            ".html",
+            ".htm",
+            ".css",
+            ".scss",
+            ".sass",
+            ".less",
+            ".json",
+            ".yaml",
+            ".yml",
+            ".toml",
+            ".xml",
+            ".md",
+            ".mdx",
+            ".txt",
+            ".rst",
+            ".sh",
+            ".bash",
+            ".zsh",
+            ".fish",
+            ".ps1",
+            ".bat",
+            ".cmd",
+            ".sql",
+            ".graphql",
+            ".gql",
+            ".proto",
+            ".go",
+            ".rs",
+            ".rb",
+            ".php",
+            ".java",
+            ".kt",
+            ".kts",
+            ".scala",
+            ".clj",
+            ".cljs",
+            ".edn",
+            ".ex",
+            ".exs",
+            ".erl",
+            ".hrl",
+            ".hs",
+            ".lhs",
+            ".ml",
+            ".mli",
+            ".fs",
+            ".fsx",
+            ".fsi",
+            ".cs",
+            ".vb",
+            ".swift",
+            ".m",
+            ".mm",
+            ".h",
+            ".hpp",
+            ".c",
+            ".cpp",
+            ".cc",
+            ".cxx",
+            ".r",
+            ".R",
+            ".jl",
+            ".lua",
+            ".vim",
+            ".el",
+            ".lisp",
+            ".scm",
+            ".rkt",
+            ".zig",
+            ".nim",
+            ".d",
+            ".dart",
+            ".v",
+            ".sv",
+            ".vhd",
+            ".vhdl",
+            ".tf",
+            ".hcl",
+            ".dockerfile",
+            ".containerfile",
+            ".makefile",
+            ".cmake",
+            ".gradle",
+            ".groovy",
+            ".rake",
+            ".gemspec",
+            ".podspec",
+            ".cabal",
+            ".nix",
+            ".dhall",
+            ".jsonc",
+            ".json5",
+            ".cson",
+            ".ini",
+            ".cfg",
+            ".conf",
+            ".config",
+            ".gitignore",
+            ".gitattributes",
+            ".editorconfig",
+            ".prettierrc",
+            ".eslintrc",
+            ".stylelintrc",
+            ".babelrc",
+            ".nvmrc",
+            ".ruby-version",
+            ".python-version",
+            ".node-version",
+            ".tool-versions",
+        }
+
+        TEXT_FILENAMES = {
+            "readme",
+            "license",
+            "licence",
+            "changelog",
+            "authors",
+            "contributors",
+            "copying",
+            "dockerfile",
+            "containerfile",
+            "makefile",
+            "rakefile",
+            "gemfile",
+            "procfile",
+            "brewfile",
+            "vagrantfile",
+            "justfile",
+            "taskfile",
+        }
+
+        CHUNK_TOKEN_LIMIT = 20000  # Chunk content over 20k tokens
+
+        def parse_gitignore(root_path: str) -> list:
+            """Parse .gitignore file and return patterns."""
+            gitignore_path = os.path.join(root_path, ".gitignore")
+            patterns = []
+            if os.path.exists(gitignore_path):
+                try:
+                    with open(
+                        gitignore_path, "r", encoding="utf-8", errors="ignore"
+                    ) as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith("#"):
+                                patterns.append(line)
+                except Exception:
+                    pass
+            return patterns
+
+        def matches_pattern(name: str, rel_path: str, pattern: str) -> bool:
+            """Check if a path matches a gitignore-style pattern."""
+            if pattern.startswith("!"):
+                return False
+            if pattern.endswith("/"):
+                pattern = pattern[:-1]
+            if "/" in pattern:
+                if pattern.startswith("/"):
+                    pattern = pattern[1:]
+                return fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(
+                    rel_path, pattern + "/**"
+                )
+            return fnmatch.fnmatch(name, pattern)
+
+        def should_ignore(
+            name: str, rel_path: str, is_dir: bool, gitignore_patterns: list
+        ) -> bool:
+            """Check if a path should be ignored."""
+            # Check default ignores
+            if is_dir:
+                if name in DEFAULT_IGNORE_DIRS:
+                    return True
+            else:
+                for pattern in DEFAULT_IGNORE_FILES:
+                    if "*" in pattern:
+                        if fnmatch.fnmatch(name, pattern):
+                            return True
+                    elif name == pattern:
+                        return True
+            # Check gitignore patterns
+            for pattern in gitignore_patterns:
+                if matches_pattern(name, rel_path, pattern):
+                    return True
+            return False
+
+        def is_text_file(filepath: str) -> bool:
+            """Check if a file is likely a text file."""
+            name = os.path.basename(filepath).lower()
+            suffix = os.path.splitext(filepath)[1].lower()
+
+            if suffix in TEXT_EXTENSIONS:
+                return True
+            if name in TEXT_FILENAMES:
+                return True
+
+            # Try to detect binary by reading first bytes
+            try:
+                with open(filepath, "rb") as f:
+                    chunk = f.read(8192)
+                    if b"\x00" in chunk:
+                        return False
+                    try:
+                        chunk.decode("utf-8")
+                        return True
+                    except UnicodeDecodeError:
+                        return False
+            except Exception:
+                return False
+
+        def scan_directory(root_path: str, gitignore_patterns: list) -> dict:
+            """Scan a directory and return file information with token counts."""
+            files = []
+            directories = []
+            skipped = []
+            total_tokens = 0
+
+            for dirpath, dirnames, filenames in os.walk(root_path):
+                rel_dir = os.path.relpath(dirpath, root_path)
+                if rel_dir == ".":
+                    rel_dir = ""
+
+                # Filter directories in-place to prevent walking into ignored dirs
+                dirnames[:] = [
+                    d
+                    for d in dirnames
+                    if not should_ignore(
+                        d,
+                        os.path.join(rel_dir, d) if rel_dir else d,
+                        True,
+                        gitignore_patterns,
+                    )
+                ]
+
+                if rel_dir:
+                    directories.append(rel_dir)
+
+                for filename in sorted(filenames):
+                    rel_path = os.path.join(rel_dir, filename) if rel_dir else filename
+                    full_path = os.path.join(dirpath, filename)
+
+                    if should_ignore(filename, rel_path, False, gitignore_patterns):
+                        skipped.append({"path": rel_path, "reason": "ignored_pattern"})
+                        continue
+
+                    try:
+                        size_bytes = os.path.getsize(full_path)
+                    except OSError:
+                        skipped.append({"path": rel_path, "reason": "cannot_stat"})
+                        continue
+
+                    # Skip very large files (>1MB)
+                    if size_bytes > 1_000_000:
+                        skipped.append(
+                            {
+                                "path": rel_path,
+                                "reason": "too_large",
+                                "size_bytes": size_bytes,
+                            }
+                        )
+                        continue
+
+                    if not is_text_file(full_path):
+                        skipped.append({"path": rel_path, "reason": "binary"})
+                        continue
+
+                    try:
+                        with open(
+                            full_path, "r", encoding="utf-8", errors="ignore"
+                        ) as f:
+                            content = f.read()
+                        tokens = get_tokens(content)
+
+                        files.append(
+                            {
+                                "path": rel_path,
+                                "tokens": tokens,
+                                "size_bytes": size_bytes,
+                                "content": content,
+                            }
+                        )
+                        total_tokens += tokens
+
+                    except Exception as e:
+                        skipped.append(
+                            {"path": rel_path, "reason": f"read_error: {str(e)}"}
+                        )
+
+            return {
+                "root": root_path,
+                "files": files,
+                "directories": sorted(directories),
+                "total_tokens": total_tokens,
+                "total_files": len(files),
+                "skipped": skipped,
+            }
+
+        try:
+            # Determine the target directory
+            if path:
+                target_path = self.safe_join(path.strip("/"))
+            else:
+                target_path = self.WORKING_DIRECTORY
+
+            if not os.path.exists(target_path):
+                return f"Error: Path `{path}` does not exist in the workspace."
+
+            if not os.path.isdir(target_path):
+                return f"Error: `{path}` is not a directory."
+
+            # Parse .gitignore from workspace root
+            gitignore_patterns = parse_gitignore(self.WORKING_DIRECTORY)
+
+            # If updating based on a single file
+            if update_file:
+                update_file_path = self.safe_join(update_file)
+                if not os.path.exists(update_file_path):
+                    return f"Error: Update file `{update_file}` does not exist."
+
+                # Read the existing map
+                map_path = self.safe_join("docs/CODEBASE_MAP.md")
+                existing_map = ""
+                if os.path.exists(map_path):
+                    with open(map_path, "r", encoding="utf-8") as f:
+                        existing_map = f.read()
+
+                # Read the updated file
+                try:
+                    with open(
+                        update_file_path, "r", encoding="utf-8", errors="ignore"
+                    ) as f:
+                        file_content = f.read()
+                    file_tokens = get_tokens(file_content)
+                except Exception as e:
+                    return f"Error reading file {update_file}: {str(e)}"
+
+                # Prompt the agent to update the map
+                update_prompt = f"""You are updating an existing codebase map based on changes to a single file.
+
+## Existing Codebase Map
+{existing_map if existing_map else "(No existing map exists yet - you will create the initial entry for this file)"}
+
+## Updated/New File: {update_file} ({file_tokens} tokens)
+```
+{file_content[:50000]}
+```
+
+## Your Task
+Analyze this file and update the codebase map accordingly. You must:
+
+1. **Analyze the file** for:
+   - Purpose: What does this file do?
+   - Exports: What functions, classes, types does it export?
+   - Imports: What does it depend on?
+   - Patterns: What design patterns or conventions does it use?
+   - Gotchas: Any non-obvious behavior or warnings?
+
+2. **Update the map** by:
+   - Adding/updating the entry for this file in the Module Guide section
+   - Updating the Directory Structure if this is a new file
+   - Updating Data Flow diagrams if this file changes data flow
+   - Updating Navigation Guide if this file is relevant to common tasks
+   - Updating Conventions if this file introduces new patterns
+   - Adding any new Gotchas discovered
+
+3. **Preserve everything else**:
+   - Keep all existing sections intact
+   - Only modify parts directly related to this file
+   - Update the `last_mapped` timestamp in frontmatter
+   - Maintain consistent formatting with the rest of the document
+
+## Output
+Provide the COMPLETE updated codebase map in Markdown format.
+Do not summarize or abbreviate - output the full document with your updates integrated."""
+
+                update_response = self.ApiClient.prompt_agent(
+                    agent_id=self.agent_id,
+                    prompt_name="Think About It",
+                    prompt_args={
+                        "user_input": update_prompt,
+                        "disable_commands": True,
+                        "log_user_input": False,
+                        "log_output": False,
+                        "conversation_name": self.conversation_id,
+                    },
+                )
+
+                # Save the updated map
+                os.makedirs(os.path.dirname(map_path), exist_ok=True)
+                with open(map_path, "w", encoding="utf-8") as f:
+                    f.write(update_response)
+
+                return f"Codebase map updated based on changes to `{update_file}`. Map saved to: {self.output_url}docs/CODEBASE_MAP.md"
+
+            # Full scan mode
+            logging.info(f"[create_or_update_codebase_map] Scanning: {target_path}")
+            scan_result = scan_directory(target_path, gitignore_patterns)
+
+            if scan_result["total_files"] == 0:
+                return f"No text files found to map in `{path or 'workspace'}`."
+
+            logging.info(
+                f"[create_or_update_codebase_map] Found {scan_result['total_files']} files, "
+                f"{scan_result['total_tokens']:,} total tokens"
+            )
+
+            # Group files by directory for organization
+            files_by_dir = {}
+            for file_info in scan_result["files"]:
+                dir_name = os.path.dirname(file_info["path"]) or "(root)"
+                if dir_name not in files_by_dir:
+                    files_by_dir[dir_name] = []
+                files_by_dir[dir_name].append(file_info)
+
+            # Build file tree overview
+            tree_lines = [f"# {os.path.basename(target_path) or 'workspace'}/"]
+            tree_lines.append(
+                f"Total: {scan_result['total_files']} files, {scan_result['total_tokens']:,} tokens\n"
+            )
+
+            for dir_name in sorted(files_by_dir.keys()):
+                if dir_name != "(root)":
+                    tree_lines.append(f"\n## {dir_name}/")
+                dir_files = files_by_dir[dir_name]
+                dir_tokens = sum(f["tokens"] for f in dir_files)
+                tree_lines.append(f"({len(dir_files)} files, {dir_tokens:,} tokens)")
+                for f in sorted(dir_files, key=lambda x: x["path"]):
+                    tree_lines.append(
+                        f"  - {os.path.basename(f['path'])} ({f['tokens']:,} tokens)"
+                    )
+
+            file_tree_overview = "\n".join(tree_lines)
+
+            # Chunk files for analysis if total tokens exceed limit
+            chunks = []
+            current_chunk = {"files": [], "tokens": 0}
+
+            for file_info in sorted(scan_result["files"], key=lambda x: x["path"]):
+                # If adding this file would exceed chunk limit, start new chunk
+                if (
+                    current_chunk["tokens"] + file_info["tokens"] > CHUNK_TOKEN_LIMIT
+                    and current_chunk["files"]
+                ):
+                    chunks.append(current_chunk)
+                    current_chunk = {"files": [], "tokens": 0}
+
+                current_chunk["files"].append(file_info)
+                current_chunk["tokens"] += file_info["tokens"]
+
+            if current_chunk["files"]:
+                chunks.append(current_chunk)
+
+            logging.info(
+                f"[create_or_update_codebase_map] Split into {len(chunks)} chunks for analysis"
+            )
+
+            # Analyze each chunk
+            chunk_analyses = []
+            for i, chunk in enumerate(chunks):
+                chunk_content = []
+                for file_info in chunk["files"]:
+                    chunk_content.append(
+                        f"\n### File: {file_info['path']} ({file_info['tokens']} tokens)\n```\n{file_info['content']}\n```"
+                    )
+
+                chunk_text = "\n".join(chunk_content)
+
+                analysis_prompt = f"""You are mapping part of a codebase. Your goal is to thoroughly analyze each file and understand how they connect.
+
+## Codebase Structure Overview
+{file_tree_overview}
+
+## Files to Analyze (Chunk {i + 1} of {len(chunks)})
+{chunk_text}
+
+## Analysis Instructions
+
+For EACH file in this chunk, document:
+
+1. **Purpose**: One-line description of what this file does
+2. **Exports**: Key functions, classes, types, or values exported (with brief descriptions)
+3. **Imports/Dependencies**: Notable imports and what they're used for
+4. **Dependents**: If you can identify what other files might import this (based on exports)
+5. **Patterns**: Design patterns or conventions used (e.g., singleton, factory, middleware pattern)
+6. **Gotchas**: Non-obvious behavior, edge cases, warnings, or potential issues
+
+Also identify across all files in this chunk:
+- **Connections**: How these files connect to and depend on each other
+- **Entry Points**: Which files serve as entry points or are called first
+- **Data Flow**: How data moves between these files
+- **Configuration**: Any environment variables or config dependencies
+- **Technical Debt**: Areas that could use improvement or refactoring
+
+Format your response as structured Markdown:
+- Use `### filename.ext` headers for each file
+- Use bullet points for lists
+- Use code blocks for important function signatures
+- Be thorough but concise"""
+
+                chunk_response = self.ApiClient.prompt_agent(
+                    agent_id=self.agent_id,
+                    prompt_name="Think About It",
+                    prompt_args={
+                        "user_input": analysis_prompt,
+                        "disable_commands": True,
+                        "log_user_input": False,
+                        "log_output": False,
+                        "conversation_name": self.conversation_id,
+                    },
+                )
+                chunk_analyses.append(chunk_response)
+                logging.info(
+                    f"[create_or_update_codebase_map] Analyzed chunk {i + 1}/{len(chunks)}"
+                )
+
+            # Synthesize all chunk analyses into final map
+            all_analyses = "\n\n---\n\n".join(chunk_analyses)
+
+            synthesis_prompt = f"""You are synthesizing file analyses into a comprehensive codebase map document.
+
+## Codebase Statistics
+- Total Files: {scan_result['total_files']}
+- Total Tokens: {scan_result['total_tokens']:,}
+- Directories: {len(scan_result['directories'])}
+
+## File Tree Overview
+{file_tree_overview}
+
+## Individual File Analyses
+{all_analyses}
+
+## Your Task
+Create a comprehensive, well-structured CODEBASE_MAP.md. Follow this EXACT structure:
+
+### 1. Frontmatter (Required)
+```yaml
+---
+last_mapped: {datetime.datetime.utcnow().isoformat()}Z
+total_files: {scan_result['total_files']}
+total_tokens: {scan_result['total_tokens']}
+---
+```
+
+### 2. System Overview
+- Write a 2-3 sentence summary of what this codebase does
+- Include a Mermaid architecture diagram showing major components:
+
+```mermaid
+graph TB
+    subgraph Layer1[Layer Name]
+        Component1[Component]
+    end
+    subgraph Layer2[Layer Name]
+        Component2[Component]
+    end
+    Component1 --> Component2
+```
+
+Adapt the diagram to show the ACTUAL architecture based on your analysis.
+
+### 3. Directory Structure
+Create an annotated tree showing each directory's purpose:
+```
+project/
+├── src/           # Source code
+│   ├── api/       # REST API endpoints
+│   ├── models/    # Data models
+│   └── utils/     # Utility functions
+├── tests/         # Test files
+└── config/        # Configuration
+```
+
+### 4. Module Guide
+For EACH major module/directory, create a section:
+
+#### [Module Name]
+**Purpose**: [What this module does]
+**Entry Point**: [Main file that starts execution]
+
+| File | Purpose | Tokens |
+|------|---------|--------|
+| file1.py | Description | 1,234 |
+| file2.py | Description | 567 |
+
+**Key Exports**: List main functions/classes exposed
+**Dependencies**: What this module needs
+**Dependents**: What depends on this module
+
+### 5. Data Flow
+Include Mermaid sequence diagrams for key flows:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant API
+    participant Service
+    participant Database
+    
+    User->>API: Request
+    API->>Service: Process
+    Service->>Database: Query
+    Database-->>Service: Result
+    Service-->>API: Response
+    API-->>User: Result
+```
+
+Create diagrams for: authentication flow, main data operations, etc.
+
+### 6. Conventions
+Document naming conventions, coding patterns, and style:
+- File naming conventions
+- Function/class naming patterns
+- Common design patterns used
+- Error handling approach
+
+### 7. Gotchas
+List non-obvious behaviors and warnings:
+- Edge cases developers should know
+- Common mistakes to avoid
+- Performance considerations
+- Security considerations
+
+### 8. Navigation Guide
+Quick reference for common tasks:
+- **To add a new API endpoint**: [list files to modify]
+- **To add a new model**: [list files to modify]
+- **To modify authentication**: [list files to modify]
+- **To add tests**: [list files to modify]
+
+## Output Requirements
+- Use proper Markdown formatting
+- Make it scannable with clear headers
+- Use tables for file listings
+- Include working Mermaid diagrams
+- Be comprehensive but not verbose
+- Focus on being useful for developers new to the codebase"""
+
+            final_map = self.ApiClient.prompt_agent(
+                agent_id=self.agent_id,
+                prompt_name="Think About It",
+                prompt_args={
+                    "user_input": synthesis_prompt,
+                    "disable_commands": True,
+                    "log_user_input": False,
+                    "log_output": False,
+                    "conversation_name": self.conversation_id,
+                },
+            )
+
+            # Save the map
+            map_path = self.safe_join("docs/CODEBASE_MAP.md")
+            os.makedirs(os.path.dirname(map_path), exist_ok=True)
+            with open(map_path, "w", encoding="utf-8") as f:
+                f.write(final_map)
+
+            # Generate summary statistics
+            summary = f"""Codebase map created successfully!
+
+**Statistics:**
+- Files analyzed: {scan_result['total_files']}
+- Total tokens: {scan_result['total_tokens']:,}
+- Directories: {len(scan_result['directories'])}
+- Analysis chunks: {len(chunks)}
+- Skipped files: {len(scan_result['skipped'])}
+
+**Map saved to:** {self.output_url}docs/CODEBASE_MAP.md
+
+The map includes:
+- System architecture overview with Mermaid diagrams
+- Module-by-module documentation
+- Data flow analysis
+- Code conventions and patterns
+- Navigation guide for common tasks"""
+
+            return summary
+
+        except Exception as e:
+            logging.error(f"[create_or_update_codebase_map] Error: {str(e)}")
+            return f"Error creating codebase map: {str(e)}"
