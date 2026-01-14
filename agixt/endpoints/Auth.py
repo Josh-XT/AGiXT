@@ -50,32 +50,42 @@ logging.basicConfig(
 @app.post("/v1/user", summary="Register a new user", tags=["Auth"])
 async def register(register: Register):
     auth = MagicalAuth()
-    
+
     # Debug logging
     import logging
-    logging.info(f"[REGISTER DEBUG] email={register.email}, invitation_id='{register.invitation_id}'")
-    
+
+    logging.info(
+        f"[REGISTER DEBUG] email={register.email}, invitation_id='{register.invitation_id}'"
+    )
+
     # Check if user exists (active OR inactive)
     user_exists_any = auth.user_exists_any(email=register.email)
     user_exists_active = auth.user_exists(email=register.email)
-    logging.info(f"[REGISTER DEBUG] user_exists_any={user_exists_any}, user_exists_active={user_exists_active}")
-    
+    logging.info(
+        f"[REGISTER DEBUG] user_exists_any={user_exists_any}, user_exists_active={user_exists_active}"
+    )
+
     if user_exists_any:
-        invitation_id = register.invitation_id.strip() if register.invitation_id else None
-        
+        invitation_id = (
+            register.invitation_id.strip() if register.invitation_id else None
+        )
+
         if user_exists_active:
             # User exists and is active - check if they're already in the invited company
             if invitation_id:
-                logging.info(f"[REGISTER DEBUG] Active user with invitation, calling handle_existing_user_invitation")
-                result = auth.handle_existing_user_invitation(
-                    email=register.email,
-                    invitation_id=invitation_id
+                logging.info(
+                    f"[REGISTER DEBUG] Active user with invitation, calling handle_existing_user_invitation"
                 )
-                logging.info(f"[REGISTER DEBUG] handle_existing_user_invitation result: {result}")
+                result = auth.handle_existing_user_invitation(
+                    email=register.email, invitation_id=invitation_id
+                )
+                logging.info(
+                    f"[REGISTER DEBUG] handle_existing_user_invitation result: {result}"
+                )
                 if result.get("already_in_company"):
                     raise HTTPException(
                         status_code=409,
-                        detail="User is already a member of this company."
+                        detail="User is already a member of this company.",
                     )
                 elif result.get("added_to_company"):
                     return result
@@ -86,30 +96,34 @@ async def register(register: Register):
         else:
             # User exists but is inactive - reactivate them if they have an invitation
             if invitation_id:
-                logging.info(f"[REGISTER DEBUG] Inactive user with invitation, calling reactivate_user_with_invitation")
+                logging.info(
+                    f"[REGISTER DEBUG] Inactive user with invitation, calling reactivate_user_with_invitation"
+                )
                 result = auth.reactivate_user_with_invitation(
                     email=register.email,
                     invitation_id=invitation_id,
                     first_name=register.first_name,
-                    last_name=register.last_name
+                    last_name=register.last_name,
                 )
-                logging.info(f"[REGISTER DEBUG] reactivate_user_with_invitation result: {result}")
+                logging.info(
+                    f"[REGISTER DEBUG] reactivate_user_with_invitation result: {result}"
+                )
                 if result.get("error"):
                     raise HTTPException(status_code=400, detail=result["error"])
                 if result.get("already_in_company"):
                     raise HTTPException(
                         status_code=409,
-                        detail="User is already a member of this company."
+                        detail="User is already a member of this company.",
                     )
                 # Return success with magic link for reactivated user
                 return result
             else:
                 # No invitation - tell them to contact admin
                 raise HTTPException(
-                    status_code=400, 
-                    detail="An inactive account exists with this email. Please contact your administrator."
+                    status_code=400,
+                    detail="An inactive account exists with this email. Please contact your administrator.",
                 )
-    
+
     result = auth.register(
         new_user=register,
         invitation_id=register.invitation_id if register.invitation_id else None,
