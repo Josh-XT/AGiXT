@@ -118,6 +118,26 @@ class UserNotificationManager:
         """Get the number of active connections for a user."""
         return len(self.active_connections.get(user_id, set()))
 
+    async def broadcast_to_all_users(self, message: dict) -> int:
+        """
+        Broadcast a message to ALL connected users.
+        Used for system-wide notifications like maintenance announcements.
+        Returns the number of users notified.
+        """
+        users_notified = 0
+        async with self._lock:
+            user_ids = list(self.active_connections.keys())
+
+        for user_id in user_ids:
+            await self.broadcast_to_user(user_id, message)
+            users_notified += 1
+
+        return users_notified
+
+    def get_all_connected_user_ids(self) -> list:
+        """Get list of all currently connected user IDs."""
+        return list(self.active_connections.keys())
+
 
 # Global notification manager instance
 user_notification_manager = UserNotificationManager()
@@ -1874,6 +1894,57 @@ async def notify_user_message_added(
             },
         },
     )
+
+
+async def broadcast_system_notification(notification_data: dict) -> int:
+    """
+    Broadcast a system-wide notification to all connected users.
+    Used for server maintenance announcements and other admin messages.
+
+    Args:
+        notification_data: Dict containing id, title, message, notification_type, expires_at, created_at
+
+    Returns:
+        Number of users notified
+    """
+    from DB import SystemNotification, get_session
+
+    users_notified = await user_notification_manager.broadcast_to_all_users(
+        {
+            "type": "system_notification",
+            "data": {
+                "id": notification_data["id"],
+                "title": notification_data["title"],
+                "message": notification_data["message"],
+                "notification_type": notification_data.get("notification_type", "info"),
+                "expires_at": notification_data["expires_at"],
+                "created_at": notification_data["created_at"],
+                "timestamp": datetime.now().isoformat(),
+            },
+        }
+    )
+
+    # Update the notified count in the database
+    if users_notified > 0:
+        try:
+            with get_session() as db:
+                notification = (
+                    db.query(SystemNotification)
+                    .filter(SystemNotification.id == notification_data["id"])
+                    .first()
+                )
+                if notification:
+                    notification.notified_count = (
+                        notification.notified_count or 0
+                    ) + users_notified
+                    db.commit()
+        except Exception as e:
+            logging.warning(f"Failed to update notified_count: {e}")
+
+    logging.info(
+        f"System notification '{notification_data['title']}' broadcast to {users_notified} users"
+    )
+    return users_notified
 
 
 @app.get(
