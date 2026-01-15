@@ -680,6 +680,82 @@ class ServerConfig(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class SystemNotification(Base):
+    """
+    Server-wide notifications that can be broadcast to all users.
+    Only super admins (role_id=0) can create these notifications.
+    Used for announcements like server maintenance, feature releases, etc.
+    """
+
+    __tablename__ = "system_notification"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # Notification title (short summary)
+    title = Column(String, nullable=False)
+    # Full notification message
+    message = Column(Text, nullable=False)
+    # User who created the notification (must be role_id=0)
+    created_by = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=False,
+    )
+    # When the notification was created
+    created_at = Column(DateTime, server_default=func.now())
+    # When the notification expires (default 60 minutes from creation)
+    expires_at = Column(DateTime, nullable=False)
+    # Count of users who have received this notification
+    notified_count = Column(Integer, default=0)
+    # Whether the notification is active (can be manually deactivated)
+    is_active = Column(Boolean, default=True)
+    # Notification priority/type: 'info', 'warning', 'critical'
+    notification_type = Column(String, default="info")
+
+    creator = relationship("User")
+
+
+class SystemNotificationReceipt(Base):
+    """
+    Tracks which users have received/acknowledged a system notification.
+    Used to prevent duplicate notifications and track delivery stats.
+    """
+
+    __tablename__ = "system_notification_receipt"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    # The notification
+    notification_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("system_notification.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # The user who received it
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # When the user received the notification
+    received_at = Column(DateTime, server_default=func.now())
+    # Whether the user has dismissed/acknowledged it
+    dismissed_at = Column(DateTime, nullable=True)
+
+    notification = relationship("SystemNotification", backref="receipts")
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("notification_id", "user_id", name="uix_notification_user"),
+    )
+
+
 class ServerExtensionSetting(Base):
     """
     Server-level extension settings that serve as defaults for all companies.
