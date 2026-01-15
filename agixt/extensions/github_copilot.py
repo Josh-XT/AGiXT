@@ -92,6 +92,7 @@ class github_copilot(Extensions):
     async def ask_github_copilot(
         self,
         prompt: str,
+        branch: str = "",
         model: str = "claude-opus-4.5",
         session_id: str = None,
     ) -> str:
@@ -122,6 +123,9 @@ class github_copilot(Extensions):
 
         Args:
             prompt (str): The request or task to send to GitHub Copilot
+            branch (str): Optional branch name to work in. If specified, Copilot will checkout
+                          or create this branch before making changes. If not specified,
+                          Copilot will create a new feature branch based on the task.
             model (str): The AI model to use (default: claude-opus-4.5). Other options include
                          gpt-5, claude-sonnet-4, etc.
             session_id (str): Optional session ID to resume a previous conversation. If provided,
@@ -164,6 +168,70 @@ class github_copilot(Extensions):
                 "5. Generate the token (should start with 'github_pat_')\n"
                 "6. Update your GITHUB_COPILOT_TOKEN setting with the new token"
             )
+
+        # Build system guidelines for GitHub Copilot
+        branch_instruction = ""
+        if branch and branch.strip():
+            branch_instruction = f"""
+## Branch Instructions
+Work in the branch: `{branch.strip()}`
+- If the branch exists, checkout to it
+- If the branch does not exist, create it from the current HEAD and checkout to it
+"""
+        else:
+            branch_instruction = """
+## Branch Instructions
+- Create a new feature branch with a descriptive name based on the task (e.g., `feature/add-user-auth`, `fix/login-bug`)
+- Do NOT work directly on `main` or `master` branches
+"""
+
+        system_guidelines = f"""
+# Development Workflow Guidelines
+
+You are working in a git-enabled workspace. Follow these guidelines for all code changes:
+
+{branch_instruction}
+
+## Git Workflow
+1. **Before making changes:**
+   - Check current branch with `git branch`
+   - Ensure you're on the correct working branch (not main/master)
+   - Pull latest changes if the branch exists remotely: `git pull origin <branch> --rebase`
+
+2. **While working:**
+   - Make atomic commits with clear, descriptive messages
+   - Commit related changes together
+   - Test your changes before committing
+
+3. **After completing changes:**
+   - Run any available tests to verify changes work correctly
+   - Stage and commit all changes: `git add -A && git commit -m "descriptive message"`
+   - Push the branch to remote: `git push -u origin <branch-name>`
+
+4. **Create a Pull Request:**
+   - After pushing, use the GitHub CLI to create a pull request:
+     ```
+     gh pr create --title "Brief description of changes" --body "Detailed explanation of what was changed and why"
+     ```
+   - Include a clear title summarizing the changes
+   - Write a detailed description in the PR body explaining:
+     - What changes were made
+     - Why they were made
+     - How to test them
+     - Any breaking changes or migration steps needed
+
+## Code Quality
+- Follow existing code style and conventions in the repository
+- Add or update tests for new functionality
+- Update documentation if needed
+- Handle errors gracefully
+
+---
+
+# User Request
+
+{prompt}
+"""
 
         try:
             if self.activity_id:
@@ -217,8 +285,9 @@ class github_copilot(Extensions):
                 effective_session_id = session_id
 
             # Execute GitHub Copilot in the SafeExecute container with streaming
+            # Use system_guidelines which includes the workflow instructions + user prompt
             result = execute_github_copilot(
-                prompt=prompt,
+                prompt=system_guidelines,
                 github_token=self.GITHUB_COPILOT_TOKEN,
                 working_directory=self.WORKING_DIRECTORY,
                 model=model,
