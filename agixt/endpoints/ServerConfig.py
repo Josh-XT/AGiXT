@@ -1803,3 +1803,399 @@ async def test_email_provider(
             os.environ["EMAIL_PROVIDER"] = original_provider
         elif "EMAIL_PROVIDER" in os.environ:
             del os.environ["EMAIL_PROVIDER"]
+
+
+# ========================
+# System Notification Endpoints
+# ========================
+
+
+class SystemNotificationCreate(BaseModel):
+    """Request to create a new system-wide notification."""
+
+    title: str = Field(..., description="Short title/summary of the notification")
+    message: str = Field(..., description="Full notification message")
+    expires_in_minutes: int = Field(
+        default=60, description="Minutes until the notification expires (default 60)"
+    )
+    notification_type: str = Field(
+        default="info",
+        description="Type of notification: 'info', 'warning', 'critical'",
+    )
+
+
+class SystemNotificationResponse(BaseModel):
+    """Response containing a system notification."""
+
+    id: str
+    title: str
+    message: str
+    created_by: str
+    created_by_email: str
+    created_at: str
+    expires_at: str
+    notified_count: int
+    is_active: bool
+    notification_type: str
+
+
+class SystemNotificationListResponse(BaseModel):
+    """Response containing a list of system notifications."""
+
+    notifications: List[SystemNotificationResponse]
+    total: int
+
+
+class SystemNotificationDismissResponse(BaseModel):
+    """Response after dismissing a notification."""
+
+    success: bool
+    message: str
+
+
+@app.post(
+    "/v1/notifications/system",
+    tags=["System Notifications"],
+    response_model=SystemNotificationResponse,
+    summary="Create system-wide notification",
+    description="Create a server-wide notification visible to all users. Super admin only.",
+)
+async def create_system_notification(
+    request: SystemNotificationCreate,
+    authorization: str = Header(None),
+):
+    """
+    Create a system-wide notification that will be broadcast to all connected users.
+
+    Only super admins (role_id=0) can create system notifications.
+
+    The notification will:
+    - Be immediately broadcast via WebSocket to all connected users
+    - Appear in the mobile app as a push notification
+    - Be logged with creator information for audit purposes
+    - Automatically expire after the specified duration
+    """
+    from DB import SystemNotification, User, get_session
+    from datetime import datetime, timedelta
+
+    auth = verify_super_admin(authorization)
+
+    # Calculate expiration time
+    expires_at = datetime.now() + timedelta(minutes=request.expires_in_minutes)
+
+    with get_session() as db:
+        # Create the notification
+        notification = SystemNotification(
+            title=request.title,
+            message=request.message,
+            created_by=auth.user_id,
+            expires_at=expires_at,
+            notification_type=request.notification_type,
+            is_active=True,
+            notified_count=0,
+        )
+        db.add(notification)
+        db.commit()
+        db.refresh(notification)
+
+        # Get creator's email for the response
+        creator = db.query(User).filter(User.id == auth.user_id).first()
+        creator_email = creator.email if creator else "unknown"
+
+        notification_id = str(notification.id)
+        notification_data = {
+            "id": notification_id,
+            "title": notification.title,
+            "message": notification.message,
+            "notification_type": notification.notification_type,
+            "expires_at": notification.expires_at.isoformat(),
+            "created_at": notification.created_at.isoformat(),
+        }
+
+    # Broadcast to all connected users via WebSocket
+    try:
+        from endpoints.Conversation import broadcast_system_notification
+
+        import asyncio
+
+        asyncio.create_task(broadcast_system_notification(notification_data))
+    except Exception as e:
+        logging.warning(f"Failed to broadcast system notification: {e}")
+
+    return SystemNotificationResponse(
+        id=notification_id,
+        title=request.title,
+        message=request.message,
+        created_by=str(auth.user_id),
+        created_by_email=creator_email,
+        created_at=notification_data["created_at"],
+        expires_at=notification_data["expires_at"],
+        notified_count=0,
+        is_active=True,
+        notification_type=request.notification_type,
+    )
+
+
+@app.get(
+    "/v1/notifications/system",
+    tags=["System Notifications"],
+    response_model=SystemNotificationListResponse,
+    summary="List system notifications",
+    description="List all system notifications (super admin sees all, users see active only).",
+)
+async def list_system_notifications(
+    include_expired: bool = False,
+    authorization: str = Header(None),
+):
+    """
+    List system notifications.
+
+    For super admins: Returns all notifications (optionally including expired).
+    For regular users: Returns only active, non-expired notifications.
+    """
+    from DB import SystemNotification, User, get_session
+    from datetime import datetime
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    is_super = auth.is_super_admin()
+
+    with get_session() as db:
+        query = db.query(SystemNotification)
+
+        if not is_super or not include_expired:
+            # Only show active, non-expired notifications
+            query = query.filter(
+                SystemNotification.is_active == True,
+                SystemNotification.expires_at > datetime.now(),
+            )
+
+        notifications = query.order_by(SystemNotification.created_at.desc()).all()
+
+        result = []
+        for n in notifications:
+            creator = db.query(User).filter(User.id == n.created_by).first()
+            creator_email = creator.email if creator else "unknown"
+
+            result.append(
+                SystemNotificationResponse(
+                    id=str(n.id),
+                    title=n.title,
+                    message=n.message,
+                    created_by=str(n.created_by),
+                    created_by_email=creator_email,
+                    created_at=n.created_at.isoformat(),
+                    expires_at=n.expires_at.isoformat(),
+                    notified_count=n.notified_count,
+                    is_active=n.is_active,
+                    notification_type=n.notification_type or "info",
+                )
+            )
+
+        return SystemNotificationListResponse(notifications=result, total=len(result))
+
+
+@app.post(
+    "/v1/notifications/system/{notification_id}/dismiss",
+    tags=["System Notifications"],
+    response_model=SystemNotificationDismissResponse,
+    summary="Dismiss a system notification",
+    description="Mark a system notification as dismissed/received for the current user.",
+)
+async def dismiss_system_notification(
+    notification_id: str,
+    authorization: str = Header(None),
+):
+    """
+    Mark a notification as received/dismissed for the current user.
+    This prevents the notification from appearing again for this user.
+    """
+    from DB import SystemNotification, SystemNotificationReceipt, get_session
+    from datetime import datetime
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    with get_session() as db:
+        # Check if notification exists
+        notification = (
+            db.query(SystemNotification)
+            .filter(SystemNotification.id == notification_id)
+            .first()
+        )
+
+        if not notification:
+            raise HTTPException(status_code=404, detail="Notification not found")
+
+        # Check if already dismissed
+        existing_receipt = (
+            db.query(SystemNotificationReceipt)
+            .filter(
+                SystemNotificationReceipt.notification_id == notification_id,
+                SystemNotificationReceipt.user_id == auth.user_id,
+            )
+            .first()
+        )
+
+        if existing_receipt:
+            if existing_receipt.dismissed_at is None:
+                existing_receipt.dismissed_at = datetime.now()
+                db.commit()
+                return SystemNotificationDismissResponse(
+                    success=True, message="Notification dismissed"
+                )
+            return SystemNotificationDismissResponse(
+                success=True, message="Notification already dismissed"
+            )
+
+        # Create new receipt with dismissed status
+        receipt = SystemNotificationReceipt(
+            notification_id=notification_id,
+            user_id=auth.user_id,
+            dismissed_at=datetime.now(),
+        )
+        db.add(receipt)
+        db.commit()
+
+        return SystemNotificationDismissResponse(
+            success=True, message="Notification dismissed"
+        )
+
+
+@app.post(
+    "/v1/notifications/system/{notification_id}/deactivate",
+    tags=["System Notifications"],
+    response_model=SystemNotificationResponse,
+    summary="Deactivate a system notification",
+    description="Deactivate a system notification (super admin only).",
+)
+async def deactivate_system_notification(
+    notification_id: str,
+    authorization: str = Header(None),
+):
+    """
+    Deactivate a system notification so it no longer appears for users.
+    Super admin only.
+    """
+    from DB import SystemNotification, User, get_session
+
+    auth = verify_super_admin(authorization)
+
+    with get_session() as db:
+        notification = (
+            db.query(SystemNotification)
+            .filter(SystemNotification.id == notification_id)
+            .first()
+        )
+
+        if not notification:
+            raise HTTPException(status_code=404, detail="Notification not found")
+
+        notification.is_active = False
+        db.commit()
+        db.refresh(notification)
+
+        creator = db.query(User).filter(User.id == notification.created_by).first()
+        creator_email = creator.email if creator else "unknown"
+
+        return SystemNotificationResponse(
+            id=str(notification.id),
+            title=notification.title,
+            message=notification.message,
+            created_by=str(notification.created_by),
+            created_by_email=creator_email,
+            created_at=notification.created_at.isoformat(),
+            expires_at=notification.expires_at.isoformat(),
+            notified_count=notification.notified_count,
+            is_active=notification.is_active,
+            notification_type=notification.notification_type or "info",
+        )
+
+
+@app.get(
+    "/v1/notifications/system/pending",
+    tags=["System Notifications"],
+    response_model=SystemNotificationListResponse,
+    summary="Get pending system notifications for current user",
+    description="Get system notifications the current user hasn't dismissed yet.",
+)
+async def get_pending_system_notifications(
+    authorization: str = Header(None),
+):
+    """
+    Get system notifications that the current user hasn't dismissed.
+    Used by the frontend to show notification banners/toasts on load.
+    """
+    from DB import SystemNotification, SystemNotificationReceipt, User, get_session
+    from datetime import datetime
+    from sqlalchemy import and_
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    with get_session() as db:
+        # Get all dismissed notification IDs for this user
+        dismissed_ids = (
+            db.query(SystemNotificationReceipt.notification_id)
+            .filter(
+                SystemNotificationReceipt.user_id == auth.user_id,
+                SystemNotificationReceipt.dismissed_at.isnot(None),
+            )
+            .subquery()
+        )
+
+        # Get active, non-expired notifications not dismissed by this user
+        notifications = (
+            db.query(SystemNotification)
+            .filter(
+                SystemNotification.is_active == True,
+                SystemNotification.expires_at > datetime.now(),
+                ~SystemNotification.id.in_(dismissed_ids),
+            )
+            .order_by(SystemNotification.created_at.desc())
+            .all()
+        )
+
+        result = []
+        for n in notifications:
+            creator = db.query(User).filter(User.id == n.created_by).first()
+            creator_email = creator.email if creator else "unknown"
+
+            # Record that this user received the notification
+            existing_receipt = (
+                db.query(SystemNotificationReceipt)
+                .filter(
+                    SystemNotificationReceipt.notification_id == n.id,
+                    SystemNotificationReceipt.user_id == auth.user_id,
+                )
+                .first()
+            )
+
+            if not existing_receipt:
+                receipt = SystemNotificationReceipt(
+                    notification_id=n.id,
+                    user_id=auth.user_id,
+                )
+                db.add(receipt)
+                # Increment notified count
+                n.notified_count = (n.notified_count or 0) + 1
+
+            result.append(
+                SystemNotificationResponse(
+                    id=str(n.id),
+                    title=n.title,
+                    message=n.message,
+                    created_by=str(n.created_by),
+                    created_by_email=creator_email,
+                    created_at=n.created_at.isoformat(),
+                    expires_at=n.expires_at.isoformat(),
+                    notified_count=n.notified_count or 0,
+                    is_active=n.is_active,
+                    notification_type=n.notification_type or "info",
+                )
+            )
+
+        db.commit()
+
+        return SystemNotificationListResponse(notifications=result, total=len(result))
