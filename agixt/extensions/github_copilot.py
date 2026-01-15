@@ -11,23 +11,24 @@ from safeexecute import execute_github_copilot
 """
 Required environment variables:
 
-- GITHUB_COPILOT_TOKEN: A fine-grained GitHub Personal Access Token (PAT) with the 
-  "Copilot Requests" permission enabled.
+- GITHUB_COPILOT_TOKEN: A **fine-grained** GitHub Personal Access Token (PAT) with the 
+  "Copilot" account permission enabled.
 
-To create a token with Copilot access:
+IMPORTANT: Classic PATs (tokens starting with 'ghp_') are NOT supported!
+You MUST use a fine-grained PAT (tokens starting with 'github_pat_').
+
+To create a valid token:
 1. Visit https://github.com/settings/personal-access-tokens/new
-2. Give your token a name and expiration
-3. Under "Permissions", click "Account permissions"
-4. Find "Copilot" and select "Read and write" access
-5. Generate the token and use it as GITHUB_COPILOT_TOKEN
-
-Note: Standard GitHub OAuth tokens do NOT support Copilot access. You must use a 
-fine-grained PAT with the specific Copilot permission.
+2. Give your token a name and set expiration (max 1 year)
+3. Under "Repository access", select "All repositories" or specific repos you want Copilot to access
+4. Under "Permissions" → "Account permissions", find "Copilot" and select "Read and write" access
+5. Click "Generate token"
+6. Copy the token (starts with 'github_pat_') and use it as GITHUB_COPILOT_TOKEN
 
 Requirements:
 - An active GitHub Copilot subscription (Individual, Business, or Enterprise)
+- A fine-grained PAT (NOT a classic PAT) with Copilot permissions
 - If using Copilot via an organization, the organization admin must enable Copilot CLI
-  in the organization settings
 """
 
 
@@ -39,9 +40,12 @@ class github_copilot(Extensions):
     GitHub Copilot runs in an isolated Docker container (SafeExecute) with your
     workspace mounted, allowing it to safely make changes to the codebase.
 
-    This extension requires a separate fine-grained Personal Access Token (PAT) with
-    the "Copilot Requests" permission - standard GitHub OAuth tokens do not support
-    Copilot access.
+    IMPORTANT: This extension requires a **fine-grained** Personal Access Token (PAT)
+    that starts with 'github_pat_'. Classic PATs starting with 'ghp_' are NOT supported
+    by the Copilot CLI.
+
+    Create a fine-grained PAT at: https://github.com/settings/personal-access-tokens/new
+    Enable the "Copilot" permission under "Account permissions".
     """
 
     CATEGORY = "Development & Code"
@@ -56,9 +60,12 @@ class github_copilot(Extensions):
         Initialize the GitHub Copilot extension.
 
         Args:
-            GITHUB_COPILOT_TOKEN: A fine-grained GitHub PAT with "Copilot Requests"
-                                  permission. Create one at:
+            GITHUB_COPILOT_TOKEN: A fine-grained GitHub PAT (starts with 'github_pat_')
+                                  with "Copilot" account permission enabled.
+                                  Create one at:
                                   https://github.com/settings/personal-access-tokens/new
+
+                                  NOTE: Classic PATs (ghp_...) are NOT supported!
         """
         self.GITHUB_COPILOT_TOKEN = GITHUB_COPILOT_TOKEN
         self.commands = {
@@ -102,13 +109,16 @@ class github_copilot(Extensions):
         - Code analysis and explanation
         - Any task that requires AI-assisted code manipulation
 
-        Note: This command requires a fine-grained GitHub Personal Access Token (PAT) with
-        the "Copilot Requests" permission. Standard OAuth tokens do not support Copilot.
+        Note: This command requires a **fine-grained** GitHub Personal Access Token (PAT)
+        that starts with 'github_pat_'. Classic PATs (ghp_...) are NOT supported.
+
+        Available models: claude-opus-4.5, claude-sonnet-4, gpt-4.1, gpt-5, gpt-5-mini
 
         To create a compatible token:
         1. Visit https://github.com/settings/personal-access-tokens/new
-        2. Under "Account permissions", enable "Copilot" with Read and write access
-        3. Use the generated token as your GITHUB_COPILOT_TOKEN
+        2. Under "Repository access", select repos Copilot can access
+        3. Under "Account permissions", enable "Copilot" with Read and write access
+        4. Use the generated token (starts with 'github_pat_') as your GITHUB_COPILOT_TOKEN
 
         Args:
             prompt (str): The request or task to send to GitHub Copilot
@@ -126,15 +136,33 @@ class github_copilot(Extensions):
         if not self.GITHUB_COPILOT_TOKEN:
             return (
                 "Error: GitHub Copilot Token is required.\n\n"
-                "To use GitHub Copilot, you need a fine-grained Personal Access Token (PAT) "
-                "with the 'Copilot Requests' permission. Standard GitHub OAuth tokens do not "
-                "support Copilot access.\n\n"
+                "To use GitHub Copilot, you need a **fine-grained** Personal Access Token (PAT) "
+                "with the 'Copilot' account permission.\n\n"
+                "IMPORTANT: Classic PATs (starting with 'ghp_') are NOT supported!\n"
+                "You must use a fine-grained PAT (starting with 'github_pat_').\n\n"
                 "To create a compatible token:\n"
                 "1. Visit https://github.com/settings/personal-access-tokens/new\n"
                 "2. Give your token a name and set an expiration\n"
-                "3. Under 'Account permissions', find 'Copilot' and select 'Read and write'\n"
-                "4. Generate the token and configure it as your GITHUB_COPILOT_TOKEN\n\n"
+                "3. Under 'Repository access', select repositories Copilot can access\n"
+                "4. Under 'Account permissions', find 'Copilot' and select 'Read and write'\n"
+                "5. Generate the token (should start with 'github_pat_')\n"
+                "6. Configure it as your GITHUB_COPILOT_TOKEN\n\n"
                 "You must also have an active GitHub Copilot subscription."
+            )
+
+        # Validate token format
+        if self.GITHUB_COPILOT_TOKEN.startswith("ghp_"):
+            return (
+                "Error: Classic Personal Access Tokens are not supported by GitHub Copilot CLI.\n\n"
+                "Your token starts with 'ghp_', which indicates a classic PAT.\n"
+                "The Copilot CLI requires a **fine-grained** PAT (starting with 'github_pat_').\n\n"
+                "To create a compatible token:\n"
+                "1. Visit https://github.com/settings/personal-access-tokens/new\n"
+                "2. Give your token a name and set an expiration\n"
+                "3. Under 'Repository access', select repositories Copilot can access\n"
+                "4. Under 'Account permissions', find 'Copilot' and select 'Read and write'\n"
+                "5. Generate the token (should start with 'github_pat_')\n"
+                "6. Update your GITHUB_COPILOT_TOKEN setting with the new token"
             )
 
         try:

@@ -121,12 +121,27 @@ class ResponseCacheManager:
         "DELETE:/v1/agent": ["agent", "company"],
         "PUT:/v1/agent/*/settings": ["agent"],
         "PUT:/v1/agent/*/commands": ["agent"],
+        "PATCH:/v1/agent/*/command": ["agent", "extension"],  # Single command toggle
+        "PATCH:/v1/agent/*/extension/commands": [
+            "agent",
+            "extension",
+        ],  # Bulk command toggle
         # Conversation mutations
         "POST:/v1/conversation": ["conversation"],
         "DELETE:/v1/conversation": ["conversation"],
         # Company mutations
         "POST:/v1/company": ["company"],
         "PUT:/v1/company": ["company"],
+        "PATCH:/v1/companies/*/command": [
+            "agent",
+            "extension",
+            "company",
+        ],  # Company command toggle
+        "PATCH:/v1/companies/*/extension/commands": [
+            "agent",
+            "extension",
+            "company",
+        ],  # Company bulk toggle
         # Chain/Prompt mutations
         "POST:/v1/chain": ["chain"],
         "PUT:/v1/chain": ["chain"],
@@ -355,11 +370,12 @@ class ResponseCacheManager:
         try:
             deleted_count = 0
 
-            for pattern in patterns:
-                # Delete using pattern matching
-                # Pattern: response_cache:{user_id}:path:*{pattern}*
-                pattern_key = f"{self.CACHE_PREFIX}:{user_id}:*{pattern}*"
-                deleted_count += self._cache.delete_pattern(pattern_key)
+            # For any mutation that affects agent data, invalidate ALL cache for this user
+            # This is aggressive but ensures data consistency
+            # The granular pattern-based invalidation was unreliable due to MD5 hash keys
+            if patterns:
+                pattern = f"{self.CACHE_PREFIX}:{user_id}:*"
+                deleted_count = self._cache.delete_pattern(pattern)
 
             self._stats["invalidations"] += deleted_count
             logger.debug(

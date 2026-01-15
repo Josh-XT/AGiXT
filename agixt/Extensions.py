@@ -844,8 +844,14 @@ class Extensions:
 
             ext_settings = ext_info.get("settings", [])
             if ext_settings:
+                # Get extension name from file path (same format as get_extensions)
+                extension_file = os.path.basename(ext_info["file"])
+                extension_name = extension_file.split(".")[0]
+                extension_name = extension_name.replace("_", " ").title()
+                if extension_name == "Agixt Actions":
+                    extension_name = "AGiXT Actions"
                 # Convert list of setting names to dict format
-                settings[class_name] = {name: "" for name in ext_settings}
+                settings[extension_name] = {name: "" for name in ext_settings}
 
         # Use self.chains_with_args instead of iterating over self.chains
         if self.chains_with_args:
