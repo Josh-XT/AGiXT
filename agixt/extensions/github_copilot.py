@@ -382,6 +382,7 @@ If no changes are made to the repository, there is no need to go through this wo
                     model=model,
                     session_id=effective_session_id,
                     stream_callback=stream_callback,
+                    conversation_id=self.conversation_id,  # Enables persistent containers per conversation
                 )
 
             loop = asyncio.get_event_loop()

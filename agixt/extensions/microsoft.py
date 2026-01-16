@@ -143,7 +143,7 @@ def sso(code, redirect_uri=None) -> MicrosoftSSO:
     )
     if response.status_code != 200:
         logging.error(f"Error getting Microsoft access token: {response.text}")
-        return None, None
+        return None
     data = response.json()
     access_token = data["access_token"]
     refresh_token = data["refresh_token"] if "refresh_token" in data else "Not provided"
