@@ -73,13 +73,14 @@ def _get_redis_client():
     redis_host = os.environ.get("REDIS_HOST", "")
     if not redis_host:
         return None
-    
+
     try:
         import redis
+
         redis_port = int(os.environ.get("REDIS_PORT", "6379"))
         redis_password = os.environ.get("REDIS_PASSWORD", "")
         redis_db = int(os.environ.get("REDIS_DB", "0"))
-        
+
         client = redis.Redis(
             host=redis_host,
             port=redis_port,
@@ -127,22 +128,22 @@ class ConversationMessageBroadcaster:
         """Start the Redis pub/sub subscriber in a background thread."""
         if self._subscriber_running:
             return
-        
+
         self._redis_publisher = _get_redis_client()
         if self._redis_publisher is None:
-            logging.info("ConversationMessageBroadcaster: Redis not available, cross-worker broadcasts disabled")
+            logging.info(
+                "ConversationMessageBroadcaster: Redis not available, cross-worker broadcasts disabled"
+            )
             return
-        
+
         # Create a separate client for subscribing (pub/sub requires dedicated connection)
         self._redis_subscriber = _get_redis_client()
         if self._redis_subscriber is None:
             return
-        
+
         self._subscriber_running = True
         self._subscriber_thread = threading.Thread(
-            target=self._redis_subscriber_loop,
-            daemon=True,
-            name="redis-ws-subscriber"
+            target=self._redis_subscriber_loop, daemon=True, name="redis-ws-subscriber"
         )
         self._subscriber_thread.start()
         logging.info("ConversationMessageBroadcaster: Redis pub/sub subscriber started")
@@ -152,33 +153,41 @@ class ConversationMessageBroadcaster:
         try:
             pubsub = self._redis_subscriber.pubsub()
             pubsub.subscribe(REDIS_BROADCAST_CHANNEL)
-            
+
             for message in pubsub.listen():
                 if not self._subscriber_running:
                     break
-                
+
                 if message["type"] != "message":
                     continue
-                
+
                 try:
                     data = json.loads(message["data"])
                     conversation_id = data.get("conversation_id")
                     event_type = data.get("event_type")
                     message_data = data.get("message_data")
-                    
+
                     if conversation_id and event_type and message_data:
                         # Schedule the local broadcast on the main event loop
                         if self._main_loop is not None:
                             asyncio.run_coroutine_threadsafe(
-                                self._local_broadcast(conversation_id, event_type, message_data),
-                                self._main_loop
+                                self._local_broadcast(
+                                    conversation_id, event_type, message_data
+                                ),
+                                self._main_loop,
                             )
                 except json.JSONDecodeError:
-                    logging.debug("ConversationMessageBroadcaster: Invalid JSON in Redis message")
+                    logging.debug(
+                        "ConversationMessageBroadcaster: Invalid JSON in Redis message"
+                    )
                 except Exception as e:
-                    logging.debug(f"ConversationMessageBroadcaster: Error processing Redis message: {e}")
+                    logging.debug(
+                        f"ConversationMessageBroadcaster: Error processing Redis message: {e}"
+                    )
         except Exception as e:
-            logging.warning(f"ConversationMessageBroadcaster: Redis subscriber error: {e}")
+            logging.warning(
+                f"ConversationMessageBroadcaster: Redis subscriber error: {e}"
+            )
         finally:
             self._subscriber_running = False
 
@@ -191,7 +200,9 @@ class ConversationMessageBroadcaster:
         # Capture main event loop on first connection if not set
         if self._main_loop is None:
             self._main_loop = asyncio.get_running_loop()
-            logging.info(f"ConversationMessageBroadcaster: captured main event loop on first connection")
+            logging.info(
+                f"ConversationMessageBroadcaster: captured main event loop on first connection"
+            )
             self._start_redis_subscriber()
         async with self._lock:
             if conversation_id not in self.active_connections:
@@ -212,30 +223,40 @@ class ConversationMessageBroadcaster:
                     # Clean up broadcasted IDs when no more connections
                     if conversation_id in self.broadcasted_message_ids:
                         del self.broadcasted_message_ids[conversation_id]
-                logging.debug(f"Conversation {conversation_id}: WebSocket disconnected.")
+                logging.debug(
+                    f"Conversation {conversation_id}: WebSocket disconnected."
+                )
 
-    def publish_to_redis(self, conversation_id: str, event_type: str, message_data: dict):
+    def publish_to_redis(
+        self, conversation_id: str, event_type: str, message_data: dict
+    ):
         """
         Publish a broadcast message to Redis for cross-worker distribution.
         This should be called from any thread - it uses the Redis client synchronously.
         """
         if self._redis_publisher is None:
             return False
-        
+
         try:
-            payload = json.dumps({
-                "conversation_id": conversation_id,
-                "event_type": event_type,
-                "message_data": make_json_serializable(message_data),
-            })
+            payload = json.dumps(
+                {
+                    "conversation_id": conversation_id,
+                    "event_type": event_type,
+                    "message_data": make_json_serializable(message_data),
+                }
+            )
             self._redis_publisher.publish(REDIS_BROADCAST_CHANNEL, payload)
-            logging.debug(f"Published broadcast to Redis: conv={conversation_id}, type={event_type}")
+            logging.debug(
+                f"Published broadcast to Redis: conv={conversation_id}, type={event_type}"
+            )
             return True
         except Exception as e:
             logging.warning(f"Failed to publish to Redis: {e}")
             return False
 
-    async def _local_broadcast(self, conversation_id: str, event_type: str, message_data: dict):
+    async def _local_broadcast(
+        self, conversation_id: str, event_type: str, message_data: dict
+    ):
         """
         Broadcast to local WebSocket connections only (called from Redis subscriber).
         """
@@ -253,10 +274,12 @@ class ConversationMessageBroadcaster:
         for connection in connections:
             try:
                 await connection.send_text(
-                    json.dumps({
-                        "type": event_type,
-                        "data": message_data,  # Already serialized from Redis
-                    })
+                    json.dumps(
+                        {
+                            "type": event_type,
+                            "data": message_data,  # Already serialized from Redis
+                        }
+                    )
                 )
                 sent_count += 1
             except Exception as e:
@@ -270,7 +293,9 @@ class ConversationMessageBroadcaster:
                         self.active_connections[conversation_id].discard(conn)
 
         if sent_count > 0:
-            logging.debug(f"Local broadcast sent to {sent_count} connections for {conversation_id}")
+            logging.debug(
+                f"Local broadcast sent to {sent_count} connections for {conversation_id}"
+            )
         return sent_count
 
     async def broadcast_message_event(
@@ -279,34 +304,40 @@ class ConversationMessageBroadcaster:
         """
         Broadcast a message event to all WebSocket connections for a conversation.
         Uses Redis pub/sub for cross-worker distribution if available.
-        
+
         Args:
             conversation_id: The conversation ID to broadcast to
             event_type: Either 'message_added' or 'message_updated'
             message_data: The message data to send
-        
+
         Returns:
             Number of WebSocket connections that received the broadcast (local only)
         """
-        logging.debug(f"broadcast_message_event called: conv={conversation_id}, type={event_type}")
-        
+        logging.debug(
+            f"broadcast_message_event called: conv={conversation_id}, type={event_type}"
+        )
+
         # Try to publish to Redis for cross-worker distribution
         if self.publish_to_redis(conversation_id, event_type, message_data):
             # Redis will handle distribution to all workers including this one
             return 0
-        
+
         # Fallback to local-only broadcast if Redis not available
         connections_to_remove = []
         async with self._lock:
             if conversation_id not in self.active_connections:
-                logging.debug(f"broadcast_message_event: no active connections for {conversation_id}")
+                logging.debug(
+                    f"broadcast_message_event: no active connections for {conversation_id}"
+                )
                 return 0
             connections = list(self.active_connections[conversation_id])
             # Track broadcasted message IDs to prevent duplicate sends via polling
             message_id = message_data.get("id")
             if message_id and conversation_id in self.broadcasted_message_ids:
                 self.broadcasted_message_ids[conversation_id].add(str(message_id))
-            logging.debug(f"broadcast_message_event: found {len(connections)} connections")
+            logging.debug(
+                f"broadcast_message_event: found {len(connections)} connections"
+            )
 
         sent_count = 0
         for connection in connections:
@@ -320,9 +351,13 @@ class ConversationMessageBroadcaster:
                     )
                 )
                 sent_count += 1
-                logging.debug(f"broadcast_message_event: sent to connection {sent_count}/{len(connections)}")
+                logging.debug(
+                    f"broadcast_message_event: sent to connection {sent_count}/{len(connections)}"
+                )
             except Exception as e:
-                logging.warning(f"Failed to broadcast to conversation {conversation_id}: {e}")
+                logging.warning(
+                    f"Failed to broadcast to conversation {conversation_id}: {e}"
+                )
                 connections_to_remove.append(connection)
 
         # Clean up dead connections
@@ -347,9 +382,10 @@ class ConversationMessageBroadcaster:
 
     def has_listeners(self, conversation_id: str) -> bool:
         """Check if a conversation has active WebSocket listeners."""
-        return conversation_id in self.active_connections and len(
-            self.active_connections[conversation_id]
-        ) > 0
+        return (
+            conversation_id in self.active_connections
+            and len(self.active_connections[conversation_id]) > 0
+        )
 
 
 # Global conversation message broadcaster instance
@@ -1796,7 +1832,9 @@ async def conversation_stream(
         last_message_count = len(messages) if messages else 0
         # Convert all IDs to strings for consistent comparison
         previous_message_ids = (
-            {str(msg.get("id")) for msg in messages if msg.get("id")} if messages else set()
+            {str(msg.get("id")) for msg in messages if msg.get("id")}
+            if messages
+            else set()
         )
         # Track which message IDs we've sent updates for in this poll cycle
         updated_message_ids_this_cycle = set()
@@ -1870,11 +1908,17 @@ async def conversation_stream(
                     message_id = str(message.get("id")) if message.get("id") else None
                     # Skip if we've already sent this message
                     if message_id and message_id in previous_message_ids:
-                        logging.debug(f"WebSocket: Skipping duplicate new message {message_id}")
+                        logging.debug(
+                            f"WebSocket: Skipping duplicate new message {message_id}"
+                        )
                         continue
                     # Skip if this was already sent via broadcast
-                    if message_id and conversation_message_broadcaster.was_broadcasted(conversation_id, message_id):
-                        logging.debug(f"WebSocket: Skipping broadcasted new message {message_id}")
+                    if message_id and conversation_message_broadcaster.was_broadcasted(
+                        conversation_id, message_id
+                    ):
+                        logging.debug(
+                            f"WebSocket: Skipping broadcasted new message {message_id}"
+                        )
                         if message_id:
                             previous_message_ids.add(message_id)
                         continue
@@ -1896,13 +1940,21 @@ async def conversation_stream(
                     message_id = str(message.get("id")) if message.get("id") else None
                     # Skip if we just sent this message as "added" in this cycle
                     if message_id and message_id in updated_message_ids_this_cycle:
-                        logging.debug(f"WebSocket: Skipping updated message {message_id} (already sent as added)")
+                        logging.debug(
+                            f"WebSocket: Skipping updated message {message_id} (already sent as added)"
+                        )
                         continue
                     # Skip if this was already sent via broadcast
-                    if message_id and conversation_message_broadcaster.was_broadcasted(conversation_id, message_id):
-                        logging.debug(f"WebSocket: Skipping broadcasted updated message {message_id}")
+                    if message_id and conversation_message_broadcaster.was_broadcasted(
+                        conversation_id, message_id
+                    ):
+                        logging.debug(
+                            f"WebSocket: Skipping broadcasted updated message {message_id}"
+                        )
                         continue
-                    logging.debug(f"WebSocket: Sending message_updated for {message_id}")
+                    logging.debug(
+                        f"WebSocket: Sending message_updated for {message_id}"
+                    )
                     serializable_message = make_json_serializable(message)
                     await websocket.send_text(
                         json.dumps(
@@ -1984,7 +2036,9 @@ async def conversation_stream(
         logging.error(f"Unexpected error in conversation stream: {e}")
         # Ensure cleanup even on unexpected errors
         try:
-            await conversation_message_broadcaster.disconnect(websocket, conversation_id)
+            await conversation_message_broadcaster.disconnect(
+                websocket, conversation_id
+            )
         except:
             pass
         try:
