@@ -28,6 +28,14 @@ class StripePaymentService:
         user_id: Optional[str] = None,
         company_id: Optional[str] = None,
     ) -> Dict[str, Any]:
+        """Create a Stripe payment intent for seat-based billing.
+
+        Gets the price per unit from the pricing configuration tiers.
+        For seat-based models (per_user, per_capacity, per_location),
+        the amount is calculated as: seat_count × price_per_unit
+        """
+        from ExtensionsHub import ExtensionsHub
+
         if not self.api_key or self.api_key.lower() == "none":
             raise HTTPException(
                 status_code=400, detail="Stripe API key is not configured"
@@ -35,7 +43,21 @@ class StripePaymentService:
         if seat_count < 1:
             raise HTTPException(status_code=400, detail="Seat count must be at least 1")
 
-        amount_usd = self.price_service.base_price_usd * Decimal(seat_count)
+        # Get price per unit from pricing configuration
+        hub = ExtensionsHub()
+        pricing_config = hub.get_pricing_config()
+
+        # Default price per unit
+        price_per_unit = Decimal("75.00")
+
+        # Get price from first tier if available
+        if pricing_config and pricing_config.get("tiers"):
+            first_tier = pricing_config["tiers"][0]
+            tier_price = first_tier.get("price_per_unit")
+            if tier_price is not None:
+                price_per_unit = Decimal(str(tier_price))
+
+        amount_usd = price_per_unit * Decimal(seat_count)
         amount_cents = int(
             (amount_usd * Decimal("100")).quantize(Decimal("1"), rounding=ROUND_UP)
         )
