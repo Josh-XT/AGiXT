@@ -548,16 +548,20 @@ class AIProviderManager:
     5. Default values
     """
 
-    def __init__(self, agent_settings: dict, extensions_instance=None):
+    def __init__(
+        self, agent_settings: dict, extensions_instance=None, company_id: str = None
+    ):
         """
         Initialize the AI Provider Manager.
 
         Args:
             agent_settings: Dictionary of agent settings (includes extension settings)
             extensions_instance: Optional Extensions instance to discover providers from
+            company_id: Optional company ID to resolve company-level settings
         """
         self.agent_settings = agent_settings
         self.extensions_instance = extensions_instance
+        self.company_id = company_id
         self.providers = {}
         self.failed_providers = set()
 
@@ -588,16 +592,24 @@ class AIProviderManager:
         Merge settings from all configuration levels for AI providers.
 
         Priority (highest to lowest):
-        1. Server extension settings (admin configured API keys in ServerExtensionSetting table)
-        2. Environment variables (for local development/overrides)
-        3. Default values from provider extensions
+        1. Agent settings (user-level, passed in agent_settings)
+        2. Company extension settings (team/company-level from CompanyExtensionSetting table)
+        3. Server extension settings (admin configured API keys in ServerExtensionSetting table)
+        4. Environment variables (for local development/overrides)
+        5. Default values from provider extensions
 
-        Provider API keys and settings should NOT be stored at the agent level.
-        They are resolved at inference time from the server extension settings.
-        This ensures that when server admins change API keys, all agents automatically
-        use the new keys without needing to update each agent's settings individually.
+        This hierarchy ensures that:
+        - Users can override with their own API keys if allowed
+        - Teams/companies can configure shared provider settings
+        - Server admins can set defaults for all users
+        - Environment variables work for local development
         """
-        from DB import ServerExtensionSetting, get_session, decrypt_config_value
+        from DB import (
+            ServerExtensionSetting,
+            CompanyExtensionSetting,
+            get_session,
+            decrypt_config_value,
+        )
 
         # Map of setting keys to extension names for lookup
         # This maps the setting key pattern to the extension name used in ServerExtensionSetting
@@ -678,27 +690,75 @@ class AIProviderManager:
 
         merged_settings = {}
 
-        # First, get server extension settings from database (admin configured)
-        # This is the authoritative source for provider API keys
+        # Priority order (lowest to highest, later values override earlier):
+        # 4. Environment variables (lowest priority, for local dev)
+        # 3. Server extension settings
+        # 2. Company extension settings
+        # 1. Agent settings (highest priority)
+
+        # Step 1: Start with environment variables (lowest priority)
+        for key in provider_setting_keys:
+            env_value = os.getenv(key)
+            if env_value:
+                merged_settings[key] = env_value
+
+        # Step 2: Apply server extension settings (overrides env vars)
         with get_session() as session:
             server_ext_settings = (
                 session.query(ServerExtensionSetting)
                 .filter(ServerExtensionSetting.setting_key.in_(provider_setting_keys))
                 .all()
             )
+            server_keys_found = []
             for setting in server_ext_settings:
                 value = setting.setting_value
                 if setting.is_sensitive and value:
                     value = decrypt_config_value(value)
                 if value:  # Only add non-empty values
                     merged_settings[setting.setting_key] = value
+                    server_keys_found.append(setting.setting_key)
 
-        # Then check environment variables (for local dev overrides)
+            if server_keys_found:
+                logging.debug(
+                    f"[AIProviderManager] Found server-level settings: {server_keys_found}"
+                )
+
+            # Step 3: Apply company extension settings if company_id is available (overrides server)
+            if self.company_id:
+                company_ext_settings = (
+                    session.query(CompanyExtensionSetting)
+                    .filter(
+                        CompanyExtensionSetting.company_id == self.company_id,
+                        CompanyExtensionSetting.setting_key.in_(provider_setting_keys),
+                    )
+                    .all()
+                )
+                company_keys_found = []
+                for setting in company_ext_settings:
+                    value = setting.setting_value
+                    if setting.is_sensitive and value:
+                        value = decrypt_config_value(value)
+                    if value:  # Only add non-empty values
+                        merged_settings[setting.setting_key] = value
+                        company_keys_found.append(setting.setting_key)
+
+                if company_keys_found:
+                    logging.debug(
+                        f"[AIProviderManager] Found company-level settings for company {self.company_id}: {company_keys_found}"
+                    )
+            else:
+                logging.debug(
+                    "[AIProviderManager] No company_id provided, skipping company-level settings lookup"
+                )
+
+        # Step 4: Agent settings are applied later (highest priority) when providers are instantiated
+        # by merging self.agent_settings into the final settings dict
+
+        # Step 5: Apply agent-level provider settings (highest priority - user's own API keys)
+        # This allows users to override with their own API keys if configured
         for key in provider_setting_keys:
-            if key not in merged_settings:
-                env_value = os.getenv(key)
-                if env_value:
-                    merged_settings[key] = env_value
+            if key in self.agent_settings and self.agent_settings[key]:
+                merged_settings[key] = self.agent_settings[key]
 
         # Add non-provider agent settings (like mode, persona, etc.)
         # These are settings that should be stored at agent level
@@ -721,8 +781,6 @@ class AIProviderManager:
         for key in non_provider_keys:
             if key in self.agent_settings and self.agent_settings[key]:
                 merged_settings[key] = self.agent_settings[key]
-
-        return merged_settings
 
         return merged_settings
 
@@ -1735,9 +1793,16 @@ class Agent:
             if key in self.PROVIDER_SETTINGS:
                 del self.PROVIDER_SETTINGS[key]
 
+        # Extract company_id early for AIProviderManager to use for company-level settings
+        # This allows the provider manager to query CompanyExtensionSetting table
+        early_company_id = self.AGENT_CONFIG.get("settings", {}).get("company_id")
+        if early_company_id and str(early_company_id).lower() in ["none", "null", ""]:
+            early_company_id = None
+
         # Initialize AI Provider Manager to discover AI Provider extensions
         self.ai_provider_manager = AIProviderManager(
             agent_settings=self.PROVIDER_SETTINGS,
+            company_id=str(early_company_id) if early_company_id else None,
         )
 
         # Store ApiClient and token for provider access
