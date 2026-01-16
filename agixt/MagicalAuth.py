@@ -1337,20 +1337,40 @@ class MagicalAuth:
             is_super_admin = any(uc.role_id == 0 for uc in user_companies)
 
             # === 5. Billing check (fast, synchronous) ===
+            # First, check the pricing model from extensions hub
+            from ExtensionsHub import ExtensionsHub
+
+            hub = ExtensionsHub()
+            pricing_config = hub.get_pricing_config()
+            pricing_model = (
+                pricing_config.get("pricing_model") if pricing_config else "per_token"
+            )
+            is_seat_based = pricing_model in ["per_user", "per_capacity", "per_location"]
+
             wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
             price_service = PriceService()
             try:
                 token_price = price_service.get_token_price()
             except Exception:
-                token_price = 1
+                token_price = 0 if is_seat_based else 1
 
-            billing_enabled = token_price > 0
+            # Billing is enabled if:
+            # - Token-based: TOKEN_PRICE_PER_MILLION_USD > 0
+            # - Seat-based: pricing.json has paid tiers
+            token_billing_enabled = token_price > 0 and not is_seat_based
+            seat_billing_enabled = is_seat_based and pricing_config and any(
+                tier.get("price_per_unit") is not None or tier.get("custom_pricing", False)
+                for tier in pricing_config.get("tiers", [])
+            )
+            billing_enabled = token_billing_enabled or seat_billing_enabled
+
             wallet_paywall_enabled = (
                 bool(wallet_address)
                 and str(wallet_address).lower() != "none"
-                and billing_enabled
+                and token_billing_enabled  # Wallet paywall only for token-based billing
             )
 
+            # For token-based billing with wallet paywall
             if wallet_paywall_enabled:
                 has_balance = self._has_sufficient_token_balance(
                     session, user_companies
@@ -1372,6 +1392,30 @@ class MagicalAuth:
                     )
                 user_preferences["wallet_address"] = wallet_address
                 user_preferences["token_price_per_million_usd"] = float(token_price)
+
+            # For seat-based billing, check if user has valid subscription or trial credits
+            elif seat_billing_enabled:
+                has_balance = self._has_sufficient_token_balance(
+                    session, user_companies
+                )
+                if not has_balance:
+                    user.is_active = False
+                    session.commit()
+                    unit_name = pricing_config.get("unit_name", "seat")
+                    unit_plural = pricing_config.get("unit_name_plural", "seats")
+                    raise HTTPException(
+                        status_code=402,
+                        detail={
+                            "message": f"Subscription required. Please subscribe to continue using the service.",
+                            "pricing_model": pricing_model,
+                            "unit_name": unit_name,
+                            "unit_name_plural": unit_plural,
+                            "customer_session": {
+                                "client_secret": None,
+                                "company_id": self.company_id,
+                            },
+                        },
+                    )
 
             # === 6. User requirements check ===
             user_requirements = self.registration_requirements()
