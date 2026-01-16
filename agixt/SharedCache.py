@@ -99,7 +99,6 @@ class SharedCache:
 
             # Test connection
             self._redis.ping()
-            logger.info(f"SharedCache: Connected to Redis at {redis_host}:{redis_port}")
 
         except ImportError:
             logger.warning(

@@ -120,7 +120,6 @@ class ConversationMessageBroadcaster:
     def set_main_loop(self, loop):
         """Set the main event loop reference for cross-thread broadcasts."""
         self._main_loop = loop
-        logging.info(f"ConversationMessageBroadcaster: main event loop set")
         # Start Redis subscriber when main loop is set
         self._start_redis_subscriber()
 
@@ -146,7 +145,6 @@ class ConversationMessageBroadcaster:
             target=self._redis_subscriber_loop, daemon=True, name="redis-ws-subscriber"
         )
         self._subscriber_thread.start()
-        logging.info("ConversationMessageBroadcaster: Redis pub/sub subscriber started")
 
     def _redis_subscriber_loop(self):
         """Background thread that listens for Redis pub/sub messages."""
@@ -200,9 +198,6 @@ class ConversationMessageBroadcaster:
         # Capture main event loop on first connection if not set
         if self._main_loop is None:
             self._main_loop = asyncio.get_running_loop()
-            logging.info(
-                f"ConversationMessageBroadcaster: captured main event loop on first connection"
-            )
             self._start_redis_subscriber()
         async with self._lock:
             if conversation_id not in self.active_connections:
