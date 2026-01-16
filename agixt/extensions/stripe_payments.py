@@ -570,7 +570,7 @@ class stripe_payments(Extensions):
                                         f"Activated user {transaction.user_id} after Stripe payment"
                                     )
 
-                            # Update company user_limit
+                            # Update company for seat-based subscription
                             user_company = None
                             if transaction.user_id:
                                 user_company = (
@@ -587,8 +587,13 @@ class stripe_payments(Extensions):
                                 )
                                 if company:
                                     company.user_limit = transaction.seat_count
+                                    # Set payment_intent_id as a pseudo-subscription ID for seat validation
+                                    # This satisfies the _has_sufficient_token_balance check
+                                    company.stripe_subscription_id = payment_intent_id
+                                    company.auto_topup_enabled = True
                                     logging.info(
-                                        f"Updated company {company.id} user_limit to {transaction.seat_count} for Stripe payment"
+                                        f"Updated company {company.id} user_limit to {transaction.seat_count} "
+                                        f"and enabled subscription for Stripe payment"
                                     )
 
                     session.commit()

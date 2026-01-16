@@ -117,7 +117,6 @@ async def lifespan(app: FastAPI):
         # This must happen at startup so extensions running in thread pools can broadcast
         main_loop = asyncio.get_running_loop()
         conversation_message_broadcaster.set_main_loop(main_loop)
-        logging.info("Main event loop captured for conversation broadcasting")
 
         # Load server configuration cache on worker startup
         # This is critical because uvicorn workers are forked processes
