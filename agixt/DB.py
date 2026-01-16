@@ -6357,10 +6357,20 @@ def seed_server_config_from_env():
     Seed server configuration from environment variables.
     Creates new entries that don't exist in the database.
     Also updates existing entries that have empty values if an env value is available.
+
+    Billing-related configs (TOKEN_PRICE_PER_MILLION_USD, BILLING_PAUSED) are always
+    synced from environment variables to allow docker-compose control over billing.
     """
     logging.info("Seeding server configuration from environment variables...")
     seeded_count = 0
     updated_count = 0
+
+    # These billing configs should ALWAYS sync from env to allow docker-compose control
+    # This lets operators disable billing by setting TOKEN_PRICE_PER_MILLION_USD=0
+    env_override_configs = {
+        "TOKEN_PRICE_PER_MILLION_USD",
+        "BILLING_PAUSED",
+    }
 
     with get_session() as db:
         for definition in SERVER_CONFIG_DEFINITIONS:
@@ -6391,6 +6401,16 @@ def seed_server_config_from_env():
                 )
                 db.add(new_config)
                 seeded_count += 1
+            elif name in env_override_configs and env_value:
+                # Always sync billing-related configs from env if env value is set
+                # This allows docker-compose to control billing (e.g., set price to 0)
+                new_value = (
+                    encrypt_config_value(env_value) if is_sensitive else env_value
+                )
+                if existing.value != new_value:
+                    existing.value = new_value
+                    updated_count += 1
+                    logging.info(f"Synced {name} from environment variable")
             elif env_value and not existing.value:
                 # Update existing entry with empty value if env has a value
                 # This handles the case where token was added after initial setup
