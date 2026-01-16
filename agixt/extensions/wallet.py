@@ -552,10 +552,22 @@ class wallet(Extensions):
                 }
                 for symbol, details in SUPPORTED_CURRENCIES.items()
             ]
+            token_price = float(self.price_service.get_token_price())
+            min_topup_usd = float(getenv("MIN_TOKEN_TOPUP_USD", "10.00"))
+            # Calculate minimum tokens (in millions) based on price and min USD
+            min_token_millions = (
+                int(min_topup_usd / token_price) + 1
+                if token_price > 0 and min_topup_usd > 0
+                else 1
+            )
             return {
-                "base_price_usd": float(self.price_service.get_token_price()),
+                "base_price_usd": token_price,
+                "token_price_usd": token_price,
                 "wallet_address": getenv("PAYMENT_WALLET_ADDRESS"),
                 "currencies": currencies,
+                "billing_enabled": token_price > 0,
+                "min_topup_usd": min_topup_usd,
+                "min_token_millions": min_token_millions,
             }
 
         @self.router.post(
