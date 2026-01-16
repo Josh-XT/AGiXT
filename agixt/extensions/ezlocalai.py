@@ -20,6 +20,7 @@ import requests
 import numpy as np
 from Extensions import Extensions
 from Globals import getenv
+import asyncio
 
 
 class StreamChunk:
@@ -221,7 +222,6 @@ class ezlocalai(Extensions):
         model = self.CODING_MODEL if use_smartest else self.AI_MODEL
         if not model:
             model = "default"
-
         # Use a dummy API key if none is set
         api_key = self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none"
         headers = {
@@ -322,7 +322,7 @@ class ezlocalai(Extensions):
 
         except Exception as e:
             self.failure_count += 1
-            logging.error(f"ezLocalai API Error: {e}")
+            logging.error(f"ezLocalai API Error on server {self.API_URI} {e}")
 
             if "," in self.API_URI:
                 self.rotate_uri()
