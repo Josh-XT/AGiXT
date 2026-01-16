@@ -1380,7 +1380,8 @@ class MagicalAuth:
             )
 
             # For token-based billing with wallet paywall
-            if wallet_paywall_enabled:
+            # Super admins (role 0) are exempt from paywall
+            if wallet_paywall_enabled and not is_super_admin:
                 has_balance = self._has_sufficient_token_balance(
                     session, user_companies
                 )
@@ -1403,7 +1404,8 @@ class MagicalAuth:
                 user_preferences["token_price_per_million_usd"] = float(token_price)
 
             # For seat-based billing, check if user has valid subscription or trial credits
-            elif seat_billing_enabled:
+            # Super admins (role 0) are exempt from paywall
+            elif seat_billing_enabled and not is_super_admin:
                 has_balance = self._has_sufficient_token_balance(
                     session, user_companies
                 )
@@ -2938,6 +2940,7 @@ class MagicalAuth:
         Pre-check if the user has sufficient token balance before running inference.
         Raises HTTPException 402 if billing is enabled and balance is insufficient.
         Should be called before any billable operation (inference, etc).
+        Super admins (role 0) are exempt from billing checks.
         """
         # Check if billing is enabled
         price_service = PriceService()
@@ -2959,6 +2962,11 @@ class MagicalAuth:
                 .filter(UserCompany.user_id == self.user_id)
                 .all()
             )
+
+            # Super admins (role 0) are exempt from paywall
+            is_super_admin = any(uc.role_id == 0 for uc in user_companies)
+            if is_super_admin:
+                return True
 
             # Check if any company has sufficient balance
             if self._has_sufficient_token_balance(session, user_companies):
