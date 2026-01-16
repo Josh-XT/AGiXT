@@ -437,6 +437,17 @@ class InternalClient:
         c = Conversations(conversation_name=conversation_name, user=self.user)
         return c.log_interaction(role=role, message=message)
 
+    def update_conversation_message(
+        self,
+        message_id: str,
+        new_message: str,
+        conversation_name: str = "-",
+    ) -> None:
+        """Update an existing message in a conversation."""
+        Conversations = self._get_conversations_class()
+        c = Conversations(conversation_name=conversation_name, user=self.user)
+        return c.update_message_by_id(message_id=message_id, new_message=new_message)
+
     def get_conversation(
         self,
         conversation_name: str = None,

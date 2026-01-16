@@ -17,7 +17,10 @@ from ResponseCache import ResponseCacheMiddleware, get_cache_manager
 from endpoints.Agent import app as agent_endpoints
 from endpoints.Chain import app as chain_endpoints
 from endpoints.Completions import app as completions_endpoints
-from endpoints.Conversation import app as conversation_endpoints
+from endpoints.Conversation import (
+    app as conversation_endpoints,
+    conversation_message_broadcaster,
+)
 from endpoints.Extension import app as extension_endpoints
 from endpoints.Memory import app as memory_endpoints
 from endpoints.Prompt import app as prompt_endpoints
@@ -110,6 +113,12 @@ task_monitor = TaskMonitor()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
+        # Capture the main event loop for cross-thread broadcasting
+        # This must happen at startup so extensions running in thread pools can broadcast
+        main_loop = asyncio.get_running_loop()
+        conversation_message_broadcaster.set_main_loop(main_loop)
+        logging.info("Main event loop captured for conversation broadcasting")
+
         # Load server configuration cache on worker startup
         # This is critical because uvicorn workers are forked processes
         # and the cache loaded in the main process is not available in workers

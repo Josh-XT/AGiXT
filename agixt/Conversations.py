@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 import logging
 import secrets
+import asyncio
 from DB import (
     Conversation,
     ConversationShare,
@@ -37,6 +38,79 @@ def invalidate_conversation_cache(user_id: str = None, conversation_name: str = 
     else:
         # Invalidate all entries for this user
         shared_cache.delete_pattern(f"conversation_id:{user_id}:*")
+
+
+async def broadcast_message_to_conversation(
+    conversation_id: str, event_type: str, message_data: dict
+) -> int:
+    """
+    Broadcast a message event to all WebSocket listeners for a conversation.
+
+    This is an async function that should be called from extensions that want to
+    send real-time updates to connected WebSocket clients.
+
+    Args:
+        conversation_id: The conversation ID to broadcast to
+        event_type: Either 'message_added' or 'message_updated'
+        message_data: The message data to send (should include id, role, message, etc.)
+
+    Returns:
+        Number of WebSocket connections that received the broadcast
+    """
+    try:
+        # Import here to avoid circular imports
+        from endpoints.Conversation import conversation_message_broadcaster
+
+        return await conversation_message_broadcaster.broadcast_message_event(
+            conversation_id, event_type, message_data
+        )
+    except Exception as e:
+        logging.warning(
+            f"Failed to broadcast message to conversation {conversation_id}: {e}"
+        )
+        return 0
+
+
+def broadcast_message_sync(conversation_id: str, event_type: str, message_data: dict):
+    """
+    Synchronous wrapper for broadcast_message_to_conversation.
+
+    Use this from synchronous code (like extensions) to broadcast messages.
+    Uses Redis pub/sub for cross-worker distribution when available.
+    """
+    logging.debug(
+        f"broadcast_message_sync called: conv={conversation_id}, type={event_type}, msg_id={message_data.get('id')}"
+    )
+    try:
+        # Import broadcaster to use Redis pub/sub
+        from endpoints.Conversation import conversation_message_broadcaster
+
+        # Try Redis pub/sub first - this is synchronous and works from any thread
+        if conversation_message_broadcaster.publish_to_redis(
+            conversation_id, event_type, message_data
+        ):
+            logging.debug(f"broadcast_message_sync: published to Redis")
+            return
+
+        # Fallback to main event loop scheduling if Redis not available
+        main_loop = conversation_message_broadcaster.get_main_loop()
+
+        if main_loop is not None:
+            # Use the broadcaster's main event loop for cross-thread safety
+            future = asyncio.run_coroutine_threadsafe(
+                broadcast_message_to_conversation(
+                    conversation_id, event_type, message_data
+                ),
+                main_loop,
+            )
+            # Don't wait - fire and forget for streaming performance
+            logging.debug(
+                f"broadcast_message_sync: scheduled on main loop (loop={id(main_loop)})"
+            )
+        else:
+            logging.warning(f"broadcast_message_sync: main loop not available yet")
+    except Exception as e:
+        logging.warning(f"broadcast_message_sync error: {e}")
 
 
 def get_conversation_id_by_name(conversation_name, user_id):
@@ -479,21 +553,39 @@ class Conversations:
                 }
                 new_messages.append(msg)
 
-            # Query for updated messages (updated_at > timestamp but timestamp <= since_timestamp)
-            # This catches edits to existing messages
+            # Query for updated messages - messages that have been edited since last check
+            # This includes:
+            # 1. Old messages (timestamp <= since_timestamp) that were edited (updated_at > since_timestamp)
+            # 2. New messages (timestamp > since_timestamp) that were edited after creation (updated_at > timestamp)
+            # The second case catches subactivity messages that are created then rapidly updated
+            from sqlalchemy import or_
+
             updated_query = (
                 session.query(Message)
                 .filter(
                     Message.conversation_id == conversation.id,
-                    Message.timestamp <= since_timestamp,
-                    Message.updated_at > since_timestamp,
                     Message.updated_by != None,  # Only actually edited messages
+                    or_(
+                        # Case 1: Old messages edited since last check
+                        (Message.timestamp <= since_timestamp)
+                        & (Message.updated_at > since_timestamp),
+                        # Case 2: New messages edited after their creation
+                        (Message.timestamp > since_timestamp)
+                        & (Message.updated_at > Message.timestamp),
+                    ),
                 )
                 .order_by(Message.timestamp.asc())
                 .all()
             )
 
+            # Collect IDs of messages already in new_messages to avoid duplicates
+            # Convert to strings for consistent comparison since IDs can be UUIDs
+            new_message_ids = {str(msg["id"]) for msg in new_messages}
+
             for message in updated_query:
+                # Skip if this message is already in new_messages (avoid duplicates)
+                if str(message.id) in new_message_ids:
+                    continue
                 msg = {
                     "id": message.id,
                     "role": message.role,

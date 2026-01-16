@@ -54,6 +54,7 @@ class github_copilot(Extensions):
     def __init__(
         self,
         GITHUB_COPILOT_TOKEN: str = "",
+        GITHUB_COPILOT_MODEL: str = "claude-opus-4.5",
         **kwargs,
     ):
         """
@@ -68,6 +69,9 @@ class github_copilot(Extensions):
                                   NOTE: Classic PATs (ghp_...) are NOT supported!
         """
         self.GITHUB_COPILOT_TOKEN = GITHUB_COPILOT_TOKEN
+        self.GITHUB_COPILOT_MODEL = (
+            GITHUB_COPILOT_MODEL if GITHUB_COPILOT_MODEL else "claude-opus-4.5"
+        )
         self.commands = {
             "Ask GitHub Copilot": self.ask_github_copilot,
         }
@@ -88,12 +92,17 @@ class github_copilot(Extensions):
             kwargs["conversation_name"] if "conversation_name" in kwargs else ""
         )
         self.activity_id = kwargs["activity_id"] if "activity_id" in kwargs else None
+        self.conversation_id = kwargs.get("conversation_id", None)
+        # Only log when actually being used (not during metadata caching)
+        if self.conversation_id:
+            logging.info(
+                f"GitHub Copilot extension ready: conversation_id={self.conversation_id}, activity_id={self.activity_id}"
+            )
 
     async def ask_github_copilot(
         self,
         prompt: str,
         branch: str = "",
-        model: str = "claude-opus-4.5",
         session_id: str = None,
     ) -> str:
         """
@@ -113,8 +122,6 @@ class github_copilot(Extensions):
         Note: This command requires a **fine-grained** GitHub Personal Access Token (PAT)
         that starts with 'github_pat_'. Classic PATs (ghp_...) are NOT supported.
 
-        Available models: claude-opus-4.5, claude-sonnet-4, gpt-4.1, gpt-5, gpt-5-mini
-
         To create a compatible token:
         1. Visit https://github.com/settings/personal-access-tokens/new
         2. Under "Repository access", select repos Copilot can access
@@ -122,12 +129,10 @@ class github_copilot(Extensions):
         4. Use the generated token (starts with 'github_pat_') as your GITHUB_COPILOT_TOKEN
 
         Args:
-            prompt (str): The request or task to send to GitHub Copilot
+            prompt (str): The detailed request or task to send to GitHub Copilot
             branch (str): Optional branch name to work in. If specified, Copilot will checkout
                           or create this branch before making changes. If not specified,
                           Copilot will create a new feature branch based on the task.
-            model (str): The AI model to use (default: claude-opus-4.5). Other options include
-                         gpt-5, claude-sonnet-4, etc.
             session_id (str): Optional session ID to resume a previous conversation. If provided,
                               Copilot will continue from where the previous session left off.
                               Leave empty or set to None to start a new session.
@@ -136,7 +141,11 @@ class github_copilot(Extensions):
             str: The response from GitHub Copilot including any actions taken and their results.
                  The response also includes the session_id which can be used to continue
                  the conversation in future requests.
+
+        Note: If the users request might require coding, use "Ask GitHub Copilot" with a detailed request including links to which repositories to work in if applicable.
+        The agent's workspace will be shared with GitHub Copilot. Any data manipulation or coding tasks should use GitHub Copilot.
         """
+        model = self.GITHUB_COPILOT_MODEL
         if not self.GITHUB_COPILOT_TOKEN:
             return (
                 "Error: GitHub Copilot Token is required.\n\n"
@@ -193,7 +202,7 @@ You are working in a git-enabled workspace. Follow these guidelines for all code
 {branch_instruction}
 
 ## Git Workflow
-1. **Before making changes:**
+1. **Before making changes to any repository:**
    - Check current branch with `git branch`
    - Ensure you're on the correct working branch (not main/master)
    - Pull latest changes if the branch exists remotely: `git pull origin <branch> --rebase`
@@ -220,6 +229,8 @@ You are working in a git-enabled workspace. Follow these guidelines for all code
      - How to test them
      - Any breaking changes or migration steps needed
 
+If no changes are made to the repository, there is no need to go through this workflow.     
+
 ## Code Quality
 - Follow existing code style and conventions in the repository
 - Add or update tests for new functionality
@@ -234,73 +245,152 @@ You are working in a git-enabled workspace. Follow these guidelines for all code
 """
 
         try:
-            if self.activity_id:
-                self.ApiClient.new_conversation_message(
-                    role=self.agent_name,
-                    message=f"[SUBACTIVITY][{self.activity_id}] Sending request to GitHub Copilot...",
-                    conversation_name=self.conversation_name,
+            # Accumulator for streaming content
+            streaming_content = []
+            message_id = [None]  # Use list to allow modification in nested function
+
+            def send_streaming_update():
+                """Send or update the streaming subactivity message."""
+                if not self.activity_id or not streaming_content:
+                    logging.debug(
+                        f"send_streaming_update: skipping (activity_id={self.activity_id}, content_count={len(streaming_content)})"
+                    )
+                    return
+
+                # Build the accumulated message
+                content_str = "\n".join(streaming_content)
+                full_message = f"[SUBACTIVITY][{self.activity_id}] **Copilot Activity:**\n{content_str}"
+
+                logging.debug(
+                    f"send_streaming_update: conversation_id={self.conversation_id}, message_id={message_id[0]}"
                 )
 
-            # Create a streaming callback that sends thinking messages to AGiXT
+                try:
+                    if message_id[0] is None:
+                        # First message - create it and store the ID
+                        message_id[0] = self.ApiClient.new_conversation_message(
+                            role=self.agent_name,
+                            message=full_message,
+                            conversation_name=self.conversation_name,
+                        )
+                        logging.info(
+                            f"Created streaming message with ID: {message_id[0]}"
+                        )
+                        # Also broadcast directly to WebSocket for real-time updates
+                        if self.conversation_id:
+                            logging.info(
+                                f"Broadcasting message_added for {message_id[0]} to conversation {self.conversation_id}"
+                            )
+                            from Conversations import broadcast_message_sync
+
+                            broadcast_message_sync(
+                                conversation_id=self.conversation_id,
+                                event_type="message_added",
+                                message_data={
+                                    "id": message_id[0],
+                                    "role": self.agent_name,
+                                    "message": full_message,
+                                },
+                            )
+                        else:
+                            logging.warning(
+                                f"No conversation_id available for broadcasting"
+                            )
+                    else:
+                        # Update existing message with accumulated content
+                        self.ApiClient.update_conversation_message(
+                            message_id=message_id[0],
+                            new_message=full_message,
+                            conversation_name=self.conversation_name,
+                        )
+                        # Also broadcast directly to WebSocket for real-time updates
+                        if self.conversation_id:
+                            logging.debug(
+                                f"Broadcasting message_updated for {message_id[0]}"
+                            )
+                            from Conversations import broadcast_message_sync
+
+                            broadcast_message_sync(
+                                conversation_id=self.conversation_id,
+                                event_type="message_updated",
+                                message_data={
+                                    "id": message_id[0],
+                                    "role": self.agent_name,
+                                    "message": full_message,
+                                },
+                            )
+                except Exception as e:
+                    logging.warning(f"Error sending streaming update: {e}")
+
+            # Create a streaming callback that accumulates and updates
+            last_update_time = [0]
+            callback_count = [0]
+
             def stream_callback(event: dict):
+                import time
+
+                callback_count[0] += 1
                 event_type = event.get("type", "")
                 content = event.get("content", "")
 
-                if self.activity_id and content:
-                    if event_type == "thinking":
-                        # Stream thinking/delta content wrapped in thinking tags
-                        self.ApiClient.new_conversation_message(
-                            role=self.agent_name,
-                            message=f"[SUBACTIVITY][{self.activity_id}] <thinking>{content}</thinking>",
-                            conversation_name=self.conversation_name,
-                        )
-                    elif event_type == "tool_start":
-                        self.ApiClient.new_conversation_message(
-                            role=self.agent_name,
-                            message=f"[SUBACTIVITY][{self.activity_id}] <thinking>🔧 {content}</thinking>",
-                            conversation_name=self.conversation_name,
-                        )
-                    elif event_type == "tool_complete":
-                        self.ApiClient.new_conversation_message(
-                            role=self.agent_name,
-                            message=f"[SUBACTIVITY][{self.activity_id}] <thinking>✅ {content}</thinking>",
-                            conversation_name=self.conversation_name,
-                        )
-                    elif event_type == "reasoning":
-                        self.ApiClient.new_conversation_message(
-                            role=self.agent_name,
-                            message=f"[SUBACTIVITY][{self.activity_id}] <thinking>💭 {content}</thinking>",
-                            conversation_name=self.conversation_name,
-                        )
-                    elif event_type == "error":
-                        self.ApiClient.new_conversation_message(
-                            role=self.agent_name,
-                            message=f"[SUBACTIVITY][{self.activity_id}] <thinking>❌ Error: {content}</thinking>",
-                            conversation_name=self.conversation_name,
-                        )
+                if not content:
+                    return
+
+                logging.debug(
+                    f"Stream callback #{callback_count[0]}: type={event_type}, content={content[:50]}..."
+                )
+
+                # Format based on event type
+                if event_type == "tool_start":
+                    streaming_content.append(f"🔧 {content}")
+                    # Immediately update for tool starts so user knows what's happening
+                    send_streaming_update()
+                    last_update_time[0] = time.time()
+                elif event_type == "tool_complete":
+                    streaming_content.append(f"✅ {content}")
+                    # Immediately update for tool completions
+                    send_streaming_update()
+                    last_update_time[0] = time.time()
+                elif event_type == "error":
+                    streaming_content.append(f"❌ Error: {content}")
+                    send_streaming_update()
+                    last_update_time[0] = time.time()
+                else:
+                    # thinking, reasoning, output, etc.
+                    streaming_content.append(content)
+                    # Rate-limit non-tool updates to every 0.5 seconds
+                    current_time = time.time()
+                    if current_time - last_update_time[0] >= 0.5:
+                        send_streaming_update()
+                        last_update_time[0] = current_time
 
             # Normalize session_id (treat "None" string as None)
             effective_session_id = None
             if session_id and session_id.lower() not in ("none", "null", ""):
                 effective_session_id = session_id
 
-            # Execute GitHub Copilot in the SafeExecute container with streaming
-            # Use system_guidelines which includes the workflow instructions + user prompt
-            result = execute_github_copilot(
-                prompt=system_guidelines,
-                github_token=self.GITHUB_COPILOT_TOKEN,
-                working_directory=self.WORKING_DIRECTORY,
-                model=model,
-                session_id=effective_session_id,
-                stream_callback=stream_callback,
-            )
+            # Execute GitHub Copilot in a thread pool to avoid blocking the event loop
+            # This allows async broadcasts to happen during execution
+            import asyncio
+            import concurrent.futures
 
-            if self.activity_id:
-                self.ApiClient.new_conversation_message(
-                    role=self.agent_name,
-                    message=f"[SUBACTIVITY][{self.activity_id}] GitHub Copilot response received.",
-                    conversation_name=self.conversation_name,
+            def run_copilot():
+                return execute_github_copilot(
+                    prompt=system_guidelines,
+                    github_token=self.GITHUB_COPILOT_TOKEN,
+                    working_directory=self.WORKING_DIRECTORY,
+                    model=model,
+                    session_id=effective_session_id,
+                    stream_callback=stream_callback,
                 )
+
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                result = await loop.run_in_executor(executor, run_copilot)
+
+            # Send final update with all accumulated content
+            if streaming_content:
+                send_streaming_update()
 
             # Extract response and session_id from result dict
             response_text = result.get("response", "No response received")
