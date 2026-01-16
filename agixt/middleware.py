@@ -393,6 +393,63 @@ async def send_discord_topup_notification(
     )
 
 
+async def send_discord_subscription_notification(
+    email: str,
+    seat_count: int,
+    amount_usd: float,
+    company_id: str = None,
+    pricing_model: str = None,
+):
+    """
+    Send notification when a user purchases a subscription (seat-based billing).
+
+    Args:
+        email: The email of the user who subscribed
+        seat_count: The number of seats purchased
+        amount_usd: The amount in USD
+        company_id: Optional company ID
+        pricing_model: The pricing model (per_user, per_capacity, per_location)
+    """
+    # Skip test/example emails to avoid spamming Discord
+    if email and (
+        email.lower().endswith("@example.com") or email.lower().endswith("test.com")
+    ):
+        logging.debug(
+            f"Skipping Discord subscription notification for test email: {email}"
+        )
+        return
+
+    agixt_server = getenv("AGIXT_URI", "Unknown Server")
+    app_name = getenv("APP_NAME", "AGiXT")
+
+    # Determine unit name based on pricing model
+    unit_name = "seats"
+    if pricing_model == "per_capacity":
+        unit_name = "capacity units"
+    elif pricing_model == "per_location":
+        unit_name = "locations"
+    elif pricing_model == "per_user":
+        unit_name = "user seats"
+
+    fields = [
+        {"name": "Amount", "value": f"${amount_usd:.2f} USD", "inline": True},
+        {"name": unit_name.title(), "value": f"{seat_count}", "inline": True},
+    ]
+    if company_id:
+        fields.append(
+            {"name": "Company ID", "value": f"`{company_id}`", "inline": False}
+        )
+    if pricing_model:
+        fields.append({"name": "Billing Model", "value": pricing_model, "inline": True})
+
+    await send_discord_notification(
+        title=f"🎉 New Subscription on {app_name}",
+        description=f"**Server:** `{agixt_server}`\n**User:** `{email}`",
+        color=5763719,  # Blue - distinct from top-up gold
+        fields=fields,
+    )
+
+
 async def send_discord_trial_notification(
     email: str,
     credits_usd: float,

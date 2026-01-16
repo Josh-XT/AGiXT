@@ -558,6 +558,7 @@ class stripe_payments(Extensions):
                         # If this is a seat-based payment, update user and company limits
                         elif transaction.seat_count and transaction.seat_count > 0:
                             # Activate the user
+                            user_email = "Unknown"
                             if transaction.user_id:
                                 user_obj = (
                                     session.query(User)
@@ -566,6 +567,7 @@ class stripe_payments(Extensions):
                                 )
                                 if user_obj:
                                     user_obj.is_active = True
+                                    user_email = user_obj.email
                                     logging.info(
                                         f"Activated user {transaction.user_id} after Stripe payment"
                                     )
@@ -595,6 +597,37 @@ class stripe_payments(Extensions):
                                         f"Updated company {company.id} user_limit to {transaction.seat_count} "
                                         f"and enabled subscription for Stripe payment"
                                     )
+
+                                    # Send Discord notification for subscription payment
+                                    try:
+                                        from middleware import (
+                                            send_discord_subscription_notification,
+                                        )
+                                        from ExtensionsHub import ExtensionsHub
+
+                                        hub = ExtensionsHub()
+                                        pricing_config = hub.get_pricing_config()
+                                        pricing_model = (
+                                            pricing_config.get("pricing_model")
+                                            if pricing_config
+                                            else None
+                                        )
+
+                                        asyncio.create_task(
+                                            send_discord_subscription_notification(
+                                                email=user_email,
+                                                seat_count=transaction.seat_count,
+                                                amount_usd=float(
+                                                    transaction.amount_usd
+                                                ),
+                                                company_id=str(company.id),
+                                                pricing_model=pricing_model,
+                                            )
+                                        )
+                                    except Exception as e:
+                                        logging.warning(
+                                            f"Failed to send Discord subscription notification: {e}"
+                                        )
 
                     session.commit()
                     session.close()

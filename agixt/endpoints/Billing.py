@@ -7,7 +7,11 @@ from MagicalAuth import MagicalAuth, verify_api_key, invalidate_user_scopes_cach
 from payments.pricing import PriceService
 from payments.crypto import CryptoPaymentService
 from payments.stripe_service import StripePaymentService
-from middleware import send_discord_topup_notification, log_silenced_exception
+from middleware import (
+    send_discord_topup_notification,
+    send_discord_subscription_notification,
+    log_silenced_exception,
+)
 from DB import (
     PaymentTransaction,
     CompanyTokenUsage,
@@ -713,6 +717,29 @@ async def confirm_stripe_payment_general(
                         logging.info(
                             f"Updated company {company.id} user_limit to {transaction.seat_count} "
                             f"and enabled subscription for Stripe payment"
+                        )
+
+                        # Send Discord notification for subscription
+                        # Get pricing model from extension hub config
+                        try:
+                            from ExtensionsHub import ExtensionsHub
+
+                            hub = ExtensionsHub()
+                            pricing_config = hub.get_pricing_config()
+                            pricing_model = (
+                                pricing_config.get("pricing_model")
+                                if pricing_config
+                                else None
+                            )
+                        except Exception:
+                            pricing_model = None
+
+                        await send_discord_subscription_notification(
+                            email=auth.email,
+                            seat_count=transaction.seat_count,
+                            amount_usd=float(transaction.amount_usd),
+                            company_id=str(company.id),
+                            pricing_model=pricing_model,
                         )
 
             session.commit()
