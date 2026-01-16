@@ -604,6 +604,158 @@ async def confirm_stripe_payment(
         )
 
 
+@app.post(
+    "/v1/billing/stripe/confirm",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def confirm_stripe_payment_general(
+    request: ConfirmPaymentRequest,
+    authorization: str = Header(None),
+):
+    """Confirm and process any Stripe payment (seats or tokens) by checking payment intent status.
+    This endpoint should be called by the frontend after Stripe confirms the payment to ensure
+    the backend has processed the payment and updated subscription/token status.
+    """
+    import stripe as stripe_lib
+    from os import getenv
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    session = get_session()
+    try:
+        # Find the transaction by payment intent ID
+        transaction = (
+            session.query(PaymentTransaction)
+            .filter(
+                PaymentTransaction.stripe_payment_intent_id == request.payment_intent_id
+            )
+            .first()
+        )
+
+        if not transaction:
+            session.close()
+            raise HTTPException(status_code=404, detail="Payment transaction not found")
+
+        # Verify transaction belongs to the user
+        if transaction.user_id != auth.user_id:
+            session.close()
+            raise HTTPException(
+                status_code=403, detail="Transaction does not belong to you"
+            )
+
+        # Check if already processed
+        if transaction.status == "completed":
+            session.close()
+            return {
+                "success": True,
+                "message": "Payment already processed",
+                "seat_count": transaction.seat_count,
+                "tokens_credited": transaction.token_amount,
+            }
+
+        # Retrieve payment intent from Stripe to verify status
+        stripe_lib.api_key = getenv("STRIPE_API_KEY")
+        payment_intent = stripe_lib.PaymentIntent.retrieve(request.payment_intent_id)
+
+        logging.info(
+            f"Retrieved Stripe PaymentIntent {request.payment_intent_id}: status={getattr(payment_intent, 'status', None)}"
+        )
+
+        # Check if payment succeeded
+        if payment_intent.status == "succeeded":
+            # Update transaction status
+            transaction.status = "completed"
+
+            # Handle token-based payment
+            if transaction.token_amount and transaction.company_id:
+                auth.add_tokens_to_company(
+                    company_id=transaction.company_id,
+                    token_amount=transaction.token_amount,
+                    amount_usd=float(transaction.amount_usd),
+                )
+                logging.info(
+                    f"Credited {transaction.token_amount} tokens to company {transaction.company_id} via payment confirmation"
+                )
+
+            # Handle seat-based payment
+            elif transaction.seat_count and transaction.seat_count > 0:
+                # Activate the user
+                user_obj = (
+                    session.query(User).filter(User.id == transaction.user_id).first()
+                )
+                if user_obj:
+                    user_obj.is_active = True
+                    logging.info(
+                        f"Activated user {transaction.user_id} after Stripe payment confirmation"
+                    )
+
+                # Update company user_limit
+                user_company = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.user_id == transaction.user_id)
+                    .first()
+                )
+
+                if user_company:
+                    company = (
+                        session.query(Company)
+                        .filter(Company.id == user_company.company_id)
+                        .first()
+                    )
+                    if company:
+                        company.user_limit = transaction.seat_count
+                        logging.info(
+                            f"Updated company {company.id} user_limit to {transaction.seat_count} for Stripe payment"
+                        )
+
+            session.commit()
+            session.close()
+            return {
+                "success": True,
+                "message": "Payment confirmed and processed",
+                "seat_count": transaction.seat_count,
+                "tokens_credited": transaction.token_amount,
+            }
+        elif payment_intent.status == "processing":
+            logging.info(f"PaymentIntent {request.payment_intent_id} still processing")
+            session.close()
+            return {
+                "success": False,
+                "message": "Payment is still processing. Please try again in a moment.",
+            }
+        elif payment_intent.status == "requires_payment_method":
+            session.close()
+            raise HTTPException(
+                status_code=400, detail="Payment requires a valid payment method"
+            )
+        else:
+            logging.warning(
+                f"PaymentIntent {request.payment_intent_id} returned unexpected status: {getattr(payment_intent, 'status', None)}"
+            )
+            session.close()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Payment failed with status: {payment_intent.status}",
+            )
+
+    except stripe_lib.error.StripeError as e:
+        session.rollback()
+        session.close()
+        logging.error(f"Stripe API error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        session.close()
+        logging.error(f"Error confirming payment: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to confirm payment: {str(e)}"
+        )
+
+
 @app.get(
     "/v1/billing/tokens/warning/dismiss",
     tags=["Billing"],

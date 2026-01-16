@@ -555,6 +555,42 @@ class stripe_payments(Extensions):
                                     f"Failed to send Discord notification: {e}"
                                 )
 
+                        # If this is a seat-based payment, update user and company limits
+                        elif transaction.seat_count and transaction.seat_count > 0:
+                            # Activate the user
+                            if transaction.user_id:
+                                user_obj = (
+                                    session.query(User)
+                                    .filter(User.id == transaction.user_id)
+                                    .first()
+                                )
+                                if user_obj:
+                                    user_obj.is_active = True
+                                    logging.info(
+                                        f"Activated user {transaction.user_id} after Stripe payment"
+                                    )
+
+                            # Update company user_limit
+                            user_company = None
+                            if transaction.user_id:
+                                user_company = (
+                                    session.query(UserCompany)
+                                    .filter(UserCompany.user_id == transaction.user_id)
+                                    .first()
+                                )
+
+                            if user_company:
+                                company = (
+                                    session.query(Company)
+                                    .filter(Company.id == user_company.company_id)
+                                    .first()
+                                )
+                                if company:
+                                    company.user_limit = transaction.seat_count
+                                    logging.info(
+                                        f"Updated company {company.id} user_limit to {transaction.seat_count} for Stripe payment"
+                                    )
+
                     session.commit()
                     session.close()
                     return {"success": "true"}
