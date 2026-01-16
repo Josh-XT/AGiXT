@@ -183,9 +183,17 @@ async def get_pricing_config() -> Dict[str, Any]:
     config = hub.get_pricing_config()
 
     if config:
+        # If pricing.json exists, check if it has any paid tiers
+        tiers = config.get("tiers", [])
+        has_paid_tiers = any(
+            tier.get("price_per_unit") is not None or tier.get("custom_pricing", False)
+            for tier in tiers
+        )
+        # Add billing_disabled field if no paid tiers
+        config["billing_disabled"] = not has_paid_tiers
         return config
 
-    # Return default token-based pricing
+    # Return default token-based pricing (includes billing_disabled when token price is 0)
     return hub.get_default_pricing_config()
 
 

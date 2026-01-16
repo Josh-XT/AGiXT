@@ -213,7 +213,11 @@ class ExtensionsHub:
         except (ValueError, TypeError):
             token_price_float = 0.0
 
+        # If token price is 0 and no pricing.json exists, billing is disabled
+        billing_disabled = token_price_float <= 0
+
         return {
+            "billing_disabled": billing_disabled,
             "app_name": getenv("APP_NAME"),
             "pricing_model": "per_token",
             "unit_name": "token",
