@@ -1708,22 +1708,17 @@ class MagicalAuth:
             scopes.update(s.name for s in default_role_scopes_db)
 
             # Handle wildcard patterns from default_role_scopes definition
-            # For ext:* wildcards, we expand to only include scopes for extensions
-            # that are actually configured/imported for this company
+            # Include wildcard patterns directly so frontend can perform proper scope checking
             if role_id in db_default_role_scopes:
                 has_ext_wildcard = "ext:*" in db_default_role_scopes[role_id]
 
                 for pattern in db_default_role_scopes[role_id]:
-                    # Skip ext:* - we'll handle it specially below
-                    if pattern == "ext:*":
-                        continue
-                    # Include other wildcard patterns (but not ext:* variants that should be company-scoped)
+                    # Include wildcard patterns (*, ext:*, etc.) so frontend can check them
                     if pattern.endswith(":*") or ":*:" in pattern or pattern == "*":
-                        # Don't include ext:*:action patterns as they should also be company-scoped
-                        if not pattern.startswith("ext:"):
-                            scopes.add(pattern)
+                        scopes.add(pattern)
 
-                # If role has ext:* wildcard, expand to only extensions configured for this company
+                # If role has ext:* wildcard, also expand to specific extensions configured for this company
+                # This provides both the wildcard for frontend matching AND specific scopes for backend checks
                 if has_ext_wildcard:
                     # Get extension names that are configured for this company
                     # (via CompanyExtensionCommand or CompanyExtensionSetting)
