@@ -259,7 +259,9 @@ async def create_company_invitation(
 )
 async def get_user_exists(email: str) -> bool:
     try:
-        return MagicalAuth().user_exists(email=email)
+        # Use user_exists_any to check if user registered (regardless of payment status)
+        # This allows users who registered but haven't paid to still login and complete payment
+        return MagicalAuth().user_exists_any(email=email)
     except:
         return False
 
