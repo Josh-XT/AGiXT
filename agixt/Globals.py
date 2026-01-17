@@ -249,13 +249,13 @@ def getenv(var_name: str, default_value: str = "") -> str:
             from SharedCache import shared_cache
 
             cached = shared_cache.get(_SERVER_CONFIG_CACHE_KEY)
-
+            
             # If cache expired (returned None), try to reload it
             if cached is None:
                 _server_config_cache_loaded = False
                 load_server_config_cache()
                 cached = shared_cache.get(_SERVER_CONFIG_CACHE_KEY)
-
+            
             if cached is not None and var_name in cached:
                 cached_value = cached.get(var_name)
                 if cached_value is not None and cached_value != "":
