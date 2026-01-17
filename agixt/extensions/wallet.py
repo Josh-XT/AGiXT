@@ -658,6 +658,10 @@ class wallet(Extensions):
                         .first()
                     )
 
+                    company_id_for_notification = None
+                    user_email_for_notification = (
+                        user_obj.email if user_obj and user_obj.email else "Unknown"
+                    )
                     if user_company:
                         company = (
                             session.query(Company)
@@ -666,6 +670,7 @@ class wallet(Extensions):
                         )
                         if company:
                             company.user_limit = seat_count
+                            company_id_for_notification = str(company.id)
                             logging.info(
                                 f"Updated company {company.id} user_limit to {seat_count} for crypto payment"
                             )
@@ -676,6 +681,29 @@ class wallet(Extensions):
                     session.rollback()
                 finally:
                     session.close()
+
+                # Send Discord notification for seat-based crypto payment
+                try:
+                    from ExtensionsHub import ExtensionsHub
+                    from middleware import send_discord_subscription_notification
+
+                    hub = ExtensionsHub()
+                    pricing_config = hub.get_pricing_config()
+                    pricing_model = (
+                        pricing_config.get("pricing_model") if pricing_config else None
+                    )
+
+                    await send_discord_subscription_notification(
+                        email=user_email_for_notification,
+                        seat_count=seat_count,
+                        amount_usd=float(record.get("amount_usd", 0.0)),
+                        company_id=company_id_for_notification,
+                        pricing_model=pricing_model,
+                    )
+                except Exception as e:
+                    logging.warning(
+                        f"Failed to send Discord subscription notification: {e}"
+                    )
 
             return PaymentTransactionResponse(**record)
 

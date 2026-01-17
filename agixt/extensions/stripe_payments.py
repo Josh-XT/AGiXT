@@ -818,6 +818,27 @@ class stripe_payments(Extensions):
                                     logging.info(
                                         f"Seat-based subscription for {app_name}: ${amount_usd} charged, ${credits_applied:.2f} credits applied for company {company.id}"
                                     )
+
+                                    # Send Discord notification for subscription payment (seat-based)
+                                    try:
+                                        from middleware import (
+                                            send_discord_subscription_notification,
+                                        )
+
+                                        company_email = company.email or "Unknown"
+                                        asyncio.create_task(
+                                            send_discord_subscription_notification(
+                                                email=company_email,
+                                                seat_count=int(company.user_limit or 1),
+                                                amount_usd=float(amount_usd),
+                                                company_id=str(company.id),
+                                                pricing_model=pricing_model,
+                                            )
+                                        )
+                                    except Exception as e:
+                                        logging.warning(
+                                            f"Failed to send Discord subscription notification: {e}"
+                                        )
                                 else:
                                     # Token-based billing - add tokens to balance
                                     token_price_per_million = float(
