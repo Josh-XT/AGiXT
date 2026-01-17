@@ -376,6 +376,23 @@ async def send_discord_topup_notification(
     agixt_server = getenv("AGIXT_URI", "Unknown Server")
     app_name = getenv("APP_NAME", "AGiXT")
 
+    # Try to get app_name from company if company_id is provided
+    if company_id:
+        try:
+            from DB import Company, get_session
+
+            session = get_session()
+            try:
+                company = (
+                    session.query(Company).filter(Company.id == company_id).first()
+                )
+                if company and company.app_name:
+                    app_name = company.app_name
+            finally:
+                session.close()
+        except Exception as e:
+            logging.debug(f"Could not get company app_name: {e}")
+
     fields = [
         {"name": "Amount", "value": f"${amount_usd:.2f} USD", "inline": True},
         {"name": "Tokens", "value": f"{tokens:,}", "inline": True},
@@ -421,6 +438,23 @@ async def send_discord_subscription_notification(
 
     agixt_server = getenv("AGIXT_URI", "Unknown Server")
     app_name = getenv("APP_NAME", "AGiXT")
+
+    # Try to get app_name from company if company_id is provided
+    if company_id:
+        try:
+            from DB import Company, get_session
+
+            session = get_session()
+            try:
+                company = (
+                    session.query(Company).filter(Company.id == company_id).first()
+                )
+                if company and company.app_name:
+                    app_name = company.app_name
+            finally:
+                session.close()
+        except Exception as e:
+            logging.debug(f"Could not get company app_name: {e}")
 
     # Determine unit name based on pricing model
     unit_name = "seats"
@@ -478,6 +512,23 @@ async def send_discord_trial_notification(
 
     agixt_server = getenv("AGIXT_URI", "Unknown Server")
     app_name = getenv("APP_NAME", "AGiXT")
+
+    # Try to get app_name from company if company_id is provided
+    if company_id:
+        try:
+            from DB import Company, get_session
+
+            session = get_session()
+            try:
+                company = (
+                    session.query(Company).filter(Company.id == company_id).first()
+                )
+                if company and company.app_name:
+                    app_name = company.app_name
+            finally:
+                session.close()
+        except Exception as e:
+            logging.debug(f"Could not get company app_name: {e}")
 
     fields = [
         {"name": "Credits Granted", "value": f"${credits_usd:.2f} USD", "inline": True},

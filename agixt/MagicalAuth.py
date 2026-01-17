@@ -1555,17 +1555,15 @@ class MagicalAuth:
                         has_ext_wildcard = "ext:*" in db_default_role_scopes[role_id]
 
                         for pattern in db_default_role_scopes[role_id]:
-                            if pattern == "ext:*":
-                                continue
+                            # Include ALL wildcard patterns (including ext:*) for frontend scope checking
                             if (
                                 pattern.endswith(":*")
                                 or ":*:" in pattern
                                 or pattern == "*"
                             ):
-                                if not pattern.startswith("ext:"):
-                                    company_scopes.add(pattern)
+                                company_scopes.add(pattern)
 
-                        # Expand ext:* to configured extensions only
+                        # Expand ext:* to configured extensions only (for backend authorization)
                         if has_ext_wildcard:
                             configured_exts = ext_by_company.get(cid, set())
                             if configured_exts:
