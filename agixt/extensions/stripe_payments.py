@@ -574,6 +574,7 @@ class stripe_payments(Extensions):
 
                             # Update company for seat-based subscription
                             user_company = None
+                            company_id_for_notification = None
                             if transaction.user_id:
                                 user_company = (
                                     session.query(UserCompany)
@@ -593,41 +594,50 @@ class stripe_payments(Extensions):
                                     # This satisfies the _has_sufficient_token_balance check
                                     company.stripe_subscription_id = payment_intent_id
                                     company.auto_topup_enabled = True
+                                    company_id_for_notification = str(company.id)
                                     logging.info(
                                         f"Updated company {company.id} user_limit to {transaction.seat_count} "
                                         f"and enabled subscription for Stripe payment"
                                     )
+                                else:
+                                    logging.warning(
+                                        f"Company not found for user_company.company_id={user_company.company_id} "
+                                        f"during Stripe webhook seat-based payment"
+                                    )
+                            else:
+                                logging.warning(
+                                    f"UserCompany not found for user_id={transaction.user_id} "
+                                    f"during Stripe webhook seat-based payment"
+                                )
 
-                                    # Send Discord notification for subscription payment
-                                    try:
-                                        from middleware import (
-                                            send_discord_subscription_notification,
-                                        )
-                                        from ExtensionsHub import ExtensionsHub
+                            # Send Discord notification for subscription payment (always attempt)
+                            try:
+                                from middleware import (
+                                    send_discord_subscription_notification,
+                                )
+                                from ExtensionsHub import ExtensionsHub
 
-                                        hub = ExtensionsHub()
-                                        pricing_config = hub.get_pricing_config()
-                                        pricing_model = (
-                                            pricing_config.get("pricing_model")
-                                            if pricing_config
-                                            else None
-                                        )
+                                hub = ExtensionsHub()
+                                pricing_config = hub.get_pricing_config()
+                                pricing_model = (
+                                    pricing_config.get("pricing_model")
+                                    if pricing_config
+                                    else None
+                                )
 
-                                        asyncio.create_task(
-                                            send_discord_subscription_notification(
-                                                email=user_email,
-                                                seat_count=transaction.seat_count,
-                                                amount_usd=float(
-                                                    transaction.amount_usd
-                                                ),
-                                                company_id=str(company.id),
-                                                pricing_model=pricing_model,
-                                            )
-                                        )
-                                    except Exception as e:
-                                        logging.warning(
-                                            f"Failed to send Discord subscription notification: {e}"
-                                        )
+                                asyncio.create_task(
+                                    send_discord_subscription_notification(
+                                        email=user_email,
+                                        seat_count=transaction.seat_count,
+                                        amount_usd=float(transaction.amount_usd),
+                                        company_id=company_id_for_notification,
+                                        pricing_model=pricing_model,
+                                    )
+                                )
+                            except Exception as e:
+                                logging.warning(
+                                    f"Failed to send Discord subscription notification: {e}"
+                                )
 
                     session.commit()
                     session.close()

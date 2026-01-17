@@ -702,6 +702,7 @@ async def confirm_stripe_payment_general(
                     .first()
                 )
 
+                company_id_for_notification = None
                 if user_company:
                     company = (
                         session.query(Company)
@@ -714,33 +715,41 @@ async def confirm_stripe_payment_general(
                         # This satisfies the _has_sufficient_token_balance check for seat-based billing
                         company.stripe_subscription_id = request.payment_intent_id
                         company.auto_topup_enabled = True
+                        company_id_for_notification = str(company.id)
                         logging.info(
                             f"Updated company {company.id} user_limit to {transaction.seat_count} "
                             f"and enabled subscription for Stripe payment"
                         )
-
-                        # Send Discord notification for subscription
-                        # Get pricing model from extension hub config
-                        try:
-                            from ExtensionsHub import ExtensionsHub
-
-                            hub = ExtensionsHub()
-                            pricing_config = hub.get_pricing_config()
-                            pricing_model = (
-                                pricing_config.get("pricing_model")
-                                if pricing_config
-                                else None
-                            )
-                        except Exception:
-                            pricing_model = None
-
-                        await send_discord_subscription_notification(
-                            email=auth.email,
-                            seat_count=transaction.seat_count,
-                            amount_usd=float(transaction.amount_usd),
-                            company_id=str(company.id),
-                            pricing_model=pricing_model,
+                    else:
+                        logging.warning(
+                            f"Company not found for user_company.company_id={user_company.company_id} "
+                            f"during seat-based payment confirmation"
                         )
+                else:
+                    logging.warning(
+                        f"UserCompany not found for user_id={transaction.user_id} "
+                        f"during seat-based payment confirmation"
+                    )
+
+                # Send Discord notification for subscription (always attempt, even if company lookup failed)
+                try:
+                    from ExtensionsHub import ExtensionsHub
+
+                    hub = ExtensionsHub()
+                    pricing_config = hub.get_pricing_config()
+                    pricing_model = (
+                        pricing_config.get("pricing_model") if pricing_config else None
+                    )
+                except Exception:
+                    pricing_model = None
+
+                await send_discord_subscription_notification(
+                    email=auth.email,
+                    seat_count=transaction.seat_count,
+                    amount_usd=float(transaction.amount_usd),
+                    company_id=company_id_for_notification,
+                    pricing_model=pricing_model,
+                )
 
             session.commit()
             session.close()
