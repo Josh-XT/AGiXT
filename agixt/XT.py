@@ -2935,9 +2935,6 @@ Your response (true or false):"""
             # Log the original user input, not the modified one with file names appended
             # Don't log tool results as USER - they should be logged as TOOL subactivity
             c.log_interaction(role="USER", message=original_user_prompt)
-            # Rename new conversations immediately after the first user message is logged
-            if self.conversation_name == "-":
-                await self.rename_new_conversation(original_user_prompt)
         thinking_id = ""
         if log_output:
             thinking_id = c.get_thinking_id(agent_name=self.agent_name)
@@ -3137,8 +3134,9 @@ Your response (true or false):"""
                     role=self.agent_name,
                     message=response,
                 )
-                # Rename new conversations only if user input wasn't logged earlier
-                if self.conversation_name == "-" and not log_user_input:
+                # Rename new conversations after response is complete
+                # Run as background task so it doesn't block the response being returned
+                if self.conversation_name == "-":
                     asyncio.create_task(self.rename_new_conversation(new_prompt))
         if isinstance(response, dict):
             response = json.dumps(response, indent=2)
@@ -3701,9 +3699,6 @@ Your response (true or false):"""
         # Log user input (log original prompt without file names appended)
         if log_user_input:
             c.log_interaction(role="USER", message=original_user_prompt)
-            # Rename new conversations immediately after the first user message is logged
-            if self.conversation_name == "-":
-                await self.rename_new_conversation(original_user_prompt)
 
         # Get thinking_id for activity logging
         thinking_id = c.get_thinking_id(agent_name=self.agent_name)
@@ -4332,8 +4327,8 @@ Your response (true or false):"""
                     }
                     yield f"data: {json.dumps(error_chunk)}\n\n"
 
-            # Handle conversation rename only if user input wasn't logged earlier
-            if self.conversation_name == "-" and not log_user_input:
+            # Handle conversation rename for new conversations
+            if self.conversation_name == "-":
                 asyncio.create_task(self.rename_new_conversation(new_prompt))
 
             # Generate TTS for any remaining buffered text (partial sentences at end)
