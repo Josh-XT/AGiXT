@@ -405,6 +405,7 @@ class Conversations:
                     conversation.summary if conversation.summary else "None available"
                 ),
                 "attachment_count": conversation.attachment_count or 0,
+                "pin_order": conversation.pin_order,
             }
 
         # Sort by updated_at descending (most recent first)
@@ -1832,6 +1833,30 @@ class Conversations:
         invalidate_conversation_cache(user_id=str(user_id), conversation_name=old_name)
         invalidate_conversation_cache(user_id=str(user_id), conversation_name=new_name)
         return new_name
+
+    def update_pin_order(self, conversation_id: str, pin_order: int = None):
+        """
+        Update the pin order for a conversation.
+        pin_order=None means unpinned, integer means pinned at that position.
+        Lower numbers appear first in the pinned list.
+        """
+        session = get_session()
+        user_id = self._user_id
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.id == conversation_id,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            session.close()
+            return False
+        conversation.pin_order = pin_order
+        session.commit()
+        session.close()
+        return True
 
     def get_last_activity_id(self):
         session = get_session()

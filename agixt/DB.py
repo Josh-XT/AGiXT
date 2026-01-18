@@ -1560,6 +1560,7 @@ class Conversation(Base):
     name = Column(Text, nullable=False)
     summary = Column(Text, nullable=True)
     attachment_count = Column(Integer, nullable=False, default=0)
+    pin_order = Column(Integer, nullable=True)  # NULL = unpinned, integer = pin position
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     user_id = Column(
@@ -4030,6 +4031,55 @@ def migrate_user_table():
                         session.commit()
     except Exception as e:
         logging.error(f"Error migrating user table: {e}")
+
+
+def migrate_conversation_table():
+    """
+    Migration function to add new optional fields to the Conversation table if they don't exist.
+    Adds pin_order column for persistent conversation pinning.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            columns_to_add = [
+                ("pin_order", "INTEGER"),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(conversation)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE conversation ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
+            else:
+                # PostgreSQL
+                for column_name, column_def in columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name FROM information_schema.columns 
+                            WHERE table_name = 'conversation' AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    )
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f"ALTER TABLE conversation ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
+    except Exception as e:
+        logging.error(f"Error migrating conversation table: {e}")
 
 
 def migrate_discarded_context_table():
