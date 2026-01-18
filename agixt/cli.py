@@ -2998,8 +2998,9 @@ def _start_local(env_updates: Optional[dict] = None) -> None:
     if existing_pid and _is_process_running(existing_pid):
         raise CLIError(f"AGiXT local already running with PID {existing_pid}.")
 
-    # Start Redis container for shared cache
-    start_redis()
+    # Start Redis container for shared cache only when explicitly enabled
+    if os.getenv("WITH_REDIS", "false").lower() == "true":
+        start_redis()
 
     # Set up environment
     set_environment(env_updates=env_updates, mode="local")
