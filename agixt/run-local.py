@@ -101,6 +101,10 @@ async def initialize_database(is_restart=False):
         startup_timer.section_end("migrate_user_table", section_start)
 
         section_start = startup_timer.section_start()
+        DB.migrate_conversation_table()
+        startup_timer.section_end("migrate_conversation_table", section_start)
+
+        section_start = startup_timer.section_start()
         DB.migrate_discarded_context_table()
         startup_timer.section_end("migrate_discarded_context_table", section_start)
 
