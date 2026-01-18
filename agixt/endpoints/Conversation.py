@@ -736,9 +736,9 @@ async def update_pin_order(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     auth = MagicalAuth(token=authorization)
-    success = Conversations(
-        conversation_name="-", user=user
-    ).update_pin_order(conversation_id=conversation_id, pin_order=body.pin_order)
+    success = Conversations(conversation_name="-", user=user).update_pin_order(
+        conversation_id=conversation_id, pin_order=body.pin_order
+    )
     if not success:
         raise HTTPException(status_code=404, detail="Conversation not found")
     action = "pinned" if body.pin_order is not None else "unpinned"
