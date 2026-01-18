@@ -10,6 +10,7 @@ from fastapi import (
     HTTPException,
 )
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from typing import Dict, List, Optional
 from ApiClient import verify_api_key, get_api_client, Agent
 from Conversations import (
@@ -714,6 +715,34 @@ async def rename_conversation_v1(
     return ResponseMessage(
         message=f"Conversation renamed to `{rename_model.new_conversation_name}`."
     )
+
+
+class PinOrderUpdate(BaseModel):
+    pin_order: Optional[int] = None
+
+
+@app.patch(
+    "/v1/conversation/{conversation_id}/pin",
+    response_model=ResponseMessage,
+    summary="Update Conversation Pin Order",
+    description="Updates the pin order for a conversation. Set pin_order to null to unpin, or an integer to set pin position.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_pin_order(
+    conversation_id: str,
+    body: PinOrderUpdate,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    success = Conversations(
+        conversation_name="-", user=user
+    ).update_pin_order(conversation_id=conversation_id, pin_order=body.pin_order)
+    if not success:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    action = "pinned" if body.pin_order is not None else "unpinned"
+    return ResponseMessage(message=f"Conversation {action} successfully.")
 
 
 @app.post(

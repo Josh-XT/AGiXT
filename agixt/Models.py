@@ -164,6 +164,11 @@ class RenameConversationModel(BaseModel):
     new_conversation_name: Optional[str] = "-"
 
 
+class UpdatePinOrderModel(BaseModel):
+    conversation_id: str
+    pin_order: Optional[int] = None  # None = unpin, integer = pin position
+
+
 class ConversationFork(BaseModel):
     conversation_name: str
     message_id: str

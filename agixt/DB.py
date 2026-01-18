@@ -1560,6 +1560,7 @@ class Conversation(Base):
     name = Column(Text, nullable=False)
     summary = Column(Text, nullable=True)
     attachment_count = Column(Integer, nullable=False, default=0)
+    pin_order = Column(Integer, nullable=True)  # NULL = unpinned, integer = pin position
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     user_id = Column(
