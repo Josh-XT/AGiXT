@@ -44,10 +44,28 @@ _extension_metadata_cache_file = os.path.join(
 )
 
 
+def _get_newest_extension_mtime():
+    """
+    Get the newest modification time among all extension files.
+    Used to validate if the cache is stale.
+    """
+    try:
+        command_files = _get_cached_extension_files()
+        if not command_files:
+            return 0
+        return max(os.path.getmtime(f) for f in command_files if os.path.exists(f))
+    except Exception as e:
+        logging.debug(f"Could not get extension file mtimes: {e}")
+        return 0
+
+
 def _get_extension_metadata_cache():
     """
     Get cached extension metadata (commands, settings) without importing modules.
     This enables lazy loading - modules are only imported when commands are executed.
+
+    The cache is automatically invalidated when any extension file has been modified
+    since the cache was built.
     """
     global _extension_metadata_cache
 
@@ -65,11 +83,21 @@ def _get_extension_metadata_cache():
                     and "commands" in cached
                     and "extensions" in cached
                 ):
-                    _extension_metadata_cache = cached
-                    logging.debug(
-                        f"Loaded extension metadata cache with {len(cached['commands'])} commands"
-                    )
-                    return _extension_metadata_cache
+                    # Check if cache is stale by comparing against newest extension file mtime
+                    cache_built_at = cached.get("built_at", 0)
+                    newest_mtime = _get_newest_extension_mtime()
+
+                    if newest_mtime > cache_built_at:
+                        logging.info(
+                            f"Extension metadata cache is stale (cache built at {cache_built_at}, "
+                            f"newest file at {newest_mtime}). Rebuilding..."
+                        )
+                    else:
+                        _extension_metadata_cache = cached
+                        logging.debug(
+                            f"Loaded extension metadata cache with {len(cached['commands'])} commands"
+                        )
+                        return _extension_metadata_cache
     except Exception as e:
         logging.debug(f"Could not load extension metadata cache: {e}")
 
