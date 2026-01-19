@@ -54,6 +54,7 @@ class github_copilot(Extensions):
     def __init__(
         self,
         GITHUB_COPILOT_TOKEN: str = "",
+        GITHUB_GIT_TOKEN: str = "",
         GITHUB_COPILOT_MODEL: str = "claude-opus-4.5",
         **kwargs,
     ):
@@ -66,9 +67,19 @@ class github_copilot(Extensions):
                                   Create one at:
                                   https://github.com/settings/personal-access-tokens/new
 
-                                  NOTE: Classic PATs (ghp_...) are NOT supported!
+                                  NOTE: Classic PATs (ghp_...) are NOT supported for Copilot!
+
+            GITHUB_GIT_TOKEN: Optional separate token for git/gh CLI operations.
+                              Use this if you need to access organization repositories
+                              that your Copilot token doesn't have access to.
+                              Can be a classic PAT (ghp_...) or org-scoped fine-grained PAT.
+                              If not provided, GITHUB_COPILOT_TOKEN will be used for git operations.
         """
         self.GITHUB_COPILOT_TOKEN = GITHUB_COPILOT_TOKEN
+        # Use separate git token if provided, otherwise fall back to copilot token
+        self.GITHUB_GIT_TOKEN = (
+            GITHUB_GIT_TOKEN if GITHUB_GIT_TOKEN else GITHUB_COPILOT_TOKEN
+        )
         self.GITHUB_COPILOT_MODEL = (
             GITHUB_COPILOT_MODEL if GITHUB_COPILOT_MODEL else "claude-opus-4.5"
         )
@@ -383,6 +394,7 @@ If no changes are made to the repository, there is no need to go through this wo
                     session_id=effective_session_id,
                     stream_callback=stream_callback,
                     conversation_id=self.conversation_id,  # Enables persistent containers per conversation
+                    git_token=self.GITHUB_GIT_TOKEN,  # Separate token for git/gh operations (org repos)
                 )
 
             loop = asyncio.get_event_loop()
