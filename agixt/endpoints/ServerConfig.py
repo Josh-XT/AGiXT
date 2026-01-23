@@ -881,6 +881,328 @@ async def delete_server_extension_setting(
 
 
 # ============================================================================
+# Company Extension Settings Endpoints (for company admins to manage providers)
+# ============================================================================
+
+
+class CompanyExtensionSettingItem(BaseModel):
+    """A single company extension setting item."""
+
+    extension_name: str
+    setting_key: str
+    setting_value: Optional[str] = None
+    is_sensitive: bool = False
+    description: Optional[str] = None
+
+
+class CompanyExtensionSettingUpdate(BaseModel):
+    """Request to update a company extension setting."""
+
+    extension_name: str
+    setting_key: str
+    setting_value: str
+
+
+class CompanyExtensionSettingBulkUpdate(BaseModel):
+    """Request to update multiple company extension settings."""
+
+    settings: List[CompanyExtensionSettingUpdate]
+
+
+class CompanyExtensionWithSettings(BaseModel):
+    """Extension with its company-level settings."""
+
+    extension_name: str
+    friendly_name: str
+    category: str
+    settings: List[CompanyExtensionSettingItem]
+
+
+class CompanyExtensionSettingsResponse(BaseModel):
+    """Response containing company extension settings organized by extension."""
+
+    extensions: List[CompanyExtensionWithSettings]
+
+
+@app.get(
+    "/v1/company/{company_id}/extension-settings",
+    tags=["Company Extension Settings"],
+    response_model=CompanyExtensionSettingsResponse,
+    summary="Get company extension settings (company admin or super admin)",
+    description="Get all extension settings with their company-level values. Company admins can view/edit their own company, super admins can access any company.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_company_extension_settings(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """
+    Get all company extension settings.
+    Returns all available extensions with their settings and current company-level values.
+    Company admins can only access their own company, super admins can access any.
+    """
+    from Extensions import Extensions
+    from DB import CompanyExtensionSetting
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization - must be company admin (role <= 2) or super admin
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins or super admins can manage company extension settings.",
+        )
+
+    # Get all available extension settings from Extensions class
+    ext = Extensions()
+    all_settings = ext.get_extension_settings()
+
+    # Get extension metadata
+    extensions_data = ext.get_extensions()
+    extension_meta = {}
+    for ext_data in extensions_data:
+        extension_meta[ext_data["extension_name"].lower()] = {
+            "friendly_name": ext_data.get("friendly_name")
+            or ext_data["extension_name"],
+            "category": ext_data.get("category") or "Other",
+        }
+
+    # Get current company-level values from database
+    with get_session() as db:
+        db_settings = (
+            db.query(CompanyExtensionSetting)
+            .filter(CompanyExtensionSetting.company_id == company_id)
+            .all()
+        )
+        db_values = {}
+        for setting in db_settings:
+            key = f"{setting.extension_name}:{setting.setting_key}"
+            value = setting.setting_value
+            if setting.is_sensitive and value:
+                value = decrypt_config_value(value)
+            db_values[key] = {
+                "value": value,
+                "is_sensitive": setting.is_sensitive,
+                "description": setting.description,
+            }
+
+    # Build response
+    extensions = []
+    for extension_name, settings in all_settings.items():
+        meta = extension_meta.get(extension_name.lower(), {})
+        friendly_name = meta.get("friendly_name") or extension_name
+        category = meta.get("category") or "Other"
+
+        setting_items = []
+        for setting_key, default_value in settings.items():
+            db_key = f"{extension_name}:{setting_key}"
+            db_data = db_values.get(db_key, {})
+
+            # Determine if sensitive
+            is_sensitive = db_data.get("is_sensitive", False)
+            if not is_sensitive:
+                upper_key = setting_key.upper()
+                is_sensitive = any(
+                    kw in upper_key
+                    for kw in [
+                        "API_KEY",
+                        "SECRET",
+                        "PASSWORD",
+                        "PRIVATE_KEY",
+                        "ACCESS_TOKEN",
+                        "REFRESH_TOKEN",
+                        "AUTH_TOKEN",
+                        "BEARER_TOKEN",
+                    ]
+                )
+
+            # Get company-level value
+            current_value = db_data.get("value") if db_key in db_values else None
+
+            # Mask sensitive values
+            if is_sensitive and current_value:
+                current_value = mask_sensitive_value(current_value, True)
+
+            setting_items.append(
+                CompanyExtensionSettingItem(
+                    extension_name=extension_name,
+                    setting_key=setting_key,
+                    setting_value=current_value,
+                    is_sensitive=is_sensitive,
+                    description=db_data.get(
+                        "description", f"Configure {setting_key} for {friendly_name}"
+                    ),
+                )
+            )
+
+        if setting_items:
+            extensions.append(
+                CompanyExtensionWithSettings(
+                    extension_name=extension_name,
+                    friendly_name=friendly_name,
+                    category=category,
+                    settings=setting_items,
+                )
+            )
+
+    # Sort by category then name
+    extensions.sort(key=lambda x: (x.category, x.friendly_name))
+
+    return CompanyExtensionSettingsResponse(extensions=extensions)
+
+
+@app.put(
+    "/v1/company/{company_id}/extension-settings",
+    tags=["Company Extension Settings"],
+    summary="Update company extension settings (company admin or super admin)",
+    description="Update company-level default values for extension settings.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_company_extension_settings(
+    company_id: str,
+    updates: CompanyExtensionSettingBulkUpdate,
+    authorization: str = Header(None),
+):
+    """
+    Update company extension settings.
+    These become the default values for users in this company.
+    """
+    from DB import CompanyExtensionSetting, get_new_id
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins or super admins can manage company extension settings.",
+        )
+
+    updated = []
+    errors = []
+
+    with get_session() as db:
+        for update in updates.settings:
+            try:
+                # Check if setting exists
+                existing = (
+                    db.query(CompanyExtensionSetting)
+                    .filter(
+                        CompanyExtensionSetting.company_id == company_id,
+                        CompanyExtensionSetting.extension_name == update.extension_name,
+                        CompanyExtensionSetting.setting_key == update.setting_key,
+                    )
+                    .first()
+                )
+
+                # Determine if sensitive
+                is_sensitive = any(
+                    kw in update.setting_key.upper()
+                    for kw in ["API_KEY", "SECRET", "PASSWORD", "TOKEN", "PRIVATE"]
+                )
+
+                # Encrypt if sensitive
+                value = update.setting_value
+                if is_sensitive and value:
+                    value = encrypt_config_value(value)
+
+                if existing:
+                    existing.setting_value = value
+                    existing.is_sensitive = is_sensitive
+                else:
+                    new_setting = CompanyExtensionSetting(
+                        id=get_new_id(),
+                        company_id=company_id,
+                        extension_name=update.extension_name,
+                        setting_key=update.setting_key,
+                        setting_value=value,
+                        is_sensitive=is_sensitive,
+                        description=f"Company-level setting for {update.setting_key}",
+                    )
+                    db.add(new_setting)
+
+                updated.append(f"{update.extension_name}:{update.setting_key}")
+            except Exception as e:
+                errors.append(f"{update.extension_name}:{update.setting_key}: {str(e)}")
+
+        db.commit()
+
+    return {
+        "status": "success" if not errors else "partial",
+        "updated": updated,
+        "errors": errors,
+        "message": f"Updated {len(updated)} company extension settings"
+        + (f" with {len(errors)} errors" if errors else ""),
+    }
+
+
+@app.delete(
+    "/v1/company/{company_id}/extension-settings/{extension_name}/{setting_key}",
+    tags=["Company Extension Settings"],
+    summary="Delete a company extension setting (company admin or super admin)",
+    description="Remove a company-level extension setting, reverting to server default.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def delete_company_extension_setting(
+    company_id: str,
+    extension_name: str,
+    setting_key: str,
+    authorization: str = Header(None),
+):
+    """
+    Delete a company extension setting.
+    The setting will revert to server-level default or environment variable.
+    """
+    from DB import CompanyExtensionSetting
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins or super admins can manage company extension settings.",
+        )
+
+    with get_session() as db:
+        setting = (
+            db.query(CompanyExtensionSetting)
+            .filter(
+                CompanyExtensionSetting.company_id == company_id,
+                CompanyExtensionSetting.extension_name == extension_name,
+                CompanyExtensionSetting.setting_key == setting_key,
+            )
+            .first()
+        )
+
+        if not setting:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Company setting {extension_name}:{setting_key} not found",
+            )
+
+        db.delete(setting)
+        db.commit()
+
+    return {
+        "status": "success",
+        "message": f"Deleted company setting {extension_name}:{setting_key}. Will now use server default.",
+    }
+
+
+# ============================================================================
 # Server Extension Command Endpoints (for enabling/disabling commands)
 # ============================================================================
 

@@ -756,9 +756,21 @@ class AIProviderManager:
 
         # Step 5: Apply agent-level provider settings (highest priority - user's own API keys)
         # This allows users to override with their own API keys if configured
+        # IMPORTANT: Allow empty strings to explicitly override/disconnect inherited providers
+        # Check for key presence AND that value is not None (empty string is valid for disconnect)
         for key in provider_setting_keys:
-            if key in self.agent_settings and self.agent_settings[key]:
-                merged_settings[key] = self.agent_settings[key]
+            if key in self.agent_settings and self.agent_settings[key] is not None:
+                # Empty string means user wants to disconnect this provider (override inherited)
+                # Non-empty string means user has their own API key
+                if self.agent_settings[key] == "":
+                    # Remove from merged settings to effectively disconnect
+                    if key in merged_settings:
+                        del merged_settings[key]
+                        logging.debug(
+                            f"[AIProviderManager] User explicitly disconnected {key} (overriding inherited value)"
+                        )
+                else:
+                    merged_settings[key] = self.agent_settings[key]
 
         # Add non-provider agent settings (like mode, persona, etc.)
         # These are settings that should be stored at agent level
@@ -2257,9 +2269,17 @@ class Agent:
             for command in all_commands:
                 config["commands"][command.name] = command.id in enabled_command_ids
             for setting in agent_settings:
-                # Don't skip wallet-related settings even if they're empty (they should have been created above)
-                # but skip other empty settings as before
-                if setting.value == "" and not setting.name.startswith("SOLANA_WALLET"):
+                # Don't skip wallet-related settings even if they're empty
+                # Also don't skip provider keys (API_KEY, etc.) - empty values indicate explicit disconnect
+                is_provider_key = any(
+                    kw in setting.name.upper()
+                    for kw in ["API_KEY", "SECRET", "PASSWORD", "TOKEN", "PRIVATE_KEY"]
+                )
+                if (
+                    setting.value == ""
+                    and not setting.name.startswith("SOLANA_WALLET")
+                    and not is_provider_key
+                ):
                     continue
                 config["settings"][setting.name] = setting.value
             user_settings = self.get_registration_requirement_settings()
@@ -3083,18 +3103,30 @@ class Agent:
                     .filter_by(agent_id=self.agent_id, name=setting_name)
                     .first()
                 )
+                # Check if this is a provider key that can be explicitly disconnected
+                # Provider keys (API_KEY, SECRET, etc.) can be set to empty to override inherited values
+                is_provider_key = any(
+                    kw in setting_name.upper()
+                    for kw in ["API_KEY", "SECRET", "PASSWORD", "TOKEN", "PRIVATE_KEY"]
+                )
+
                 if agent_setting:
-                    if setting_value == "":
+                    if setting_value == "" and not is_provider_key:
+                        # Non-provider settings: delete when empty
                         session.delete(agent_setting)
                     else:
+                        # Provider settings: store empty string to indicate explicit disconnect
+                        # Non-empty values: always store
                         agent_setting.value = str(setting_value)
                 else:
-                    agent_setting = AgentSettingModel(
-                        agent_id=self.agent_id,
-                        name=setting_name,
-                        value=str(setting_value),
-                    )
-                    session.add(agent_setting)
+                    # Only create new setting if value is non-empty or it's a provider key with explicit empty
+                    if setting_value != "" or is_provider_key:
+                        agent_setting = AgentSettingModel(
+                            agent_id=self.agent_id,
+                            name=setting_name,
+                            value=str(setting_value),
+                        )
+                        session.add(agent_setting)
 
         try:
             session.commit()
