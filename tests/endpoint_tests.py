@@ -431,20 +431,20 @@ class TestContext:
 # These are operations that require admin privileges (is_admin check or admin-only scopes)
 #
 # Role scopes reference (from DB.py default_role_scopes):
-# - user (role_id=3): agents:read/execute, conversations:*, extensions:read/execute,
+# - user (role_id=3): agents:read/write/execute, conversations:*, extensions:read/execute,
 #   memories:read/write, chains:read/execute, prompts:read, assets:read/write, etc.
 # - read_only_user (role_id=6): Only read access - no write/execute scopes
 #
-# Users CAN: read chains, run chains, execute commands, learn text, get memories
-# Users CANNOT: create/delete/modify chains, create agents, manage webhooks, invite users
+# Users CAN: read chains, run chains, execute commands, learn text, get memories,
+#            update their own agent settings and commands (agents:write)
+# Users CANNOT: create/delete agents, modify chains, manage webhooks, invite users
 ADMIN_ONLY_TESTS = {
-    # Agent management (requires agents:write scope)
+    # Agent management (create/delete/rename requires admin, but settings/commands allowed for users)
     "create_agent",
     "delete_agent",
     "rename_agent",
-    "update_agent_settings",
-    "update_agent_commands",
-    "toggle_command",
+    # Note: update_agent_settings, update_agent_commands, toggle_command are now allowed
+    #       for users with agents:write scope (users can configure their own agent)
     # Note: get_agent_config is allowed for users with agents:read scope
     # Chain management - write operations only (user has chains:read, chains:execute)
     "create_chain",  # Requires chains:write
