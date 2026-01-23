@@ -3412,6 +3412,7 @@ default_role_scopes = {
     ],
     3: [  # user: standard access
         "agents:read",
+        "agents:write",  # Users can configure their own agent's commands and settings
         "agents:execute",
         "conversations:*",
         "extensions:read",
