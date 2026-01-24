@@ -436,15 +436,13 @@ class TestContext:
 # - read_only_user (role_id=6): Only read access - no write/execute scopes
 #
 # Users CAN: read chains, run chains, execute commands, learn text, get memories,
-#            update their own agent settings and commands (agents:write)
-# Users CANNOT: create/delete agents, modify chains, manage webhooks, invite users
+#            create/update/rename agents (agents:write), update agent settings and commands
+# Users CANNOT: delete agents, modify chains, manage webhooks, invite users, wipe memories
 ADMIN_ONLY_TESTS = {
-    # Agent management (create/delete/rename requires admin, but settings/commands allowed for users)
-    "create_agent",
+    # Agent management - only delete requires admin (users have agents:write for create/update/rename)
     "delete_agent",
-    "rename_agent",
-    # Note: update_agent_settings, update_agent_commands, toggle_command are now allowed
-    #       for users with agents:write scope (users can configure their own agent)
+    # Note: create_agent, rename_agent, update_agent_settings, update_agent_commands, toggle_command
+    #       are now allowed for users with agents:write scope
     # Note: get_agent_config is allowed for users with agents:read scope
     # Chain management - write operations only (user has chains:read, chains:execute)
     "create_chain",  # Requires chains:write
@@ -1734,7 +1732,13 @@ def run_all_role_tests():
         ),  # Both user and read_only have chains:read
         (test_get_prompts, "get_prompts", False, False, False),
         # Agent operations
-        (test_create_agent, "create_agent", True, True, False),  # Requires agents:write
+        (
+            test_create_agent,
+            "create_agent",
+            False,
+            True,
+            False,
+        ),  # user has agents:write, read_only does not
         (
             test_get_agent_config,
             "get_agent_config",
@@ -1763,14 +1767,20 @@ def run_all_role_tests():
             False,
             False,
         ),  # Allowed for users with extensions:read scope
-        (test_rename_agent, "rename_agent", True, True, False),  # Requires agents:write
+        (
+            test_rename_agent,
+            "rename_agent",
+            False,
+            True,
+            False,
+        ),  # user has agents:write, read_only does not
         (
             test_update_agent_settings,
             "update_agent_settings",
-            True,
+            False,
             True,
             False,
-        ),  # Requires agents:write
+        ),  # user has agents:write, read_only does not
         # Conversation operations
         (
             test_create_conversation,
