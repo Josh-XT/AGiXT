@@ -186,6 +186,11 @@ class TrialService:
             Trial configuration dict with enabled, days, credits_usd, etc.
         """
         pricing_config = self.extensions_hub.get_pricing_config()
+
+        # Fall back to default pricing config if no pricing.json exists
+        if pricing_config is None:
+            pricing_config = self.extensions_hub.get_default_pricing_config()
+
         trial_config = pricing_config.get("trial", {}) if pricing_config else {}
 
         # Default trial configuration
