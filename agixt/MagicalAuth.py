@@ -3661,6 +3661,9 @@ class MagicalAuth:
                             logging.info(
                                 f"Trial credits granted for {self.email}: {message}"
                             )
+                            # Activate user since they have trial credits
+                            new_user_db.is_active = True
+                            session.commit()
                         else:
                             logging.debug(
                                 f"Trial credits not granted for {self.email}: {message}"
