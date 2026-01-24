@@ -3684,6 +3684,10 @@ class MagicalAuth:
                 ("input_tokens", "0"),
                 ("output_tokens", "0"),
                 ("verify_email", "true" if verify_email else "false"),
+                (
+                    "onboarding_completed",
+                    "true",
+                ),  # Skip onboarding for new registrations
             ]
 
             # Add phone number if provided

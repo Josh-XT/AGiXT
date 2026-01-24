@@ -144,7 +144,13 @@ async def register(register: Register):
     magic_link = auth.send_magic_link(
         ip_address="registration", login=login, send_link=False
     )
-    return {"otp_uri": otp_uri, "magic_link": magic_link}
+    return {
+        "otp_uri": otp_uri,
+        "magic_link": magic_link,
+        "token": result.get("token"),  # JWT for immediate login
+        "user_id": result.get("user_id"),
+        "username": result.get("username"),
+    }
 
 
 # Get invitations is auth.get_invitations(company_id)
