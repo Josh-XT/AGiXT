@@ -99,6 +99,10 @@ class Register(BaseModel):
     last_name: Optional[str] = ""
     organization_name: Optional[str] = ""  # Company name for new organization
     invitation_id: Optional[str] = ""  # For invited users joining existing company
+    phone_number: Optional[str] = (
+        ""  # Phone number with country code (e.g., +1 555 123 4567)
+    )
+    timezone: Optional[str] = ""  # User's timezone (e.g., America/New_York)
 
 
 class RegisterLegacy(BaseModel):

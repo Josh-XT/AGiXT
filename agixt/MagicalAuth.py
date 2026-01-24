@@ -3663,12 +3663,27 @@ class MagicalAuth:
                         logging.warning(f"Error checking trial eligibility: {e}")
 
             # Add default user preferences
+            # Use user-provided timezone or fall back to server default
+            user_timezone = getattr(new_user, "timezone", None)
+            if not user_timezone or not user_timezone.strip():
+                user_timezone = getenv("TZ")
+
+            # Get user-provided phone number
+            user_phone_number = getattr(new_user, "phone_number", None)
+            if user_phone_number:
+                user_phone_number = user_phone_number.strip()
+
             default_preferences = [
-                ("timezone", getenv("TZ")),
+                ("timezone", user_timezone),
                 ("input_tokens", "0"),
                 ("output_tokens", "0"),
                 ("verify_email", "true" if verify_email else "false"),
             ]
+
+            # Add phone number if provided
+            if user_phone_number:
+                default_preferences.append(("phone_number", user_phone_number))
+
             for pref_key, pref_value in default_preferences:
                 user_preference = UserPreferences(
                     user_id=new_user_db.id,
