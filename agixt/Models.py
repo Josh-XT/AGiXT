@@ -103,6 +103,9 @@ class Register(BaseModel):
         ""  # Phone number with country code (e.g., +1 555 123 4567)
     )
     timezone: Optional[str] = ""  # User's timezone (e.g., America/New_York)
+    tos_accepted: Optional[bool] = (
+        False  # Terms of Service acceptance during registration
+    )
 
 
 class RegisterLegacy(BaseModel):

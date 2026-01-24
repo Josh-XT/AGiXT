@@ -3570,6 +3570,11 @@ class MagicalAuth:
             paywall_enabled = stripe_configured or wallet_paywall_enabled
 
             # Create new user
+            # Set tos_accepted_at if user accepted during registration
+            tos_accepted_at = None
+            if getattr(new_user, "tos_accepted", False):
+                tos_accepted_at = datetime.now()
+
             new_user_db = User(
                 email=self.email,
                 username=username,
@@ -3579,6 +3584,7 @@ class MagicalAuth:
                 mfa_token=mfa_token,
                 mfa_enabled=False,  # MFA is optional, disabled by default
                 is_active=not paywall_enabled,
+                tos_accepted_at=tos_accepted_at,
             )
             session.add(new_user_db)
             session.commit()
