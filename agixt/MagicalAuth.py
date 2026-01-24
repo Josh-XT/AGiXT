@@ -37,6 +37,7 @@ from Models import (
     UserInfo,
     Register,
     Login,
+    LoginMagicLink,
     CompanyResponse,
     InvitationResponse,
     InvitationCreate,
@@ -52,6 +53,7 @@ from InternalClient import InternalClient
 from middleware import log_silenced_exception
 import importlib
 import pyotp
+import argon2
 import logging
 import traceback
 import requests
@@ -1226,6 +1228,431 @@ class MagicalAuth:
             self.token = token
             self.company_id = self.get_user_company_id()
 
+    @staticmethod
+    def hash_password(password: str) -> str:
+        """
+        Hash a password using Argon2id algorithm.
+
+        Argon2id is the recommended password hashing algorithm, combining
+        Argon2i (side-channel resistance) and Argon2d (GPU cracking resistance).
+
+        Args:
+            password: The plaintext password to hash
+
+        Returns:
+            The hashed password string (includes salt and parameters)
+        """
+        ph = argon2.PasswordHasher(
+            time_cost=2,  # Number of iterations
+            memory_cost=65536,  # Memory usage in KB (64 MB)
+            parallelism=1,  # Number of parallel threads
+            hash_len=32,  # Length of the hash in bytes
+            salt_len=16,  # Length of the random salt
+        )
+        return ph.hash(password)
+
+    @staticmethod
+    def verify_password(password: str, password_hash: str) -> bool:
+        """
+        Verify a password against a hash.
+
+        Args:
+            password: The plaintext password to verify
+            password_hash: The Argon2id hash to verify against
+
+        Returns:
+            True if the password matches, False otherwise
+        """
+        if not password_hash:
+            return False
+        ph = argon2.PasswordHasher()
+        try:
+            ph.verify(password_hash, password)
+            return True
+        except argon2.exceptions.VerifyMismatchError:
+            return False
+        except (argon2.exceptions.InvalidHash, argon2.exceptions.VerificationError):
+            logging.error("Password verification error: invalid hash format")
+            return False
+
+    def generate_jwt(self, user_id: str, email: str, admin: bool = False) -> str:
+        """
+        Generate a JWT token for a user.
+
+        Args:
+            user_id: The user's UUID
+            email: The user's email address
+            admin: Whether the user is an admin
+
+        Returns:
+            The encoded JWT token string
+        """
+        # Get server timezone for expiration calculation
+        server_tz_str = getenv("TZ")
+        try:
+            server_tz = ZoneInfo(server_tz_str)
+        except (ZoneInfoNotFoundError, TypeError):
+            server_tz = pytz.UTC
+
+        # Token expires at the start of next month
+        now = datetime.now(server_tz)
+        if now.month == 12:
+            next_year = now.year + 1
+            next_month = 1
+        else:
+            next_year = now.year
+            next_month = now.month + 1
+
+        expiration = datetime(
+            year=next_year,
+            month=next_month,
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+            tzinfo=server_tz,
+        )
+
+        token = jwt.encode(
+            {
+                "sub": user_id,
+                "email": email,
+                "admin": admin,
+                "exp": expiration,
+                "iat": datetime.now().timestamp(),
+            },
+            self.encryption_key,
+            algorithm="HS256",
+        )
+        return token
+
+    def login_with_password(
+        self, username: str, password: str, mfa_token: str = None, ip_address: str = None
+    ) -> dict:
+        """
+        Authenticate a user with username/password and optional MFA token.
+
+        Args:
+            username: The username or email to login with
+            password: The user's password
+            mfa_token: Optional TOTP code for MFA verification
+            ip_address: The IP address of the login attempt
+
+        Returns:
+            dict with 'token' on success, or 'error' and 'status_code' on failure
+        """
+        session = get_session()
+        try:
+            # Find user by username or email
+            user = (
+                session.query(User)
+                .filter(
+                    (User.username == username) | (User.email == username.lower())
+                )
+                .first()
+            )
+
+            if not user:
+                return {"error": "Invalid username or password", "status_code": 401}
+
+            # Check if user has a password set
+            if not user.password_hash:
+                return {
+                    "error": "Password login not available. Please use magic link or set a password.",
+                    "status_code": 401,
+                }
+
+            # Verify password
+            if not self.verify_password(password, user.password_hash):
+                # Log failed attempt
+                failed_login = FailedLogins(
+                    user_id=user.id,
+                    ip_address=ip_address or "unknown",
+                )
+                session.add(failed_login)
+                session.commit()
+                return {"error": "Invalid username or password", "status_code": 401}
+
+            # Check if user is active
+            if not user.is_active:
+                return {
+                    "error": "Account is not active. Please complete payment or contact support.",
+                    "status_code": 403,
+                }
+
+            # Check if MFA is required
+            # First check user's own MFA setting
+            if user.mfa_enabled:
+                if not mfa_token:
+                    return {
+                        "error": "MFA token required",
+                        "mfa_required": True,
+                        "status_code": 401,
+                    }
+                # Verify MFA token
+                totp = pyotp.TOTP(user.mfa_token)
+                if not totp.verify(mfa_token):
+                    return {"error": "Invalid MFA token", "status_code": 401}
+            else:
+                # Check if company requires MFA
+                user_companies = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.user_id == user.id)
+                    .all()
+                )
+                for uc in user_companies:
+                    company = (
+                        session.query(Company)
+                        .filter(Company.id == uc.company_id)
+                        .first()
+                    )
+                    if company and getattr(company, 'mfa_required', False):
+                        # Company requires MFA but user hasn't enabled it
+                        return {
+                            "error": "MFA setup required by your organization",
+                            "mfa_setup_required": True,
+                            "status_code": 403,
+                        }
+
+            # Generate JWT token
+            token = self.generate_jwt(
+                user_id=str(user.id),
+                email=user.email,
+                admin=user.admin,
+            )
+
+            self.token = token
+            self.user_id = str(user.id)
+            self.email = user.email
+
+            return {
+                "token": token,
+                "user_id": str(user.id),
+                "email": user.email,
+                "username": user.username,
+                "status_code": 200,
+            }
+
+        except Exception as e:
+            logging.error(f"Login error: {str(e)}")
+            logging.error(traceback.format_exc())
+            return {"error": "Login failed", "status_code": 500}
+        finally:
+            session.close()
+
+    def get_mfa_setup(self) -> dict:
+        """
+        Get MFA setup information for the current user.
+        Returns the QR code provisioning URI and secret for TOTP setup.
+
+        Returns:
+            dict with 'provisioning_uri', 'secret', and 'status_code'
+        """
+        self.validate_user()
+        session = get_session()
+        try:
+            user = session.query(User).filter(User.id == self.user_id).first()
+            if not user:
+                return {"error": "User not found", "status_code": 404}
+
+            # Generate new MFA secret if not exists or regenerate for setup
+            if not user.mfa_token:
+                user.mfa_token = pyotp.random_base32()
+                session.commit()
+
+            # Create TOTP object
+            totp = pyotp.TOTP(user.mfa_token)
+            app_name = getenv("APP_NAME", "AGiXT")
+
+            # Generate provisioning URI for QR code
+            provisioning_uri = totp.provisioning_uri(
+                name=user.email,
+                issuer_name=app_name,
+            )
+
+            return {
+                "provisioning_uri": provisioning_uri,
+                "secret": user.mfa_token,
+                "mfa_enabled": user.mfa_enabled,
+                "status_code": 200,
+            }
+        finally:
+            session.close()
+
+    def enable_mfa(self, mfa_token: str) -> dict:
+        """
+        Enable MFA for the current user after verifying the TOTP token.
+
+        Args:
+            mfa_token: The TOTP code from the user's authenticator app
+
+        Returns:
+            dict with success status or error
+        """
+        self.validate_user()
+        session = get_session()
+        try:
+            user = session.query(User).filter(User.id == self.user_id).first()
+            if not user:
+                return {"error": "User not found", "status_code": 404}
+
+            if not user.mfa_token:
+                return {"error": "MFA not set up. Call get_mfa_setup first.", "status_code": 400}
+
+            # Verify the token
+            totp = pyotp.TOTP(user.mfa_token)
+            if not totp.verify(mfa_token):
+                return {"error": "Invalid MFA token", "status_code": 401}
+
+            # Enable MFA
+            user.mfa_enabled = True
+            session.commit()
+
+            return {"message": "MFA enabled successfully", "status_code": 200}
+        finally:
+            session.close()
+
+    def disable_mfa(self, password: str = None, mfa_token: str = None) -> dict:
+        """
+        Disable MFA for the current user.
+        Requires either password or current MFA token for verification.
+
+        Args:
+            password: The user's password (optional)
+            mfa_token: Current TOTP code (optional)
+
+        Returns:
+            dict with success status or error
+        """
+        self.validate_user()
+        session = get_session()
+        try:
+            user = session.query(User).filter(User.id == self.user_id).first()
+            if not user:
+                return {"error": "User not found", "status_code": 404}
+
+            if not user.mfa_enabled:
+                return {"error": "MFA is not enabled", "status_code": 400}
+
+            # Verify identity - need either password or MFA token
+            verified = False
+            if password and user.password_hash:
+                if self.verify_password(password, user.password_hash):
+                    verified = True
+            if mfa_token and user.mfa_token:
+                totp = pyotp.TOTP(user.mfa_token)
+                if totp.verify(mfa_token):
+                    verified = True
+
+            if not verified:
+                return {"error": "Verification failed", "status_code": 401}
+
+            # Disable MFA
+            user.mfa_enabled = False
+            session.commit()
+
+            return {"message": "MFA disabled successfully", "status_code": 200}
+        finally:
+            session.close()
+
+    def change_password(self, current_password: str, new_password: str, confirm_password: str) -> dict:
+        """
+        Change the current user's password.
+
+        Args:
+            current_password: The user's current password
+            new_password: The new password
+            confirm_password: Confirmation of the new password
+
+        Returns:
+            dict with success status or error
+        """
+        self.validate_user()
+
+        if new_password != confirm_password:
+            return {"error": "Passwords do not match", "status_code": 400}
+
+        if len(new_password) < 8:
+            return {"error": "Password must be at least 8 characters", "status_code": 400}
+
+        session = get_session()
+        try:
+            user = session.query(User).filter(User.id == self.user_id).first()
+            if not user:
+                return {"error": "User not found", "status_code": 404}
+
+            # Verify current password
+            if user.password_hash:
+                if not self.verify_password(current_password, user.password_hash):
+                    return {"error": "Current password is incorrect", "status_code": 401}
+            else:
+                # User doesn't have a password yet (was using magic link)
+                # Allow setting password without verification
+                pass
+
+            # Set new password
+            user.password_hash = self.hash_password(new_password)
+            session.commit()
+
+            return {"message": "Password changed successfully", "status_code": 200}
+        finally:
+            session.close()
+
+    def set_password(self, new_password: str, confirm_password: str) -> dict:
+        """
+        Set a password for users who don't have one (e.g., migrating from magic link).
+
+        Args:
+            new_password: The new password
+            confirm_password: Confirmation of the new password
+
+        Returns:
+            dict with success status or error
+        """
+        self.validate_user()
+
+        if new_password != confirm_password:
+            return {"error": "Passwords do not match", "status_code": 400}
+
+        if len(new_password) < 8:
+            return {"error": "Password must be at least 8 characters", "status_code": 400}
+
+        session = get_session()
+        try:
+            user = session.query(User).filter(User.id == self.user_id).first()
+            if not user:
+                return {"error": "User not found", "status_code": 404}
+
+            if user.password_hash:
+                return {
+                    "error": "Password already set. Use change_password instead.",
+                    "status_code": 400,
+                }
+
+            # Set password
+            user.password_hash = self.hash_password(new_password)
+
+            # Also generate username if not set
+            if not user.username:
+                base_username = user.email.split("@")[0]
+                username = base_username
+                counter = 1
+                while session.query(User).filter(User.username == username, User.id != user.id).first():
+                    username = f"{base_username}{counter}"
+                    counter += 1
+                user.username = username
+
+            session.commit()
+
+            return {
+                "message": "Password set successfully",
+                "username": user.username,
+                "status_code": 200,
+            }
+        finally:
+            session.close()
+
     def validate_user(self):
         if self.user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token. Please log in.")
@@ -2060,7 +2487,7 @@ class MagicalAuth:
             # Generate login link for the user
             totp = pyotp.TOTP(user.mfa_token)
             otp_uri = totp.provisioning_uri(name=email, issuer_name=getenv("APP_NAME"))
-            login = Login(email=email, token=totp.now())
+            login = LoginMagicLink(email=email, token=totp.now())
             magic_link = self.send_magic_link(
                 ip_address="user_reactivation", login=login, send_link=False
             )
@@ -2129,7 +2556,7 @@ class MagicalAuth:
 
             # Generate login link for the user
             totp = pyotp.TOTP(user.mfa_token)
-            login = Login(email=email, token=totp.now())
+            login = LoginMagicLink(email=email, token=totp.now())
             magic_link = self.send_magic_link(
                 ip_address="invitation_acceptance", login=login, send_link=False
             )
@@ -2167,7 +2594,7 @@ class MagicalAuth:
     def send_magic_link(
         self,
         ip_address,
-        login: Login,
+        login: LoginMagicLink,
         referrer=None,
         send_link: bool = False,
     ):
@@ -2981,16 +3408,60 @@ class MagicalAuth:
     def register(
         self, new_user: Register, invitation_id: str = None, verify_email: bool = False
     ):
+        """
+        Register a new user with username/password authentication.
+
+        Args:
+            new_user: Register model with email, password, optional username, etc.
+            invitation_id: Optional invitation ID for joining existing company
+            verify_email: Whether email verification is required
+
+        Returns:
+            dict with user_id and JWT token on success, or error details on failure
+        """
         new_user.email = new_user.email.lower()
         self.email = new_user.email
+
+        # Validate password confirmation
+        if hasattr(new_user, 'password') and hasattr(new_user, 'confirm_password'):
+            if new_user.password != new_user.confirm_password:
+                return {"error": "Passwords do not match", "status_code": 400}
+
+            # Validate password strength
+            if len(new_user.password) < 8:
+                return {"error": "Password must be at least 8 characters", "status_code": 400}
+
+        # Generate MFA token (stored but not active until user enables MFA)
         mfa_token = pyotp.random_base32()
+
         try:
             session = get_session()
-            # Check if user already exists
+            # Check if user already exists by email
             existing_user = session.query(User).filter(User.email == self.email).first()
             if existing_user:
                 session.close()
                 return {"error": "User already exists", "status_code": 409}
+
+            # Generate or validate username
+            username = getattr(new_user, 'username', None)
+            if not username:
+                # Auto-generate username from email
+                base_username = self.email.split("@")[0]
+                username = base_username
+                counter = 1
+                while session.query(User).filter(User.username == username).first():
+                    username = f"{base_username}{counter}"
+                    counter += 1
+            else:
+                # Check if username is already taken
+                if session.query(User).filter(User.username == username).first():
+                    session.close()
+                    return {"error": "Username already taken", "status_code": 409}
+
+            # Hash password if provided
+            password_hash = None
+            if hasattr(new_user, 'password') and new_user.password:
+                password_hash = self.hash_password(new_user.password)
 
             # Check for invitation
             invitation = (
@@ -2998,7 +3469,6 @@ class MagicalAuth:
             )
 
             # Determine if paywall is enabled for this instance
-            # Paywall is enabled if token billing is configured (TOKEN_PRICE_PER_MILLION_USD > 0)
             price_service = PriceService()
             try:
                 token_price = price_service.get_token_price()
@@ -3020,20 +3490,22 @@ class MagicalAuth:
             paywall_enabled = stripe_configured or wallet_paywall_enabled
 
             # Create new user
-            # Set is_active=False if paywall is enabled (requires payment)
-            # Set is_active=True if no paywall (free instance)
             new_user_db = User(
                 email=self.email,
+                username=username,
+                password_hash=password_hash,
                 first_name=new_user.first_name,
                 last_name=new_user.last_name,
                 mfa_token=mfa_token,
-                is_active=not paywall_enabled,  # False if paywall enabled, True if free instance
+                mfa_enabled=False,  # MFA is optional, disabled by default
+                is_active=not paywall_enabled,
             )
             session.add(new_user_db)
             session.commit()
-            session.flush()  # Flush to get the new user's ID
+            session.flush()
             self.user_id = str(new_user_db.id)
             company_id = None
+
             if invitation:
                 # User was invited - use invitation details
                 verify_email = True
@@ -3076,19 +3548,21 @@ class MagicalAuth:
                 # If email ends in .xt, skip this part
                 if not self.email.endswith(".xt"):
                     # Create a new company for the user
-                    company_name = (
-                        f"{new_user.first_name}'s Team"
-                        if new_user.first_name
-                        else "My Team"
-                    )
-                    if new_user.first_name:
+                    # Use organization_name if provided, otherwise generate from first_name
+                    organization_name = getattr(new_user, 'organization_name', None)
+                    if organization_name and organization_name.strip():
+                        company_name = organization_name.strip()
+                    elif new_user.first_name:
                         if new_user.first_name.endswith("s"):
                             company_name = f"{new_user.first_name}' Team"
                         else:
                             company_name = f"{new_user.first_name}'s Team"
+                    else:
+                        company_name = "My Team"
+
                     new_company = self.create_company_with_agent(name=company_name)
 
-                    # Grant trial credits for business domains
+                    # Grant trial credits to all new signups
                     try:
                         from TrialService import grant_trial_credits
 
@@ -3123,8 +3597,18 @@ class MagicalAuth:
                 )
                 session.add(user_preference)
             session.commit()
+
+            # Generate JWT token for immediate login
+            token = self.generate_jwt(user_id=str(new_user_db.id), email=self.email)
+
             session.close()
-            return {"mfa_token": mfa_token, "status_code": 200}
+            return {
+                "user_id": str(new_user_db.id),
+                "username": username,
+                "token": token,
+                "mfa_token": mfa_token,  # Still returned for legacy compatibility
+                "status_code": 200,
+            }
 
         except Exception as e:
             logging.error(f"Unexpected error during registration: {str(e)}")
@@ -6495,7 +6979,7 @@ class MagicalAuth:
             )
 
             totp = pyotp.TOTP(mfa_token)
-            login = Login(email=self.email, token=totp.now())
+            login = LoginMagicLink(email=self.email, token=totp.now())
             return self.send_magic_link(
                 ip_address=ip_address,
                 login=login,

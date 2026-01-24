@@ -45,6 +45,7 @@ google-auth-oauthlib
 python-multipart==0.0.19
 nest_asyncio
 pyotp
+argon2-cffi>=21.3.0
 pytz
 openpyxl==3.1.5
 platformdirs

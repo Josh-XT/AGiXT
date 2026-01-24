@@ -101,6 +101,10 @@ async def initialize_database(is_restart=False):
         startup_timer.section_end("migrate_user_table", section_start)
 
         section_start = startup_timer.section_start()
+        DB.migrate_auth_username_password()
+        startup_timer.section_end("migrate_auth_username_password", section_start)
+
+        section_start = startup_timer.section_start()
         DB.migrate_conversation_table()
         startup_timer.section_end("migrate_conversation_table", section_start)
 

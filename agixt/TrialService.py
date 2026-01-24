@@ -211,6 +211,9 @@ class TrialService:
         """
         Check if an email is eligible for trial credits.
 
+        All new signups are now eligible for trial credits.
+        The domain restriction has been removed.
+
         Args:
             email: Email address to check
             session: Optional database session
@@ -228,15 +231,10 @@ class TrialService:
         if not domain:
             return False, "Invalid email address", None
 
-        # Check if it's a free email provider
-        if self.is_free_email_provider(domain):
-            return (
-                False,
-                f"Free email providers ({domain}) are not eligible for trial credits. Please use a business email.",
-                None,
-            )
+        # Note: Business domain restriction removed - all signups get trial credits now
+        # The is_free_email_provider check has been removed to allow all domains
 
-        # Check if domain already used trial
+        # Check if domain already used trial (to prevent abuse)
         close_session = False
         if session is None:
             session = get_session()

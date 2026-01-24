@@ -66,11 +66,43 @@ class InvitationResponse(BaseModel):
 
 
 class Login(BaseModel):
+    """
+    Login model for username/password authentication.
+    Supports login via username or email.
+    """
+    username: str  # Can be username or email
+    password: str
+    mfa_token: Optional[str] = None  # Optional MFA token for 2FA
+
+
+class LoginMagicLink(BaseModel):
+    """
+    Legacy login model for magic link (email + OTP) authentication.
+    Maintained for backward compatibility during migration.
+    """
     email: str
-    token: str
+    token: str  # TOTP code
 
 
 class Register(BaseModel):
+    """
+    Registration model for new user signup with username/password.
+    """
+    username: Optional[str] = None  # Auto-generated from email if not provided
+    password: str
+    confirm_password: str
+    email: str
+    first_name: Optional[str] = ""
+    last_name: Optional[str] = ""
+    organization_name: Optional[str] = ""  # Company name for new organization
+    invitation_id: Optional[str] = ""  # For invited users joining existing company
+
+
+class RegisterLegacy(BaseModel):
+    """
+    Legacy registration model for magic link registration.
+    Maintained for backward compatibility during migration.
+    """
     email: str
     first_name: Optional[str] = ""
     last_name: Optional[str] = ""
