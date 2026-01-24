@@ -5171,7 +5171,14 @@ def migrate_auth_username_password():
             user_columns_to_add = [
                 ("username", "VARCHAR(255)"),
                 ("password_hash", "VARCHAR(255)"),
-                ("mfa_enabled", "BOOLEAN DEFAULT 0" if DATABASE_TYPE == "sqlite" else "BOOLEAN DEFAULT false"),
+                (
+                    "mfa_enabled",
+                    (
+                        "BOOLEAN DEFAULT 0"
+                        if DATABASE_TYPE == "sqlite"
+                        else "BOOLEAN DEFAULT false"
+                    ),
+                ),
             ]
 
             if DATABASE_TYPE == "sqlite":
@@ -5203,8 +5210,10 @@ def migrate_auth_username_password():
                             # Ensure uniqueness
                             while True:
                                 existing = session.execute(
-                                    text("SELECT id FROM user WHERE username = :username"),
-                                    {"username": username}
+                                    text(
+                                        "SELECT id FROM user WHERE username = :username"
+                                    ),
+                                    {"username": username},
                                 ).fetchone()
                                 if not existing:
                                     break
@@ -5212,8 +5221,10 @@ def migrate_auth_username_password():
                                 counter += 1
 
                             session.execute(
-                                text("UPDATE user SET username = :username WHERE id = :user_id"),
-                                {"username": username, "user_id": user_id}
+                                text(
+                                    "UPDATE user SET username = :username WHERE id = :user_id"
+                                ),
+                                {"username": username, "user_id": user_id},
                             )
                     session.commit()
                     logging.info("Populated usernames from emails for existing users")
@@ -5257,7 +5268,9 @@ def migrate_auth_username_password():
                 null_count = result.fetchone()[0]
                 if null_count > 0:
                     users = session.execute(
-                        text('SELECT id, email FROM "user" WHERE username IS NULL AND email IS NOT NULL')
+                        text(
+                            'SELECT id, email FROM "user" WHERE username IS NULL AND email IS NOT NULL'
+                        )
                     ).fetchall()
 
                     for user_id, email in users:
@@ -5267,8 +5280,10 @@ def migrate_auth_username_password():
                         # Ensure uniqueness
                         while True:
                             existing = session.execute(
-                                text('SELECT id FROM "user" WHERE username = :username'),
-                                {"username": username}
+                                text(
+                                    'SELECT id FROM "user" WHERE username = :username'
+                                ),
+                                {"username": username},
                             ).fetchone()
                             if not existing:
                                 break
@@ -5276,8 +5291,10 @@ def migrate_auth_username_password():
                             counter += 1
 
                         session.execute(
-                            text('UPDATE "user" SET username = :username WHERE id = :user_id'),
-                            {"username": username, "user_id": str(user_id)}
+                            text(
+                                'UPDATE "user" SET username = :username WHERE id = :user_id'
+                            ),
+                            {"username": username, "user_id": str(user_id)},
                         )
                     session.commit()
                     logging.info("Populated usernames from emails for existing users")
@@ -5286,7 +5303,14 @@ def migrate_auth_username_password():
             # Company table columns
             # ============================================
             company_columns_to_add = [
-                ("mfa_required", "BOOLEAN DEFAULT 0" if DATABASE_TYPE == "sqlite" else "BOOLEAN DEFAULT false"),
+                (
+                    "mfa_required",
+                    (
+                        "BOOLEAN DEFAULT 0"
+                        if DATABASE_TYPE == "sqlite"
+                        else "BOOLEAN DEFAULT false"
+                    ),
+                ),
             ]
 
             if DATABASE_TYPE == "sqlite":

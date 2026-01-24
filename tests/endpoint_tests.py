@@ -637,9 +637,11 @@ def run_test(
         return None
 
 
-def register_user(email: str, first_name: str, last_name: str, password: str = "TestPassword123!") -> tuple:
+def register_user(
+    email: str, first_name: str, last_name: str, password: str = "TestPassword123!"
+) -> tuple:
     """Register a new user and return (sdk, otp_uri, mfa_token)
-    
+
     Note: With the new auth system, users register with a password.
     MFA is now optional and can be enabled later via account settings.
     For backwards compatibility, we still return otp_uri and mfa_token if provided.
@@ -651,15 +653,15 @@ def register_user(email: str, first_name: str, last_name: str, password: str = "
         try:
             # New registration with password
             otp_uri = sdk.register_user(
-                email=email, 
-                first_name=first_name, 
+                email=email,
+                first_name=first_name,
                 last_name=last_name,
                 password=password,
                 confirm_password=password,
             )
             # After registration, log in with password
             sdk.login(username=email, password=password)
-            
+
             # For backwards compat, extract mfa_token if otp_uri is provided
             mfa_token = None
             if otp_uri and "secret=" in str(otp_uri):
@@ -741,13 +743,13 @@ def invite_and_register_user(
     # Login with password (new flow)
     sdk.login(username=email, password=password)
     print(f"✅ Registered and logged in invited user: {email}")
-    
+
     # Extract mfa_token for backwards compat if otp_uri is present
     mfa_token = None
     otp_uri = reg_data.get("otp_uri")
     if otp_uri and "secret=" in str(otp_uri):
         mfa_token = str(otp_uri).split("secret=")[1].split("&")[0]
-    
+
     return sdk, otp_uri, mfa_token, invitation
 
 

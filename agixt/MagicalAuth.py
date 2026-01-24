@@ -1328,7 +1328,11 @@ class MagicalAuth:
         return token
 
     def login_with_password(
-        self, username: str, password: str, mfa_token: str = None, ip_address: str = None
+        self,
+        username: str,
+        password: str,
+        mfa_token: str = None,
+        ip_address: str = None,
     ) -> dict:
         """
         Authenticate a user with username/password and optional MFA token.
@@ -1347,9 +1351,7 @@ class MagicalAuth:
             # Find user by username or email
             user = (
                 session.query(User)
-                .filter(
-                    (User.username == username) | (User.email == username.lower())
-                )
+                .filter((User.username == username) | (User.email == username.lower()))
                 .first()
             )
 
@@ -1407,7 +1409,7 @@ class MagicalAuth:
                         .filter(Company.id == uc.company_id)
                         .first()
                     )
-                    if company and getattr(company, 'mfa_required', False):
+                    if company and getattr(company, "mfa_required", False):
                         # Company requires MFA but user hasn't enabled it
                         return {
                             "error": "MFA setup required by your organization",
@@ -1498,7 +1500,10 @@ class MagicalAuth:
                 return {"error": "User not found", "status_code": 404}
 
             if not user.mfa_token:
-                return {"error": "MFA not set up. Call get_mfa_setup first.", "status_code": 400}
+                return {
+                    "error": "MFA not set up. Call get_mfa_setup first.",
+                    "status_code": 400,
+                }
 
             # Verify the token
             totp = pyotp.TOTP(user.mfa_token)
@@ -1556,7 +1561,9 @@ class MagicalAuth:
         finally:
             session.close()
 
-    def change_password(self, current_password: str, new_password: str, confirm_password: str) -> dict:
+    def change_password(
+        self, current_password: str, new_password: str, confirm_password: str
+    ) -> dict:
         """
         Change the current user's password.
 
@@ -1574,7 +1581,10 @@ class MagicalAuth:
             return {"error": "Passwords do not match", "status_code": 400}
 
         if len(new_password) < 8:
-            return {"error": "Password must be at least 8 characters", "status_code": 400}
+            return {
+                "error": "Password must be at least 8 characters",
+                "status_code": 400,
+            }
 
         session = get_session()
         try:
@@ -1585,7 +1595,10 @@ class MagicalAuth:
             # Verify current password
             if user.password_hash:
                 if not self.verify_password(current_password, user.password_hash):
-                    return {"error": "Current password is incorrect", "status_code": 401}
+                    return {
+                        "error": "Current password is incorrect",
+                        "status_code": 401,
+                    }
             else:
                 # User doesn't have a password yet (was using magic link)
                 # Allow setting password without verification
@@ -1616,7 +1629,10 @@ class MagicalAuth:
             return {"error": "Passwords do not match", "status_code": 400}
 
         if len(new_password) < 8:
-            return {"error": "Password must be at least 8 characters", "status_code": 400}
+            return {
+                "error": "Password must be at least 8 characters",
+                "status_code": 400,
+            }
 
         session = get_session()
         try:
@@ -1638,7 +1654,11 @@ class MagicalAuth:
                 base_username = user.email.split("@")[0]
                 username = base_username
                 counter = 1
-                while session.query(User).filter(User.username == username, User.id != user.id).first():
+                while (
+                    session.query(User)
+                    .filter(User.username == username, User.id != user.id)
+                    .first()
+                ):
                     username = f"{base_username}{counter}"
                     counter += 1
                 user.username = username
@@ -3423,13 +3443,16 @@ class MagicalAuth:
         self.email = new_user.email
 
         # Validate password confirmation
-        if hasattr(new_user, 'password') and hasattr(new_user, 'confirm_password'):
+        if hasattr(new_user, "password") and hasattr(new_user, "confirm_password"):
             if new_user.password != new_user.confirm_password:
                 return {"error": "Passwords do not match", "status_code": 400}
 
             # Validate password strength
             if len(new_user.password) < 8:
-                return {"error": "Password must be at least 8 characters", "status_code": 400}
+                return {
+                    "error": "Password must be at least 8 characters",
+                    "status_code": 400,
+                }
 
         # Generate MFA token (stored but not active until user enables MFA)
         mfa_token = pyotp.random_base32()
@@ -3443,7 +3466,7 @@ class MagicalAuth:
                 return {"error": "User already exists", "status_code": 409}
 
             # Generate or validate username
-            username = getattr(new_user, 'username', None)
+            username = getattr(new_user, "username", None)
             if not username:
                 # Auto-generate username from email
                 base_username = self.email.split("@")[0]
@@ -3460,7 +3483,7 @@ class MagicalAuth:
 
             # Hash password if provided
             password_hash = None
-            if hasattr(new_user, 'password') and new_user.password:
+            if hasattr(new_user, "password") and new_user.password:
                 password_hash = self.hash_password(new_user.password)
 
             # Check for invitation
@@ -3549,7 +3572,7 @@ class MagicalAuth:
                 if not self.email.endswith(".xt"):
                     # Create a new company for the user
                     # Use organization_name if provided, otherwise generate from first_name
-                    organization_name = getattr(new_user, 'organization_name', None)
+                    organization_name = getattr(new_user, "organization_name", None)
                     if organization_name and organization_name.strip():
                         company_name = organization_name.strip()
                     elif new_user.first_name:

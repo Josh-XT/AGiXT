@@ -26,7 +26,7 @@ mysql-connector-python==9.1.0
 pydub==0.25.1
 python-pptx==0.6.23
 pdf2image==1.17.0
-agixtsdk==0.0.80
+agixtsdk==0.0.81
 safeexecute==0.0.22
 google-generativeai==0.7.2
 anthropic==0.34.2
