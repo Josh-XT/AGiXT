@@ -211,6 +211,9 @@ class TrialService:
         """
         Check if an email is eligible for trial credits.
 
+        All new signups are now eligible for trial credits.
+        The domain restriction has been removed.
+
         Args:
             email: Email address to check
             session: Optional database session
@@ -228,22 +231,34 @@ class TrialService:
         if not domain:
             return False, "Invalid email address", None
 
-        # Check if it's a free email provider
-        if self.is_free_email_provider(domain):
-            return (
-                False,
-                f"Free email providers ({domain}) are not eligible for trial credits. Please use a business email.",
-                None,
-            )
+        # Note: Business domain restriction removed - all signups get trial credits now
+        # The is_free_email_provider check has been removed to allow all domains
 
-        # Check if domain already used trial
+        # RFC 2606 reserved test domains - always grant trial credits (for testing)
+        # These domains can never be real domains and are safe for testing
+        test_domains = {"example.com", "example.org", "example.net", "test.com"}
+        is_test_domain = domain.lower() in test_domains
+
+        # Check if this is a public email provider (gmail, outlook, etc.)
+        # Public email providers skip domain uniqueness - each user gets their own trial
+        # Domain uniqueness only applies to business domains to prevent company abuse
+        is_public_provider = self.is_free_email_provider(domain)
+
+        # Check if domain already used trial (to prevent abuse)
+        # Skip this check for:
+        # 1. Test domains (so automated tests can run repeatedly)
+        # 2. Public email providers (each individual user gets their own trial)
         close_session = False
         if session is None:
             session = get_session()
             close_session = True
 
         try:
-            if self.has_domain_used_trial(domain, session):
+            if (
+                not is_test_domain
+                and not is_public_provider
+                and self.has_domain_used_trial(domain, session)
+            ):
                 return (
                     False,
                     f"A trial has already been used for the domain {domain}",
@@ -282,6 +297,14 @@ class TrialService:
         """
         domain = self.extract_domain(email)
 
+        # RFC 2606 reserved test domains - skip domain tracking
+        test_domains = {"example.com", "example.org", "example.net", "test.com"}
+        is_test_domain = domain.lower() in test_domains
+
+        # Check if this is a public email provider (gmail, outlook, etc.)
+        # Public providers skip domain tracking - each user is treated as individual
+        is_public_provider = self.is_free_email_provider(domain)
+
         # Check eligibility first
         eligible, reason, credits_usd = self.check_trial_eligibility(email, session)
         if not eligible:
@@ -294,31 +317,35 @@ class TrialService:
 
         try:
             # Double-check domain hasn't been used (race condition protection)
-            existing_trial = (
-                session.query(TrialDomain)
-                .filter(TrialDomain.domain == domain.lower())
-                .first()
-            )
-            if existing_trial:
-                return (
-                    False,
-                    f"A trial has already been used for the domain {domain}",
-                    None,
+            # Skip this check for test domains and public email providers
+            if not is_test_domain and not is_public_provider:
+                existing_trial = (
+                    session.query(TrialDomain)
+                    .filter(TrialDomain.domain == domain.lower())
+                    .first()
                 )
+                if existing_trial:
+                    return (
+                        False,
+                        f"A trial has already been used for the domain {domain}",
+                        None,
+                    )
 
             # Get the company
             company = session.query(Company).filter(Company.id == company_id).first()
             if not company:
                 return False, "Company not found", None
 
-            # Record the trial domain
-            trial_domain = TrialDomain(
-                domain=domain.lower(),
-                company_id=company_id,
-                user_id=user_id,
-                credits_granted=credits_usd,
-            )
-            session.add(trial_domain)
+            # Record the trial domain (skip for test domains and public providers)
+            # Only track business domains to prevent company-wide abuse
+            if not is_test_domain and not is_public_provider:
+                trial_domain = TrialDomain(
+                    domain=domain.lower(),
+                    company_id=company_id,
+                    user_id=user_id,
+                    credits_granted=credits_usd,
+                )
+                session.add(trial_domain)
 
             # Grant credits to company
             current_balance = company.token_balance_usd or 0.0

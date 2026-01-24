@@ -451,6 +451,10 @@ class Company(Base):
     trial_domain = Column(
         String, nullable=True, default=None
     )  # The email domain that qualified for trial credits
+    # MFA settings
+    mfa_required = Column(
+        Boolean, nullable=False, default=False
+    )  # Whether MFA is required for all users in this company
     users = relationship("UserCompany", back_populates="company")
 
     @classmethod
@@ -544,10 +548,13 @@ class User(Base):
         default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
     )
     email = Column(String, unique=True)
+    username = Column(String(255), unique=True, index=True, nullable=True)
+    password_hash = Column(String(255), nullable=True)
     first_name = Column(String, default="", nullable=True)
     last_name = Column(String, default="", nullable=True)
     admin = Column(Boolean, default=False, nullable=False)
     mfa_token = Column(String, default="", nullable=True)
+    mfa_enabled = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     is_active = Column(Boolean, default=True)
@@ -5136,6 +5143,214 @@ def migrate_tiered_prompts_chains_tables():
 
     except Exception as e:
         logging.error(f"Error migrating tiered prompts and chains tables: {e}")
+
+
+def migrate_auth_username_password():
+    """
+    Migration function to add username/password authentication fields to User table
+    and MFA requirement field to Company table.
+
+    User table additions:
+    - username: Unique username for login (VARCHAR, indexed)
+    - password_hash: Argon2id hashed password (VARCHAR, nullable)
+    - mfa_enabled: Whether MFA is enabled for this user (BOOLEAN, default False)
+
+    Company table additions:
+    - mfa_required: Whether MFA is required for all users in this company (BOOLEAN, default False)
+
+    For existing users, username is populated from email prefix (before @) with a unique suffix if needed.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            # ============================================
+            # User table columns
+            # ============================================
+            user_columns_to_add = [
+                ("username", "VARCHAR(255)"),
+                ("password_hash", "VARCHAR(255)"),
+                (
+                    "mfa_enabled",
+                    (
+                        "BOOLEAN DEFAULT 0"
+                        if DATABASE_TYPE == "sqlite"
+                        else "BOOLEAN DEFAULT false"
+                    ),
+                ),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(user)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in user_columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE user ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to user table")
+
+                # Populate username from email for existing users if username is null
+                if "username" not in existing_columns:
+                    # Get all users without username
+                    users = session.execute(
+                        text("SELECT id, email FROM user WHERE username IS NULL")
+                    ).fetchall()
+
+                    for user_id, email in users:
+                        if email:
+                            base_username = email.split("@")[0]
+                            username = base_username
+                            counter = 1
+                            # Ensure uniqueness
+                            while True:
+                                existing = session.execute(
+                                    text(
+                                        "SELECT id FROM user WHERE username = :username"
+                                    ),
+                                    {"username": username},
+                                ).fetchone()
+                                if not existing:
+                                    break
+                                username = f"{base_username}{counter}"
+                                counter += 1
+
+                            session.execute(
+                                text(
+                                    "UPDATE user SET username = :username WHERE id = :user_id"
+                                ),
+                                {"username": username, "user_id": user_id},
+                            )
+                    session.commit()
+                    logging.info("Populated usernames from emails for existing users")
+
+            else:
+                # PostgreSQL
+                for column_name, column_def in user_columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name FROM information_schema.columns 
+                            WHERE table_name = 'user' AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    )
+                    if not result.fetchone():
+                        # Convert type for PostgreSQL
+                        if column_name == "mfa_enabled":
+                            pg_column_def = "BOOLEAN DEFAULT false"
+                        else:
+                            pg_column_def = column_def
+
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "user" ADD COLUMN {column_name} {pg_column_def}'
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to user table")
+
+                # Populate username from email for existing users if username is null
+                # Check if we just added the username column
+                result = session.execute(
+                    text(
+                        """
+                        SELECT COUNT(*) FROM "user" WHERE username IS NULL AND email IS NOT NULL
+                        """
+                    )
+                )
+                null_count = result.fetchone()[0]
+                if null_count > 0:
+                    users = session.execute(
+                        text(
+                            'SELECT id, email FROM "user" WHERE username IS NULL AND email IS NOT NULL'
+                        )
+                    ).fetchall()
+
+                    for user_id, email in users:
+                        base_username = email.split("@")[0]
+                        username = base_username
+                        counter = 1
+                        # Ensure uniqueness
+                        while True:
+                            existing = session.execute(
+                                text(
+                                    'SELECT id FROM "user" WHERE username = :username'
+                                ),
+                                {"username": username},
+                            ).fetchone()
+                            if not existing:
+                                break
+                            username = f"{base_username}{counter}"
+                            counter += 1
+
+                        session.execute(
+                            text(
+                                'UPDATE "user" SET username = :username WHERE id = :user_id'
+                            ),
+                            {"username": username, "user_id": str(user_id)},
+                        )
+                    session.commit()
+                    logging.info("Populated usernames from emails for existing users")
+
+            # ============================================
+            # Company table columns
+            # ============================================
+            company_columns_to_add = [
+                (
+                    "mfa_required",
+                    (
+                        "BOOLEAN DEFAULT 0"
+                        if DATABASE_TYPE == "sqlite"
+                        else "BOOLEAN DEFAULT false"
+                    ),
+                ),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(Company)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in company_columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE Company ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to Company table")
+            else:
+                # PostgreSQL
+                for column_name, column_def in company_columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name FROM information_schema.columns 
+                            WHERE table_name = 'Company' AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    )
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "Company" ADD COLUMN {column_name} {column_def}'
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to Company table")
+
+            logging.info("Auth username/password migration complete")
+
+    except Exception as e:
+        logging.error(f"Error migrating auth username/password: {e}")
 
 
 # Server configuration definitions
