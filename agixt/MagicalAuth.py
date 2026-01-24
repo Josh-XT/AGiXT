@@ -1229,6 +1229,39 @@ class MagicalAuth:
             self.company_id = self.get_user_company_id()
 
     @staticmethod
+    def _validate_password_strength(password: str) -> str:
+        """
+        Validate password strength requirements.
+
+        Requirements:
+        - Minimum 8 characters
+        - At least one uppercase letter
+        - At least one lowercase letter
+        - At least one digit
+
+        Args:
+            password: The password to validate
+
+        Returns:
+            Error message string if invalid, empty string if valid
+        """
+        import re
+
+        if len(password) < 8:
+            return "Password must be at least 8 characters"
+
+        if not re.search(r"[A-Z]", password):
+            return "Password must contain at least one uppercase letter"
+
+        if not re.search(r"[a-z]", password):
+            return "Password must contain at least one lowercase letter"
+
+        if not re.search(r"\d", password):
+            return "Password must contain at least one digit"
+
+        return ""
+
+    @staticmethod
     def hash_password(password: str) -> str:
         """
         Hash a password using Argon2id algorithm.
@@ -1354,6 +1387,22 @@ class MagicalAuth:
                 .filter((User.username == username) | (User.email == username.lower()))
                 .first()
             )
+
+            # Rate limiting: Check failed login attempts for this user
+            if user:
+                failed_count = (
+                    session.query(FailedLogins)
+                    .filter(FailedLogins.user_id == user.id)
+                    .filter(
+                        FailedLogins.created_at >= datetime.now() - timedelta(hours=24)
+                    )
+                    .count()
+                )
+                if failed_count >= 10:
+                    return {
+                        "error": "Too many failed login attempts. Please try again later or reset your password.",
+                        "status_code": 429,
+                    }
 
             if not user:
                 return {"error": "Invalid username or password", "status_code": 401}
@@ -1521,11 +1570,12 @@ class MagicalAuth:
     def disable_mfa(self, password: str = None, mfa_token: str = None) -> dict:
         """
         Disable MFA for the current user.
-        Requires either password or current MFA token for verification.
+        Requires BOTH password AND current MFA token for verification.
+        This prevents an attacker with just the MFA device from disabling MFA.
 
         Args:
-            password: The user's password (optional)
-            mfa_token: Current TOTP code (optional)
+            password: The user's password (required if user has password set)
+            mfa_token: Current TOTP code (required)
 
         Returns:
             dict with success status or error
@@ -1540,18 +1590,27 @@ class MagicalAuth:
             if not user.mfa_enabled:
                 return {"error": "MFA is not enabled", "status_code": 400}
 
-            # Verify identity - need either password or MFA token
-            verified = False
-            if password and user.password_hash:
-                if self.verify_password(password, user.password_hash):
-                    verified = True
-            if mfa_token and user.mfa_token:
-                totp = pyotp.TOTP(user.mfa_token)
-                if totp.verify(mfa_token):
-                    verified = True
+            # MFA token is always required to disable MFA
+            if not mfa_token:
+                return {
+                    "error": "MFA token is required to disable MFA",
+                    "status_code": 400,
+                }
 
-            if not verified:
-                return {"error": "Verification failed", "status_code": 401}
+            # Verify MFA token
+            totp = pyotp.TOTP(user.mfa_token)
+            if not totp.verify(mfa_token):
+                return {"error": "Invalid MFA token", "status_code": 401}
+
+            # If user has a password set, require it for additional verification
+            if user.password_hash:
+                if not password:
+                    return {
+                        "error": "Password is required to disable MFA",
+                        "status_code": 400,
+                    }
+                if not self.verify_password(password, user.password_hash):
+                    return {"error": "Invalid password", "status_code": 401}
 
             # Disable MFA
             user.mfa_enabled = False
@@ -1580,11 +1639,10 @@ class MagicalAuth:
         if new_password != confirm_password:
             return {"error": "Passwords do not match", "status_code": 400}
 
-        if len(new_password) < 8:
-            return {
-                "error": "Password must be at least 8 characters",
-                "status_code": 400,
-            }
+        # Validate password strength
+        password_error = self._validate_password_strength(new_password)
+        if password_error:
+            return {"error": password_error, "status_code": 400}
 
         session = get_session()
         try:
@@ -1592,7 +1650,7 @@ class MagicalAuth:
             if not user:
                 return {"error": "User not found", "status_code": 404}
 
-            # Verify current password
+            # Verify current password (required for password change)
             if user.password_hash:
                 if not self.verify_password(current_password, user.password_hash):
                     return {
@@ -1600,9 +1658,11 @@ class MagicalAuth:
                         "status_code": 401,
                     }
             else:
-                # User doesn't have a password yet (was using magic link)
-                # Allow setting password without verification
-                pass
+                # User doesn't have a password yet - redirect to set_password
+                return {
+                    "error": "No password set. Use set_password endpoint instead.",
+                    "status_code": 400,
+                }
 
             # Set new password
             user.password_hash = self.hash_password(new_password)
@@ -1628,11 +1688,10 @@ class MagicalAuth:
         if new_password != confirm_password:
             return {"error": "Passwords do not match", "status_code": 400}
 
-        if len(new_password) < 8:
-            return {
-                "error": "Password must be at least 8 characters",
-                "status_code": 400,
-            }
+        # Validate password strength
+        password_error = self._validate_password_strength(new_password)
+        if password_error:
+            return {"error": password_error, "status_code": 400}
 
         session = get_session()
         try:
@@ -3448,11 +3507,9 @@ class MagicalAuth:
                 return {"error": "Passwords do not match", "status_code": 400}
 
             # Validate password strength
-            if len(new_user.password) < 8:
-                return {
-                    "error": "Password must be at least 8 characters",
-                    "status_code": 400,
-                }
+            password_error = self._validate_password_strength(new_user.password)
+            if password_error:
+                return {"error": password_error, "status_code": 400}
 
         # Generate MFA token (stored but not active until user enables MFA)
         mfa_token = pyotp.random_base32()
