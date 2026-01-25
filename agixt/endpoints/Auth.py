@@ -386,6 +386,46 @@ async def login(request: Request, login: Login):
     )
 
 
+class RequestLoginLinkRequest(BaseModel):
+    email: str
+
+
+@app.post(
+    "/v1/login/request-link",
+    response_model=Detail,
+    summary="Request a login link via email",
+    tags=["Auth"],
+)
+async def request_login_link(request: Request, body: RequestLoginLinkRequest):
+    """
+    Request a login link to be sent to the user's email.
+
+    This endpoint allows users who don't have a password set (MFA-only users)
+    to receive a login link via email. It's also useful as a "forgot password"
+    alternative for passwordless login.
+
+    For security, this endpoint always returns success even if the email
+    doesn't exist (to prevent email enumeration attacks).
+    """
+    auth = MagicalAuth()
+    client_ip = request.headers.get("X-Forwarded-For") or request.client.host
+
+    # Get referrer from request body if provided
+    try:
+        data = await request.json()
+        referrer = data.get("referrer")
+    except Exception:
+        referrer = None
+
+    result = auth.request_login_link(
+        email=body.email,
+        ip_address=client_ip,
+        referrer=referrer,
+    )
+
+    return Detail(detail=result.get("detail", "Request processed"))
+
+
 @app.post(
     "/v1/login/magic-link",
     response_model=Detail,
