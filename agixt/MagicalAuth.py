@@ -2680,7 +2680,7 @@ class MagicalAuth:
         Request a login link to be sent via email.
         This allows users without a password to log in via email.
         Uses the user's MFA token to generate a one-time login link.
-        
+
         Returns:
             dict with status message
         """
@@ -2690,19 +2690,21 @@ class MagicalAuth:
         if user is None:
             session.close()
             # Return success even if user doesn't exist to prevent email enumeration
-            return {"detail": "If an account exists with this email, a login link will be sent."}
+            return {
+                "detail": "If an account exists with this email, a login link will be sent."
+            }
 
         # Generate a one-time token using the user's MFA secret
         totp = pyotp.TOTP(user.mfa_token)
         otp_code = totp.now()
-        
+
         # Generate the JWT token
         tz_name = getenv("TZ", "UTC")
         try:
             server_tz = ZoneInfo(tz_name)
         except ZoneInfoNotFoundError:
             server_tz = ZoneInfo("UTC")
-        
+
         now = datetime.now(server_tz)
         current_year = now.year
         current_month = now.month
@@ -2711,7 +2713,7 @@ class MagicalAuth:
         if next_month > 12:
             next_month = 1
             next_year += 1
-        
+
         expiration = datetime(
             year=next_year,
             month=next_month,
@@ -2722,7 +2724,7 @@ class MagicalAuth:
             microsecond=0,
             tzinfo=server_tz,
         )
-        
+
         new_token = jwt.encode(
             {
                 "sub": str(user.id),
@@ -2734,7 +2736,7 @@ class MagicalAuth:
             self.encryption_key,
             algorithm="HS256",
         )
-        
+
         # URL encode the token
         token = (
             new_token.replace("+", "%2B")
@@ -2742,11 +2744,11 @@ class MagicalAuth:
             .replace("=", "%3D")
             .replace(" ", "%20")
         )
-        
+
         if referrer is not None:
             self.link = referrer
         magic_link = f"{self.link}?token={token}"
-        
+
         # Send the email
         app_name = getenv("APP_NAME", "AGiXT")
         email_send = send_email(
@@ -2760,15 +2762,17 @@ class MagicalAuth:
             <p>For security, this link can only be used once.</p>
             """,
         )
-        
+
         session.close()
-        
+
         if email_send:
             logging.info(f"Login link sent to {self.email}")
         else:
             logging.warning(f"Failed to send login link to {self.email}")
-        
-        return {"detail": "If an account exists with this email, a login link will be sent."}
+
+        return {
+            "detail": "If an account exists with this email, a login link will be sent."
+        }
 
     def send_magic_link(
         self,
@@ -3822,7 +3826,7 @@ class MagicalAuth:
             logging.error(f"Unexpected error during registration: {str(e)}")
             logging.error(traceback.format_exc())
             return {
-                "error": f"An unexpected error occurred: {str(e)}",
+                "error": "An unexpected error occurred during registration. Please try again later.",
                 "status_code": 500,
             }
 

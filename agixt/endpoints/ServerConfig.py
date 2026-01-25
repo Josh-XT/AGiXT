@@ -1351,8 +1351,11 @@ async def update_server_extension_commands(
 
                 updated.append(f"{update.extension_name}:{update.command_name}")
             except Exception as e:
+                logging.error(
+                    f"Error updating {update.extension_name}:{update.command_name}: {str(e)}"
+                )
                 errors.append(
-                    f"{update.extension_name}:{update.command_name}: {str(e)}"
+                    f"{update.extension_name}:{update.command_name}: update failed"
                 )
 
         db.commit()
