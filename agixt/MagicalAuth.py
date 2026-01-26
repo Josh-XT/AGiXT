@@ -6954,7 +6954,8 @@ class MagicalAuth:
     def get_training_data(self, company_id: str = None) -> str:
         if not company_id:
             company_id = self.company_id
-        if str(company_id) not in self.get_user_companies():
+        # Use get_accessible_company_ids to include inherited access (e.g., admin of parent company)
+        if str(company_id) not in self.get_accessible_company_ids():
             raise HTTPException(
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions.",
@@ -7014,8 +7015,8 @@ class MagicalAuth:
         company = self.get_user_company(company_id)
         if not company:
             return None
-        # Check if company_id is in the users companies
-        if str(company_id) not in self.get_user_companies():
+        # Check if company_id is in the users accessible companies (including inherited access)
+        if str(company_id) not in self.get_accessible_company_ids():
             raise HTTPException(
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions.",

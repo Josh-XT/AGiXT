@@ -421,19 +421,45 @@ class CompanyDiscordBot:
                 )
 
                 # Build messages in OpenAI chat format (agixt_instance already created above for workspace access)
-                message_data = {
-                    "role": "user",
-                    "content": content,
-                    "prompt_name": "Think About It",
-                    "prompt_category": "Default",
-                    "context": context,
-                    "injected_memories": 0,  # Disable AGiXT conversation history - use Discord context instead
-                    "prompt_args": prompt_args,
-                }
-
-                # Add file_urls if present
-                if "file_urls" in prompt_args:
-                    message_data["file_urls"] = prompt_args["file_urls"]
+                # When file_urls are present, use the multimodal content format for vision support
+                if "file_urls" in prompt_args and prompt_args["file_urls"]:
+                    # Build multimodal content as a list with text and file_url items
+                    multimodal_content = [
+                        {
+                            "type": "text",
+                            "text": content,
+                        }
+                    ]
+                    # Add each file as a file_url type item for vision processing
+                    for file_url in prompt_args["file_urls"]:
+                        multimodal_content.append(
+                            {
+                                "type": "file_url",
+                                "file_url": {"url": file_url},
+                            }
+                        )
+                    message_data = {
+                        "role": "user",
+                        "content": multimodal_content,
+                        "prompt_name": "Think About It",
+                        "prompt_category": "Default",
+                        "context": context,
+                        "injected_memories": 0,  # Disable AGiXT conversation history - use Discord context instead
+                        "prompt_args": prompt_args,
+                    }
+                    logger.info(
+                        f"Built multimodal message with {len(prompt_args['file_urls'])} file(s) for vision processing"
+                    )
+                else:
+                    message_data = {
+                        "role": "user",
+                        "content": content,
+                        "prompt_name": "Think About It",
+                        "prompt_category": "Default",
+                        "context": context,
+                        "injected_memories": 0,  # Disable AGiXT conversation history - use Discord context instead
+                        "prompt_args": prompt_args,
+                    }
 
                 # Create ChatCompletions prompt with streaming enabled
                 chat_prompt = ChatCompletions(
