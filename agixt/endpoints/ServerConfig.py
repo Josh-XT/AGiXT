@@ -1734,7 +1734,9 @@ class OAuthProviderItem(BaseModel):
     pkce_required: bool = False
     is_configured: bool = False
     settings: List[OAuthProviderSetting] = []
-    bot_invite_url: Optional[str] = None  # For providers with bot functionality (e.g., Discord)
+    bot_invite_url: Optional[str] = (
+        None  # For providers with bot functionality (e.g., Discord)
+    )
 
 
 class OAuthProvidersResponse(BaseModel):
@@ -1887,7 +1889,7 @@ async def get_server_oauth_providers(
                 description=f"OAuth Client Secret for {module_name.capitalize()}",
             ),
         ]
-        
+
         # Add Discord-specific bot token setting and invite URL
         bot_invite_url = None
         if module_name.lower() == "discord":
@@ -1954,7 +1956,9 @@ async def update_server_oauth_providers(
             try:
                 # Validate this is a valid OAuth setting key
                 valid_suffixes = ("_CLIENT_ID", "_CLIENT_SECRET", "_BOT_TOKEN")
-                if not any(setting.setting_key.endswith(suffix) for suffix in valid_suffixes):
+                if not any(
+                    setting.setting_key.endswith(suffix) for suffix in valid_suffixes
+                ):
                     errors.append(f"Invalid OAuth setting key: {setting.setting_key}")
                     continue
 

@@ -30,7 +30,7 @@ try:
     # This ensures we get the installed discord.py package, not our extension
     import importlib
     import importlib.util
-    
+
     # Find the discord.py package from site-packages, not from local extensions
     spec = importlib.util.find_spec("discord")
     if spec and spec.origin and "site-packages" in spec.origin:
@@ -38,7 +38,7 @@ try:
         discord_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(discord_module)
         sys.modules["_discord_lib"] = discord_module
-        
+
         # Now load discord.ext.commands
         ext_spec = importlib.util.find_spec("discord.ext.commands")
         if ext_spec and ext_spec.origin:
@@ -52,10 +52,13 @@ try:
         # Fallback: try direct import with path manipulation
         original_path = sys.path.copy()
         # Remove paths that might contain our extensions/discord.py
-        sys.path = [p for p in sys.path if not p.endswith('agixt') and 'extensions' not in p]
+        sys.path = [
+            p for p in sys.path if not p.endswith("agixt") and "extensions" not in p
+        ]
         try:
             import discord as _discord_lib
             from discord.ext import commands as _discord_commands
+
             discord_module = _discord_lib
             discord_commands = _discord_commands
             DISCORD_AVAILABLE = True
@@ -71,13 +74,17 @@ from DB import get_session, CompanyExtensionSetting, Company
 from Globals import getenv
 from MagicalAuth import impersonate_user
 from InternalClient import InternalClient
+from Models import ChatCompletions
+
 
 # Import our discord extension's utility function (not the discord.py library)
 # This must come after the discord library import to avoid shadowing
 def _get_discord_user_ids(company_id=None):
     """Wrapper to import get_discord_user_ids from our extension."""
     from extensions.discord import get_discord_user_ids
+
     return get_discord_user_ids(company_id)
+
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +149,7 @@ class CompanyDiscordBot:
     def _refresh_discord_user_cache(self):
         """
         Refresh the Discord user ID -> email mapping cache.
-        
+
         For server-level bot (company_id == "server"), gets mappings from all companies.
         For company-specific bots, only gets mappings for that company.
         """
@@ -170,14 +177,14 @@ class CompanyDiscordBot:
     def _get_conversation_name(self, message) -> str:
         """
         Generate a conversation name based on the Discord context.
-        
+
         For server channels: "Discord-ServerName-ChannelName"
         For DMs: "Discord-Username"
         For group DMs: "Discord-User1-User2-..."
         """
         is_dm = isinstance(message.channel, discord_module.DMChannel)
         is_group_dm = isinstance(message.channel, discord_module.GroupChannel)
-        
+
         if is_dm:
             # Direct message - use the other user's name
             return f"Discord-{message.author.display_name}"
@@ -190,10 +197,16 @@ class CompanyDiscordBot:
         else:
             # Server channel - use server name and channel name
             server_name = message.guild.name if message.guild else "Unknown"
-            channel_name = message.channel.name if hasattr(message.channel, 'name') else "unknown"
+            channel_name = (
+                message.channel.name if hasattr(message.channel, "name") else "unknown"
+            )
             # Sanitize names (remove special chars that might cause issues)
-            server_name = "".join(c for c in server_name if c.isalnum() or c in " -_").strip()
-            channel_name = "".join(c for c in channel_name if c.isalnum() or c in " -_").strip()
+            server_name = "".join(
+                c for c in server_name if c.isalnum() or c in " -_"
+            ).strip()
+            channel_name = "".join(
+                c for c in channel_name if c.isalnum() or c in " -_"
+            ).strip()
             return f"Discord-{server_name}-{channel_name}"
 
     async def _handle_message(self, message):
@@ -220,7 +233,11 @@ class CompanyDiscordBot:
             agents = agixt.get_agents()
             if agents and len(agents) > 0:
                 # Use the first agent (primary) for this user
-                agent_name = agents[0].get("name", "XT") if isinstance(agents[0], dict) else agents[0]
+                agent_name = (
+                    agents[0].get("name", "XT")
+                    if isinstance(agents[0], dict)
+                    else agents[0]
+                )
             else:
                 agent_name = "XT"  # Fallback to default
         except Exception as e:
@@ -230,24 +247,33 @@ class CompanyDiscordBot:
         # Check if the message is a direct message or mentions the bot
         is_dm = isinstance(message.channel, discord_module.DMChannel)
         is_group_dm = isinstance(message.channel, discord_module.GroupChannel)
-        
+
         # Check for direct user mention
         is_user_mentioned = self.bot.user in message.mentions
-        
+
         # Check if the bot's role is mentioned (bot roles are managed roles with the bot's ID)
         is_role_mentioned = False
-        if hasattr(message, 'role_mentions') and message.role_mentions:
+        if hasattr(message, "role_mentions") and message.role_mentions:
             for role in message.role_mentions:
                 # Bot-managed roles have a tag with bot_id matching the bot's user ID
-                if hasattr(role, 'tags') and role.tags and role.tags.bot_id == self.bot.user.id:
+                if (
+                    hasattr(role, "tags")
+                    and role.tags
+                    and role.tags.bot_id == self.bot.user.id
+                ):
                     is_role_mentioned = True
                     break
-        
+
         # Bot responds to:
         # - DMs: Always respond
         # - Group DMs: Only when @mentioned (not every message)
         # - Server channels: When user or role is @mentioned
-        should_respond = is_dm or (is_group_dm and is_user_mentioned) or is_user_mentioned or is_role_mentioned
+        should_respond = (
+            is_dm
+            or (is_group_dm and is_user_mentioned)
+            or is_user_mentioned
+            or is_role_mentioned
+        )
 
         if should_respond:
             # Remove the bot mention from the message if present
@@ -255,7 +281,11 @@ class CompanyDiscordBot:
             # Also remove role mention if present
             if is_role_mentioned:
                 for role in message.role_mentions:
-                    if hasattr(role, 'tags') and role.tags and role.tags.bot_id == self.bot.user.id:
+                    if (
+                        hasattr(role, "tags")
+                        and role.tags
+                        and role.tags.bot_id == self.bot.user.id
+                    ):
                         content = content.replace(f"<@&{role.id}>", "").strip()
 
             # If the message is empty after removing the mention and has no attachments, ignore it
@@ -270,21 +300,83 @@ class CompanyDiscordBot:
                     try:
                         while True:
                             # Use the HTTP API directly to trigger typing
-                            await message.channel._state.http.send_typing(message.channel.id)
-                            await asyncio.sleep(5)  # Discord typing lasts ~10 seconds, refresh every 5
+                            await message.channel._state.http.send_typing(
+                                message.channel.id
+                            )
+                            await asyncio.sleep(
+                                5
+                            )  # Discord typing lasts ~10 seconds, refresh every 5
                     except asyncio.CancelledError:
                         raise
                     except Exception as e:
                         logger.debug(f"Typing indicator error: {e}")
-                
-                typing_task = asyncio.create_task(keep_typing())
-                
-                # Get conversation context - fetch recent channel history for understanding
-                context = await self._get_channel_context(message.channel, message, user_email=user_email)
-                logger.info(f"Discord context gathered ({len(context)} chars): {context[:500]}..." if len(context) > 500 else f"Discord context gathered: {context}")
 
-                # Generate human-readable conversation name
+                typing_task = asyncio.create_task(keep_typing())
+
+                # Get channel and guild info for context
+                channel_id = str(message.channel.id)
+                channel_name = getattr(message.channel, 'name', 'DM')
+                guild_id = str(message.guild.id) if message.guild else None
+                guild_name = message.guild.name if message.guild else "Direct Message"
+                
+                # Generate human-readable conversation name (needed for workspace path)
                 conversation_name = self._get_conversation_name(message)
+                
+                # Import AGiXT class to create instance early (need workspace path for attachment downloads)
+                from XT import AGiXT
+                
+                # Create AGiXT instance with the user's context
+                agixt_instance = AGiXT(
+                    user=user_email,
+                    agent_name=agent_name,
+                    api_key=agixt.headers.get("Authorization", ""),
+                    conversation_name=conversation_name,
+                )
+                
+                # Get the workspace path for storing downloaded attachments
+                workspace_path = agixt_instance.conversation_workspace
+
+                # Get conversation context - fetch recent channel history and download attachments
+                context, downloaded_files = await self._get_channel_context(
+                    message.channel, 
+                    message, 
+                    user_email=user_email,
+                    workspace_path=workspace_path
+                )
+                
+                # Build file guidance if any files were downloaded from history
+                file_guidance = ""
+                if downloaded_files:
+                    file_guidance = "\n**FILES FROM CHANNEL HISTORY (downloaded to workspace):**\n"
+                    for file_info in downloaded_files:
+                        file_type_desc = self._get_file_type_description(
+                            file_info.get("content_type", ""), 
+                            file_info.get("filename", "")
+                        )
+                        file_guidance += f"- `{file_info['local_path']}` ({file_info['filename']}) - {file_type_desc}\n"
+                    file_guidance += "\nYou can access these files using file reading commands or vision analysis as appropriate.\n\n"
+                
+                # Add channel info to context so agent knows where it is
+                channel_info = f"""**CURRENT DISCORD LOCATION:**
+- Server: {guild_name} (ID: {guild_id})
+- Channel: #{channel_name} (ID: {channel_id})
+- The agent can use 'Search Discord Channel' command to search for specific content further back in this channel's history.
+
+**IMPORTANT TOOL GUIDANCE:**
+- To get information from a specific URL or link, use 'Fetch Webpage Content' with the full URL.
+- For Goodreads books, the URL format is: https://www.goodreads.com/book/show/{id}
+- For general web research without a specific URL, use 'Web Search'.
+- For images in the channel, use vision/image analysis commands with the file path.
+- For documents (PDF, Word, etc.), use file reading commands with the file path.
+
+{file_guidance}"""
+                context = channel_info + context
+                
+                logger.info(
+                    f"Discord context gathered ({len(context)} chars, {len(downloaded_files)} files): {context[:500]}..."
+                    if len(context) > 500
+                    else f"Discord context gathered: {context}"
+                )
 
                 # Prepare prompt arguments
                 # Set conversation_results to 0 to not use AGiXT conversation history
@@ -292,46 +384,88 @@ class CompanyDiscordBot:
                 prompt_args = {
                     "user_input": content,
                     "context": context,
-                    "conversation_name": conversation_name,
                     "conversation_results": 0,  # Disable AGiXT conversation history - use Discord context instead
                 }
 
-                # Handle attachments
+                # Handle current message attachments - download to workspace and add as file_urls
+                current_msg_files = []
                 if message.attachments:
                     file_urls = []
                     for attachment in message.attachments:
+                        # Download to workspace
+                        file_info = await self._download_attachment_to_workspace(
+                            attachment, 
+                            workspace_path, 
+                            str(message.id)
+                        )
+                        if file_info:
+                            current_msg_files.append(file_info)
+                        
+                        # Also get base64 for vision pipeline
                         file_data = await self._download_attachment(attachment)
                         if file_data:
                             file_urls.append(file_data)
+                    
                     if file_urls:
                         prompt_args["file_urls"] = file_urls
+                    
+                    # Add current message file paths to content for clarity
+                    if current_msg_files:
+                        file_list = ", ".join([f"`{f['local_path']}`" for f in current_msg_files])
+                        content = f"{content}\n\n[User attached files: {file_list}]"
 
-                logger.info(f"Calling AGiXT with prompt_args keys: {list(prompt_args.keys())}, context_len={len(prompt_args.get('context', ''))}")
-
-                # Call AGiXT API with user's primary agent
-                # Run the synchronous API call in a thread pool to not block the event loop
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: agixt.prompt_agent(
-                        agent_name=agent_name,
-                        prompt_name="Think About It",
-                        prompt_args=prompt_args,
-                    )
+                logger.info(
+                    f"Calling AGiXT with prompt_args keys: {list(prompt_args.keys())}, context_len={len(prompt_args.get('context', ''))}"
                 )
 
-                # Get the response content
-                reply = (
-                    response["response"]
-                    if isinstance(response, dict)
-                    else str(response)
+                # Build messages in OpenAI chat format (agixt_instance already created above for workspace access)
+                message_data = {
+                    "role": "user",
+                    "content": content,
+                    "prompt_name": "Think About It",
+                    "prompt_category": "Default",
+                    "context": context,
+                    "injected_memories": 0,  # Disable AGiXT conversation history - use Discord context instead
+                    "prompt_args": prompt_args,
+                }
+                
+                # Add file_urls if present
+                if "file_urls" in prompt_args:
+                    message_data["file_urls"] = prompt_args["file_urls"]
+                
+                # Create ChatCompletions prompt with streaming enabled
+                chat_prompt = ChatCompletions(
+                    model=agent_name,
+                    user=conversation_name,
+                    messages=[message_data],
+                    stream=True,
                 )
+                
+                # Collect the full response from the streaming endpoint
+                full_response = ""
+                async for chunk in agixt_instance.chat_completions_stream(prompt=chat_prompt):
+                    # Parse the SSE chunks to extract content
+                    if chunk.startswith("data: "):
+                        data = chunk[6:].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            import json
+                            chunk_data = json.loads(data)
+                            if "choices" in chunk_data and len(chunk_data["choices"]) > 0:
+                                delta = chunk_data["choices"][0].get("delta", {})
+                                content_chunk = delta.get("content", "")
+                                if content_chunk:
+                                    full_response += content_chunk
+                        except json.JSONDecodeError:
+                            # Some chunks might not be valid JSON, skip them
+                            pass
+                
+                reply = full_response.strip() if full_response else "I couldn't generate a response."
 
                 # Split long messages if needed
                 if len(reply) > 2000:
-                    chunks = [
-                        reply[i : i + 2000] for i in range(0, len(reply), 2000)
-                    ]
+                    chunks = [reply[i : i + 2000] for i in range(0, len(reply), 2000)]
                     for chunk in chunks:
                         await message.reply(chunk)
                 else:
@@ -351,16 +485,28 @@ class CompanyDiscordBot:
                     except asyncio.CancelledError:
                         pass
 
-    async def _get_channel_context(self, channel, current_message, limit=200, user_email: str = None) -> str:
-        """Get conversation history from the past hour for context.
-        
+    async def _get_channel_context(
+        self, channel, current_message, limit=50, user_email: str = None, workspace_path: str = None
+    ) -> tuple:
+        """Get recent conversation history for context and download any attachments.
+
         This fetches messages from the channel including timestamps and Discord user IDs,
         so the bot can understand the full conversation context with who said what and when.
         Timestamps are converted to the user's timezone for consistency with other AGiXT features.
+        
+        When workspace_path is provided, attachments from messages will be downloaded to the
+        workspace so the agent can access them via file commands.
+        
+        Strategy:
+        1. First try to get messages from the past hour
+        2. If no messages found, fall back to fetching the last `limit` messages regardless of time
+        
+        Returns:
+            tuple: (context_string, list_of_downloaded_files)
         """
         from datetime import datetime, timedelta, timezone
         from MagicalAuth import get_user_id, get_user_timezone, convert_time
-        
+
         # Get user's timezone for timestamp conversion
         user_tz_name = "UTC"
         if user_email:
@@ -369,61 +515,169 @@ class CompanyDiscordBot:
                 user_tz_name = get_user_timezone(user_id)
             except Exception as e:
                 logger.debug(f"Could not get user timezone, using UTC: {e}")
-        
+
         messages = []
+        downloaded_files = []  # Track all downloaded attachments
         one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
-        
+
+        # First try to get recent messages (last hour)
         async for msg in channel.history(limit=limit, after=one_hour_ago):
             # Skip the current message being responded to (it's passed separately as user_input)
             if msg.id == current_message.id:
                 continue
-            
+
             # Skip the bot's own messages to prevent it from echoing previous answers
             if msg.author == self.bot.user:
                 continue
-            
+
             # Convert timestamp to user's timezone
             msg_time_utc = msg.created_at
             if user_email:
                 try:
                     user_id = get_user_id(user_email)
                     msg_time_local = convert_time(msg_time_utc, user_id)
-                    timestamp = msg_time_local.strftime("%Y-%m-%d %H:%M:%S") + f" ({user_tz_name})"
+                    timestamp = (
+                        msg_time_local.strftime("%Y-%m-%d %H:%M:%S")
+                        + f" ({user_tz_name})"
+                    )
                 except Exception:
                     timestamp = msg_time_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
             else:
                 timestamp = msg_time_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
-            
+
             # Get display name and Discord ID
             author_name = msg.author.display_name or msg.author.name
             author_id = msg.author.id
-            
+
             # Mark if this is a bot (other bots, not ourselves - we skip our own messages)
             if msg.author.bot:
                 author_label = f"{author_name} (Bot, ID:{author_id})"
             else:
                 author_label = f"{author_name} (User, ID:{author_id})"
-            
-            # Include the message content, with attachment indicators if present
+
+            # Include the message content, with attachment info if present
             content = msg.content if msg.content else "[No text content]"
+            
+            # Handle attachments - download if workspace provided
             if msg.attachments:
-                attachment_names = [a.filename for a in msg.attachments]
-                content += f" [Attachments: {', '.join(attachment_names)}]"
+                attachment_info_parts = []
+                for attachment in msg.attachments:
+                    if workspace_path:
+                        # Download attachment to workspace
+                        file_info = await self._download_attachment_to_workspace(
+                            attachment, workspace_path, str(msg.id)
+                        )
+                        if file_info:
+                            downloaded_files.append({
+                                **file_info,
+                                "author": author_name,
+                                "timestamp": timestamp,
+                            })
+                            file_type = self._get_file_type_description(
+                                file_info.get("content_type", ""),
+                                file_info.get("filename", "")
+                            )
+                            attachment_info_parts.append(
+                                f"{attachment.filename} -> `{file_info['local_path']}` ({file_type})"
+                            )
+                        else:
+                            attachment_info_parts.append(attachment.filename)
+                    else:
+                        attachment_info_parts.append(attachment.filename)
+                
+                content += f" [Attachments: {', '.join(attachment_info_parts)}]"
+            
             # If it's just a URL (like a GIF), note that
             if msg.embeds:
                 embed_types = [e.type for e in msg.embeds if e.type]
                 if embed_types:
                     content += f" [Embed: {', '.join(embed_types)}]"
-            
+
             # Store timestamp and formatted message for sorting
             messages.append((msg.created_at, timestamp, author_label, content))
-        
+
+        # If no messages in the last hour, fall back to fetching the last N messages regardless of time
         if not messages:
-            return "**DISCORD CHANNEL CONTEXT**: No recent conversation history in this channel (last hour)."
-        
+            logger.info(f"No messages in last hour, falling back to last {limit} messages")
+            async for msg in channel.history(limit=limit):
+                # Skip the current message being responded to
+                if msg.id == current_message.id:
+                    continue
+
+                # Skip the bot's own messages
+                if msg.author == self.bot.user:
+                    continue
+
+                # Convert timestamp to user's timezone
+                msg_time_utc = msg.created_at
+                if user_email:
+                    try:
+                        user_id = get_user_id(user_email)
+                        msg_time_local = convert_time(msg_time_utc, user_id)
+                        timestamp = (
+                            msg_time_local.strftime("%Y-%m-%d %H:%M:%S")
+                            + f" ({user_tz_name})"
+                        )
+                    except Exception:
+                        timestamp = msg_time_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+                else:
+                    timestamp = msg_time_utc.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+                # Get display name and Discord ID
+                author_name = msg.author.display_name or msg.author.name
+                author_id = msg.author.id
+
+                # Mark if this is a bot
+                if msg.author.bot:
+                    author_label = f"{author_name} (Bot, ID:{author_id})"
+                else:
+                    author_label = f"{author_name} (User, ID:{author_id})"
+
+                # Include the message content
+                content = msg.content if msg.content else "[No text content]"
+                
+                # Handle attachments - download if workspace provided
+                if msg.attachments:
+                    attachment_info_parts = []
+                    for attachment in msg.attachments:
+                        if workspace_path:
+                            # Download attachment to workspace
+                            file_info = await self._download_attachment_to_workspace(
+                                attachment, workspace_path, str(msg.id)
+                            )
+                            if file_info:
+                                downloaded_files.append({
+                                    **file_info,
+                                    "author": author_name,
+                                    "timestamp": timestamp,
+                                })
+                                file_type = self._get_file_type_description(
+                                    file_info.get("content_type", ""),
+                                    file_info.get("filename", "")
+                                )
+                                attachment_info_parts.append(
+                                    f"{attachment.filename} -> `{file_info['local_path']}` ({file_type})"
+                                )
+                            else:
+                                attachment_info_parts.append(attachment.filename)
+                        else:
+                            attachment_info_parts.append(attachment.filename)
+                    
+                    content += f" [Attachments: {', '.join(attachment_info_parts)}]"
+                
+                if msg.embeds:
+                    embed_types = [e.type for e in msg.embeds if e.type]
+                    if embed_types:
+                        content += f" [Embed: {', '.join(embed_types)}]"
+
+                messages.append((msg.created_at, timestamp, author_label, content))
+
+        if not messages:
+            return ("**DISCORD CHANNEL CONTEXT**: No conversation history found in this channel.", downloaded_files)
+
         # Sort by timestamp descending (most recent FIRST)
         messages.sort(key=lambda x: x[0], reverse=True)
-        
+
         # Build a quick reference of each user's most recent message
         user_most_recent = {}  # author_name -> (timestamp, content)
         for _, timestamp, author_label, content in messages:
@@ -431,13 +685,15 @@ class CompanyDiscordBot:
             author_name = author_label.split(" (")[0]
             if author_name not in user_most_recent:
                 user_most_recent[author_name] = (timestamp, content[:100])
-        
+
         # Format quick reference section
         quick_ref_lines = ["**MOST RECENT MESSAGE FROM EACH USER:**"]
         for author_name, (timestamp, content) in user_most_recent.items():
-            quick_ref_lines.append(f"- {author_name}: [{timestamp}] {content}{'...' if len(content) >= 100 else ''}")
+            quick_ref_lines.append(
+                f"- {author_name}: [{timestamp}] {content}{'...' if len(content) >= 100 else ''}"
+            )
         quick_reference = "\n".join(quick_ref_lines)
-        
+
         # Format with numbered indices - #1 is MOST RECENT
         formatted_messages = []
         for idx, (_, timestamp, author_label, content) in enumerate(messages, 1):
@@ -445,11 +701,13 @@ class CompanyDiscordBot:
             # Log Nick's messages specifically to debug
             if "Nick" in author_label:
                 logger.info(f"Nick's message #{idx}: [{timestamp}] {content[:50]}...")
-        
+
         # Add a header to clarify this is conversation history from Discord
         header = f"""**DISCORD CHANNEL CONTEXT**
 This is the real-time conversation happening in the Discord channel.
+Files attached to messages have been downloaded to the workspace - use file paths shown to access them.
 Total messages in last hour: {len(messages)} (bot's own messages excluded)
+Downloaded files: {len(downloaded_files)}
 Timestamps shown in: {user_tz_name}
 
 {quick_reference}
@@ -460,9 +718,10 @@ HOW TO READ:
 - Messages are numbered by recency: #1 is the MOST RECENT, higher numbers are OLDER
 - When asked about someone's "last" or "most recent" message, find the LOWEST # for that user
 - User messages are labeled "(User, ID:...)"
+- Attached files show their workspace path in backticks - use these paths with file commands
 ---"""
-        
-        return f"{header}\n" + "\n".join(formatted_messages)
+
+        return (f"{header}\n" + "\n".join(formatted_messages), downloaded_files)
 
     async def _download_attachment(self, attachment) -> Optional[str]:
         """Download an attachment and return its base64 encoded content."""
@@ -476,6 +735,90 @@ HOW TO READ:
                     encoded_data = base64.b64encode(data).decode("utf-8")
                     return f"data:{attachment.content_type};base64,{encoded_data}"
         return None
+
+    async def _download_attachment_to_workspace(
+        self, 
+        attachment, 
+        workspace_path: str, 
+        message_id: str
+    ) -> Optional[Dict[str, str]]:
+        """
+        Download a Discord attachment to the agent's workspace.
+        
+        Args:
+            attachment: Discord attachment object
+            workspace_path: Path to the agent's conversation workspace
+            message_id: Discord message ID (used for organizing files)
+            
+        Returns:
+            Dict with 'local_path', 'filename', 'content_type', and 'url' if successful, None otherwise
+        """
+        import aiohttp
+        import os
+        
+        try:
+            # Create a subdirectory for Discord attachments
+            attachments_dir = os.path.join(workspace_path, "discord_attachments")
+            os.makedirs(attachments_dir, exist_ok=True)
+            
+            # Generate a unique filename using message_id to avoid collisions
+            safe_filename = f"{message_id}_{attachment.filename}"
+            local_path = os.path.join(attachments_dir, safe_filename)
+            
+            # Download the file
+            async with aiohttp.ClientSession() as session:
+                async with session.get(attachment.url) as response:
+                    if response.status == 200:
+                        data = await response.read()
+                        with open(local_path, "wb") as f:
+                            f.write(data)
+                        
+                        logger.debug(f"Downloaded attachment to: {local_path}")
+                        return {
+                            "local_path": local_path,
+                            "filename": attachment.filename,
+                            "content_type": attachment.content_type or "application/octet-stream",
+                            "url": attachment.url,
+                            "size": attachment.size,
+                        }
+            return None
+        except Exception as e:
+            logger.error(f"Error downloading attachment {attachment.filename}: {e}")
+            return None
+
+    def _get_file_type_description(self, content_type: str, filename: str) -> str:
+        """Get a human-readable description of the file type for the agent."""
+        if not content_type:
+            content_type = ""
+        
+        # Image types
+        if content_type.startswith("image/") or filename.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")):
+            return "IMAGE - Use vision/image analysis to view this"
+        
+        # Document types
+        if content_type == "application/pdf" or filename.lower().endswith(".pdf"):
+            return "PDF DOCUMENT - Use 'Read PDF' or file reading commands"
+        
+        if filename.lower().endswith((".doc", ".docx")):
+            return "WORD DOCUMENT - Use file reading commands"
+        
+        if filename.lower().endswith((".xls", ".xlsx")):
+            return "EXCEL SPREADSHEET - Use file reading commands"
+        
+        if filename.lower().endswith((".txt", ".md", ".json", ".csv", ".log")):
+            return "TEXT FILE - Use 'Read File' command"
+        
+        if filename.lower().endswith((".py", ".js", ".ts", ".java", ".cpp", ".c", ".h", ".html", ".css")):
+            return "CODE FILE - Use 'Read File' command"
+        
+        # Audio/Video
+        if content_type.startswith("audio/") or filename.lower().endswith((".mp3", ".wav", ".ogg", ".m4a")):
+            return "AUDIO FILE"
+        
+        if content_type.startswith("video/") or filename.lower().endswith((".mp4", ".mov", ".avi", ".webm")):
+            return "VIDEO FILE"
+        
+        return "FILE - Use appropriate file reading commands"
 
     async def start(self):
         """Start the Discord bot."""
@@ -514,7 +857,7 @@ class DiscordBotManager:
     - Monitoring bot health
     - Providing status information
     - Graceful shutdown of all bots
-    
+
     Bot Token Precedence:
     1. Company-level DISCORD_BOT_TOKEN in CompanyExtensionSetting (if enabled)
     2. Server-level DISCORD_BOT_TOKEN environment variable (shared by all companies)
@@ -534,12 +877,12 @@ class DiscordBotManager:
         token = getenv("DISCORD_BOT_TOKEN")
         if token:
             return token
-        
+
         # Then check ServerExtensionSetting table (where OAuth settings are stored)
         try:
             from DB import ServerExtensionSetting
             from endpoints.ServerConfig import decrypt_config_value
-            
+
             with get_session() as db:
                 setting = (
                     db.query(ServerExtensionSetting)
@@ -555,7 +898,7 @@ class DiscordBotManager:
                     return setting.setting_value
         except Exception as e:
             logger.error(f"Error getting server bot token from database: {e}")
-        
+
         return None
 
     def get_company_bot_config(self) -> Dict[str, Dict[str, str]]:
@@ -583,7 +926,11 @@ class DiscordBotManager:
                 company_id = str(setting.company_id)
                 if company_id not in configs:
                     # Get company name
-                    company = db.query(Company).filter(Company.id == setting.company_id).first()
+                    company = (
+                        db.query(Company)
+                        .filter(Company.id == setting.company_id)
+                        .first()
+                    )
                     configs[company_id] = {
                         "name": company.name if company else "Unknown",
                         "token": None,
@@ -594,6 +941,7 @@ class DiscordBotManager:
                 value = setting.setting_value
                 if setting.is_sensitive and value:
                     from endpoints.ServerConfig import decrypt_config_value
+
                     value = decrypt_config_value(value)
 
                 if setting.setting_key == "DISCORD_BOT_TOKEN":
@@ -603,7 +951,9 @@ class DiscordBotManager:
 
         return configs
 
-    async def start_bot_for_company(self, company_id: str, company_name: str, token: str) -> bool:
+    async def start_bot_for_company(
+        self, company_id: str, company_name: str, token: str
+    ) -> bool:
         """Start a Discord bot for a specific company."""
         if company_id in self.bots and company_id in self._tasks:
             logger.warning(f"Bot for company {company_name} is already running")
@@ -622,7 +972,9 @@ class DiscordBotManager:
                 lambda t: self._handle_bot_error(company_id, company_name, t)
             )
 
-            logger.info(f"Started Discord bot for company {company_name} ({company_id})")
+            logger.info(
+                f"Started Discord bot for company {company_name} ({company_id})"
+            )
             return True
 
         except Exception as e:
@@ -677,7 +1029,7 @@ class DiscordBotManager:
     async def sync_bots(self):
         """
         Sync running bots with database configuration.
-        
+
         Priority:
         1. If companies have their own DISCORD_BOT_TOKEN + DISCORD_BOT_ENABLED=true,
            start company-specific bots
@@ -686,7 +1038,7 @@ class DiscordBotManager:
         """
         server_token = self.get_server_bot_token()
         company_configs = self.get_company_bot_config()
-        
+
         # Check if any company has its own bot configured and enabled
         company_bots_configured = any(
             config.get("enabled", "").lower() == "true" and config.get("token")
@@ -696,9 +1048,11 @@ class DiscordBotManager:
         if company_bots_configured:
             # Company-level bots take precedence - stop server bot if running
             if self.SERVER_BOT_ID in self.bots:
-                logger.info("Stopping server-level bot in favor of company-specific bots")
+                logger.info(
+                    "Stopping server-level bot in favor of company-specific bots"
+                )
                 await self.stop_bot_for_company(self.SERVER_BOT_ID)
-            
+
             # Stop company bots that should not be running
             companies_to_stop = []
             for company_id in list(self.bots.keys()):
@@ -721,29 +1075,31 @@ class DiscordBotManager:
                     await self.start_bot_for_company(
                         company_id, config["name"], config["token"]
                     )
-        
+
         elif server_token:
             # No company bots configured - use server-level bot
             # Stop any lingering company bots
             for company_id in list(self.bots.keys()):
                 if company_id != self.SERVER_BOT_ID:
                     await self.stop_bot_for_company(company_id)
-            
+
             # Start server-level bot if not running
             if self.SERVER_BOT_ID not in self.bots:
-                logger.info("Starting server-level Discord bot (shared across all companies)")
+                logger.info(
+                    "Starting server-level Discord bot (shared across all companies)"
+                )
                 await self.start_bot_for_company(
-                    self.SERVER_BOT_ID,
-                    "AGiXT Server Bot",
-                    server_token
+                    self.SERVER_BOT_ID, "AGiXT Server Bot", server_token
                 )
         else:
             # No tokens configured anywhere - stop all bots
             for company_id in list(self.bots.keys()):
                 await self.stop_bot_for_company(company_id)
-            
+
             if not self.bots:
-                logger.debug("No Discord bot tokens configured (server or company level)")
+                logger.debug(
+                    "No Discord bot tokens configured (server or company level)"
+                )
 
     async def _monitor_loop(self):
         """Monitor loop that syncs bots periodically."""
@@ -823,7 +1179,9 @@ async def start_discord_bot_manager():
     global _manager
 
     if not DISCORD_AVAILABLE:
-        logger.warning("Discord bot manager cannot start - discord.py library not installed")
+        logger.warning(
+            "Discord bot manager cannot start - discord.py library not installed"
+        )
         return None
 
     if _manager is None:

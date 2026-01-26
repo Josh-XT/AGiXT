@@ -7076,7 +7076,9 @@ class MagicalAuth:
             else None
         )
         account_name = sso_data.user_info.get("email", self.email)
-        provider_user_id = sso_data.user_info.get("provider_user_id")  # Provider's user ID (e.g., Discord numeric ID)
+        provider_user_id = sso_data.user_info.get(
+            "provider_user_id"
+        )  # Provider's user ID (e.g., Discord numeric ID)
 
         if not account_name:
             logging.error(

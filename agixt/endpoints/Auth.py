@@ -1054,6 +1054,7 @@ async def delete_oauth_token(provider: str, authorization: str = Header(None)):
 
 class DiscordBotInviteResponse(BaseModel):
     """Response model for Discord bot invite URL."""
+
     bot_invite_url: Optional[str] = None
     dm_bot_url: Optional[str] = None
     bot_username: Optional[str] = None
@@ -1065,7 +1066,7 @@ class DiscordBotInviteResponse(BaseModel):
     response_model=DiscordBotInviteResponse,
     summary="Get Discord bot invite URLs for the user",
     description="Returns URLs to invite the Discord bot to a server or to DM it directly. "
-                "Requires the user to have connected their Discord account via OAuth.",
+    "Requires the user to have connected their Discord account via OAuth.",
     tags=["Auth"],
 )
 async def get_discord_bot_invite(
@@ -1074,7 +1075,7 @@ async def get_discord_bot_invite(
 ):
     """
     Get Discord bot invite URLs for the authenticated user.
-    
+
     Returns:
     - bot_invite_url: URL to invite the bot to a Discord server
     - dm_bot_url: URL to open a DM with the bot
@@ -1083,42 +1084,44 @@ async def get_discord_bot_invite(
     """
     from Globals import getenv
     from DB import get_session, ServerExtensionSetting
-    
+
     # Check if user has Discord connected
     auth = MagicalAuth(token=authorization)
     connected_providers = auth.get_sso_connections()
     is_discord_connected = "discord" in [p.lower() for p in connected_providers]
-    
+
     # Get the Discord client ID from server settings
     client_id = getenv("DISCORD_CLIENT_ID")
     if not client_id:
         session = get_session()
         try:
-            setting = session.query(ServerExtensionSetting).filter(
-                ServerExtensionSetting.setting_key == "DISCORD_CLIENT_ID"
-            ).first()
+            setting = (
+                session.query(ServerExtensionSetting)
+                .filter(ServerExtensionSetting.setting_key == "DISCORD_CLIENT_ID")
+                .first()
+            )
             if setting:
                 client_id = setting.setting_value
         finally:
             session.close()
-    
+
     if not client_id:
         return DiscordBotInviteResponse(
             is_discord_connected=is_discord_connected,
         )
-    
+
     # Generate bot invite URL
-    # Permissions: VIEW_CHANNEL (1024) + SEND_MESSAGES (2048) + READ_MESSAGE_HISTORY (65536) 
+    # Permissions: VIEW_CHANNEL (1024) + SEND_MESSAGES (2048) + READ_MESSAGE_HISTORY (65536)
     # + ADD_REACTIONS (64) + EMBED_LINKS (16384) + ATTACH_FILES (32768) + USE_SLASH_COMMANDS (2147483648)
     bot_permissions = 2147601472
     bot_invite_url = f"https://discord.com/api/oauth2/authorize?client_id={client_id}&permissions={bot_permissions}&scope=bot%20applications.commands"
-    
+
     # Generate DM URL (users can click this to open a DM with the bot)
     # This requires the bot's user ID, which we may not have statically
     # For now, we'll just return the invite URL
     dm_bot_url = None
     bot_username = None
-    
+
     return DiscordBotInviteResponse(
         bot_invite_url=bot_invite_url,
         dm_bot_url=dm_bot_url,

@@ -598,7 +598,9 @@ class UserOAuth(Base):
     access_token = Column(String, default="", nullable=False)
     refresh_token = Column(String, default="", nullable=False)
     token_expires_at = Column(DateTime, nullable=True)
-    provider_user_id = Column(String, nullable=True)  # Provider's user ID (e.g., Discord numeric ID)
+    provider_user_id = Column(
+        String, nullable=True
+    )  # Provider's user ID (e.g., Discord numeric ID)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

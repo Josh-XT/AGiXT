@@ -27,6 +27,7 @@ def refresh_discord_user_cache():
         discord_user_cache = get_discord_user_ids(COMPANY_ID)
     return discord_user_cache
 
+
 def get_user_email_from_discord_id(discord_id: int) -> str:
     """Get user email from Discord ID, refreshing cache if needed"""
     discord_id_str = str(discord_id)
