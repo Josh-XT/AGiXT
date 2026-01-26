@@ -112,6 +112,7 @@ class DiscordSSO:
             username = data.get("username")
             full_username = f"{username}#{data.get('discriminator', '0000')}"
             global_name = data.get("global_name")  # Newer display name
+            discord_user_id = data.get("id")  # Discord numeric user ID
 
             # Use global_name for first name, username for last name if names aren't structured
             first_name = global_name if global_name else username
@@ -122,6 +123,7 @@ class DiscordSSO:
                 or full_username,  # Fallback to username#discriminator if email scope not granted/available
                 "first_name": first_name,
                 "last_name": last_name,
+                "provider_user_id": discord_user_id,  # Discord numeric user ID
             }
         except requests.exceptions.RequestException as e:
             logging.error(f"Error getting user info from Discord: {response.text}")
@@ -234,6 +236,7 @@ class discord(Extensions):
                 "Discord - Remove Role from Member": self.remove_role_from_member,
                 "Discord - Get Server Roles": self.get_guild_roles,
                 "Discord - Get Guild Members": self.get_guild_members,
+                "Search Discord Channel": self.search_discord_channel,
             }
             if self.api_key:
                 try:
@@ -381,6 +384,132 @@ class discord(Extensions):
         except Exception as e:
             logging.error(f"Error sending Discord message: {str(e)}")
             return f"Error sending message: {str(e)}"
+
+    async def search_discord_channel(
+        self,
+        channel_id: str,
+        search_query: str,
+        limit: int = 200,
+        search_by_user: str = None,
+    ):
+        """
+        Search a Discord channel's message history for specific content. This searches further back
+        in history than the default context window, useful for finding specific mentions, recommendations,
+        links, or topics discussed in the past.
+
+        Args:
+            channel_id (str): The ID of the Discord channel to search. This is provided in the CURRENT DISCORD LOCATION context.
+            search_query (str): The search term or phrase to look for in messages. Case-insensitive.
+            limit (int): Maximum number of messages to search through (default 200, max 500).
+            search_by_user (str): Optional - filter to only show messages from a specific username.
+
+        Returns:
+            str: Formatted list of matching messages with timestamps and authors, or a message if no matches found.
+        """
+        import re
+        from Globals import getenv
+
+        try:
+            # Use bot token instead of user OAuth for this operation
+            # This allows searching even when the user hasn't connected Discord OAuth
+            bot_token = getenv("DISCORD_BOT_TOKEN")
+            if not bot_token:
+                # Fall back to user OAuth if available
+                if not self.access_token:
+                    return "Error: No Discord bot token or user access token available for searching."
+                headers = {"Authorization": f"Bearer {self.access_token}"}
+            else:
+                headers = {"Authorization": f"Bot {bot_token}"}
+
+            limit = max(1, min(limit, 500))
+            url = f"{self.base_uri}/channels/{channel_id}/messages?limit={limit}"
+
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            messages = response.json()
+
+            # Search through messages
+            search_lower = search_query.lower()
+            matches = []
+
+            for msg in messages:
+                content = msg.get("content", "")
+                author = msg.get("author", {})
+                author_name = author.get("global_name") or author.get(
+                    "username", "Unknown"
+                )
+                timestamp = msg.get("timestamp", "")
+
+                # Filter by user if specified
+                if search_by_user:
+                    if search_by_user.lower() not in author_name.lower():
+                        continue
+
+                # Check if search query matches content
+                if search_lower in content.lower():
+                    # Format timestamp for readability
+                    try:
+                        from datetime import datetime
+
+                        dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                        formatted_time = dt.strftime("%Y-%m-%d %H:%M")
+                    except:
+                        formatted_time = timestamp[:16] if timestamp else "Unknown time"
+
+                    # Include attachments and embeds info
+                    extras = []
+                    if msg.get("attachments"):
+                        attachment_names = [
+                            a.get("filename", "file") for a in msg["attachments"]
+                        ]
+                        extras.append(f"Attachments: {', '.join(attachment_names)}")
+                    if msg.get("embeds"):
+                        embed_types = [e.get("type", "embed") for e in msg["embeds"]]
+                        extras.append(f"Embeds: {', '.join(embed_types)}")
+
+                    extra_str = f" [{'; '.join(extras)}]" if extras else ""
+
+                    matches.append(
+                        {
+                            "timestamp": formatted_time,
+                            "author": author_name,
+                            "content": content[:500]
+                            + ("..." if len(content) > 500 else ""),
+                            "extras": extra_str,
+                            "message_id": msg.get("id"),
+                        }
+                    )
+
+            if not matches:
+                return f"No messages found matching '{search_query}' in the last {limit} messages of this channel."
+
+            # Format results
+            result_lines = [
+                f"**Search Results for '{search_query}'**",
+                f"Found {len(matches)} matching messages (searched last {limit} messages):",
+                "",
+            ]
+
+            for i, match in enumerate(matches, 1):
+                result_lines.append(
+                    f"{i}. [{match['timestamp']}] **{match['author']}**: {match['content']}{match['extras']}"
+                )
+
+            return "\n".join(result_lines)
+
+        except requests.exceptions.HTTPError as e:
+            logging.error(f"Error searching Discord channel: {str(e)}")
+            status_code = e.response.status_code if e.response else "Unknown"
+            if status_code == 403:
+                return (
+                    "Error: Bot doesn't have permission to read this channel's history."
+                )
+            elif status_code == 404:
+                return "Error: Channel not found. Make sure the channel ID is correct."
+            return f"Error searching channel: {str(e)}"
+        except Exception as e:
+            logging.error(f"Error searching Discord channel: {str(e)}")
+            return f"Error searching channel: {str(e)}"
 
     async def get_messages(self, channel_id: str, limit: int = 50):
         """
@@ -1178,3 +1307,87 @@ class discord(Extensions):
         except Exception as e:
             logging.error(f"Error getting Discord guild roles: {str(e)}")
             return f"Error getting roles: {str(e)}"
+
+
+def get_discord_user_ids(company_id: str = None) -> dict:
+    """
+    Get a mapping of Discord user ID -> email for users who have connected
+    their Discord account via OAuth.
+
+    This is a standalone utility function that can be called without instantiating
+    the Discord extension class. The mapping is designed for easy user impersonation
+    in Discord bots.
+
+    Args:
+        company_id (str, optional): The company ID to get Discord user mappings for.
+            If None, returns mappings for ALL users across all companies.
+            This is useful for server-level Discord bots that serve all companies.
+
+    Returns:
+        dict: A dictionary mapping Discord user ID (numeric string) to user email
+              e.g., {"123456789012345678": "user@example.com", "987654321098765432": "other@example.com"}
+              Returns empty dict if no users have connected Discord.
+
+    Example:
+        >>> from extensions.discord_integration import get_discord_user_ids
+        >>> # For a specific company:
+        >>> discord_users = get_discord_user_ids("company-uuid-here")
+        >>> # For all companies (server-level bot):
+        >>> discord_users = get_discord_user_ids()
+        >>> email = discord_users.get(str(message.author.id))
+        >>> if email:
+        ...     jwt = impersonate_user(email)
+    """
+    from DB import get_session, UserOAuth, OAuthProvider, UserCompany, User
+    from sqlalchemy.orm import joinedload
+
+    session = get_session()
+    try:
+        # Get the Discord provider record
+        provider = (
+            session.query(OAuthProvider).filter(OAuthProvider.name == "discord").first()
+        )
+        if not provider:
+            return {}
+
+        if company_id:
+            # Get users for a specific company
+            user_ids = (
+                session.query(UserCompany.user_id)
+                .filter(UserCompany.company_id == company_id)
+                .all()
+            )
+            user_ids = [str(uid[0]) for uid in user_ids]
+
+            if not user_ids:
+                return {}
+
+            # Get OAuth records for these users with Discord provider
+            oauth_records = (
+                session.query(UserOAuth)
+                .options(joinedload(UserOAuth.user))
+                .filter(UserOAuth.user_id.in_(user_ids))
+                .filter(UserOAuth.provider_id == provider.id)
+                .filter(UserOAuth.provider_user_id.isnot(None))
+                .all()
+            )
+        else:
+            # Get ALL users with Discord OAuth across all companies
+            oauth_records = (
+                session.query(UserOAuth)
+                .options(joinedload(UserOAuth.user))
+                .filter(UserOAuth.provider_id == provider.id)
+                .filter(UserOAuth.provider_user_id.isnot(None))
+                .all()
+            )
+
+        # Build the mapping: discord_user_id -> email (for impersonation)
+        result = {}
+        for oauth in oauth_records:
+            if oauth.provider_user_id and oauth.user:
+                # Map Discord ID -> user email for easy impersonation
+                result[oauth.provider_user_id] = oauth.user.email
+
+        return result
+    finally:
+        session.close()

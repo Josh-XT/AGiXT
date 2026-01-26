@@ -3690,6 +3690,9 @@ class Agent:
         ]
 
         all_command_names = []
+        command_descriptions = (
+            {}
+        )  # Maps command name to description for semantic matching
         selection_prompt = "## Available Commands for Selection\n\n"
 
         # Add client-defined tools
@@ -3702,6 +3705,7 @@ class Agent:
                 )
                 selection_prompt += f"- **{cmd_name}**: {cmd_desc}\n"
                 all_command_names.append(cmd_name)
+                command_descriptions[cmd_name] = cmd_desc
 
         # Add extension commands
         for extension in agent_extensions:
@@ -3723,8 +3727,9 @@ class Agent:
                 cmd_desc = command["description"]
                 selection_prompt += f"- **{cmd_name}**: {cmd_desc}\n"
                 all_command_names.append(cmd_name)
+                command_descriptions[cmd_name] = cmd_desc
 
-        return selection_prompt, all_command_names
+        return selection_prompt, all_command_names, command_descriptions
 
     def get_agent_wallet(self):
         """

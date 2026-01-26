@@ -1196,7 +1196,8 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
     async def fetch_webpage_content(self, url: str, query: str = "") -> str:
         """
-        Fetch and extract the main content from a webpage. Useful for retrieving information from websites.
+        Fetch and extract the main content from a webpage using a full browser.
+        Useful for retrieving information from websites, including JavaScript-rendered pages (SPAs).
 
         Args:
         url (str): The URL of the webpage to fetch
@@ -1205,22 +1206,37 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         Returns:
         str: The extracted content from the webpage
 
-        Note: This extracts readable text content, not raw HTML. Good for documentation, articles, and reference pages.
+        Note: This extracts readable text content, not raw HTML. Good for documentation, articles,
+        reference pages, and JavaScript-rendered single-page applications.
         """
-        import aiohttp
+        from playwright.async_api import async_playwright
         from bs4 import BeautifulSoup
 
         try:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
+            async with async_playwright() as p:
+                browser = await p.chromium.launch()
+                context = await browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
+                page = await context.new_page()
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, timeout=30) as response:
-                    if response.status != 200:
-                        return f"Error fetching URL: HTTP {response.status}"
+                try:
+                    await page.goto(url, wait_until="networkidle", timeout=30000)
+                except Exception:
+                    # Fallback if networkidle times out - try domcontentloaded
+                    try:
+                        await page.goto(
+                            url, wait_until="domcontentloaded", timeout=15000
+                        )
+                        # Give JS a moment to render
+                        await page.wait_for_timeout(2000)
+                    except Exception as nav_error:
+                        await browser.close()
+                        return f"Error navigating to URL: {str(nav_error)}"
 
-                    html = await response.text()
+                # Get the rendered HTML after JavaScript execution
+                html = await page.content()
+                await browser.close()
 
             soup = BeautifulSoup(html, "html.parser")
 
@@ -1279,8 +1295,6 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
             return f"Content from {url}:\n\n{text}"
 
-        except aiohttp.ClientError as e:
-            return f"Error fetching webpage: {str(e)}"
         except Exception as e:
             return f"Error processing webpage: {str(e)}"
 

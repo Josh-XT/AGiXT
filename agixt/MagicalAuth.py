@@ -691,7 +691,7 @@ def get_sso_instance(provider: str):
         module_name = filename.replace(".py", "")
 
         if module_name == provider:
-            provider_class = getattr(module, f"{provider.capitalize()}SSO")
+            provider_class = getattr(module, f"{provider.capitalize()}SSO", None)
             return provider_class
 
     # Prevent infinite recursion - if we're already looking for microsoft and can't find it,
@@ -6954,7 +6954,8 @@ class MagicalAuth:
     def get_training_data(self, company_id: str = None) -> str:
         if not company_id:
             company_id = self.company_id
-        if str(company_id) not in self.get_user_companies():
+        # Use get_accessible_company_ids to include inherited access (e.g., admin of parent company)
+        if str(company_id) not in self.get_accessible_company_ids():
             raise HTTPException(
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions.",
@@ -7014,8 +7015,8 @@ class MagicalAuth:
         company = self.get_user_company(company_id)
         if not company:
             return None
-        # Check if company_id is in the users companies
-        if str(company_id) not in self.get_user_companies():
+        # Check if company_id is in the users accessible companies (including inherited access)
+        if str(company_id) not in self.get_accessible_company_ids():
             raise HTTPException(
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions.",
@@ -7076,6 +7077,9 @@ class MagicalAuth:
             else None
         )
         account_name = sso_data.user_info.get("email", self.email)
+        provider_user_id = sso_data.user_info.get(
+            "provider_user_id"
+        )  # Provider's user ID (e.g., Discord numeric ID)
 
         if not account_name:
             logging.error(
@@ -7188,6 +7192,7 @@ class MagicalAuth:
                 access_token=access_token,
                 token_expires_at=token_expires_at,
                 refresh_token=refresh_token,
+                provider_user_id=provider_user_id,
             )
 
             totp = pyotp.TOTP(mfa_token)
@@ -7208,6 +7213,7 @@ class MagicalAuth:
         account_name="",
         token_expires_at=None,
         refresh_token=None,
+        provider_user_id=None,
     ):
         provider_name = str(provider_name).lower()
         session = get_session()
@@ -7234,6 +7240,7 @@ class MagicalAuth:
                 access_token=access_token,
                 token_expires_at=token_expires_at,
                 refresh_token=refresh_token,
+                provider_user_id=provider_user_id,
             )
             session.add(user_oauth)
         else:
@@ -7244,6 +7251,8 @@ class MagicalAuth:
                 user_oauth.token_expires_at = token_expires_at
             if refresh_token:
                 user_oauth.refresh_token = refresh_token
+            if provider_user_id:
+                user_oauth.provider_user_id = provider_user_id
         session.commit()
         session.close()
 
@@ -7324,6 +7333,61 @@ class MagicalAuth:
                 settings={"GITHUB_API_KEY": "", "GITHUB_USERNAME": ""},
             )
         return f"Disconnected {provider_name.capitalize()}."
+
+    def get_provider_user_ids(self, company_id: str, provider_name: str = "discord"):
+        """
+        Get a mapping of user_id -> provider_user_id for all users in a company
+        who have connected the specified OAuth provider.
+
+        Args:
+            company_id: The company ID to get users for
+            provider_name: The OAuth provider name (default: "discord")
+
+        Returns:
+            dict: A dictionary mapping user_id to provider_user_id
+                  e.g., {"user-uuid-1": "123456789", "user-uuid-2": "987654321"}
+        """
+        provider_name = str(provider_name).lower()
+        session = get_session()
+        try:
+            # Get the provider record
+            provider = (
+                session.query(OAuthProvider)
+                .filter(OAuthProvider.name == provider_name)
+                .first()
+            )
+            if not provider:
+                return {}
+
+            # Get all users in the company
+            user_ids = (
+                session.query(UserCompany.user_id)
+                .filter(UserCompany.company_id == company_id)
+                .all()
+            )
+            user_ids = [str(uid[0]) for uid in user_ids]
+
+            if not user_ids:
+                return {}
+
+            # Get OAuth records for these users with this provider
+            oauth_records = (
+                session.query(UserOAuth)
+                .filter(UserOAuth.user_id.in_(user_ids))
+                .filter(UserOAuth.provider_id == provider.id)
+                .filter(UserOAuth.provider_user_id.isnot(None))
+                .all()
+            )
+
+            # Build the mapping
+            result = {}
+            for oauth in oauth_records:
+                if oauth.provider_user_id:
+                    result[str(oauth.user_id)] = oauth.provider_user_id
+
+            return result
+        finally:
+            session.close()
 
     def get_timezone(self):
         user_preferences = self.get_user_preferences()

@@ -598,6 +598,9 @@ class UserOAuth(Base):
     access_token = Column(String, default="", nullable=False)
     refresh_token = Column(String, default="", nullable=False)
     token_expires_at = Column(DateTime, nullable=True)
+    provider_user_id = Column(
+        String, nullable=True
+    )  # Provider's user ID (e.g., Discord numeric ID)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -5087,6 +5090,61 @@ def migrate_task_item_table():
 
     except Exception as e:
         logging.error(f"Error migrating task item table: {e}")
+
+
+def migrate_user_oauth_table():
+    """
+    Migration function to add provider_user_id column to user_oauth table.
+    This stores the provider's user ID (e.g., Discord numeric user ID).
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            columns_to_add = [
+                ("provider_user_id", "TEXT"),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(user_oauth)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE user_oauth ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to user_oauth table")
+            else:
+                for column_name, column_def in columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name 
+                            FROM information_schema.columns 
+                            WHERE table_name = 'user_oauth' AND column_name = :column_name
+                        """
+                        ),
+                        {"column_name": column_name},
+                    )
+
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f"ALTER TABLE user_oauth ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {column_name} to user_oauth table")
+
+            logging.debug("user_oauth table migration complete")
+
+    except Exception as e:
+        logging.debug(f"user_oauth table migration completed or not needed: {e}")
 
 
 def migrate_tiered_prompts_chains_tables():

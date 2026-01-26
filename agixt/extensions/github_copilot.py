@@ -119,16 +119,26 @@ class github_copilot(Extensions):
         """
         Send a request to GitHub Copilot CLI, which is an agentic coding assistant.
 
+        **IMPORTANT: If this command is available and the user asks to do ANYTHING related to GitHub
+        (repositories, code, PRs, issues, branches, commits, merging, cloning, pushing, etc.),
+        you should delegate that request to GitHub Copilot using this command.**
+
         GitHub Copilot CLI can read, modify, create, and delete files in the working directory.
         It runs in an isolated Docker container (SafeExecute) with the agent's workspace mounted,
         allowing it to safely make changes to the codebase.
 
-        This is useful for:
+        This command should be used for:
+        - ANY GitHub-related tasks (clone repos, create PRs, merge branches, push commits, etc.)
         - Complex code refactoring tasks
         - Generating new code files
-        - Debugging and fixing issues
+        - Debugging and fixing issues in repositories
         - Code analysis and explanation
         - Any task that requires AI-assisted code manipulation
+        - Working with git repositories (commits, branches, merges, rebases)
+        - Creating, reviewing, or modifying pull requests
+
+        Keywords that should trigger using this command: github, repo, repository, clone, fork,
+        pull request, PR, merge, branch, commit, push, pull, git, code, copilot, coding task
 
         Note: This command requires a **fine-grained** GitHub Personal Access Token (PAT)
         that starts with 'github_pat_'. Classic PATs (ghp_...) are NOT supported.
