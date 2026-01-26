@@ -1196,7 +1196,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
     async def fetch_webpage_content(self, url: str, query: str = "") -> str:
         """
-        Fetch and extract the main content from a webpage using a full browser. 
+        Fetch and extract the main content from a webpage using a full browser.
         Useful for retrieving information from websites, including JavaScript-rendered pages (SPAs).
 
         Args:
@@ -1206,7 +1206,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         Returns:
         str: The extracted content from the webpage
 
-        Note: This extracts readable text content, not raw HTML. Good for documentation, articles, 
+        Note: This extracts readable text content, not raw HTML. Good for documentation, articles,
         reference pages, and JavaScript-rendered single-page applications.
         """
         from playwright.async_api import async_playwright
@@ -1219,19 +1219,21 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 )
                 page = await context.new_page()
-                
+
                 try:
                     await page.goto(url, wait_until="networkidle", timeout=30000)
                 except Exception:
                     # Fallback if networkidle times out - try domcontentloaded
                     try:
-                        await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                        await page.goto(
+                            url, wait_until="domcontentloaded", timeout=15000
+                        )
                         # Give JS a moment to render
                         await page.wait_for_timeout(2000)
                     except Exception as nav_error:
                         await browser.close()
                         return f"Error navigating to URL: {str(nav_error)}"
-                
+
                 # Get the rendered HTML after JavaScript execution
                 html = await page.content()
                 await browser.close()

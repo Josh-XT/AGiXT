@@ -3690,7 +3690,9 @@ class Agent:
         ]
 
         all_command_names = []
-        command_descriptions = {}  # Maps command name to description for semantic matching
+        command_descriptions = (
+            {}
+        )  # Maps command name to description for semantic matching
         selection_prompt = "## Available Commands for Selection\n\n"
 
         # Add client-defined tools

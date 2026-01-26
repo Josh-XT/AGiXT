@@ -1555,7 +1555,7 @@ Example: memories, persona, files"""
         user_input_words = set(
             user_input_lower.replace("?", "").replace(".", "").replace(",", "").split()
         )
-        
+
         # Build keyword aliases for common variations/synonyms
         # Maps trigger words to command names that should be included
         keyword_to_commands = {
@@ -1593,7 +1593,7 @@ Example: memories, persona, files"""
             "execute python": ["Execute Python Code", "Execute Python File"],
             "run code": ["Execute Python Code"],
             "execute code": ["Execute Python Code"],
-            # Terminal variations  
+            # Terminal variations
             "run command": ["Use The Terminal to Execute Commands"],
             "terminal": ["Use The Terminal to Execute Commands"],
             "shell": ["Use The Terminal to Execute Commands"],
@@ -1617,7 +1617,11 @@ Example: memories, persona, files"""
             # Calendar variations
             "calendar": ["Get Calendar Events", "Create Calendar Event"],
             "meeting": ["Get Calendar Events", "Create Calendar Event"],
-            "schedule": ["Get Calendar Events", "Create Calendar Event", "Schedule a Task"],
+            "schedule": [
+                "Get Calendar Events",
+                "Create Calendar Event",
+                "Schedule a Task",
+            ],
             # Data analysis
             "analyze": ["Run Data Analysis"],
             "analysis": ["Run Data Analysis"],
@@ -1626,20 +1630,23 @@ Example: memories, persona, files"""
             "graph": ["Run Data Analysis"],
             "visualize": ["Run Data Analysis"],
         }
-        
+
         explicitly_requested_commands = []
-        
+
         # Method 0: Check keyword aliases first (highest priority for semantic matching)
         for keyword, cmd_names in keyword_to_commands.items():
             if keyword in user_input_lower:
                 for cmd_name in cmd_names:
-                    if cmd_name in all_command_names and cmd_name not in explicitly_requested_commands:
+                    if (
+                        cmd_name in all_command_names
+                        and cmd_name not in explicitly_requested_commands
+                    ):
                         explicitly_requested_commands.append(cmd_name)
-        
+
         for cmd_name in all_command_names:
             if cmd_name in explicitly_requested_commands:
                 continue  # Already added via keyword alias
-                
+
             cmd_lower = cmd_name.lower()
             # Method 1: Exact substring match
             if cmd_lower in user_input_lower:
@@ -1671,17 +1678,41 @@ Example: memories, persona, files"""
             # This helps match "copilot" -> "Ask GitHub Copilot"
             distinctive_words = {w for w in significant_cmd_words if len(w) >= 3}
             # Exclude very common words that would match too broadly
-            too_common = {"get", "set", "run", "use", "add", "new", "all", "file", "list", "send", "read", "create", "update", "delete", "search"}
+            too_common = {
+                "get",
+                "set",
+                "run",
+                "use",
+                "add",
+                "new",
+                "all",
+                "file",
+                "list",
+                "send",
+                "read",
+                "create",
+                "update",
+                "delete",
+                "search",
+            }
             distinctive_words = distinctive_words - too_common
-            if distinctive_words and any(word in user_input_lower for word in distinctive_words):
+            if distinctive_words and any(
+                word in user_input_lower for word in distinctive_words
+            ):
                 explicitly_requested_commands.append(cmd_name)
                 continue
-            
+
             # Method 4: Check command DESCRIPTION for semantic matches
             # This is critical for matching user intent to command capabilities
             if cmd_name in command_descriptions:
                 desc_lower = command_descriptions[cmd_name].lower()
-                desc_words = set(desc_lower.replace(".", " ").replace(",", " ").replace("(", " ").replace(")", " ").split())
+                desc_words = set(
+                    desc_lower.replace(".", " ")
+                    .replace(",", " ")
+                    .replace("(", " ")
+                    .replace(")", " ")
+                    .split()
+                )
                 # Look for significant overlapping words (4+ chars to avoid noise)
                 significant_desc_words = {w for w in desc_words if len(w) >= 4}
                 significant_user_words = {w for w in user_input_words if len(w) >= 4}
@@ -1721,12 +1752,32 @@ Example: memories, persona, files"""
 
         # Check if user input mentions URLs, links, websites, or web-related terms
         url_indicators = [
-            "http://", "https://", "www.", ".com", ".org", ".net", ".io",
-            "link", "url", "website", "webpage", "page", "site",
-            "goodreads", "amazon", "github", "google", "wikipedia",
-            "browse", "scrape", "fetch", "visit",
+            "http://",
+            "https://",
+            "www.",
+            ".com",
+            ".org",
+            ".net",
+            ".io",
+            "link",
+            "url",
+            "website",
+            "webpage",
+            "page",
+            "site",
+            "goodreads",
+            "amazon",
+            "github",
+            "google",
+            "wikipedia",
+            "browse",
+            "scrape",
+            "fetch",
+            "visit",
         ]
-        has_url_reference = any(indicator in user_input_lower for indicator in url_indicators)
+        has_url_reference = any(
+            indicator in user_input_lower for indicator in url_indicators
+        )
 
         # Commands that should always be available
         always_include = ["Get Datetime"]
@@ -3361,9 +3412,10 @@ Example: If user says "list my files", use:
                             delta = cleaned_new_answer[len(answer_content) :]
                             # Skip if it looks like an opening tag pattern (thinking, reflection, etc.)
                             # Also skip orphaned tag fragments like "reflection>" without the leading "<"
-                            skip_delta = (
-                                re.match(r"^\s*<[a-zA-Z]", delta) or
-                                re.match(r"^\s*/?(?:thinking|reflection|step|reward|count)>", delta, re.IGNORECASE)
+                            skip_delta = re.match(r"^\s*<[a-zA-Z]", delta) or re.match(
+                                r"^\s*/?(?:thinking|reflection|step|reward|count)>",
+                                delta,
+                                re.IGNORECASE,
                             )
                             if not skip_delta:
                                 if delta:

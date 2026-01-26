@@ -315,16 +315,16 @@ class CompanyDiscordBot:
 
                 # Get channel and guild info for context
                 channel_id = str(message.channel.id)
-                channel_name = getattr(message.channel, 'name', 'DM')
+                channel_name = getattr(message.channel, "name", "DM")
                 guild_id = str(message.guild.id) if message.guild else None
                 guild_name = message.guild.name if message.guild else "Direct Message"
-                
+
                 # Generate human-readable conversation name (needed for workspace path)
                 conversation_name = self._get_conversation_name(message)
-                
+
                 # Import AGiXT class to create instance early (need workspace path for attachment downloads)
                 from XT import AGiXT
-                
+
                 # Create AGiXT instance with the user's context
                 agixt_instance = AGiXT(
                     user=user_email,
@@ -332,30 +332,32 @@ class CompanyDiscordBot:
                     api_key=agixt.headers.get("Authorization", ""),
                     conversation_name=conversation_name,
                 )
-                
+
                 # Get the workspace path for storing downloaded attachments
                 workspace_path = agixt_instance.conversation_workspace
 
                 # Get conversation context - fetch recent channel history and download attachments
                 context, downloaded_files = await self._get_channel_context(
-                    message.channel, 
-                    message, 
+                    message.channel,
+                    message,
                     user_email=user_email,
-                    workspace_path=workspace_path
+                    workspace_path=workspace_path,
                 )
-                
+
                 # Build file guidance if any files were downloaded from history
                 file_guidance = ""
                 if downloaded_files:
-                    file_guidance = "\n**FILES FROM CHANNEL HISTORY (downloaded to workspace):**\n"
+                    file_guidance = (
+                        "\n**FILES FROM CHANNEL HISTORY (downloaded to workspace):**\n"
+                    )
                     for file_info in downloaded_files:
                         file_type_desc = self._get_file_type_description(
-                            file_info.get("content_type", ""), 
-                            file_info.get("filename", "")
+                            file_info.get("content_type", ""),
+                            file_info.get("filename", ""),
                         )
                         file_guidance += f"- `{file_info['local_path']}` ({file_info['filename']}) - {file_type_desc}\n"
                     file_guidance += "\nYou can access these files using file reading commands or vision analysis as appropriate.\n\n"
-                
+
                 # Add channel info to context so agent knows where it is
                 channel_info = f"""**CURRENT DISCORD LOCATION:**
 - Server: {guild_name} (ID: {guild_id})
@@ -371,7 +373,7 @@ class CompanyDiscordBot:
 
 {file_guidance}"""
                 context = channel_info + context
-                
+
                 logger.info(
                     f"Discord context gathered ({len(context)} chars, {len(downloaded_files)} files): {context[:500]}..."
                     if len(context) > 500
@@ -394,24 +396,24 @@ class CompanyDiscordBot:
                     for attachment in message.attachments:
                         # Download to workspace
                         file_info = await self._download_attachment_to_workspace(
-                            attachment, 
-                            workspace_path, 
-                            str(message.id)
+                            attachment, workspace_path, str(message.id)
                         )
                         if file_info:
                             current_msg_files.append(file_info)
-                        
+
                         # Also get base64 for vision pipeline
                         file_data = await self._download_attachment(attachment)
                         if file_data:
                             file_urls.append(file_data)
-                    
+
                     if file_urls:
                         prompt_args["file_urls"] = file_urls
-                    
+
                     # Add current message file paths to content for clarity
                     if current_msg_files:
-                        file_list = ", ".join([f"`{f['local_path']}`" for f in current_msg_files])
+                        file_list = ", ".join(
+                            [f"`{f['local_path']}`" for f in current_msg_files]
+                        )
                         content = f"{content}\n\n[User attached files: {file_list}]"
 
                 logger.info(
@@ -428,11 +430,11 @@ class CompanyDiscordBot:
                     "injected_memories": 0,  # Disable AGiXT conversation history - use Discord context instead
                     "prompt_args": prompt_args,
                 }
-                
+
                 # Add file_urls if present
                 if "file_urls" in prompt_args:
                     message_data["file_urls"] = prompt_args["file_urls"]
-                
+
                 # Create ChatCompletions prompt with streaming enabled
                 chat_prompt = ChatCompletions(
                     model=agent_name,
@@ -440,10 +442,12 @@ class CompanyDiscordBot:
                     messages=[message_data],
                     stream=True,
                 )
-                
+
                 # Collect the full response from the streaming endpoint
                 full_response = ""
-                async for chunk in agixt_instance.chat_completions_stream(prompt=chat_prompt):
+                async for chunk in agixt_instance.chat_completions_stream(
+                    prompt=chat_prompt
+                ):
                     # Parse the SSE chunks to extract content
                     if chunk.startswith("data: "):
                         data = chunk[6:].strip()
@@ -451,8 +455,12 @@ class CompanyDiscordBot:
                             break
                         try:
                             import json
+
                             chunk_data = json.loads(data)
-                            if "choices" in chunk_data and len(chunk_data["choices"]) > 0:
+                            if (
+                                "choices" in chunk_data
+                                and len(chunk_data["choices"]) > 0
+                            ):
                                 delta = chunk_data["choices"][0].get("delta", {})
                                 content_chunk = delta.get("content", "")
                                 if content_chunk:
@@ -460,8 +468,12 @@ class CompanyDiscordBot:
                         except json.JSONDecodeError:
                             # Some chunks might not be valid JSON, skip them
                             pass
-                
-                reply = full_response.strip() if full_response else "I couldn't generate a response."
+
+                reply = (
+                    full_response.strip()
+                    if full_response
+                    else "I couldn't generate a response."
+                )
 
                 # Split long messages if needed
                 if len(reply) > 2000:
@@ -486,21 +498,26 @@ class CompanyDiscordBot:
                         pass
 
     async def _get_channel_context(
-        self, channel, current_message, limit=50, user_email: str = None, workspace_path: str = None
+        self,
+        channel,
+        current_message,
+        limit=50,
+        user_email: str = None,
+        workspace_path: str = None,
     ) -> tuple:
         """Get recent conversation history for context and download any attachments.
 
         This fetches messages from the channel including timestamps and Discord user IDs,
         so the bot can understand the full conversation context with who said what and when.
         Timestamps are converted to the user's timezone for consistency with other AGiXT features.
-        
+
         When workspace_path is provided, attachments from messages will be downloaded to the
         workspace so the agent can access them via file commands.
-        
+
         Strategy:
         1. First try to get messages from the past hour
         2. If no messages found, fall back to fetching the last `limit` messages regardless of time
-        
+
         Returns:
             tuple: (context_string, list_of_downloaded_files)
         """
@@ -557,7 +574,7 @@ class CompanyDiscordBot:
 
             # Include the message content, with attachment info if present
             content = msg.content if msg.content else "[No text content]"
-            
+
             # Handle attachments - download if workspace provided
             if msg.attachments:
                 attachment_info_parts = []
@@ -568,14 +585,16 @@ class CompanyDiscordBot:
                             attachment, workspace_path, str(msg.id)
                         )
                         if file_info:
-                            downloaded_files.append({
-                                **file_info,
-                                "author": author_name,
-                                "timestamp": timestamp,
-                            })
+                            downloaded_files.append(
+                                {
+                                    **file_info,
+                                    "author": author_name,
+                                    "timestamp": timestamp,
+                                }
+                            )
                             file_type = self._get_file_type_description(
                                 file_info.get("content_type", ""),
-                                file_info.get("filename", "")
+                                file_info.get("filename", ""),
                             )
                             attachment_info_parts.append(
                                 f"{attachment.filename} -> `{file_info['local_path']}` ({file_type})"
@@ -584,9 +603,9 @@ class CompanyDiscordBot:
                             attachment_info_parts.append(attachment.filename)
                     else:
                         attachment_info_parts.append(attachment.filename)
-                
+
                 content += f" [Attachments: {', '.join(attachment_info_parts)}]"
-            
+
             # If it's just a URL (like a GIF), note that
             if msg.embeds:
                 embed_types = [e.type for e in msg.embeds if e.type]
@@ -598,7 +617,9 @@ class CompanyDiscordBot:
 
         # If no messages in the last hour, fall back to fetching the last N messages regardless of time
         if not messages:
-            logger.info(f"No messages in last hour, falling back to last {limit} messages")
+            logger.info(
+                f"No messages in last hour, falling back to last {limit} messages"
+            )
             async for msg in channel.history(limit=limit):
                 # Skip the current message being responded to
                 if msg.id == current_message.id:
@@ -635,7 +656,7 @@ class CompanyDiscordBot:
 
                 # Include the message content
                 content = msg.content if msg.content else "[No text content]"
-                
+
                 # Handle attachments - download if workspace provided
                 if msg.attachments:
                     attachment_info_parts = []
@@ -646,14 +667,16 @@ class CompanyDiscordBot:
                                 attachment, workspace_path, str(msg.id)
                             )
                             if file_info:
-                                downloaded_files.append({
-                                    **file_info,
-                                    "author": author_name,
-                                    "timestamp": timestamp,
-                                })
+                                downloaded_files.append(
+                                    {
+                                        **file_info,
+                                        "author": author_name,
+                                        "timestamp": timestamp,
+                                    }
+                                )
                                 file_type = self._get_file_type_description(
                                     file_info.get("content_type", ""),
-                                    file_info.get("filename", "")
+                                    file_info.get("filename", ""),
                                 )
                                 attachment_info_parts.append(
                                     f"{attachment.filename} -> `{file_info['local_path']}` ({file_type})"
@@ -662,9 +685,9 @@ class CompanyDiscordBot:
                                 attachment_info_parts.append(attachment.filename)
                         else:
                             attachment_info_parts.append(attachment.filename)
-                    
+
                     content += f" [Attachments: {', '.join(attachment_info_parts)}]"
-                
+
                 if msg.embeds:
                     embed_types = [e.type for e in msg.embeds if e.type]
                     if embed_types:
@@ -673,7 +696,10 @@ class CompanyDiscordBot:
                 messages.append((msg.created_at, timestamp, author_label, content))
 
         if not messages:
-            return ("**DISCORD CHANNEL CONTEXT**: No conversation history found in this channel.", downloaded_files)
+            return (
+                "**DISCORD CHANNEL CONTEXT**: No conversation history found in this channel.",
+                downloaded_files,
+            )
 
         # Sort by timestamp descending (most recent FIRST)
         messages.sort(key=lambda x: x[0], reverse=True)
@@ -737,34 +763,31 @@ HOW TO READ:
         return None
 
     async def _download_attachment_to_workspace(
-        self, 
-        attachment, 
-        workspace_path: str, 
-        message_id: str
+        self, attachment, workspace_path: str, message_id: str
     ) -> Optional[Dict[str, str]]:
         """
         Download a Discord attachment to the agent's workspace.
-        
+
         Args:
             attachment: Discord attachment object
             workspace_path: Path to the agent's conversation workspace
             message_id: Discord message ID (used for organizing files)
-            
+
         Returns:
             Dict with 'local_path', 'filename', 'content_type', and 'url' if successful, None otherwise
         """
         import aiohttp
         import os
-        
+
         try:
             # Create a subdirectory for Discord attachments
             attachments_dir = os.path.join(workspace_path, "discord_attachments")
             os.makedirs(attachments_dir, exist_ok=True)
-            
+
             # Generate a unique filename using message_id to avoid collisions
             safe_filename = f"{message_id}_{attachment.filename}"
             local_path = os.path.join(attachments_dir, safe_filename)
-            
+
             # Download the file
             async with aiohttp.ClientSession() as session:
                 async with session.get(attachment.url) as response:
@@ -772,12 +795,13 @@ HOW TO READ:
                         data = await response.read()
                         with open(local_path, "wb") as f:
                             f.write(data)
-                        
+
                         logger.debug(f"Downloaded attachment to: {local_path}")
                         return {
                             "local_path": local_path,
                             "filename": attachment.filename,
-                            "content_type": attachment.content_type or "application/octet-stream",
+                            "content_type": attachment.content_type
+                            or "application/octet-stream",
                             "url": attachment.url,
                             "size": attachment.size,
                         }
@@ -790,34 +814,42 @@ HOW TO READ:
         """Get a human-readable description of the file type for the agent."""
         if not content_type:
             content_type = ""
-        
+
         # Image types
-        if content_type.startswith("image/") or filename.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")):
+        if content_type.startswith("image/") or filename.lower().endswith(
+            (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
+        ):
             return "IMAGE - Use vision/image analysis to view this"
-        
+
         # Document types
         if content_type == "application/pdf" or filename.lower().endswith(".pdf"):
             return "PDF DOCUMENT - Use 'Read PDF' or file reading commands"
-        
+
         if filename.lower().endswith((".doc", ".docx")):
             return "WORD DOCUMENT - Use file reading commands"
-        
+
         if filename.lower().endswith((".xls", ".xlsx")):
             return "EXCEL SPREADSHEET - Use file reading commands"
-        
+
         if filename.lower().endswith((".txt", ".md", ".json", ".csv", ".log")):
             return "TEXT FILE - Use 'Read File' command"
-        
-        if filename.lower().endswith((".py", ".js", ".ts", ".java", ".cpp", ".c", ".h", ".html", ".css")):
+
+        if filename.lower().endswith(
+            (".py", ".js", ".ts", ".java", ".cpp", ".c", ".h", ".html", ".css")
+        ):
             return "CODE FILE - Use 'Read File' command"
-        
+
         # Audio/Video
-        if content_type.startswith("audio/") or filename.lower().endswith((".mp3", ".wav", ".ogg", ".m4a")):
+        if content_type.startswith("audio/") or filename.lower().endswith(
+            (".mp3", ".wav", ".ogg", ".m4a")
+        ):
             return "AUDIO FILE"
-        
-        if content_type.startswith("video/") or filename.lower().endswith((".mp4", ".mov", ".avi", ".webm")):
+
+        if content_type.startswith("video/") or filename.lower().endswith(
+            (".mp4", ".mov", ".avi", ".webm")
+        ):
             return "VIDEO FILE"
-        
+
         return "FILE - Use appropriate file reading commands"
 
     async def start(self):
