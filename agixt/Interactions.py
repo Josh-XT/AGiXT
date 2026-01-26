@@ -624,6 +624,12 @@ class Interactions:
                 context += conversation_context
         if "context" in kwargs:
             context.append(kwargs["context"])
+            logging.info(
+                f"[format_prompt] Discord/external context added. Context items: {len(context)}, last item length: {len(kwargs['context'])} chars"
+            )
+            # Log a sample of the context to verify it contains the right data
+            if "MOST RECENT MESSAGE" in kwargs["context"]:
+                logging.info(f"[format_prompt] Discord context contains MOST RECENT MESSAGE section ✓")
         include_sources = (
             str(kwargs["include_sources"]).lower() == "true"
             if "include_sources" in kwargs
@@ -885,7 +891,14 @@ class Interactions:
             f"{prompt}{user_input}{context_str}{conversation_history}{agent_commands}{file_contents}"
         )
 
+        logging.info(
+            f"[format_prompt] Context check - estimated_tokens: {estimated_context_tokens}, max_context_tokens: {max_context_tokens}, context_str length: {len(context_str)} chars"
+        )
+
         if estimated_context_tokens > max_context_tokens:
+            logging.info(
+                f"[format_prompt] Context EXCEEDS max - reducing context from {estimated_context_tokens} to target {max_context_tokens}"
+            )
             # Build context sections dict for reduce_context
             context_sections = {
                 "memories": context_str,  # Already retrieved memories as string
@@ -903,7 +916,12 @@ class Interactions:
 
             # Apply reduced context
             if "memories" in reduced:
+                old_context_len = len(context_str)
                 context = [reduced["memories"]] if reduced["memories"] else []
+                new_context_len = len(reduced["memories"]) if reduced["memories"] else 0
+                logging.info(
+                    f"[format_prompt] Context reduced: {old_context_len} chars -> {new_context_len} chars"
+                )
             if "conversation_history" in reduced:
                 conversation_history = reduced["conversation_history"]
             if "file_contents" in reduced:
@@ -966,6 +984,14 @@ You have access to context management commands to reduce token usage:
         tts_filler = args.get("tts_filler_instructions", "")
         if tts_filler:
             formatted_prompt = formatted_prompt + "\n" + tts_filler
+
+        # Log whether the Discord context made it into the final prompt
+        if "MOST RECENT MESSAGE" in formatted_prompt:
+            logging.info(f"[format_prompt] Final prompt contains MOST RECENT MESSAGE section ✓ ({tokens} tokens)")
+        else:
+            logging.warning(f"[format_prompt] Final prompt MISSING MOST RECENT MESSAGE section! ({tokens} tokens)")
+            if "context" in kwargs:
+                logging.warning(f"[format_prompt] Original context was {len(kwargs['context'])} chars")
 
         return formatted_prompt, prompt, tokens
 

@@ -1932,9 +1932,6 @@ async def conversation_stream(
                     message_id = str(message.get("id")) if message.get("id") else None
                     # Skip if we've already sent this message
                     if message_id and message_id in previous_message_ids:
-                        logging.debug(
-                            f"WebSocket: Skipping duplicate new message {message_id}"
-                        )
                         continue
                     # Skip if this was already sent via broadcast
                     if message_id and conversation_message_broadcaster.was_broadcasted(

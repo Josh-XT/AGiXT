@@ -22,6 +22,7 @@ from DB import (
     CompanyExtensionCommand,
     CompanyStorageSetting,
     Company,
+    ServerExtensionSetting,
 )
 from Globals import invalidate_server_config_cache, load_server_config_cache, getenv
 import logging
@@ -1203,6 +1204,303 @@ async def delete_company_extension_setting(
 
 
 # ============================================================================
+# Discord Bot Management Endpoints
+# ============================================================================
+
+
+class DiscordBotStatusResponse(BaseModel):
+    """Response containing Discord bot status for a company."""
+
+    company_id: str
+    company_name: str
+    is_running: bool
+    started_at: Optional[str] = None
+    guild_count: int = 0
+    error: Optional[str] = None
+
+
+class DiscordBotEnableRequest(BaseModel):
+    """Request to enable/disable Discord bot for a company."""
+
+    enabled: bool
+    discord_bot_token: Optional[str] = None  # Only required when enabling
+
+
+@app.get(
+    "/v1/company/{company_id}/discord-bot/status",
+    tags=["Company Discord Bot"],
+    response_model=DiscordBotStatusResponse,
+    summary="Get Discord bot status for company (company admin or super admin)",
+    description="Get the current status of the Discord bot for a company.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_company_discord_bot_status(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """Get the Discord bot status for a company."""
+    from DiscordBotManager import get_discord_bot_manager
+    from DB import Company
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization - must be company admin (role <= 2) or super admin
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins or super admins can view Discord bot status.",
+        )
+
+    # Get company name
+    with get_session() as db:
+        company = db.query(Company).filter(Company.id == company_id).first()
+        company_name = company.name if company else "Unknown"
+
+    manager = get_discord_bot_manager()
+    if not manager:
+        return DiscordBotStatusResponse(
+            company_id=company_id,
+            company_name=company_name,
+            is_running=False,
+            error="Discord bot manager is not running",
+        )
+
+    status = manager.get_bot_status(company_id)
+    if not status:
+        return DiscordBotStatusResponse(
+            company_id=company_id,
+            company_name=company_name,
+            is_running=False,
+        )
+
+    return DiscordBotStatusResponse(
+        company_id=company_id,
+        company_name=status.company_name,
+        is_running=status.is_running,
+        started_at=status.started_at.isoformat() if status.started_at else None,
+        guild_count=status.guild_count,
+        error=status.error,
+    )
+
+
+@app.post(
+    "/v1/company/{company_id}/discord-bot/enable",
+    tags=["Company Discord Bot"],
+    summary="Enable or disable Discord bot for company (company admin or super admin)",
+    description="Enable or disable the Discord bot for a company. When enabling, a Discord bot token is required.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def enable_company_discord_bot(
+    company_id: str,
+    request: DiscordBotEnableRequest,
+    authorization: str = Header(None),
+):
+    """Enable or disable the Discord bot for a company."""
+    from DiscordBotManager import get_discord_bot_manager
+    from DB import CompanyExtensionSetting, get_new_id
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins or super admins can manage Discord bot.",
+        )
+
+    # Validate token if enabling
+    if request.enabled and not request.discord_bot_token:
+        # Check if token already exists in settings
+        with get_session() as db:
+            existing_token = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == "discord",
+                    CompanyExtensionSetting.setting_key == "DISCORD_BOT_TOKEN",
+                )
+                .first()
+            )
+            if not existing_token or not existing_token.setting_value:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Discord bot token is required when enabling the bot.",
+                )
+
+    with get_session() as db:
+        # Update or create the DISCORD_BOT_TOKEN setting if provided
+        if request.discord_bot_token:
+            existing_token = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == "discord",
+                    CompanyExtensionSetting.setting_key == "DISCORD_BOT_TOKEN",
+                )
+                .first()
+            )
+
+            encrypted_token = encrypt_config_value(request.discord_bot_token)
+
+            if existing_token:
+                existing_token.setting_value = encrypted_token
+                existing_token.is_sensitive = True
+            else:
+                new_setting = CompanyExtensionSetting(
+                    id=get_new_id(),
+                    company_id=company_id,
+                    extension_name="discord",
+                    setting_key="DISCORD_BOT_TOKEN",
+                    setting_value=encrypted_token,
+                    is_sensitive=True,
+                    description="Discord bot token for company Discord bot",
+                )
+                db.add(new_setting)
+
+        # Update or create the DISCORD_BOT_ENABLED setting
+        existing_enabled = (
+            db.query(CompanyExtensionSetting)
+            .filter(
+                CompanyExtensionSetting.company_id == company_id,
+                CompanyExtensionSetting.extension_name == "discord",
+                CompanyExtensionSetting.setting_key == "DISCORD_BOT_ENABLED",
+            )
+            .first()
+        )
+
+        enabled_value = "true" if request.enabled else "false"
+
+        if existing_enabled:
+            existing_enabled.setting_value = enabled_value
+        else:
+            new_setting = CompanyExtensionSetting(
+                id=get_new_id(),
+                company_id=company_id,
+                extension_name="discord",
+                setting_key="DISCORD_BOT_ENABLED",
+                setting_value=enabled_value,
+                is_sensitive=False,
+                description="Whether the Discord bot is enabled for this company",
+            )
+            db.add(new_setting)
+
+        db.commit()
+
+    # Trigger bot sync
+    manager = get_discord_bot_manager()
+    if manager:
+        try:
+            await manager.sync_bots()
+        except Exception as e:
+            logging.error(f"Error syncing Discord bots: {e}")
+
+    action = "enabled" if request.enabled else "disabled"
+    return {
+        "status": "success",
+        "message": f"Discord bot {action} for company. Bot will start/stop within 60 seconds.",
+    }
+
+
+@app.post(
+    "/v1/company/{company_id}/discord-bot/restart",
+    tags=["Company Discord Bot"],
+    summary="Restart Discord bot for company (company admin or super admin)",
+    description="Restart the Discord bot for a company.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def restart_company_discord_bot(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """Restart the Discord bot for a company."""
+    from DiscordBotManager import get_discord_bot_manager
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins or super admins can restart Discord bot.",
+        )
+
+    manager = get_discord_bot_manager()
+    if not manager:
+        raise HTTPException(
+            status_code=503,
+            detail="Discord bot manager is not running.",
+        )
+
+    # Stop and restart the bot
+    await manager.stop_bot_for_company(company_id)
+    await manager.sync_bots()
+
+    return {
+        "status": "success",
+        "message": "Discord bot restart initiated. Bot will be back online shortly.",
+    }
+
+
+@app.get(
+    "/v1/admin/discord-bots",
+    tags=["Admin Discord Bots"],
+    summary="Get all running Discord bots (super admin only)",
+    description="Get status of all running Discord bots across all companies.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_all_discord_bots(
+    authorization: str = Header(None),
+):
+    """Get status of all running Discord bots (super admin only)."""
+    from DiscordBotManager import get_discord_bot_manager
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Super admin access required.",
+        )
+
+    manager = get_discord_bot_manager()
+    if not manager:
+        return {
+            "status": "error",
+            "message": "Discord bot manager is not running",
+            "bots": [],
+        }
+
+    statuses = manager.get_status()
+    return {
+        "status": "success",
+        "bots": [
+            {
+                "company_id": s.company_id,
+                "company_name": s.company_name,
+                "is_running": s.is_running,
+                "started_at": s.started_at.isoformat() if s.started_at else None,
+                "guild_count": s.guild_count,
+                "error": s.error,
+            }
+            for s in statuses.values()
+        ],
+    }
+
+
+# ============================================================================
 # Server Extension Command Endpoints (for enabling/disabling commands)
 # ============================================================================
 
@@ -1436,6 +1734,7 @@ class OAuthProviderItem(BaseModel):
     pkce_required: bool = False
     is_configured: bool = False
     settings: List[OAuthProviderSetting] = []
+    bot_invite_url: Optional[str] = None  # For providers with bot functionality (e.g., Discord)
 
 
 class OAuthProvidersResponse(BaseModel):
@@ -1544,9 +1843,31 @@ async def get_server_oauth_providers(
         client_id_key = f"{provider_upper}_CLIENT_ID"
         client_secret_key = f"{provider_upper}_CLIENT_SECRET"
 
-        # Get current values from server config (checks env vars then database)
-        client_id = getenv(client_id_key)
-        client_secret = getenv(client_secret_key)
+        # Get current values - check env vars first, then ServerExtensionSetting table
+        def get_oauth_setting(provider_name: str, setting_key: str) -> Optional[str]:
+            """Get OAuth setting from env var or database."""
+            # First check environment variable
+            env_value = os.getenv(setting_key)
+            if env_value:
+                return env_value
+            # Then check ServerExtensionSetting table
+            with get_session() as db:
+                setting = (
+                    db.query(ServerExtensionSetting)
+                    .filter(
+                        ServerExtensionSetting.extension_name == provider_name,
+                        ServerExtensionSetting.setting_key == setting_key,
+                    )
+                    .first()
+                )
+                if setting and setting.setting_value:
+                    if setting.is_sensitive:
+                        return decrypt_config_value(setting.setting_value)
+                    return setting.setting_value
+            return None
+
+        client_id = get_oauth_setting(module_name, client_id_key)
+        client_secret = get_oauth_setting(module_name, client_secret_key)
 
         settings = [
             OAuthProviderSetting(
@@ -1566,6 +1887,28 @@ async def get_server_oauth_providers(
                 description=f"OAuth Client Secret for {module_name.capitalize()}",
             ),
         ]
+        
+        # Add Discord-specific bot token setting and invite URL
+        bot_invite_url = None
+        if module_name.lower() == "discord":
+            bot_token_key = "DISCORD_BOT_TOKEN"
+            bot_token = get_oauth_setting(module_name, bot_token_key)
+            settings.append(
+                OAuthProviderSetting(
+                    setting_key=bot_token_key,
+                    setting_value=(
+                        mask_sensitive_value(bot_token, True) if bot_token else None
+                    ),
+                    is_sensitive=True,
+                    description="Discord Bot Token for server-level Discord bot integration",
+                )
+            )
+            # Generate bot invite URL if client_id is configured
+            # Permissions: VIEW_CHANNEL (1024) + SEND_MESSAGES (2048) + READ_MESSAGE_HISTORY (65536) + ADD_REACTIONS (64) = 68672
+            # Plus EMBED_LINKS (16384), ATTACH_FILES (32768), USE_SLASH_COMMANDS (2147483648) = 2147601472
+            if client_id:
+                bot_permissions = 2147601472
+                bot_invite_url = f"https://discord.com/api/oauth2/authorize?client_id={client_id}&permissions={bot_permissions}&scope=bot%20applications.commands"
 
         providers.append(
             OAuthProviderItem(
@@ -1576,6 +1919,7 @@ async def get_server_oauth_providers(
                 pkce_required=getattr(module, "PKCE_REQUIRED", False),
                 is_configured=bool(client_id and client_secret),
                 settings=settings,
+                bot_invite_url=bot_invite_url,
             )
         )
 
@@ -1589,7 +1933,7 @@ async def get_server_oauth_providers(
     "/v1/server/oauth-providers",
     tags=["Server OAuth Providers"],
     summary="Update OAuth provider settings (super admin only)",
-    description="Update OAuth provider CLIENT_ID and CLIENT_SECRET values.",
+    description="Update OAuth provider CLIENT_ID, CLIENT_SECRET, and BOT_TOKEN values.",
     dependencies=[Depends(verify_api_key)],
 )
 async def update_server_oauth_providers(
@@ -1609,10 +1953,8 @@ async def update_server_oauth_providers(
         for setting in request.settings:
             try:
                 # Validate this is a valid OAuth setting key
-                if not (
-                    setting.setting_key.endswith("_CLIENT_ID")
-                    or setting.setting_key.endswith("_CLIENT_SECRET")
-                ):
+                valid_suffixes = ("_CLIENT_ID", "_CLIENT_SECRET", "_BOT_TOKEN")
+                if not any(setting.setting_key.endswith(suffix) for suffix in valid_suffixes):
                     errors.append(f"Invalid OAuth setting key: {setting.setting_key}")
                     continue
 
@@ -1653,8 +1995,16 @@ async def update_server_oauth_providers(
 
         db.commit()
 
+    if errors:
+        message = f"Partially updated {len(updated)} settings with {len(errors)} errors: {', '.join(errors)}"
+        status = "partial"
+    else:
+        message = f"Successfully updated {len(updated)} OAuth settings"
+        status = "success"
+
     return {
-        "status": "success" if not errors else "partial",
+        "status": status,
+        "message": message,
         "updated": updated,
         "errors": errors,
     }

@@ -112,6 +112,7 @@ class DiscordSSO:
             username = data.get("username")
             full_username = f"{username}#{data.get('discriminator', '0000')}"
             global_name = data.get("global_name")  # Newer display name
+            discord_user_id = data.get("id")  # Discord numeric user ID
 
             # Use global_name for first name, username for last name if names aren't structured
             first_name = global_name if global_name else username
@@ -122,6 +123,7 @@ class DiscordSSO:
                 or full_username,  # Fallback to username#discriminator if email scope not granted/available
                 "first_name": first_name,
                 "last_name": last_name,
+                "provider_user_id": discord_user_id,  # Discord numeric user ID
             }
         except requests.exceptions.RequestException as e:
             logging.error(f"Error getting user info from Discord: {response.text}")
@@ -1178,3 +1180,87 @@ class discord(Extensions):
         except Exception as e:
             logging.error(f"Error getting Discord guild roles: {str(e)}")
             return f"Error getting roles: {str(e)}"
+
+
+def get_discord_user_ids(company_id: str = None) -> dict:
+    """
+    Get a mapping of Discord user ID -> email for users who have connected
+    their Discord account via OAuth.
+
+    This is a standalone utility function that can be called without instantiating
+    the Discord extension class. The mapping is designed for easy user impersonation
+    in Discord bots.
+
+    Args:
+        company_id (str, optional): The company ID to get Discord user mappings for.
+            If None, returns mappings for ALL users across all companies.
+            This is useful for server-level Discord bots that serve all companies.
+
+    Returns:
+        dict: A dictionary mapping Discord user ID (numeric string) to user email
+              e.g., {"123456789012345678": "user@example.com", "987654321098765432": "other@example.com"}
+              Returns empty dict if no users have connected Discord.
+
+    Example:
+        >>> from extensions.discord_integration import get_discord_user_ids
+        >>> # For a specific company:
+        >>> discord_users = get_discord_user_ids("company-uuid-here")
+        >>> # For all companies (server-level bot):
+        >>> discord_users = get_discord_user_ids()
+        >>> email = discord_users.get(str(message.author.id))
+        >>> if email:
+        ...     jwt = impersonate_user(email)
+    """
+    from DB import get_session, UserOAuth, OAuthProvider, UserCompany, User
+    from sqlalchemy.orm import joinedload
+
+    session = get_session()
+    try:
+        # Get the Discord provider record
+        provider = (
+            session.query(OAuthProvider).filter(OAuthProvider.name == "discord").first()
+        )
+        if not provider:
+            return {}
+
+        if company_id:
+            # Get users for a specific company
+            user_ids = (
+                session.query(UserCompany.user_id)
+                .filter(UserCompany.company_id == company_id)
+                .all()
+            )
+            user_ids = [str(uid[0]) for uid in user_ids]
+
+            if not user_ids:
+                return {}
+
+            # Get OAuth records for these users with Discord provider
+            oauth_records = (
+                session.query(UserOAuth)
+                .options(joinedload(UserOAuth.user))
+                .filter(UserOAuth.user_id.in_(user_ids))
+                .filter(UserOAuth.provider_id == provider.id)
+                .filter(UserOAuth.provider_user_id.isnot(None))
+                .all()
+            )
+        else:
+            # Get ALL users with Discord OAuth across all companies
+            oauth_records = (
+                session.query(UserOAuth)
+                .options(joinedload(UserOAuth.user))
+                .filter(UserOAuth.provider_id == provider.id)
+                .filter(UserOAuth.provider_user_id.isnot(None))
+                .all()
+            )
+
+        # Build the mapping: discord_user_id -> email (for impersonation)
+        result = {}
+        for oauth in oauth_records:
+            if oauth.provider_user_id and oauth.user:
+                # Map Discord ID -> user email for easy impersonation
+                result[oauth.provider_user_id] = oauth.user.email
+
+        return result
+    finally:
+        session.close()
