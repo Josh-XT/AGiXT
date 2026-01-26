@@ -1346,6 +1346,59 @@ You have access to context management commands to reduce token usage:
 
         return compressed.strip()
 
+    def deduplicate_repeated_content(
+        self, content: str, min_paragraph_length: int = 50
+    ) -> str:
+        """
+        Detect and remove repeated content blocks from the model's response.
+
+        Sometimes models get stuck in a loop and repeat the same content multiple times.
+        This function detects such patterns and keeps only the first occurrence.
+
+        Uses paragraph-based matching which is more robust than substring matching,
+        as it handles minor formatting differences between repetitions.
+
+        Args:
+            content: The content to deduplicate
+            min_paragraph_length: Minimum length of a paragraph to consider for deduplication
+
+        Returns:
+            Deduplicated content with only the first occurrence of repeated blocks
+        """
+        if len(content) < min_paragraph_length * 2:
+            return content  # Too short to have meaningful repetition
+
+        # Split into paragraphs/sections (split on one or more blank lines)
+        paragraphs = re.split(r"\n\s*\n", content)
+
+        if len(paragraphs) < 2:
+            return content  # Not enough paragraphs to have repetition
+
+        # Track seen paragraphs (normalized for comparison)
+        seen = {}
+
+        for i, para in enumerate(paragraphs):
+            # Normalize paragraph for comparison (strip whitespace, normalize internal spaces)
+            normalized = " ".join(para.split())
+
+            if len(normalized) < min_paragraph_length:
+                continue  # Skip very short paragraphs
+
+            if normalized in seen:
+                # Found repetition - keep only paragraphs before this one
+                result_paras = paragraphs[:i]
+                result = "\n\n".join(result_paras).strip()
+
+                # Log that we found and removed repetition
+                logging.debug(
+                    f"Deduplicated response: removed {len(paragraphs) - i} repeated paragraphs"
+                )
+                return result
+            else:
+                seen[normalized] = i
+
+        return content
+
     async def reduce_context(
         self,
         user_input: str,
@@ -3334,9 +3387,16 @@ Example: If user says "list my files", use:
                             cleaned_new_answer,
                             flags=re.DOTALL | re.IGNORECASE,
                         )
+                        # Remove <final> tags - model-generated internal markers
+                        cleaned_new_answer = re.sub(
+                            r"<final>.*?</final>",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.DOTALL | re.IGNORECASE,
+                        )
                         # Partial/unclosed opening tags at end (tag started but not closed)
                         cleaned_new_answer = re.sub(
-                            r"<(thinking|reflection|step|reward|count)>[^<]*$",
+                            r"<(thinking|reflection|step|reward|count|final)>[^<]*$",
                             "",
                             cleaned_new_answer,
                             flags=re.IGNORECASE,
@@ -3353,7 +3413,7 @@ Example: If user says "list my files", use:
                         )
                         # Orphaned closing tags (closing tag without opening)
                         cleaned_new_answer = re.sub(
-                            r"</(thinking|reflection|step|reward|count)>",
+                            r"</(thinking|reflection|step|reward|count|final)>",
                             "",
                             cleaned_new_answer,
                             flags=re.IGNORECASE,
@@ -3362,21 +3422,21 @@ Example: If user says "list my files", use:
                         # This handles cases where chunk boundaries split tags like "<reflection>"
                         # into "<" and "reflection>" with the "<" getting cleaned separately
                         cleaned_new_answer = re.sub(
-                            r"(?<![<a-zA-Z])/?(?:thinking|reflection|step|reward|count)>",
+                            r"(?<![<a-zA-Z])/?(?:thinking|reflection|step|reward|count|final)>",
                             "",
                             cleaned_new_answer,
                             flags=re.IGNORECASE,
                         )
                         # Partial closing tags at start (leftover from previous chunk)
                         cleaned_new_answer = re.sub(
-                            r"^[^<]*</(thinking|reflection|step|reward|count)>",
+                            r"^[^<]*</(thinking|reflection|step|reward|count|final)>",
                             "",
                             cleaned_new_answer,
                             flags=re.IGNORECASE,
                         )
                         # Clean any remaining partial tag fragments at start
                         cleaned_new_answer = re.sub(
-                            r"^(thinking|reflection|step|reward|count)?>",
+                            r"^(thinking|reflection|step|reward|count|final)?>",
                             "",
                             cleaned_new_answer,
                             flags=re.IGNORECASE,
@@ -3819,9 +3879,16 @@ Analyze the actual output shown and continue with your response.
                                 cleaned_new_answer,
                                 flags=re.DOTALL | re.IGNORECASE,
                             )
+                            # Remove <final> tags - model-generated internal markers
+                            cleaned_new_answer = re.sub(
+                                r"<final>.*?</final>",
+                                "",
+                                cleaned_new_answer,
+                                flags=re.DOTALL | re.IGNORECASE,
+                            )
                             # Remove orphaned closing tags
                             cleaned_new_answer = re.sub(
-                                r"</(?:thinking|reflection|step|reward|count|answer)>",
+                                r"</(?:thinking|reflection|step|reward|count|answer|final)>",
                                 "",
                                 cleaned_new_answer,
                                 flags=re.IGNORECASE,
@@ -3932,10 +3999,14 @@ Analyze the actual output shown and continue with your response.
         final_answer = re.sub(
             r"<speak>.*?</speak>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
         )
+        # Remove <final> tags - these are model-generated internal markers that shouldn't be visible
+        final_answer = re.sub(
+            r"<final>.*?</final>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
+        )
         # Remove orphaned closing tags (closing tags without matching opening tags)
         # This handles malformed model output with stray </thinking>, </reflection>, etc.
         final_answer = re.sub(
-            r"</thinking>|</reflection>|</step>|</execute>|</output>|</speak>|</answer>|</count>|</reward>",
+            r"</thinking>|</reflection>|</step>|</execute>|</output>|</speak>|</answer>|</count>|</reward>|</final>",
             "",
             final_answer,
             flags=re.IGNORECASE,
@@ -3956,6 +4027,10 @@ Analyze the actual output shown and continue with your response.
             flags=re.IGNORECASE,
         )
         final_answer = final_answer.strip()
+
+        # Deduplicate repeated content - sometimes the model repeats the same answer multiple times
+        # This detects if the answer contains repeated blocks and keeps only the first occurrence
+        final_answer = self.deduplicate_repeated_content(final_answer)
 
         # Deanonymize AGiXT server URL
         final_answer = final_answer.replace(
