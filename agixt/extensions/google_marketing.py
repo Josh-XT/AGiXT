@@ -189,7 +189,7 @@ class google_marketing(Extensions):
     independent from the basic Google SSO connection.
     """
 
-    CATEGORY = "Marketing"
+    CATEGORY = "Social & Communication"
 
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key")

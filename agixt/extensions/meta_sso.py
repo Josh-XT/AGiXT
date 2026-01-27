@@ -27,6 +27,7 @@ SCOPES = ["email", "public_profile"]
 AUTHORIZE = "https://www.facebook.com/v18.0/dialog/oauth"
 PKCE_REQUIRED = False
 SSO_ONLY = True  # This provider can be used for login/registration
+CATEGORY = "Authentication"
 
 
 class MetaSsoSSO:

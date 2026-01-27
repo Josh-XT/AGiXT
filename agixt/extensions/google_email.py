@@ -173,7 +173,7 @@ class google_email(Extensions):
     independent from the basic Google SSO connection.
     """
 
-    CATEGORY = "Email"
+    CATEGORY = "Social & Communication"
 
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key")

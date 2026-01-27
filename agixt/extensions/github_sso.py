@@ -27,6 +27,7 @@ SCOPES = ["user:email", "read:user"]
 AUTHORIZE = "https://github.com/login/oauth/authorize"
 PKCE_REQUIRED = False
 SSO_ONLY = True  # This provider can be used for login/registration
+CATEGORY = "Authentication"
 
 
 class GithubSsoSSO:

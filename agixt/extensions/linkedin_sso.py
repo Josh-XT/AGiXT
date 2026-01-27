@@ -28,6 +28,7 @@ SCOPES = ["openid", "profile", "email"]
 AUTHORIZE = "https://www.linkedin.com/oauth/v2/authorization"
 PKCE_REQUIRED = False
 SSO_ONLY = True  # This provider can be used for login/registration
+CATEGORY = "Authentication"
 
 
 class LinkedinSsoSSO:
