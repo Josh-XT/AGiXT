@@ -32,7 +32,8 @@ AUTHORIZE = "https://discord.com/api/oauth2/authorize"
 TOKEN_URL = "https://discord.com/api/oauth2/token"
 USER_INFO_URL = "https://discord.com/api/users/@me"
 PKCE_REQUIRED = False
-SSO_ONLY = True  # This provider can be used for login/registration
+SSO_ONLY = False  # Discord is a full extension with bot commands, not just SSO
+LOGIN_CAPABLE = True  # Discord can also be used for login/registration
 
 
 class DiscordSSO:

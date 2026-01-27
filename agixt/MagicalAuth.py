@@ -672,8 +672,10 @@ def get_oauth_providers():
                     client_id = getenv("GOOGLE_CLIENT_ID")
 
             if client_id:
-                # Check if this provider has SSO_ONLY flag (can be used for login)
+                # Check if this provider has SSO_ONLY flag (only for login, no extension commands)
                 sso_only = getattr(module, "SSO_ONLY", False)
+                # Check if this provider can be used for login (either SSO_ONLY or LOGIN_CAPABLE)
+                login_capable = getattr(module, "LOGIN_CAPABLE", False) or sso_only
                 providers.append(
                     {
                         "name": module_name,
@@ -682,6 +684,7 @@ def get_oauth_providers():
                         "client_id": client_id,
                         "pkce_required": module.PKCE_REQUIRED,
                         "sso_only": sso_only,
+                        "login_capable": login_capable,
                     }
                 )
         except Exception as e:
