@@ -258,6 +258,12 @@ class InternalClient:
         result, status = delete_agent(agent_id=agent_id, user=self.user)
         return result
 
+    def get_agents(self) -> List[Dict[str, Any]]:
+        """Get all agents accessible to the current user."""
+        from Agent import get_agents
+
+        return get_agents(user=self.user)
+
     def rename_agent(self, agent_id: str, new_name: str) -> str:
         """Rename an agent by ID."""
         from Agent import rename_agent, get_agent_name_by_id

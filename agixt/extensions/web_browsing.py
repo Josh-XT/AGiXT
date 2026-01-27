@@ -83,7 +83,6 @@ pytesseract = _import_optional("pytesseract", "pytesseract")
 Image = _import_optional("PIL.Image", "Pillow")
 
 from Extensions import Extensions
-from Websearch import search_the_web
 import xml.etree.ElementTree as ET
 
 # Configure logging
@@ -189,39 +188,126 @@ class web_browsing(Extensions):
 
         Args:
             query (str): The search query.
-            websearch_depth (int): The depth of the web search.
-            websearch_timeout (int): The timeout for the web search.
+            websearch_depth (int): The depth of the web search (number of results, max 10).
+            websearch_timeout (int): The timeout for the web search (not used currently).
 
         Returns:
-            str: The results of the web search.
+            str: The results of the web search in markdown format.
         """
+        from urllib.parse import quote, unquote
+        from html.parser import HTMLParser
+        import httpx
+
         try:
-            int(websearch_depth)
+            websearch_depth = int(websearch_depth)
+            if websearch_depth < 1:
+                websearch_depth = 3
+            if websearch_depth > 10:
+                websearch_depth = 10
         except:
             websearch_depth = 3
+
+        class DDGHTMLParser(HTMLParser):
+            """Parser for DuckDuckGo HTML search results."""
+
+            def __init__(self):
+                super().__init__()
+                self.results = []
+                self.in_result_link = False
+                self.in_snippet_link = False
+                self.current_result = {}
+
+            def handle_starttag(self, tag, attrs):
+                attrs_dict = dict(attrs)
+                class_attr = attrs_dict.get("class", "")
+
+                if tag == "a" and "result__a" in class_attr:
+                    self.in_result_link = True
+                    raw_url = attrs_dict.get("href", "")
+                    # Extract actual URL from DuckDuckGo redirect
+                    if "uddg=" in raw_url:
+                        try:
+                            url_part = raw_url.split("uddg=")[1].split("&")[0]
+                            self.current_result["url"] = unquote(url_part)
+                        except:
+                            self.current_result["url"] = raw_url
+                    else:
+                        self.current_result["url"] = raw_url
+                    self.current_result["title"] = ""
+                elif tag == "a" and "result__snippet" in class_attr:
+                    self.in_snippet_link = True
+                    self.current_result["snippet"] = ""
+
+            def handle_endtag(self, tag):
+                if tag == "a" and self.in_result_link:
+                    self.in_result_link = False
+                elif tag == "a" and self.in_snippet_link:
+                    self.in_snippet_link = False
+                    # Save result when snippet ends (it comes after title)
+                    if self.current_result.get("url") and self.current_result.get(
+                        "title"
+                    ):
+                        # Filter out ads (DDG ads have tracking URLs)
+                        url = self.current_result.get("url", "")
+                        if not any(
+                            ad in url
+                            for ad in ["duckduckgo.com/y.js", "ad_provider", "ad_type"]
+                        ):
+                            self.results.append(self.current_result.copy())
+                    self.current_result = {}
+
+            def handle_data(self, data):
+                if self.in_result_link:
+                    self.current_result["title"] = (
+                        self.current_result.get("title", "") + data.strip()
+                    )
+                elif self.in_snippet_link:
+                    self.current_result["snippet"] = (
+                        self.current_result.get("snippet", "") + data.strip()
+                    )
+
         try:
-            int(websearch_timeout)
-        except:
-            websearch_timeout = 0
-        websearch_llm_timeout = getattr(self, "websearch_timeout_seconds", 60)
-        return await self._call_prompt_agent(
-            timeout=websearch_llm_timeout,
-            agent_name=self.agent_name,
-            prompt_name="User Input",
-            prompt_args={
-                "user_input": query,
-                "websearch": True,
-                "websearch_depth": websearch_depth,
-                "websearch_timeout": websearch_timeout,
-                "conversation_name": self.conversation_name,
-                "disable_commands": True,
-                "log_user_input": False,
-                "log_output": False,
-                "tts": False,
-                "analyze_user_input": False,
-                "browse_links": True,
-            },
-        )
+            # Use DuckDuckGo HTML interface with httpx (works without JavaScript)
+            search_url = f"https://html.duckduckgo.com/html/?q={quote(query)}"
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Accept-Encoding": "gzip, deflate",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+            }
+
+            async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+                response = await client.get(search_url, headers=headers)
+                response.raise_for_status()
+
+            # Parse HTML results
+            parser = DDGHTMLParser()
+            parser.feed(response.text)
+
+            results = parser.results[:websearch_depth]
+
+            if not results:
+                return f"No search results found for: {query}"
+
+            # Format results as markdown
+            output_lines = [f"## Search Results for: {query}\n"]
+            for r in results:
+                title = r.get("title", "Untitled")
+                url = r.get("url", "")
+                snippet = r.get("snippet", "")
+                output_lines.append(f"### [{title}]({url})")
+                if snippet:
+                    output_lines.append(f"{snippet}\n")
+
+            return "\n".join(output_lines)
+
+        except Exception as e:
+            logging.error(f"Web search error: {e}")
+            return f"Error performing web search: {str(e)}"
 
     async def _ensure_browser_page(self, headless: bool = True):
         """Internal helper to ensure Playwright, browser, context, and page are initialized."""
