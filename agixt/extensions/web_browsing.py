@@ -189,39 +189,62 @@ class web_browsing(Extensions):
 
         Args:
             query (str): The search query.
-            websearch_depth (int): The depth of the web search.
-            websearch_timeout (int): The timeout for the web search.
+            websearch_depth (int): The depth of the web search (number of results, max 10).
+            websearch_timeout (int): The timeout for the web search (not used currently).
 
         Returns:
-            str: The results of the web search.
+            str: The results of the web search in markdown format.
         """
         try:
-            int(websearch_depth)
+            websearch_depth = int(websearch_depth)
+            if websearch_depth < 1:
+                websearch_depth = 3
+            if websearch_depth > 10:
+                websearch_depth = 10
         except:
             websearch_depth = 3
+
         try:
-            int(websearch_timeout)
-        except:
-            websearch_timeout = 0
-        websearch_llm_timeout = getattr(self, "websearch_timeout_seconds", 60)
-        return await self._call_prompt_agent(
-            timeout=websearch_llm_timeout,
-            agent_name=self.agent_name,
-            prompt_name="User Input",
-            prompt_args={
-                "user_input": query,
-                "websearch": True,
-                "websearch_depth": websearch_depth,
-                "websearch_timeout": websearch_timeout,
-                "conversation_name": self.conversation_name,
-                "disable_commands": True,
-                "log_user_input": False,
-                "log_output": False,
-                "tts": False,
-                "analyze_user_input": False,
-                "browse_links": True,
-            },
-        )
+            # Use the ddgs package for reliable DuckDuckGo search
+            from ddgs import DDGS
+
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=websearch_depth))
+
+            if not results:
+                return f"No search results found for: {query}"
+
+            # Format results as markdown
+            output_lines = [f"## Search Results for: {query}\n"]
+            for r in results:
+                title = r.get("title", "Untitled")
+                url = r.get("href", "")
+                body = r.get("body", "")
+                output_lines.append(f"### [{title}]({url})")
+                if body:
+                    output_lines.append(f"{body}\n")
+
+            return "\n".join(output_lines)
+
+        except ImportError:
+            logging.warning(
+                "ddgs package not installed, falling back to internal search"
+            )
+            # Fallback to internal search_the_web
+            try:
+                result = await search_the_web(
+                    query=query,
+                    token=self.api_key,
+                    agent_name=self.agent_name,
+                    conversation_name=self.conversation_name or "-",
+                )
+                return result
+            except Exception as e:
+                logging.error(f"Fallback search error: {e}")
+                return f"Error performing web search: {str(e)}"
+        except Exception as e:
+            logging.error(f"Web search error: {e}")
+            return f"Error performing web search: {str(e)}"
 
     async def _ensure_browser_page(self, headless: bool = True):
         """Internal helper to ensure Playwright, browser, context, and page are initialized."""

@@ -3,3 +3,5 @@ safeexecute==0.0.22
 redis
 agixtsdk==0.0.82
 argon2-cffi>=21.3.0
+ddgs>=9.10.0
+httpx>=0.27.2
