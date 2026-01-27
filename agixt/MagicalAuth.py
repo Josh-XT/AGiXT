@@ -660,8 +660,20 @@ def get_oauth_providers():
         module_name = filename.replace(".py", "")
 
         try:
+            # Check for module-specific client ID first
             client_id = getenv(f"{module_name.upper()}_CLIENT_ID")
+
+            # For service-specific OAuth providers (microsoft_sso, microsoft_email, etc.),
+            # also check for the base provider client ID (MICROSOFT_CLIENT_ID, GOOGLE_CLIENT_ID)
+            if not client_id:
+                if module_name.startswith("microsoft_"):
+                    client_id = getenv("MICROSOFT_CLIENT_ID")
+                elif module_name.startswith("google_"):
+                    client_id = getenv("GOOGLE_CLIENT_ID")
+
             if client_id:
+                # Check if this provider has SSO_ONLY flag (can be used for login)
+                sso_only = getattr(module, "SSO_ONLY", False)
                 providers.append(
                     {
                         "name": module_name,
@@ -669,6 +681,7 @@ def get_oauth_providers():
                         "authorize": module.AUTHORIZE,
                         "client_id": client_id,
                         "pkce_required": module.PKCE_REQUIRED,
+                        "sso_only": sso_only,
                     }
                 )
         except Exception as e:
