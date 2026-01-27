@@ -16,6 +16,8 @@ logging.basicConfig(
 
 
 # Meta Marketing API permissions required for advertising
+# Note: For login-only functionality with minimal scopes, use meta_sso instead.
+# This extension grants the AI access to manage advertising campaigns.
 SCOPES = [
     "ads_management",
     "ads_read",
@@ -29,6 +31,7 @@ SCOPES = [
 
 AUTHORIZE = "https://www.facebook.com/v18.0/dialog/oauth"
 PKCE_REQUIRED = False
+# No SSO_ONLY - this extension is for AI advertising management, not login
 
 
 class MetaSSO:

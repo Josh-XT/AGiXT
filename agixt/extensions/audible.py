@@ -34,7 +34,7 @@ class audible(Extensions):
     Use responsibly and in accordance with Audible's terms of service.
     """
 
-    CATEGORY = "Entertainment & Media"
+    CATEGORY = "Productivity"
 
     def __init__(
         self,

@@ -25,20 +25,32 @@ from google.oauth2.credentials import Credentials
 from google.ads.googleads.client import GoogleAdsClient
 
 """
+DEPRECATED: This extension is deprecated and will be removed in a future release.
+
+Please use the service-specific Google extensions instead:
+- google_sso: For login/registration only (minimal scopes)
+- google_email: For Gmail email functionality
+- google_calendar: For Google Calendar functionality
+- google_marketing: For Google Ads, Analytics, and Tag Manager
+
+This extension remains for backward compatibility but requests ALL scopes at once.
+For better security and user experience, use the service-specific extensions.
+
 Required environment variables:
 
 - GOOGLE_CLIENT_ID: Google OAuth client ID
 - GOOGLE_CLIENT_SECRET: Google OAuth client secret
 
-Required APIs
-
-Follow the links to confirm that you have the APIs enabled,
-then add the `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` environment variables to your `.env` file.
+Required APIs:
 
 - People API https://console.cloud.google.com/marketplace/product/google/people.googleapis.com
 - Gmail API https://console.cloud.google.com/marketplace/product/google/gmail.googleapis.com
+- Calendar API https://console.cloud.google.com/marketplace/product/google/calendar-json.googleapis.com
+- Google Ads API https://console.cloud.google.com/marketplace/product/google/googleads.googleapis.com
+- Google Analytics Admin API https://console.cloud.google.com/marketplace/product/google/analyticsadmin.googleapis.com
+- Tag Manager API https://console.cloud.google.com/marketplace/product/google/tagmanager.googleapis.com
 
-Required scopes for Google SSO
+Required scopes for Google SSO (all scopes combined):
 """
 
 SCOPES = [

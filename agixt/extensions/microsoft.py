@@ -10,17 +10,24 @@ from fastapi import HTTPException
 
 
 """
+DEPRECATED: This extension is deprecated and will be removed in a future release.
+
+Please use the service-specific Microsoft extensions instead:
+- microsoft_sso: For login/registration only (minimal scopes)
+- microsoft_email: For Outlook email functionality
+- microsoft_calendar: For calendar functionality
+- microsoft_onedrive: For OneDrive file storage
+- microsoft_sharepoint: For SharePoint sites and documents
+
+This extension remains for backward compatibility but requests ALL scopes at once.
+For better security and user experience, use the service-specific extensions.
+
 Required environment variables:
 
 - MICROSOFT_CLIENT_ID: Microsoft OAuth client ID
 - MICROSOFT_CLIENT_SECRET: Microsoft OAuth client secret
 
-Required APIs
-
-Follow the links to confirm that you have the APIs enabled,
-then add the `MICROSOFT_CLIENT_ID` and `MICROSOFT_CLIENT_SECRET` environment variables to your `.env` file.
-
-Required scopes for Microsoft OAuth
+Required scopes for Microsoft OAuth (all scopes combined):
 
 - offline_access
 - https://graph.microsoft.com/User.Read

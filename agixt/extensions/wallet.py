@@ -1559,3 +1559,4 @@ WALLET_PROVIDERS = {
 SCOPES = []  # No scopes needed for wallet auth
 AUTHORIZE = ""  # No authorization URL for wallet auth
 PKCE_REQUIRED = False  # No PKCE for wallet auth
+SSO_ONLY = True  # This provider can be used for login/registration
