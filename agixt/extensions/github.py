@@ -31,18 +31,21 @@ Required environment variables:
 - GITHUB_CLIENT_ID: GitHub OAuth client ID
 - GITHUB_CLIENT_SECRET: GitHub OAuth client secret
 
-Required scopes for GitHub OAuth
+Required scopes for GitHub OAuth (full repository access for AI)
 
-- repo
-- user:email
-- read:user
-- workflow
+- repo: Full repository access
+- user:email: Access user's email address
+- read:user: Read user profile information
+- workflow: Manage GitHub Actions workflows
+
+Note: For login-only functionality with minimal scopes, use github_sso instead.
+This extension grants the AI full access to work with repositories.
 """
 
 SCOPES = ["repo", "user:email", "read:user", "workflow"]
 AUTHORIZE = "https://github.com/login/oauth/authorize"
 PKCE_REQUIRED = False
-SSO_ONLY = True  # This provider can be used for login/registration
+# No SSO_ONLY - this extension is for AI repository access, not login
 
 
 class GitHubSSO:

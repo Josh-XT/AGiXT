@@ -23,7 +23,7 @@ Add the following products to your app:
 - Share on LinkedIn
 - Marketing Developer Platform (for company page access)
 
-Required scopes for LinkedIn OAuth:
+Required scopes for LinkedIn OAuth (social posting for AI):
 - openid (for OpenID Connect sign-in)
 - profile (basic profile info)
 - email (email address)
@@ -36,6 +36,9 @@ Note: LinkedIn restricts certain APIs. Some features require partner program app
 - Messaging API requires LinkedIn partnership
 - Full connections list requires partnership
 - Company page posting requires Marketing Developer Platform approval
+
+For login-only functionality with minimal scopes, use linkedin_sso instead.
+This extension grants the AI ability to post on the user's behalf.
 """
 
 SCOPES = [
@@ -49,6 +52,7 @@ SCOPES = [
 
 AUTHORIZE = "https://www.linkedin.com/oauth/v2/authorization"
 PKCE_REQUIRED = False
+# No SSO_ONLY - this extension is for AI social posting, not login
 
 
 class LinkedInSSO:
