@@ -431,20 +431,18 @@ class TestContext:
 # These are operations that require admin privileges (is_admin check or admin-only scopes)
 #
 # Role scopes reference (from DB.py default_role_scopes):
-# - user (role_id=3): agents:read/execute, conversations:*, extensions:read/execute,
+# - user (role_id=3): agents:read/write/execute, conversations:*, extensions:read/execute,
 #   memories:read/write, chains:read/execute, prompts:read, assets:read/write, etc.
 # - read_only_user (role_id=6): Only read access - no write/execute scopes
 #
-# Users CAN: read chains, run chains, execute commands, learn text, get memories
-# Users CANNOT: create/delete/modify chains, create agents, manage webhooks, invite users
+# Users CAN: read chains, run chains, execute commands, learn text, get memories,
+#            create/update/rename agents (agents:write), update agent settings and commands
+# Users CANNOT: delete agents, modify chains, manage webhooks, invite users, wipe memories
 ADMIN_ONLY_TESTS = {
-    # Agent management (requires agents:write scope)
-    "create_agent",
+    # Agent management - only delete requires admin (users have agents:write for create/update/rename)
     "delete_agent",
-    "rename_agent",
-    "update_agent_settings",
-    "update_agent_commands",
-    "toggle_command",
+    # Note: create_agent, rename_agent, update_agent_settings, update_agent_commands, toggle_command
+    #       are now allowed for users with agents:write scope
     # Note: get_agent_config is allowed for users with agents:read scope
     # Chain management - write operations only (user has chains:read, chains:execute)
     "create_chain",  # Requires chains:write
@@ -637,17 +635,35 @@ def run_test(
         return None
 
 
-def register_user(email: str, first_name: str, last_name: str) -> tuple:
-    """Register a new user and return (sdk, otp_uri, mfa_token)"""
+def register_user(
+    email: str, first_name: str, last_name: str, password: str = "TestPassword123!"
+) -> tuple:
+    """Register a new user and return (sdk, otp_uri, mfa_token)
+
+    Note: With the new auth system, users register with a password.
+    MFA is now optional and can be enabled later via account settings.
+    For backwards compatibility, we still return otp_uri and mfa_token if provided.
+    """
     sdk = AGiXTSDK(base_uri=ctx.base_uri, verbose=ctx.verbose)
     failures = 0
 
     while failures < 100:
         try:
+            # New registration with password
             otp_uri = sdk.register_user(
-                email=email, first_name=first_name, last_name=last_name
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                password=password,
+                confirm_password=password,
             )
-            mfa_token = str(otp_uri).split("secret=")[1].split("&")[0]
+            # After registration, log in with password
+            sdk.login(username=email, password=password)
+
+            # For backwards compat, extract mfa_token if otp_uri is provided
+            mfa_token = None
+            if otp_uri and "secret=" in str(otp_uri):
+                mfa_token = str(otp_uri).split("secret=")[1].split("&")[0]
             return sdk, otp_uri, mfa_token
         except Exception as e:
             print(f"Registration attempt failed: {e}")
@@ -664,11 +680,12 @@ def invite_and_register_user(
     first_name: str,
     last_name: str,
     role_id: int = 3,
+    password: str = "TestPassword123!",
 ) -> tuple:
     """
     Invite a user to a company and register them.
 
-    Returns: (sdk, invitation_response)
+    Returns: (sdk, otp_uri, mfa_token, invitation)
     """
     # Create invitation using admin's token
     invitation_data = {"email": email, "company_id": company_id, "role_id": role_id}
@@ -701,13 +718,15 @@ def invite_and_register_user(
     # Register the new user with the invitation
     sdk = AGiXTSDK(base_uri=ctx.base_uri, verbose=ctx.verbose)
 
-    # The registration endpoint accepts invitation_id
+    # The registration endpoint accepts invitation_id and password
     register_response = requests.post(
         f"{ctx.base_uri}/v1/user",
         json={
             "email": email,
             "first_name": first_name,
             "last_name": last_name,
+            "password": password,
+            "confirm_password": password,
             "invitation_id": invitation_id if invitation_id != "none" else "",
         },
     )
@@ -719,14 +738,17 @@ def invite_and_register_user(
 
     reg_data = register_response.json()
 
-    if "otp_uri" in reg_data:
-        mfa_token = str(reg_data["otp_uri"]).split("secret=")[1].split("&")[0]
-        totp = pyotp.TOTP(mfa_token)
-        sdk.login(email=email, otp=totp.now())
-        print(f"✅ Registered and logged in invited user: {email}")
-        return sdk, reg_data["otp_uri"], mfa_token, invitation
-    else:
-        raise Exception(f"Unexpected registration response: {reg_data}")
+    # Login with password (new flow)
+    sdk.login(username=email, password=password)
+    print(f"✅ Registered and logged in invited user: {email}")
+
+    # Extract mfa_token for backwards compat if otp_uri is present
+    mfa_token = None
+    otp_uri = reg_data.get("otp_uri")
+    if otp_uri and "secret=" in str(otp_uri):
+        mfa_token = str(otp_uri).split("secret=")[1].split("&")[0]
+
+    return sdk, otp_uri, mfa_token, invitation
 
 
 # ============================================
@@ -1710,7 +1732,13 @@ def run_all_role_tests():
         ),  # Both user and read_only have chains:read
         (test_get_prompts, "get_prompts", False, False, False),
         # Agent operations
-        (test_create_agent, "create_agent", True, True, False),  # Requires agents:write
+        (
+            test_create_agent,
+            "create_agent",
+            False,
+            True,
+            False,
+        ),  # user has agents:write, read_only does not
         (
             test_get_agent_config,
             "get_agent_config",
@@ -1739,14 +1767,20 @@ def run_all_role_tests():
             False,
             False,
         ),  # Allowed for users with extensions:read scope
-        (test_rename_agent, "rename_agent", True, True, False),  # Requires agents:write
+        (
+            test_rename_agent,
+            "rename_agent",
+            False,
+            True,
+            False,
+        ),  # user has agents:write, read_only does not
         (
             test_update_agent_settings,
             "update_agent_settings",
-            True,
+            False,
             True,
             False,
-        ),  # Requires agents:write
+        ),  # user has agents:write, read_only does not
         # Conversation operations
         (
             test_create_conversation,

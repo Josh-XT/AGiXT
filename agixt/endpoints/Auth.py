@@ -5,7 +5,9 @@ import os
 from Models import (
     Detail,
     Login,
+    LoginMagicLink,
     Register,
+    RegisterLegacy,
     CompanyResponse,
     InvitationCreate,
     InvitationCreateByRole,
@@ -19,6 +21,8 @@ from Models import (
     UpdateCompanyInput,
     UpdateUserRole,
 )
+from pydantic import BaseModel
+from typing import Optional
 from DB import TokenBlacklist, get_session, default_roles
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response
@@ -135,12 +139,18 @@ async def register(register: Register):
     mfa_token = result["mfa_token"]
     totp = pyotp.TOTP(mfa_token)
     otp_uri = totp.provisioning_uri(name=register.email, issuer_name=getenv("APP_NAME"))
-    # Generate and return login link
-    login = Login(email=register.email, token=totp.now())
+    # Generate and return login link (legacy magic link for backward compat)
+    login = LoginMagicLink(email=register.email, token=totp.now())
     magic_link = auth.send_magic_link(
         ip_address="registration", login=login, send_link=False
     )
-    return {"otp_uri": otp_uri, "magic_link": magic_link}
+    return {
+        "otp_uri": otp_uri,
+        "magic_link": magic_link,
+        "token": result.get("token"),  # JWT for immediate login
+        "user_id": result.get("user_id"),
+        "username": result.get("username"),
+    }
 
 
 # Get invitations is auth.get_invitations(company_id)
@@ -328,11 +338,108 @@ async def get_user(
 
 @app.post(
     "/v1/login",
-    response_model=Detail,
-    summary="Login with email and OTP token",
+    summary="Login with username/password or legacy magic link",
     tags=["Auth"],
 )
-async def send_magic_link(request: Request, login: Login):
+async def login(request: Request, login: Login):
+    """
+    Primary login endpoint supporting username/password authentication.
+
+    - **username**: Username or email address
+    - **password**: User's password
+    - **mfa_token**: Optional TOTP code if MFA is enabled
+
+    Returns JWT token on successful authentication.
+    """
+    auth = MagicalAuth()
+    client_ip = request.headers.get("X-Forwarded-For") or request.client.host
+
+    result = auth.login_with_password(
+        username=login.username,
+        password=login.password,
+        mfa_token=login.mfa_token,
+        ip_address=client_ip,
+    )
+
+    if result.get("status_code", 500) != 200:
+        status_code = result.get("status_code", 500)
+        error = result.get("error", "Login failed")
+
+        # Include additional flags for special cases
+        response_content = {"detail": error}
+        if result.get("mfa_required"):
+            response_content["mfa_required"] = True
+        if result.get("mfa_setup_required"):
+            response_content["mfa_setup_required"] = True
+
+        return JSONResponse(status_code=status_code, content=response_content)
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "detail": "Login successful",
+            "token": result["token"],
+            "user_id": result.get("user_id"),
+            "email": result.get("email"),
+            "username": result.get("username"),
+        },
+    )
+
+
+class RequestLoginLinkRequest(BaseModel):
+    email: str
+
+
+@app.post(
+    "/v1/login/request-link",
+    response_model=Detail,
+    summary="Request a login link via email",
+    tags=["Auth"],
+)
+async def request_login_link(request: Request, body: RequestLoginLinkRequest):
+    """
+    Request a login link to be sent to the user's email.
+
+    This endpoint allows users who don't have a password set (MFA-only users)
+    to receive a login link via email. It's also useful as a "forgot password"
+    alternative for passwordless login.
+
+    For security, this endpoint always returns success even if the email
+    doesn't exist (to prevent email enumeration attacks).
+    """
+    auth = MagicalAuth()
+    client_ip = request.headers.get("X-Forwarded-For") or request.client.host
+
+    # Get referrer from request body if provided
+    try:
+        data = await request.json()
+        referrer = data.get("referrer")
+    except Exception:
+        referrer = None
+
+    result = auth.request_login_link(
+        email=body.email,
+        ip_address=client_ip,
+        referrer=referrer,
+    )
+
+    return Detail(detail=result.get("detail", "Request processed"))
+
+
+@app.post(
+    "/v1/login/magic-link",
+    response_model=Detail,
+    summary="Login with magic link (legacy)",
+    tags=["Auth"],
+)
+async def send_magic_link(request: Request, login: LoginMagicLink):
+    """
+    Legacy magic link login endpoint.
+    Sends a magic link to the user's email for passwordless authentication.
+
+    This endpoint is maintained for backward compatibility.
+    New implementations should use /v1/login with username/password.
+    """
     auth = MagicalAuth()
     data = await request.json()
     referrer = None
@@ -343,6 +450,184 @@ async def send_magic_link(request: Request, login: Login):
         ip_address=client_ip, login=login, referrer=referrer
     )
     return Detail(detail=magic_link)
+
+
+# MFA Management Endpoints
+class MFATokenRequest(BaseModel):
+    mfa_token: str
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+    confirm_password: str
+
+
+class SetPasswordRequest(BaseModel):
+    new_password: str
+    confirm_password: str
+
+
+class DisableMFARequest(BaseModel):
+    password: Optional[str] = None
+    mfa_token: Optional[str] = None
+
+
+@app.get(
+    "/v1/user/mfa/setup",
+    dependencies=[Depends(verify_api_key)],
+    summary="Get MFA setup information",
+    tags=["Auth", "MFA"],
+)
+async def get_mfa_setup(
+    authorization: str = Header(None),
+    email: str = Depends(verify_api_key),
+):
+    """
+    Get MFA setup information including QR code provisioning URI.
+
+    Returns:
+    - provisioning_uri: URI for QR code generation
+    - secret: The TOTP secret (for manual entry)
+    - mfa_enabled: Current MFA status
+    """
+    auth = MagicalAuth(token=authorization)
+    result = auth.get_mfa_setup()
+
+    if result.get("status_code", 500) != 200:
+        raise HTTPException(
+            status_code=result.get("status_code", 500),
+            detail=result.get("error", "Failed to get MFA setup"),
+        )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "provisioning_uri": result["provisioning_uri"],
+            "secret": result["secret"],
+            "mfa_enabled": result["mfa_enabled"],
+        },
+    )
+
+
+@app.post(
+    "/v1/user/mfa/enable",
+    dependencies=[Depends(verify_api_key)],
+    summary="Enable MFA for user",
+    tags=["Auth", "MFA"],
+)
+async def enable_mfa(
+    request: MFATokenRequest,
+    authorization: str = Header(None),
+    email: str = Depends(verify_api_key),
+):
+    """
+    Enable MFA for the current user.
+    Requires a valid TOTP token from the authenticator app to verify setup.
+    """
+    auth = MagicalAuth(token=authorization)
+    result = auth.enable_mfa(mfa_token=request.mfa_token)
+
+    if result.get("status_code", 500) != 200:
+        raise HTTPException(
+            status_code=result.get("status_code", 500),
+            detail=result.get("error", "Failed to enable MFA"),
+        )
+
+    return Detail(detail=result["message"])
+
+
+@app.post(
+    "/v1/user/mfa/disable",
+    dependencies=[Depends(verify_api_key)],
+    summary="Disable MFA for user",
+    tags=["Auth", "MFA"],
+)
+async def disable_mfa(
+    request: DisableMFARequest,
+    authorization: str = Header(None),
+    email: str = Depends(verify_api_key),
+):
+    """
+    Disable MFA for the current user.
+    Requires either password or current MFA token for verification.
+    """
+    auth = MagicalAuth(token=authorization)
+    result = auth.disable_mfa(password=request.password, mfa_token=request.mfa_token)
+
+    if result.get("status_code", 500) != 200:
+        raise HTTPException(
+            status_code=result.get("status_code", 500),
+            detail=result.get("error", "Failed to disable MFA"),
+        )
+
+    return Detail(detail=result["message"])
+
+
+@app.post(
+    "/v1/user/password/change",
+    dependencies=[Depends(verify_api_key)],
+    summary="Change user password",
+    tags=["Auth"],
+)
+async def change_password(
+    request: PasswordChangeRequest,
+    authorization: str = Header(None),
+    email: str = Depends(verify_api_key),
+):
+    """
+    Change the current user's password.
+    Requires current password for verification.
+    """
+    auth = MagicalAuth(token=authorization)
+    result = auth.change_password(
+        current_password=request.current_password,
+        new_password=request.new_password,
+        confirm_password=request.confirm_password,
+    )
+
+    if result.get("status_code", 500) != 200:
+        raise HTTPException(
+            status_code=result.get("status_code", 500),
+            detail=result.get("error", "Failed to change password"),
+        )
+
+    return Detail(detail=result["message"])
+
+
+@app.post(
+    "/v1/user/password/set",
+    dependencies=[Depends(verify_api_key)],
+    summary="Set password for user without one",
+    tags=["Auth"],
+)
+async def set_password(
+    request: SetPasswordRequest,
+    authorization: str = Header(None),
+    email: str = Depends(verify_api_key),
+):
+    """
+    Set a password for users who don't have one (e.g., migrating from magic link).
+    """
+    auth = MagicalAuth(token=authorization)
+    result = auth.set_password(
+        new_password=request.new_password,
+        confirm_password=request.confirm_password,
+    )
+
+    if result.get("status_code", 500) != 200:
+        raise HTTPException(
+            status_code=result.get("status_code", 500),
+            detail=result.get("error", "Failed to set password"),
+        )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "detail": result["message"],
+            "username": result.get("username"),
+        },
+    )
 
 
 @app.put(
@@ -765,6 +1050,84 @@ async def delete_oauth_token(provider: str, authorization: str = Header(None)):
     auth = MagicalAuth(token=authorization)
     response = auth.disconnect_sso(provider_name=provider)
     return Detail(detail=response)
+
+
+class DiscordBotInviteResponse(BaseModel):
+    """Response model for Discord bot invite URL."""
+
+    bot_invite_url: Optional[str] = None
+    dm_bot_url: Optional[str] = None
+    bot_username: Optional[str] = None
+    is_discord_connected: bool = False
+
+
+@app.get(
+    "/v1/discord/bot-invite",
+    response_model=DiscordBotInviteResponse,
+    summary="Get Discord bot invite URLs for the user",
+    description="Returns URLs to invite the Discord bot to a server or to DM it directly. "
+    "Requires the user to have connected their Discord account via OAuth.",
+    tags=["Auth"],
+)
+async def get_discord_bot_invite(
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Get Discord bot invite URLs for the authenticated user.
+
+    Returns:
+    - bot_invite_url: URL to invite the bot to a Discord server
+    - dm_bot_url: URL to open a DM with the bot
+    - bot_username: The bot's Discord username (if available)
+    - is_discord_connected: Whether the user has connected their Discord account
+    """
+    from Globals import getenv
+    from DB import get_session, ServerExtensionSetting
+
+    # Check if user has Discord connected
+    auth = MagicalAuth(token=authorization)
+    connected_providers = auth.get_sso_connections()
+    is_discord_connected = "discord" in [p.lower() for p in connected_providers]
+
+    # Get the Discord client ID from server settings
+    client_id = getenv("DISCORD_CLIENT_ID")
+    if not client_id:
+        session = get_session()
+        try:
+            setting = (
+                session.query(ServerExtensionSetting)
+                .filter(ServerExtensionSetting.setting_key == "DISCORD_CLIENT_ID")
+                .first()
+            )
+            if setting:
+                client_id = setting.setting_value
+        finally:
+            session.close()
+
+    if not client_id:
+        return DiscordBotInviteResponse(
+            is_discord_connected=is_discord_connected,
+        )
+
+    # Generate bot invite URL
+    # Permissions: VIEW_CHANNEL (1024) + SEND_MESSAGES (2048) + READ_MESSAGE_HISTORY (65536)
+    # + ADD_REACTIONS (64) + EMBED_LINKS (16384) + ATTACH_FILES (32768) + USE_SLASH_COMMANDS (2147483648)
+    bot_permissions = 2147601472
+    bot_invite_url = f"https://discord.com/api/oauth2/authorize?client_id={client_id}&permissions={bot_permissions}&scope=bot%20applications.commands"
+
+    # Generate DM URL (users can click this to open a DM with the bot)
+    # This requires the bot's user ID, which we may not have statically
+    # For now, we'll just return the invite URL
+    dm_bot_url = None
+    bot_username = None
+
+    return DiscordBotInviteResponse(
+        bot_invite_url=bot_invite_url,
+        dm_bot_url=dm_bot_url,
+        bot_username=bot_username,
+        is_discord_connected=is_discord_connected,
+    )
 
 
 @app.get("/v1/companies", response_model=List[CompanyResponse], tags=["Companies"])

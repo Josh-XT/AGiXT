@@ -624,6 +624,14 @@ class Interactions:
                 context += conversation_context
         if "context" in kwargs:
             context.append(kwargs["context"])
+            logging.info(
+                f"[format_prompt] Discord/external context added. Context items: {len(context)}, last item length: {len(kwargs['context'])} chars"
+            )
+            # Log a sample of the context to verify it contains the right data
+            if "MOST RECENT MESSAGE" in kwargs["context"]:
+                logging.info(
+                    f"[format_prompt] Discord context contains MOST RECENT MESSAGE section ✓"
+                )
         include_sources = (
             str(kwargs["include_sources"]).lower() == "true"
             if "include_sources" in kwargs
@@ -885,7 +893,14 @@ class Interactions:
             f"{prompt}{user_input}{context_str}{conversation_history}{agent_commands}{file_contents}"
         )
 
+        logging.info(
+            f"[format_prompt] Context check - estimated_tokens: {estimated_context_tokens}, max_context_tokens: {max_context_tokens}, context_str length: {len(context_str)} chars"
+        )
+
         if estimated_context_tokens > max_context_tokens:
+            logging.info(
+                f"[format_prompt] Context EXCEEDS max - reducing context from {estimated_context_tokens} to target {max_context_tokens}"
+            )
             # Build context sections dict for reduce_context
             context_sections = {
                 "memories": context_str,  # Already retrieved memories as string
@@ -903,7 +918,12 @@ class Interactions:
 
             # Apply reduced context
             if "memories" in reduced:
+                old_context_len = len(context_str)
                 context = [reduced["memories"]] if reduced["memories"] else []
+                new_context_len = len(reduced["memories"]) if reduced["memories"] else 0
+                logging.info(
+                    f"[format_prompt] Context reduced: {old_context_len} chars -> {new_context_len} chars"
+                )
             if "conversation_history" in reduced:
                 conversation_history = reduced["conversation_history"]
             if "file_contents" in reduced:
@@ -966,6 +986,20 @@ You have access to context management commands to reduce token usage:
         tts_filler = args.get("tts_filler_instructions", "")
         if tts_filler:
             formatted_prompt = formatted_prompt + "\n" + tts_filler
+
+        # Log whether the Discord context made it into the final prompt
+        if "MOST RECENT MESSAGE" in formatted_prompt:
+            logging.info(
+                f"[format_prompt] Final prompt contains MOST RECENT MESSAGE section ✓ ({tokens} tokens)"
+            )
+        else:
+            logging.warning(
+                f"[format_prompt] Final prompt MISSING MOST RECENT MESSAGE section! ({tokens} tokens)"
+            )
+            if "context" in kwargs:
+                logging.warning(
+                    f"[format_prompt] Original context was {len(kwargs['context'])} chars"
+                )
 
         return formatted_prompt, prompt, tokens
 
@@ -1312,6 +1346,59 @@ You have access to context management commands to reduce token usage:
 
         return compressed.strip()
 
+    def deduplicate_repeated_content(
+        self, content: str, min_paragraph_length: int = 50
+    ) -> str:
+        """
+        Detect and remove repeated content blocks from the model's response.
+
+        Sometimes models get stuck in a loop and repeat the same content multiple times.
+        This function detects such patterns and keeps only the first occurrence.
+
+        Uses paragraph-based matching which is more robust than substring matching,
+        as it handles minor formatting differences between repetitions.
+
+        Args:
+            content: The content to deduplicate
+            min_paragraph_length: Minimum length of a paragraph to consider for deduplication
+
+        Returns:
+            Deduplicated content with only the first occurrence of repeated blocks
+        """
+        if len(content) < min_paragraph_length * 2:
+            return content  # Too short to have meaningful repetition
+
+        # Split into paragraphs/sections (split on one or more blank lines)
+        paragraphs = re.split(r"\n\s*\n", content)
+
+        if len(paragraphs) < 2:
+            return content  # Not enough paragraphs to have repetition
+
+        # Track seen paragraphs (normalized for comparison)
+        seen = {}
+
+        for i, para in enumerate(paragraphs):
+            # Normalize paragraph for comparison (strip whitespace, normalize internal spaces)
+            normalized = " ".join(para.split())
+
+            if len(normalized) < min_paragraph_length:
+                continue  # Skip very short paragraphs
+
+            if normalized in seen:
+                # Found repetition - keep only paragraphs before this one
+                result_paras = paragraphs[:i]
+                result = "\n\n".join(result_paras).strip()
+
+                # Log that we found and removed repetition
+                logging.debug(
+                    f"Deduplicated response: removed {len(paragraphs) - i} repeated paragraphs"
+                )
+                return result
+            else:
+                seen[normalized] = i
+
+        return content
+
     async def reduce_context(
         self,
         user_input: str,
@@ -1503,7 +1590,13 @@ Example: memories, persona, files"""
             list: List of command friendly names that should be enabled
         """
         # Get all available commands with descriptions
-        commands_prompt, all_command_names = self.agent.get_commands_for_selection()
+        result = self.agent.get_commands_for_selection()
+        if len(result) == 3:
+            commands_prompt, all_command_names, command_descriptions = result
+        else:
+            # Backward compatibility
+            commands_prompt, all_command_names = result
+            command_descriptions = {}
 
         if not all_command_names:
             return []
@@ -1515,8 +1608,98 @@ Example: memories, persona, files"""
         user_input_words = set(
             user_input_lower.replace("?", "").replace(".", "").replace(",", "").split()
         )
+
+        # Build keyword aliases for common variations/synonyms
+        # Maps trigger words to command names that should be included
+        keyword_to_commands = {
+            # GitHub Copilot variations - ANY GitHub-related request should use Copilot
+            "copilot": ["Ask GitHub Copilot"],
+            "github copilot": ["Ask GitHub Copilot"],
+            "ghcopilot": ["Ask GitHub Copilot"],
+            "github": ["Ask GitHub Copilot"],  # Any GitHub mention
+            "repository": ["Ask GitHub Copilot"],
+            "repo": ["Ask GitHub Copilot"],
+            "pull request": ["Ask GitHub Copilot"],
+            "pr": ["Ask GitHub Copilot"],
+            "clone": ["Ask GitHub Copilot"],
+            "fork": ["Ask GitHub Copilot"],
+            # Discord variations
+            "discord": ["Search Discord Channel", "Send Discord Message"],
+            # Web variations
+            "browse": ["Fetch Webpage Content", "Interact with Webpage", "Web Search"],
+            "scrape": ["Fetch Webpage Content", "Interact with Webpage"],
+            "website": ["Fetch Webpage Content", "Interact with Webpage", "Web Search"],
+            "webpage": ["Fetch Webpage Content", "Interact with Webpage"],
+            "google": ["Web Search"],
+            "search the web": ["Web Search"],
+            "search online": ["Web Search"],
+            "look up": ["Web Search"],
+            # File variations
+            "read file": ["Read File"],
+            "write file": ["Write to File"],
+            "create file": ["Write to File"],
+            "edit file": ["Modify File"],
+            "modify file": ["Modify File"],
+            "delete file": ["Delete File"],
+            # Code execution variations
+            "run python": ["Execute Python Code", "Execute Python File"],
+            "execute python": ["Execute Python Code", "Execute Python File"],
+            "run code": ["Execute Python Code"],
+            "execute code": ["Execute Python Code"],
+            # Terminal variations
+            "run command": ["Use The Terminal to Execute Commands"],
+            "terminal": ["Use The Terminal to Execute Commands"],
+            "shell": ["Use The Terminal to Execute Commands"],
+            "bash": ["Use The Terminal to Execute Commands"],
+            # Git variations - include both terminal AND GitHub Copilot for git operations
+            "git": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+            "commit": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+            "push": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+            "pull": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+            "merge": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+            "branch": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+            "rebase": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+            "checkout": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+            # Note variations
+            "note": ["Create Note", "Search Notes", "Get Notes", "Delete Note"],
+            "notes": ["Create Note", "Search Notes", "Get Notes", "Delete Note"],
+            "remember": ["Create Note"],
+            # Email variations
+            "email": ["Send Email", "Read Emails", "Search Emails"],
+            "mail": ["Send Email", "Read Emails", "Search Emails"],
+            # Calendar variations
+            "calendar": ["Get Calendar Events", "Create Calendar Event"],
+            "meeting": ["Get Calendar Events", "Create Calendar Event"],
+            "schedule": [
+                "Get Calendar Events",
+                "Create Calendar Event",
+                "Schedule a Task",
+            ],
+            # Data analysis
+            "analyze": ["Run Data Analysis"],
+            "analysis": ["Run Data Analysis"],
+            "data": ["Run Data Analysis"],
+            "chart": ["Run Data Analysis"],
+            "graph": ["Run Data Analysis"],
+            "visualize": ["Run Data Analysis"],
+        }
+
         explicitly_requested_commands = []
+
+        # Method 0: Check keyword aliases first (highest priority for semantic matching)
+        for keyword, cmd_names in keyword_to_commands.items():
+            if keyword in user_input_lower:
+                for cmd_name in cmd_names:
+                    if (
+                        cmd_name in all_command_names
+                        and cmd_name not in explicitly_requested_commands
+                    ):
+                        explicitly_requested_commands.append(cmd_name)
+
         for cmd_name in all_command_names:
+            if cmd_name in explicitly_requested_commands:
+                continue  # Already added via keyword alias
+
             cmd_lower = cmd_name.lower()
             # Method 1: Exact substring match
             if cmd_lower in user_input_lower:
@@ -1543,6 +1726,53 @@ Example: memories, persona, files"""
                 user_input_words
             ):
                 explicitly_requested_commands.append(cmd_name)
+                continue
+            # Method 3: Check if ANY distinctive word (3+ chars) from command appears in user input
+            # This helps match "copilot" -> "Ask GitHub Copilot"
+            distinctive_words = {w for w in significant_cmd_words if len(w) >= 3}
+            # Exclude very common words that would match too broadly
+            too_common = {
+                "get",
+                "set",
+                "run",
+                "use",
+                "add",
+                "new",
+                "all",
+                "file",
+                "list",
+                "send",
+                "read",
+                "create",
+                "update",
+                "delete",
+                "search",
+            }
+            distinctive_words = distinctive_words - too_common
+            if distinctive_words and any(
+                word in user_input_lower for word in distinctive_words
+            ):
+                explicitly_requested_commands.append(cmd_name)
+                continue
+
+            # Method 4: Check command DESCRIPTION for semantic matches
+            # This is critical for matching user intent to command capabilities
+            if cmd_name in command_descriptions:
+                desc_lower = command_descriptions[cmd_name].lower()
+                desc_words = set(
+                    desc_lower.replace(".", " ")
+                    .replace(",", " ")
+                    .replace("(", " ")
+                    .replace(")", " ")
+                    .split()
+                )
+                # Look for significant overlapping words (4+ chars to avoid noise)
+                significant_desc_words = {w for w in desc_words if len(w) >= 4}
+                significant_user_words = {w for w in user_input_words if len(w) >= 4}
+                # If there are multiple matching significant words, include the command
+                matching_words = significant_desc_words & significant_user_words
+                if len(matching_words) >= 2:
+                    explicitly_requested_commands.append(cmd_name)
 
         # Build context about files
         context_parts = []
@@ -1565,6 +1795,43 @@ Example: memories, persona, files"""
             "Run Data Analysis",
         ]
 
+        # Web-related commands that should always be included if URLs/links are mentioned
+        web_commands = [
+            "Fetch Webpage Content",
+            "Gather information from website URLs",
+            "Web Search",
+            "Interact with Webpage",
+        ]
+
+        # Check if user input mentions URLs, links, websites, or web-related terms
+        url_indicators = [
+            "http://",
+            "https://",
+            "www.",
+            ".com",
+            ".org",
+            ".net",
+            ".io",
+            "link",
+            "url",
+            "website",
+            "webpage",
+            "page",
+            "site",
+            "goodreads",
+            "amazon",
+            "github",
+            "google",
+            "wikipedia",
+            "browse",
+            "scrape",
+            "fetch",
+            "visit",
+        ]
+        has_url_reference = any(
+            indicator in user_input_lower for indicator in url_indicators
+        )
+
         # Commands that should always be available
         always_include = ["Get Datetime"]
 
@@ -1586,12 +1853,23 @@ Example: memories, persona, files"""
 ## Your Task
 Based on the user's request and context above, select which commands would be most helpful for the assistant to have available when responding to this request.
 
-**Important Guidelines:**
+**CRITICAL - Semantic Matching Guidelines:**
+- **Match user INTENT to command capabilities** - don't require exact word matches
+- Read each command's DESCRIPTION carefully - the description explains what the command can do
+- If the user's request could be fulfilled by a command based on its description, SELECT IT
+- Example: "Tell copilot to..." or "Have copilot..." should match "Ask GitHub Copilot" (it's about delegating to Copilot)
+- Example: "merge to main" or "push the changes" should match terminal/git commands
+- Example: "look this up" or "find information about" should match web search commands
+- Example: "remember this" or "save this for later" should match note-taking commands
+
+**Selection Principles:**
+- Be INCLUSIVE - it's much better to include a potentially useful command than to miss one
 - Select commands that are directly relevant to what the user is asking for
-- Include commands that might be needed for related tasks (e.g., if reading a file, include file writing commands too in case modifications are needed)
-- **Include commands whose descriptions contain useful context** - some commands have descriptions that provide helpful information about available integrations, services, or capabilities that would help the assistant answer questions even if the command itself isn't executed
-- Be inclusive rather than exclusive - it's better to include a potentially useful command than to miss one that's needed
-- If the user uploaded files or there are files in context, always include file-related commands (Read File, Write to File, Search Files, etc.)
+- Select commands that might be needed for related tasks (e.g., if reading a file, include file writing commands too)
+- **Include commands whose descriptions mention relevant capabilities** even if the command name doesn't match
+- Consider synonyms and related concepts (e.g., "website" relates to web commands, "code" relates to execution commands)
+- If the user wants to communicate with or delegate to any external service/tool/assistant, include commands that interface with those
+- If the user uploaded files or there are files in context, always include file-related commands
 - If no commands seem relevant for a simple greeting or conversational message, respond with "None"
 
 ## Response Format
@@ -1706,6 +1984,12 @@ Web Search, Read File, Write to File, Execute Python Code"""
             for fc in file_commands:
                 if fc in all_command_names and fc not in valid_commands:
                     valid_commands.append(fc)
+
+        # Always add web commands if URLs/links are mentioned
+        if has_url_reference:
+            for wc in web_commands:
+                if wc in all_command_names and wc not in valid_commands:
+                    valid_commands.append(wc)
 
         # Always include certain commands
         for cmd in always_include:
@@ -3103,37 +3387,56 @@ Example: If user says "list my files", use:
                             cleaned_new_answer,
                             flags=re.DOTALL | re.IGNORECASE,
                         )
+                        # Remove <final> tags - model-generated internal markers
+                        cleaned_new_answer = re.sub(
+                            r"<final>.*?</final>",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.DOTALL | re.IGNORECASE,
+                        )
                         # Partial/unclosed opening tags at end (tag started but not closed)
                         cleaned_new_answer = re.sub(
-                            r"<(thinking|reflection|step|reward|count)>[^<]*$",
+                            r"<(thinking|reflection|step|reward|count|final)>[^<]*$",
                             "",
                             cleaned_new_answer,
                             flags=re.IGNORECASE,
                         )
                         # Partial opening tags at end (tag not fully written yet)
+                        # Match "<" followed by at least ONE character that looks like the start of a tag
+                        # This handles partial tags like "<th", "<ref", "</thi", etc.
+                        # NOTE: Do NOT match bare "<" alone - that would strip legitimate angle brackets
                         cleaned_new_answer = re.sub(
-                            r"<(thinking|reflection|step|reward|count|/thinking|/reflection|/step|/reward|/count)?$",
+                            r"</?[a-zA-Z][a-zA-Z]*$",
                             "",
                             cleaned_new_answer,
                             flags=re.IGNORECASE,
                         )
                         # Orphaned closing tags (closing tag without opening)
                         cleaned_new_answer = re.sub(
-                            r"</(thinking|reflection|step|reward|count)>",
+                            r"</(thinking|reflection|step|reward|count|final)>",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.IGNORECASE,
+                        )
+                        # Also clean orphaned tag fragments WITHOUT the leading "<"
+                        # This handles cases where chunk boundaries split tags like "<reflection>"
+                        # into "<" and "reflection>" with the "<" getting cleaned separately
+                        cleaned_new_answer = re.sub(
+                            r"(?<![<a-zA-Z])/?(?:thinking|reflection|step|reward|count|final)>",
                             "",
                             cleaned_new_answer,
                             flags=re.IGNORECASE,
                         )
                         # Partial closing tags at start (leftover from previous chunk)
                         cleaned_new_answer = re.sub(
-                            r"^[^<]*</(thinking|reflection|step|reward|count)>",
+                            r"^[^<]*</(thinking|reflection|step|reward|count|final)>",
                             "",
                             cleaned_new_answer,
                             flags=re.IGNORECASE,
                         )
                         # Clean any remaining partial tag fragments at start
                         cleaned_new_answer = re.sub(
-                            r"^(thinking|reflection|step|reward|count)?>",
+                            r"^(thinking|reflection|step|reward|count|final)?>",
                             "",
                             cleaned_new_answer,
                             flags=re.IGNORECASE,
@@ -3168,7 +3471,13 @@ Example: If user says "list my files", use:
                         if len(cleaned_new_answer) > len(answer_content):
                             delta = cleaned_new_answer[len(answer_content) :]
                             # Skip if it looks like an opening tag pattern (thinking, reflection, etc.)
-                            if not re.match(r"^\s*<[a-zA-Z]", delta):
+                            # Also skip orphaned tag fragments like "reflection>" without the leading "<"
+                            skip_delta = re.match(r"^\s*<[a-zA-Z]", delta) or re.match(
+                                r"^\s*/?(?:thinking|reflection|step|reward|count)>",
+                                delta,
+                                re.IGNORECASE,
+                            )
+                            if not skip_delta:
                                 if delta:
                                     yield {
                                         "type": "answer",
@@ -3570,9 +3879,16 @@ Analyze the actual output shown and continue with your response.
                                 cleaned_new_answer,
                                 flags=re.DOTALL | re.IGNORECASE,
                             )
+                            # Remove <final> tags - model-generated internal markers
+                            cleaned_new_answer = re.sub(
+                                r"<final>.*?</final>",
+                                "",
+                                cleaned_new_answer,
+                                flags=re.DOTALL | re.IGNORECASE,
+                            )
                             # Remove orphaned closing tags
                             cleaned_new_answer = re.sub(
-                                r"</(?:thinking|reflection|step|reward|count|answer)>",
+                                r"</(?:thinking|reflection|step|reward|count|answer|final)>",
                                 "",
                                 cleaned_new_answer,
                                 flags=re.IGNORECASE,
@@ -3683,15 +3999,38 @@ Analyze the actual output shown and continue with your response.
         final_answer = re.sub(
             r"<speak>.*?</speak>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
         )
+        # Remove <final> tags - these are model-generated internal markers that shouldn't be visible
+        final_answer = re.sub(
+            r"<final>.*?</final>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
+        )
         # Remove orphaned closing tags (closing tags without matching opening tags)
         # This handles malformed model output with stray </thinking>, </reflection>, etc.
         final_answer = re.sub(
-            r"</thinking>|</reflection>|</step>|</execute>|</output>|</speak>|</answer>|</count>|</reward>",
+            r"</thinking>|</reflection>|</step>|</execute>|</output>|</speak>|</answer>|</count>|</reward>|</final>",
+            "",
+            final_answer,
+            flags=re.IGNORECASE,
+        )
+        # Remove orphaned tag fragments WITHOUT the leading "<"
+        # This handles cases where chunk boundaries split tags, leaving "reflection>", "/thinking>", etc.
+        final_answer = re.sub(
+            r"(?<![<a-zA-Z])/?(?:thinking|reflection|step|reward|count|execute|output|speak|answer)>",
+            "",
+            final_answer,
+            flags=re.IGNORECASE,
+        )
+        # Remove orphaned opening tag fragments (opening tags without closing, not inside other content)
+        final_answer = re.sub(
+            r"<(?:thinking|reflection|step|reward|count)>(?![^<]*</(?:thinking|reflection|step|reward|count)>)",
             "",
             final_answer,
             flags=re.IGNORECASE,
         )
         final_answer = final_answer.strip()
+
+        # Deduplicate repeated content - sometimes the model repeats the same answer multiple times
+        # This detects if the answer contains repeated blocks and keeps only the first occurrence
+        final_answer = self.deduplicate_repeated_content(final_answer)
 
         # Deanonymize AGiXT server URL
         final_answer = final_answer.replace(

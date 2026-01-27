@@ -16,7 +16,7 @@ on:
             additional-python-dependencies:
                 type: string
                 description: add whatever pip you need here
-                default: "openai requests agixtsdk==0.0.80 qrcode==7.4.2 pyotp"
+                default: "openai requests agixtsdk==0.0.82 qrcode==7.4.2 pyotp"
             database-type:
                 type: string
                 default: "postgresql"

@@ -16,6 +16,9 @@ from datetime import datetime
 from typing import Optional
 from Globals import getenv
 
+# Track Discord Bot Manager task
+discord_bot_manager_task: Optional[asyncio.Task] = None
+
 
 class StartupTimer:
     """Track startup timing for performance analysis"""
@@ -101,6 +104,10 @@ async def initialize_database(is_restart=False):
         startup_timer.section_end("migrate_user_table", section_start)
 
         section_start = startup_timer.section_start()
+        DB.migrate_auth_username_password()
+        startup_timer.section_end("migrate_auth_username_password", section_start)
+
+        section_start = startup_timer.section_start()
         DB.migrate_conversation_table()
         startup_timer.section_end("migrate_conversation_table", section_start)
 
@@ -139,6 +146,10 @@ async def initialize_database(is_restart=False):
         section_start = startup_timer.section_start()
         DB.migrate_task_item_table()
         startup_timer.section_end("migrate_task_item_table", section_start)
+
+        section_start = startup_timer.section_start()
+        DB.migrate_user_oauth_table()
+        startup_timer.section_end("migrate_user_oauth_table", section_start)
 
         # Clean up expired cache entries on startup
         section_start = startup_timer.section_start()
@@ -341,12 +352,54 @@ async def start_service(is_restart=False):
             )
             raise RuntimeError("Uvicorn failed to start")
 
+        # Start Discord Bot Manager as a background task
+        section_start = startup_timer.section_start()
+        await start_discord_bots()
+        startup_timer.section_end("Discord Bot Manager startup", section_start)
+
         # Print the startup timing report
         startup_timer.report(logger)
 
     except Exception as e:
         logger.error(f"Failed to start service: {e}")
         raise
+
+
+async def start_discord_bots():
+    """Start the Discord Bot Manager as a background task."""
+    global discord_bot_manager_task
+
+    try:
+        from DiscordBotManager import start_discord_bot_manager
+
+        # Create background task for the Discord Bot Manager
+        discord_bot_manager_task = asyncio.create_task(start_discord_bot_manager())
+        logger.info("✅ Discord Bot Manager started")
+    except ImportError as e:
+        logger.warning(f"Discord Bot Manager not available: {e}")
+    except Exception as e:
+        logger.error(f"Failed to start Discord Bot Manager: {e}")
+
+
+async def stop_discord_bots():
+    """Stop the Discord Bot Manager."""
+    global discord_bot_manager_task
+
+    try:
+        from DiscordBotManager import stop_discord_bot_manager
+
+        await stop_discord_bot_manager()
+
+        if discord_bot_manager_task and not discord_bot_manager_task.done():
+            discord_bot_manager_task.cancel()
+            try:
+                await discord_bot_manager_task
+            except asyncio.CancelledError:
+                pass
+
+        logger.info("Discord Bot Manager stopped")
+    except Exception as e:
+        logger.error(f"Error stopping Discord Bot Manager: {e}")
 
 
 async def restart_service():
@@ -365,6 +418,9 @@ async def restart_service():
     logger.warning("Attempting to restart AGiXT service...")
 
     try:
+        # Stop Discord bots first
+        await stop_discord_bots()
+
         # Kill existing uvicorn process if any
         if uvicorn_process and uvicorn_process.poll() is None:
             uvicorn_process.terminate()
@@ -426,6 +482,14 @@ async def monitor_loop():
 def signal_handler(signum, frame):
     """Handle shutdown signals."""
 
+    # Stop Discord bots (sync wrapper)
+    try:
+        from DiscordBotManager import stop_discord_bot_manager
+
+        asyncio.get_event_loop().run_until_complete(stop_discord_bot_manager())
+    except Exception:
+        pass
+
     # Shutdown uvicorn process
     if uvicorn_process and uvicorn_process.poll() is None:
         uvicorn_process.terminate()
@@ -453,8 +517,10 @@ async def main():
         await monitor_loop()
     except KeyboardInterrupt:
         logger.info("Shutting down health check monitor...")
+        await stop_discord_bots()
     except Exception as e:
         logger.error(f"Fatal error: {e}")
+        await stop_discord_bots()
         sys.exit(1)
 
 

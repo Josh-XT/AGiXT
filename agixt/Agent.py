@@ -592,17 +592,15 @@ class AIProviderManager:
         Merge settings from all configuration levels for AI providers.
 
         Priority (highest to lowest):
-        1. Agent settings (user-level, passed in agent_settings)
-        2. Company extension settings (team/company-level from CompanyExtensionSetting table)
-        3. Server extension settings (admin configured API keys in ServerExtensionSetting table)
-        4. Environment variables (for local development/overrides)
-        5. Default values from provider extensions
+        1. Agent settings (user-level) - but only if meaningfully different from defaults
+        2. Company extension settings (CompanyExtensionSetting table)
+        3. Server extension settings (ServerExtensionSetting table)
+        4. Environment variables (getenv fallback)
+        5. Extension default values (from __init__ signatures)
 
-        This hierarchy ensures that:
-        - Users can override with their own API keys if allowed
-        - Teams/companies can configure shared provider settings
-        - Server admins can set defaults for all users
-        - Environment variables work for local development
+        The key insight: Extensions already handle fallback to getenv() when passed empty values.
+        So we should only pass non-empty values from higher priority sources, letting the
+        extension's own logic handle defaults.
         """
         from DB import (
             ServerExtensionSetting,
@@ -610,120 +608,42 @@ class AIProviderManager:
             get_session,
             decrypt_config_value,
         )
+        from Extensions import _get_extension_metadata_cache
 
-        # Map of setting keys to extension names for lookup
-        # This maps the setting key pattern to the extension name used in ServerExtensionSetting
-        provider_setting_keys = [
-            # Anthropic
-            "ANTHROPIC_API_KEY",
-            "ANTHROPIC_AI_MODEL",
-            "ANTHROPIC_MAX_TOKENS",
-            "ANTHROPIC_TEMPERATURE",
-            # Azure
-            "AZURE_API_KEY",
-            "AZURE_OPENAI_ENDPOINT",
-            "AZURE_DEPLOYMENT_NAME",
-            "AZURE_MAX_TOKENS",
-            "AZURE_TEMPERATURE",
-            "AZURE_TOP_P",
-            # DeepSeek
-            "DEEPSEEK_API_KEY",
-            "DEEPSEEK_MODEL",
-            "DEEPSEEK_MAX_TOKENS",
-            "DEEPSEEK_TEMPERATURE",
-            "DEEPSEEK_TOP_P",
-            # Google/Gemini
-            "GOOGLE_API_KEY",
-            "GOOGLE_AI_MODEL",
-            "GOOGLE_MAX_TOKENS",
-            "GOOGLE_TEMPERATURE",
-            # OpenAI
-            "OPENAI_API_KEY",
-            "OPENAI_API_URI",
-            "OPENAI_AI_MODEL",
-            "OPENAI_MAX_TOKENS",
-            "OPENAI_TEMPERATURE",
-            "OPENAI_TOP_P",
-            # xAI
-            "XAI_API_KEY",
-            "XAI_AI_MODEL",
-            "XAI_MAX_TOKENS",
-            "XAI_TEMPERATURE",
-            "XAI_TOP_P",
-            # ezLocalai
-            "EZLOCALAI_API_KEY",
-            "EZLOCALAI_API_URI",
-            "EZLOCALAI_AI_MODEL",
-            "EZLOCALAI_CODING_MODEL",
-            "EZLOCALAI_MAX_TOKENS",
-            "EZLOCALAI_TEMPERATURE",
-            "EZLOCALAI_TOP_P",
-            "EZLOCALAI_VOICE",
-            "EZLOCALAI_LANGUAGE",
-            "EZLOCALAI_TRANSCRIPTION_MODEL",
-            # OpenRouter
-            "OPENROUTER_API_KEY",
-            "OPENROUTER_AI_MODEL",
-            "OPENROUTER_MAX_TOKENS",
-            "OPENROUTER_TEMPERATURE",
-            "OPENROUTER_TOP_P",
-            # DeepInfra
-            "DEEPINFRA_API_KEY",
-            "DEEPINFRA_MODEL",
-            "DEEPINFRA_MAX_TOKENS",
-            "DEEPINFRA_TEMPERATURE",
-            "DEEPINFRA_TOP_P",
-            # HuggingFace
-            "HUGGINGFACE_API_KEY",
-            "HUGGINGFACE_MODEL",
-            "HUGGINGFACE_MAX_TOKENS",
-            # Chutes
-            "CHUTES_API_KEY",
-            "CHUTES_MODEL",
-            "CHUTES_MAX_TOKENS",
-            "CHUTES_TEMPERATURE",
-            "CHUTES_TOP_P",
-            # ElevenLabs
-            "ELEVENLABS_API_KEY",
-            "ELEVENLABS_VOICE",
-        ]
+        # Get all provider settings dynamically from extension metadata
+        metadata = _get_extension_metadata_cache()
+        provider_setting_keys = set()
+
+        for class_name, ext_info in metadata.get("extensions", {}).items():
+            # Only include AI Provider extensions
+            if ext_info.get("category") == "AI Provider":
+                for setting_name in ext_info.get("settings", []):
+                    provider_setting_keys.add(setting_name)
+
+        # Also add common alternative key names that might be stored differently
+        alt_keys = {
+            "EZLOCALAI_URI",  # Alternative for EZLOCALAI_API_URI
+            "OPENAI_BASE_URI",  # Alternative for OPENAI_API_URI
+        }
+        provider_setting_keys.update(alt_keys)
 
         merged_settings = {}
 
-        # Priority order (lowest to highest, later values override earlier):
-        # 4. Environment variables (lowest priority, for local dev)
-        # 3. Server extension settings
-        # 2. Company extension settings
-        # 1. Agent settings (highest priority)
-
-        # Step 1: Start with environment variables (lowest priority)
-        for key in provider_setting_keys:
-            env_value = os.getenv(key)
-            if env_value:
-                merged_settings[key] = env_value
-
-        # Step 2: Apply server extension settings (overrides env vars)
+        # Step 1: Start with server extension settings (from database)
         with get_session() as session:
             server_ext_settings = (
                 session.query(ServerExtensionSetting)
                 .filter(ServerExtensionSetting.setting_key.in_(provider_setting_keys))
                 .all()
             )
-            server_keys_found = []
             for setting in server_ext_settings:
                 value = setting.setting_value
                 if setting.is_sensitive and value:
                     value = decrypt_config_value(value)
                 if value:  # Only add non-empty values
                     merged_settings[setting.setting_key] = value
-                    server_keys_found.append(setting.setting_key)
 
-            if server_keys_found:
-                logging.debug(
-                    f"[AIProviderManager] Found server-level settings: {server_keys_found}"
-                )
-
-            # Step 3: Apply company extension settings if company_id is available (overrides server)
+            # Step 2: Apply company extension settings (overrides server)
             if self.company_id:
                 company_ext_settings = (
                     session.query(CompanyExtensionSetting)
@@ -733,35 +653,52 @@ class AIProviderManager:
                     )
                     .all()
                 )
-                company_keys_found = []
                 for setting in company_ext_settings:
                     value = setting.setting_value
                     if setting.is_sensitive and value:
                         value = decrypt_config_value(value)
-                    if value:  # Only add non-empty values
+                    if value == "":
+                        # Company explicitly disconnects - remove server setting
+                        merged_settings.pop(setting.setting_key, None)
+                    elif value:
                         merged_settings[setting.setting_key] = value
-                        company_keys_found.append(setting.setting_key)
 
-                if company_keys_found:
-                    logging.debug(
-                        f"[AIProviderManager] Found company-level settings for company {self.company_id}: {company_keys_found}"
-                    )
-            else:
-                logging.debug(
-                    "[AIProviderManager] No company_id provided, skipping company-level settings lookup"
-                )
+        # Step 3: Apply agent settings (highest priority)
+        # Only apply if the value is meaningful (not empty, not a known localhost default)
+        LOCALHOST_DEFAULTS = {
+            "http://localhost:8091/v1/",
+            "http://localhost:8091/v1",
+            "http://localhost:8091/",
+            "http://localhost:8091",
+            "http://127.0.0.1:8091/v1/",
+            "http://127.0.0.1:8091/v1",
+        }
 
-        # Step 4: Agent settings are applied later (highest priority) when providers are instantiated
-        # by merging self.agent_settings into the final settings dict
-
-        # Step 5: Apply agent-level provider settings (highest priority - user's own API keys)
-        # This allows users to override with their own API keys if configured
         for key in provider_setting_keys:
-            if key in self.agent_settings and self.agent_settings[key]:
-                merged_settings[key] = self.agent_settings[key]
+            if key in self.agent_settings:
+                value = self.agent_settings[key]
+                if value is None:
+                    continue
+                # Empty string = explicit disconnect
+                if value == "":
+                    merged_settings.pop(key, None)
+                # Skip localhost defaults - let server/company/env settings take precedence
+                elif value in LOCALHOST_DEFAULTS:
+                    continue
+                # Non-empty meaningful value = use it
+                elif value:
+                    merged_settings[key] = value
 
-        # Add non-provider agent settings (like mode, persona, etc.)
-        # These are settings that should be stored at agent level
+        # Map alternative key names to canonical names
+        key_mappings = {
+            "EZLOCALAI_URI": "EZLOCALAI_API_URI",
+            "OPENAI_BASE_URI": "OPENAI_API_URI",
+        }
+        for alt_key, canonical_key in key_mappings.items():
+            if alt_key in merged_settings and canonical_key not in merged_settings:
+                merged_settings[canonical_key] = merged_settings[alt_key]
+
+        # Add non-provider agent settings that should always pass through
         non_provider_keys = [
             "mode",
             "prompt_name",
@@ -2257,9 +2194,17 @@ class Agent:
             for command in all_commands:
                 config["commands"][command.name] = command.id in enabled_command_ids
             for setting in agent_settings:
-                # Don't skip wallet-related settings even if they're empty (they should have been created above)
-                # but skip other empty settings as before
-                if setting.value == "" and not setting.name.startswith("SOLANA_WALLET"):
+                # Don't skip wallet-related settings even if they're empty
+                # Also don't skip provider keys (API_KEY, etc.) - empty values indicate explicit disconnect
+                is_provider_key = any(
+                    kw in setting.name.upper()
+                    for kw in ["API_KEY", "SECRET", "PASSWORD", "TOKEN", "PRIVATE_KEY"]
+                )
+                if (
+                    setting.value == ""
+                    and not setting.name.startswith("SOLANA_WALLET")
+                    and not is_provider_key
+                ):
                     continue
                 config["settings"][setting.name] = setting.value
             user_settings = self.get_registration_requirement_settings()
@@ -3083,18 +3028,30 @@ class Agent:
                     .filter_by(agent_id=self.agent_id, name=setting_name)
                     .first()
                 )
+                # Check if this is a provider key that can be explicitly disconnected
+                # Provider keys (API_KEY, SECRET, etc.) can be set to empty to override inherited values
+                is_provider_key = any(
+                    kw in setting_name.upper()
+                    for kw in ["API_KEY", "SECRET", "PASSWORD", "TOKEN", "PRIVATE_KEY"]
+                )
+
                 if agent_setting:
-                    if setting_value == "":
+                    if setting_value == "" and not is_provider_key:
+                        # Non-provider settings: delete when empty
                         session.delete(agent_setting)
                     else:
+                        # Provider settings: store empty string to indicate explicit disconnect
+                        # Non-empty values: always store
                         agent_setting.value = str(setting_value)
                 else:
-                    agent_setting = AgentSettingModel(
-                        agent_id=self.agent_id,
-                        name=setting_name,
-                        value=str(setting_value),
-                    )
-                    session.add(agent_setting)
+                    # Only create new setting if value is non-empty or it's a provider key with explicit empty
+                    if setting_value != "" or is_provider_key:
+                        agent_setting = AgentSettingModel(
+                            agent_id=self.agent_id,
+                            name=setting_name,
+                            value=str(setting_value),
+                        )
+                        session.add(agent_setting)
 
         try:
             session.commit()
@@ -3733,6 +3690,9 @@ class Agent:
         ]
 
         all_command_names = []
+        command_descriptions = (
+            {}
+        )  # Maps command name to description for semantic matching
         selection_prompt = "## Available Commands for Selection\n\n"
 
         # Add client-defined tools
@@ -3745,6 +3705,7 @@ class Agent:
                 )
                 selection_prompt += f"- **{cmd_name}**: {cmd_desc}\n"
                 all_command_names.append(cmd_name)
+                command_descriptions[cmd_name] = cmd_desc
 
         # Add extension commands
         for extension in agent_extensions:
@@ -3766,8 +3727,9 @@ class Agent:
                 cmd_desc = command["description"]
                 selection_prompt += f"- **{cmd_name}**: {cmd_desc}\n"
                 all_command_names.append(cmd_name)
+                command_descriptions[cmd_name] = cmd_desc
 
-        return selection_prompt, all_command_names
+        return selection_prompt, all_command_names, command_descriptions
 
     def get_agent_wallet(self):
         """
