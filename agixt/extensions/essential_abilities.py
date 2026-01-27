@@ -205,37 +205,51 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
     def __init__(self, **kwargs):
         self.commands = {
+            # Core File Operations (workspace-safe)
             "Write to File": self.write_to_file,
             "Read File": self.read_file,
+            "Modify File": self.modify_file,
+            "Delete File": self.delete_file,
             "List Directory": self.list_directory,
             "Search Files": self.search_files,
             "Search File Content": self.search_file_content,
             "Glob File Search": self.glob_file_search,
             "Grep Search": self.grep_search,
-            "Modify File": self.modify_file,
-            "Execute Python File": self.execute_python_file,
-            "Delete File": self.delete_file,
-            "Execute Shell": self.execute_shell,
-            "Run Data Analysis": self.run_data_analysis,
+            "Multi-File Replace": self.multi_file_replace,
+            "Search and Replace Regex": self.search_and_replace_regex,
+            "Insert in File": self.insert_in_file,
+            "Download File from URL": self.download_file_from_url,
+            "View Image": self.view_image,
+            # Code Execution
+            "Use Terminal in Workspace": self.execute_shell,
             "Execute Python Code": self.execute_python_code_internal,
-            "Explain Chain": self.chain_to_mermaid,
+            "Execute Python File": self.execute_python_file,
+            "Run Data Analysis": self.run_data_analysis,
+            "Run Tests": self.run_tests,
+            # AGiXT-Specific Features (can't be done via terminal)
             "Get Datetime": self.get_datetime,
+            "Explain Chain": self.chain_to_mermaid,
             "Get Chain Details": self.get_chain_details,
             "Get Chain List": self.get_chain_list,
             "Create Automation Chain": self.create_agixt_chain,
             "Modify Automation Chain": self.modify_chain,
             "Custom API Endpoint": self.custom_api,
             "Get Mindmap for task to break it down": self.get_mindmap,
-            "Convert Markdown to PDF": self.convert_to_pdf,
-            "Convert Markdown to DOCX": self.convert_to_docx,
-            "Convert Markdown to XLSX": self.convert_to_xlsx,
-            "Convert Markdown to PPTX": self.convert_to_pptx,
             "Schedule Follow-Up Message": self.schedule_task,
             "Schedule Recurring Follow-Up": self.schedule_reoccurring_task,
             "Get Scheduled Follow-Ups": self.get_scheduled_tasks,
             "Modify Scheduled Follow-Up": self.modify_task,
             "Generate Image": self.generate_image,
             "Convert Text to Speech": self.text_to_speech,
+            "Create AGiXT Agent": self.create_new_agixt_agent,
+            "Optimize Command Selection": self.optimize_command_selection,
+            "Get Web UI Tips": self.get_webui_tips,
+            # Document Conversion (uses AGiXT infrastructure)
+            "Convert Markdown to PDF": self.convert_to_pdf,
+            "Convert Markdown to DOCX": self.convert_to_docx,
+            "Convert Markdown to XLSX": self.convert_to_xlsx,
+            "Convert Markdown to PPTX": self.convert_to_pptx,
+            # Todo Management (database-backed)
             "Create Todo Item": self.create_todo_item,
             "Create Sub-Todo Item": self.create_sub_todo_item,
             "Create Todo Items in Bulk": self.create_todo_items_bulk,
@@ -247,79 +261,17 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Mark Todo Item Incomplete": self.mark_todo_incomplete,
             "Update Todo Item": self.update_todo_item,
             "Delete Todo Item": self.delete_todo_item,
-            "Gather information from website URLs": self.browse_links,
-            "Fetch Webpage Content": self.fetch_webpage_content,
-            "Download File from URL": self.download_file_from_url,
-            "View Image": self.view_image,
-            "Get Web UI Tips": self.get_webui_tips,
-            "Create AGiXT Agent": self.create_new_agixt_agent,
-            "Optimize Command Selection": self.optimize_command_selection,
-            # New Code Intelligence & Development Tools
+            # Code Intelligence (semantic/AST-based, not simple grep)
             "Find Symbol Usages": self.find_symbol_usages,
             "Semantic Code Search": self.semantic_code_search,
-            "Multi-File Replace": self.multi_file_replace,
             "Get File Errors": self.get_file_errors,
-            "Run Tests": self.run_tests,
-            "Get Code Symbols": self.get_code_symbols,
-            "Git Status": self.git_status,
-            "Git Commit": self.git_commit,
-            "Git Diff": self.git_diff,
-            "Git Blame": self.git_blame,
-            "Create Directory": self.create_directory,
-            "Rename File": self.rename_file,
-            "Copy File": self.copy_file,
-            "Get File Metadata": self.get_file_metadata,
-            "Diff Files": self.diff_files,
-            "Format Code": self.format_code,
-            "Insert in File": self.insert_in_file,
-            "Delete Lines": self.delete_lines,
-            "Get File Line Count": self.get_file_line_count,
-            "Search and Replace Regex": self.search_and_replace_regex,
-            "Extract Function": self.extract_function,
-            "Get Imports": self.get_imports,
-            "Append to File": self.append_to_file,
-            "Prepend to File": self.prepend_to_file,
-            "Git Log": self.git_log,
-            "Git Branch": self.git_branch,
-            "Git Stash": self.git_stash,
-            "Find Duplicate Code": self.find_duplicate_code,
-            "Get Function Signature": self.get_function_signature,
-            "Validate JSON": self.validate_json,
-            "Validate YAML": self.validate_yaml,
-            "Minify JSON": self.minify_json,
-            "Prettify JSON": self.prettify_json,
-            "Count Lines of Code": self.count_lines_of_code,
-            "Find TODO Comments": self.find_todo_comments,
-            "Generate Docstring": self.generate_docstring,
-            "Get File Tree": self.get_file_tree,
-            "Move File": self.move_file,
             "Find References": self.find_references,
-            "Get Class Definition": self.get_class_definition,
-            "Get Method List": self.get_method_list,
-            "Analyze Dependencies": self.analyze_dependencies,
-            "Get Code Outline": self.get_code_outline,
-            "Git Fetch": self.git_fetch,
-            "Git Pull": self.git_pull,
-            "Git Merge": self.git_merge,
-            "Git Revert": self.git_revert,
-            "Git Cherry Pick": self.git_cherry_pick,
-            "Find Test File": self.find_test_file,
-            "Lint File": self.lint_file,
-            "Sort Lines": self.sort_lines,
-            "Remove Duplicate Lines": self.remove_duplicate_lines,
-            "Extract Comments": self.extract_comments,
-            "Generate Changelog": self.generate_changelog,
-            "Head File": self.head_file,
-            "Tail File": self.tail_file,
-            "Check Path Exists": self.check_path_exists,
-            "Get File Hash": self.get_file_hash,
-            "Truncate File": self.truncate_file,
-            "Find Large Files": self.find_large_files,
-            # Context Management Commands
+            "Generate Docstring": self.generate_docstring,
+            # Context Management
             "Discard Context": self.discard_context,
             "Retrieve Context": self.retrieve_context,
             "List Discarded Context": self.list_discarded_context,
-            # Feedback Commands
+            # Feedback
             "Send Feedback to Development Team": self.send_feedback_to_dev_team,
             # Codebase Mapping
             "Create or Update Codebase Map": self.create_or_update_codebase_map,
@@ -356,36 +308,6 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
         # Register models with ExtensionDatabaseMixin
         self.register_models()
-
-    async def browse_links(self, urls: str, query: str) -> str:
-        """
-        Browse links to gather information from websites. This will scrape data from the websites provided into the agent's memory.
-
-        Args:
-            urls (str): Space-separated list of URLs to browse. Prefix each url with "https://" with the full url. When browsing multiple URLs, separate them with spaces.
-            query (str): The query to search for on the pages
-
-        Returns:
-            str: The gathered information
-
-        Notes: This ability will browse the provided URLs and extract relevant information based on the query as well as extract learned information from the website into the assistant's memory.
-        """
-        response = self.ApiClient.prompt_agent(
-            agent_id=self.agent_id,
-            prompt_name="Think About It",
-            prompt_args={
-                "user_input": f"{urls} \n {query}",
-                "websearch": False,
-                "analyze_user_input": False,
-                "disable_commands": True,
-                "log_user_input": False,
-                "log_output": False,
-                "browse_links": True,
-                "tts": False,
-                "conversation_name": self.conversation_id,
-            },
-        )
-        return response
 
     async def download_file_from_url(
         self, url: str, filename: str = "", headers: str = ""
@@ -1194,110 +1116,6 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         except Exception as e:
             return f"Error in grep search: {str(e)}"
 
-    async def fetch_webpage_content(self, url: str, query: str = "") -> str:
-        """
-        Fetch and extract the main content from a webpage using a full browser.
-        Useful for retrieving information from websites, including JavaScript-rendered pages (SPAs).
-
-        Args:
-        url (str): The URL of the webpage to fetch
-        query (str): Optional query to focus the extraction on relevant content
-
-        Returns:
-        str: The extracted content from the webpage
-
-        Note: This extracts readable text content, not raw HTML. Good for documentation, articles,
-        reference pages, and JavaScript-rendered single-page applications.
-        """
-        from playwright.async_api import async_playwright
-        from bs4 import BeautifulSoup
-
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch()
-                context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                )
-                page = await context.new_page()
-
-                try:
-                    await page.goto(url, wait_until="networkidle", timeout=30000)
-                except Exception:
-                    # Fallback if networkidle times out - try domcontentloaded
-                    try:
-                        await page.goto(
-                            url, wait_until="domcontentloaded", timeout=15000
-                        )
-                        # Give JS a moment to render
-                        await page.wait_for_timeout(2000)
-                    except Exception as nav_error:
-                        await browser.close()
-                        return f"Error navigating to URL: {str(nav_error)}"
-
-                # Get the rendered HTML after JavaScript execution
-                html = await page.content()
-                await browser.close()
-
-            soup = BeautifulSoup(html, "html.parser")
-
-            # Remove script and style elements
-            for script in soup(["script", "style", "nav", "footer", "header", "aside"]):
-                script.decompose()
-
-            # Try to find main content area
-            main_content = None
-            for selector in [
-                "main",
-                "article",
-                '[role="main"]',
-                ".content",
-                "#content",
-                ".post",
-                ".article",
-            ]:
-                main_content = soup.select_one(selector)
-                if main_content:
-                    break
-
-            if not main_content:
-                main_content = soup.body if soup.body else soup
-
-            # Get text content
-            text = main_content.get_text(separator="\n", strip=True)
-
-            # Clean up whitespace
-            lines = [line.strip() for line in text.split("\n") if line.strip()]
-            text = "\n".join(lines)
-
-            # Truncate if too long
-            max_length = 10000
-            if len(text) > max_length:
-                text = text[:max_length] + "\n\n... [Content truncated]"
-
-            # If query provided, try to extract most relevant sections
-            if query:
-                query_lower = query.lower()
-                relevant_lines = []
-                for i, line in enumerate(lines):
-                    if query_lower in line.lower():
-                        # Include some context around matches
-                        start = max(0, i - 2)
-                        end = min(len(lines), i + 3)
-                        for j in range(start, end):
-                            if lines[j] not in relevant_lines:
-                                relevant_lines.append(lines[j])
-                        relevant_lines.append("---")
-
-                if relevant_lines:
-                    text = f"Relevant content for '{query}':\n\n" + "\n".join(
-                        relevant_lines
-                    )
-
-            return f"Content from {url}:\n\n{text}"
-
-        except Exception as e:
-            return f"Error processing webpage: {str(e)}"
-
     async def modify_file(self, filename: str, old_text: str, new_text: str) -> str:
         """
         Modify a file by replacing old text with new text
@@ -1389,15 +1207,66 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
     async def execute_shell(self, command_line: str) -> str:
         """
-        Execute a shell command in a sandboxed environment
+        Execute a shell command in the agent's workspace environment. This is a versatile command that can handle
+        many common development and file management tasks
 
         Args:
-        command_line (str): The shell command to execute
+            command_line (str): The shell command to execute
 
         Returns:
-        str: The output of the shell command
+            str: The output of the shell command
 
-        Note: This command will only work in the agent's designated workspace. The agent's workspace may contain files uploaded by the user or files saved by the agent that will be available to the user to download and access.
+        Note: The assistant has its own Ubuntu docker container with the agent's workspace mounted at /workspace.
+        The assistant can use this command to run shell commands to manipulate files, check system status,
+        and perform various tasks.
+
+        Common Use Cases:
+            **File Operations:**
+            - `cp source dest` - Copy files or directories
+            - `mv source dest` - Move or rename files
+            - `mkdir -p path` - Create directories
+            - `rm file` - Delete files (use -r for directories)
+            - `head -n 20 file` - View first N lines of a file
+            - `tail -n 20 file` - View last N lines of a file
+            - `cat file` - View entire file contents
+            - `ls -la` - List directory contents with details
+            - `find . -name "*.py"` - Find files by pattern
+            - `wc -l file` - Count lines in a file
+            - `diff file1 file2` - Compare two files
+            - `sort file` - Sort file contents
+            - `uniq file` - Remove duplicate lines
+
+            **Git Operations:**
+            - `git status` - Check repository status
+            - `git diff` - View changes
+            - `git log --oneline -10` - View recent commits
+            - `git branch -a` - List branches
+            - `git checkout branch` - Switch branches
+            - `git add .` && `git commit -m "message"` - Stage and commit
+            - `git stash` / `git stash pop` - Stash changes
+            - `git pull` / `git push` - Sync with remote
+
+            **Text Processing:**
+            - `grep -r "pattern" .` - Search for text in files
+            - `sed 's/old/new/g' file` - Find and replace
+            - `awk '{print $1}' file` - Extract columns
+            - `jq '.' file.json` - Format/query JSON
+            - `python -m json.tool file.json` - Validate JSON
+
+            **Code Quality:**
+            - `python -m py_compile file.py` - Check Python syntax
+            - `black file.py` - Format Python code
+            - `pylint file.py` - Lint Python code
+            - `npm run lint` - Run project linters
+
+            **System Info:**
+            - `pwd` - Current directory
+            - `which command` - Find command location
+            - `du -sh *` - Directory sizes
+            - `file filename` - Detect file type
+
+        Note: Commands execute in the agent's workspace directory. Use full paths or relative
+        paths from the workspace root. Long-running commands have a timeout for safety.
         """
         try:
             # Try to use the new shell execution capability from safeexecute
