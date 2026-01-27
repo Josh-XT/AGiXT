@@ -259,10 +259,12 @@ class google_email(Extensions):
                     .get(userId="me", id=message["id"])
                     .execute()
                 )
-                
+
                 # Safely extract headers
-                headers = {h["name"]: h["value"] for h in msg["payload"].get("headers", [])}
-                
+                headers = {
+                    h["name"]: h["value"] for h in msg["payload"].get("headers", [])
+                }
+
                 email_data = {
                     "id": msg["id"],
                     "sender": headers.get("From", "Unknown"),
@@ -273,13 +275,13 @@ class google_email(Extensions):
                         int(msg["internalDate"]) / 1000
                     ).strftime("%Y-%m-%d %H:%M:%S"),
                 }
-                
+
                 # Check for attachments
                 parts = msg["payload"].get("parts", [])
                 for part in parts:
                     if part.get("filename"):
                         email_data["attachments"].append(part["filename"])
-                
+
                 emails.append(email_data)
 
             return emails

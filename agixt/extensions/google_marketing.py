@@ -165,7 +165,7 @@ class google_marketing(Extensions):
     Google Marketing Extension.
 
     This extension provides comprehensive access to Google's marketing tools:
-    
+
     Google Ads:
     - Get accounts and campaigns
     - Create/update campaigns
@@ -245,7 +245,9 @@ class google_marketing(Extensions):
     def verify_user(self):
         """Verifies that the current access token is valid."""
         if self.auth:
-            self.access_token = self.auth.refresh_oauth_token(provider="google_marketing")
+            self.access_token = self.auth.refresh_oauth_token(
+                provider="google_marketing"
+            )
             self.session.headers.update(
                 {
                     "Authorization": f"Bearer {self.access_token}",
@@ -264,7 +266,9 @@ class google_marketing(Extensions):
         """
         try:
             self.verify_user()
-            url = "https://googleads.googleapis.com/v15/customers:listAccessibleCustomers"
+            url = (
+                "https://googleads.googleapis.com/v15/customers:listAccessibleCustomers"
+            )
             response = self.session.get(url)
 
             if response.status_code == 200:

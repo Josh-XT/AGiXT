@@ -198,7 +198,9 @@ class google_calendar(Extensions):
         Returns Google API credentials.
         """
         if self.auth:
-            self.access_token = self.auth.refresh_oauth_token(provider="google_calendar")
+            self.access_token = self.auth.refresh_oauth_token(
+                provider="google_calendar"
+            )
 
         credentials = Credentials(
             token=self.access_token,
@@ -258,7 +260,7 @@ class google_calendar(Extensions):
             for event in events:
                 start = event.get("start", {})
                 end = event.get("end", {})
-                
+
                 item_data = {
                     "id": event["id"],
                     "subject": event.get("summary", "No Title"),
@@ -588,7 +590,9 @@ class google_calendar(Extensions):
 
             if check_availability and start_time and end_time:
                 if isinstance(start_time, str):
-                    start_time = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                    start_time = datetime.fromisoformat(
+                        start_time.replace("Z", "+00:00")
+                    )
                 if isinstance(end_time, str):
                     end_time = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
 
@@ -607,12 +611,20 @@ class google_calendar(Extensions):
                 event["summary"] = subject
             if start_time:
                 event["start"] = {
-                    "dateTime": start_time.isoformat() if isinstance(start_time, datetime) else start_time,
+                    "dateTime": (
+                        start_time.isoformat()
+                        if isinstance(start_time, datetime)
+                        else start_time
+                    ),
                     "timeZone": self.timezone,
                 }
             if end_time:
                 event["end"] = {
-                    "dateTime": end_time.isoformat() if isinstance(end_time, datetime) else end_time,
+                    "dateTime": (
+                        end_time.isoformat()
+                        if isinstance(end_time, datetime)
+                        else end_time
+                    ),
                     "timeZone": self.timezone,
                 }
             if location is not None:

@@ -189,7 +189,9 @@ class microsoft_onedrive(Extensions):
                     self.auth = MagicalAuth(token=self.api_key)
                     self.timezone = self.auth.get_timezone()
                 except Exception as e:
-                    logging.error(f"Error initializing Microsoft OneDrive client: {str(e)}")
+                    logging.error(
+                        f"Error initializing Microsoft OneDrive client: {str(e)}"
+                    )
 
         self.attachments_dir = kwargs.get(
             "conversation_directory", "./WORKSPACE/attachments"
@@ -199,7 +201,9 @@ class microsoft_onedrive(Extensions):
     def verify_user(self):
         """Verifies that the current access token is valid."""
         if self.auth:
-            self.access_token = self.auth.refresh_oauth_token(provider="microsoft_onedrive")
+            self.access_token = self.auth.refresh_oauth_token(
+                provider="microsoft_onedrive"
+            )
 
         headers = {"Authorization": f"Bearer {self.access_token}"}
         response = requests.get("https://graph.microsoft.com/v1.0/me", headers=headers)
@@ -258,7 +262,9 @@ class microsoft_onedrive(Extensions):
                     item_info["mime_type"] = item.get("file", {}).get("mimeType")
 
                 if "folder" in item:
-                    item_info["child_count"] = item.get("folder", {}).get("childCount", 0)
+                    item_info["child_count"] = item.get("folder", {}).get(
+                        "childCount", 0
+                    )
 
                 items.append(item_info)
 
@@ -287,7 +293,9 @@ class microsoft_onedrive(Extensions):
             }
 
             if file_id:
-                url = f"https://graph.microsoft.com/v1.0/me/drive/items/{file_id}/content"
+                url = (
+                    f"https://graph.microsoft.com/v1.0/me/drive/items/{file_id}/content"
+                )
             elif file_path:
                 encoded_path = file_path.replace(" ", "%20")
                 url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}:/content"
@@ -383,11 +391,17 @@ class microsoft_onedrive(Extensions):
 
             # First get file metadata
             if file_id:
-                metadata_url = f"https://graph.microsoft.com/v1.0/me/drive/items/{file_id}"
-                content_url = f"https://graph.microsoft.com/v1.0/me/drive/items/{file_id}/content"
+                metadata_url = (
+                    f"https://graph.microsoft.com/v1.0/me/drive/items/{file_id}"
+                )
+                content_url = (
+                    f"https://graph.microsoft.com/v1.0/me/drive/items/{file_id}/content"
+                )
             elif file_path:
                 encoded_path = file_path.replace(" ", "%20")
-                metadata_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}"
+                metadata_url = (
+                    f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}"
+                )
                 content_url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{encoded_path}:/content"
             else:
                 return {"error": "Either file_path or file_id must be provided"}
@@ -395,7 +409,9 @@ class microsoft_onedrive(Extensions):
             # Get metadata for filename
             metadata_response = requests.get(metadata_url, headers=headers)
             if metadata_response.status_code != 200:
-                return {"error": f"Failed to get file metadata: {metadata_response.text}"}
+                return {
+                    "error": f"Failed to get file metadata: {metadata_response.text}"
+                }
 
             metadata = metadata_response.json()
             filename = metadata.get("name", "downloaded_file")
@@ -411,7 +427,10 @@ class microsoft_onedrive(Extensions):
             else:
                 save_path = os.path.join(self.attachments_dir, filename)
 
-            os.makedirs(os.path.dirname(save_path) if os.path.dirname(save_path) else ".", exist_ok=True)
+            os.makedirs(
+                os.path.dirname(save_path) if os.path.dirname(save_path) else ".",
+                exist_ok=True,
+            )
 
             with open(save_path, "wb") as f:
                 f.write(response.content)
@@ -561,7 +580,13 @@ class microsoft_onedrive(Extensions):
             logging.error(f"Error searching OneDrive: {str(e)}")
             return {"error": str(e)}
 
-    async def move_item(self, source_path=None, source_id=None, destination_folder_path=None, destination_folder_id=None):
+    async def move_item(
+        self,
+        source_path=None,
+        source_id=None,
+        destination_folder_path=None,
+        destination_folder_id=None,
+    ):
         """
         Moves an item to a different folder in OneDrive.
 
@@ -605,14 +630,16 @@ class microsoft_onedrive(Extensions):
                         headers=headers,
                     )
                     if dest_response.status_code != 200:
-                        return {"error": f"Destination folder not found: {destination_folder_path}"}
+                        return {
+                            "error": f"Destination folder not found: {destination_folder_path}"
+                        }
                     dest_id = dest_response.json().get("id")
             else:
-                return {"error": "Either destination_folder_path or destination_folder_id must be provided"}
+                return {
+                    "error": "Either destination_folder_path or destination_folder_id must be provided"
+                }
 
-            move_data = {
-                "parentReference": {"id": dest_id}
-            }
+            move_data = {"parentReference": {"id": dest_id}}
 
             response = requests.patch(url, headers=headers, json=move_data)
 
@@ -631,7 +658,14 @@ class microsoft_onedrive(Extensions):
             logging.error(f"Error moving OneDrive item: {str(e)}")
             return {"error": str(e)}
 
-    async def copy_item(self, source_path=None, source_id=None, destination_folder_path=None, destination_folder_id=None, new_name=None):
+    async def copy_item(
+        self,
+        source_path=None,
+        source_id=None,
+        destination_folder_path=None,
+        destination_folder_id=None,
+        new_name=None,
+    ):
         """
         Copies an item to a different location in OneDrive.
 
@@ -655,7 +689,9 @@ class microsoft_onedrive(Extensions):
 
             # Determine source URL
             if source_id:
-                url = f"https://graph.microsoft.com/v1.0/me/drive/items/{source_id}/copy"
+                url = (
+                    f"https://graph.microsoft.com/v1.0/me/drive/items/{source_id}/copy"
+                )
             elif source_path:
                 encoded_path = source_path.replace(" ", "%20")
                 # First get the item ID
@@ -683,14 +719,16 @@ class microsoft_onedrive(Extensions):
                         headers=headers,
                     )
                     if dest_response.status_code != 200:
-                        return {"error": f"Destination folder not found: {destination_folder_path}"}
+                        return {
+                            "error": f"Destination folder not found: {destination_folder_path}"
+                        }
                     dest_id = dest_response.json().get("id")
             else:
-                return {"error": "Either destination_folder_path or destination_folder_id must be provided"}
+                return {
+                    "error": "Either destination_folder_path or destination_folder_id must be provided"
+                }
 
-            copy_data = {
-                "parentReference": {"driveId": "me", "id": dest_id}
-            }
+            copy_data = {"parentReference": {"driveId": "me", "id": dest_id}}
             if new_name:
                 copy_data["name"] = new_name
 

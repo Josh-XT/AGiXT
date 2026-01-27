@@ -63,7 +63,9 @@ class MicrosoftSharepointSSO:
 
         if response.status_code != 200:
             logging.error(f"Token refresh failed with response: {response.text}")
-            raise Exception(f"Microsoft SharePoint token refresh failed: {response.text}")
+            raise Exception(
+                f"Microsoft SharePoint token refresh failed: {response.text}"
+            )
 
         token_data = response.json()
 
@@ -132,12 +134,16 @@ def sso(code, redirect_uri=None) -> MicrosoftSharepointSSO:
         },
     )
     if response.status_code != 200:
-        logging.error(f"Error getting Microsoft SharePoint access token: {response.text}")
+        logging.error(
+            f"Error getting Microsoft SharePoint access token: {response.text}"
+        )
         return None
     data = response.json()
     access_token = data["access_token"]
     refresh_token = data.get("refresh_token", "Not provided")
-    return MicrosoftSharepointSSO(access_token=access_token, refresh_token=refresh_token)
+    return MicrosoftSharepointSSO(
+        access_token=access_token, refresh_token=refresh_token
+    )
 
 
 class microsoft_sharepoint(Extensions):
@@ -188,7 +194,9 @@ class microsoft_sharepoint(Extensions):
                     self.auth = MagicalAuth(token=self.api_key)
                     self.timezone = self.auth.get_timezone()
                 except Exception as e:
-                    logging.error(f"Error initializing Microsoft SharePoint client: {str(e)}")
+                    logging.error(
+                        f"Error initializing Microsoft SharePoint client: {str(e)}"
+                    )
 
         self.attachments_dir = kwargs.get(
             "conversation_directory", "./WORKSPACE/attachments"
@@ -198,7 +206,9 @@ class microsoft_sharepoint(Extensions):
     def verify_user(self):
         """Verifies that the current access token is valid."""
         if self.auth:
-            self.access_token = self.auth.refresh_oauth_token(provider="microsoft_sharepoint")
+            self.access_token = self.auth.refresh_oauth_token(
+                provider="microsoft_sharepoint"
+            )
 
         headers = {"Authorization": f"Bearer {self.access_token}"}
         response = requests.get("https://graph.microsoft.com/v1.0/me", headers=headers)
@@ -242,14 +252,16 @@ class microsoft_sharepoint(Extensions):
             sites = []
 
             for site in data.get("value", []):
-                sites.append({
-                    "id": site.get("id"),
-                    "name": site.get("name"),
-                    "display_name": site.get("displayName"),
-                    "web_url": site.get("webUrl"),
-                    "created_time": site.get("createdDateTime"),
-                    "description": site.get("description", ""),
-                })
+                sites.append(
+                    {
+                        "id": site.get("id"),
+                        "name": site.get("name"),
+                        "display_name": site.get("displayName"),
+                        "web_url": site.get("webUrl"),
+                        "created_time": site.get("createdDateTime"),
+                        "description": site.get("description", ""),
+                    }
+                )
 
             return sites
 
@@ -334,15 +346,17 @@ class microsoft_sharepoint(Extensions):
             libraries = []
 
             for drive in data.get("value", []):
-                libraries.append({
-                    "id": drive.get("id"),
-                    "name": drive.get("name"),
-                    "description": drive.get("description", ""),
-                    "web_url": drive.get("webUrl"),
-                    "drive_type": drive.get("driveType"),
-                    "created_time": drive.get("createdDateTime"),
-                    "quota": drive.get("quota", {}),
-                })
+                libraries.append(
+                    {
+                        "id": drive.get("id"),
+                        "name": drive.get("name"),
+                        "description": drive.get("description", ""),
+                        "web_url": drive.get("webUrl"),
+                        "drive_type": drive.get("driveType"),
+                        "created_time": drive.get("createdDateTime"),
+                        "quota": drive.get("quota", {}),
+                    }
+                )
 
             return libraries
 
@@ -350,7 +364,9 @@ class microsoft_sharepoint(Extensions):
             logging.error(f"Error listing SharePoint libraries: {str(e)}")
             return {"error": str(e)}
 
-    async def list_files(self, site_id, drive_id=None, folder_path="root", max_items=50):
+    async def list_files(
+        self, site_id, drive_id=None, folder_path="root", max_items=50
+    ):
         """
         Lists files in a SharePoint document library.
 
@@ -375,7 +391,9 @@ class microsoft_sharepoint(Extensions):
                 drive_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive"
                 drive_response = requests.get(drive_url, headers=headers)
                 if drive_response.status_code != 200:
-                    return {"error": f"Failed to get default library: {drive_response.text}"}
+                    return {
+                        "error": f"Failed to get default library: {drive_response.text}"
+                    }
                 drive_id = drive_response.json().get("id")
 
             if folder_path == "root" or not folder_path:
@@ -402,15 +420,21 @@ class microsoft_sharepoint(Extensions):
                     "created_time": item.get("createdDateTime"),
                     "modified_time": item.get("lastModifiedDateTime"),
                     "web_url": item.get("webUrl"),
-                    "created_by": item.get("createdBy", {}).get("user", {}).get("displayName"),
-                    "modified_by": item.get("lastModifiedBy", {}).get("user", {}).get("displayName"),
+                    "created_by": item.get("createdBy", {})
+                    .get("user", {})
+                    .get("displayName"),
+                    "modified_by": item.get("lastModifiedBy", {})
+                    .get("user", {})
+                    .get("displayName"),
                 }
 
                 if "file" in item:
                     item_info["mime_type"] = item.get("file", {}).get("mimeType")
 
                 if "folder" in item:
-                    item_info["child_count"] = item.get("folder", {}).get("childCount", 0)
+                    item_info["child_count"] = item.get("folder", {}).get(
+                        "childCount", 0
+                    )
 
                 items.append(item_info)
 
@@ -420,7 +444,9 @@ class microsoft_sharepoint(Extensions):
             logging.error(f"Error listing SharePoint files: {str(e)}")
             return {"error": str(e)}
 
-    async def get_file_content(self, site_id, drive_id=None, file_path=None, file_id=None):
+    async def get_file_content(
+        self, site_id, drive_id=None, file_path=None, file_id=None
+    ):
         """
         Gets the content of a file from SharePoint.
 
@@ -442,7 +468,9 @@ class microsoft_sharepoint(Extensions):
                 drive_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive"
                 drive_response = requests.get(drive_url, headers=headers)
                 if drive_response.status_code != 200:
-                    return {"error": f"Failed to get default library: {drive_response.text}"}
+                    return {
+                        "error": f"Failed to get default library: {drive_response.text}"
+                    }
                 drive_id = drive_response.json().get("id")
 
             if file_id:
@@ -470,7 +498,9 @@ class microsoft_sharepoint(Extensions):
             logging.error(f"Error getting SharePoint file content: {str(e)}")
             return {"error": str(e)}
 
-    async def upload_file(self, site_id, destination_path, file_path=None, content=None, drive_id=None):
+    async def upload_file(
+        self, site_id, destination_path, file_path=None, content=None, drive_id=None
+    ):
         """
         Uploads a file to SharePoint.
 
@@ -505,7 +535,9 @@ class microsoft_sharepoint(Extensions):
                 drive_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive"
                 drive_response = requests.get(drive_url, headers=get_headers)
                 if drive_response.status_code != 200:
-                    return {"error": f"Failed to get default library: {drive_response.text}"}
+                    return {
+                        "error": f"Failed to get default library: {drive_response.text}"
+                    }
                 drive_id = drive_response.json().get("id")
 
             encoded_dest = destination_path.replace(" ", "%20")
@@ -529,7 +561,9 @@ class microsoft_sharepoint(Extensions):
             logging.error(f"Error uploading to SharePoint: {str(e)}")
             return {"error": str(e)}
 
-    async def download_file(self, site_id, drive_id=None, file_path=None, file_id=None, save_to=None):
+    async def download_file(
+        self, site_id, drive_id=None, file_path=None, file_id=None, save_to=None
+    ):
         """
         Downloads a file from SharePoint.
 
@@ -552,7 +586,9 @@ class microsoft_sharepoint(Extensions):
                 drive_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive"
                 drive_response = requests.get(drive_url, headers=headers)
                 if drive_response.status_code != 200:
-                    return {"error": f"Failed to get default library: {drive_response.text}"}
+                    return {
+                        "error": f"Failed to get default library: {drive_response.text}"
+                    }
                 drive_id = drive_response.json().get("id")
 
             if file_id:
@@ -603,7 +639,9 @@ class microsoft_sharepoint(Extensions):
             logging.error(f"Error downloading from SharePoint: {str(e)}")
             return {"error": str(e)}
 
-    async def create_folder(self, site_id, folder_name, parent_path="root", drive_id=None):
+    async def create_folder(
+        self, site_id, folder_name, parent_path="root", drive_id=None
+    ):
         """
         Creates a folder in SharePoint.
 
@@ -628,7 +666,9 @@ class microsoft_sharepoint(Extensions):
                 drive_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive"
                 drive_response = requests.get(drive_url, headers=headers)
                 if drive_response.status_code != 200:
-                    return {"error": f"Failed to get default library: {drive_response.text}"}
+                    return {
+                        "error": f"Failed to get default library: {drive_response.text}"
+                    }
                 drive_id = drive_response.json().get("id")
 
             if parent_path == "root" or not parent_path:
@@ -682,7 +722,9 @@ class microsoft_sharepoint(Extensions):
                 drive_url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drive"
                 drive_response = requests.get(drive_url, headers=headers)
                 if drive_response.status_code != 200:
-                    return {"error": f"Failed to get default library: {drive_response.text}"}
+                    return {
+                        "error": f"Failed to get default library: {drive_response.text}"
+                    }
                 drive_id = drive_response.json().get("id")
 
             if item_id:
@@ -741,15 +783,17 @@ class microsoft_sharepoint(Extensions):
                 items = []
 
                 for item in data.get("value", []):
-                    items.append({
-                        "id": item.get("id"),
-                        "name": item.get("name"),
-                        "type": "folder" if "folder" in item else "file",
-                        "size": item.get("size", 0),
-                        "path": item.get("parentReference", {}).get("path", ""),
-                        "web_url": item.get("webUrl"),
-                        "modified_time": item.get("lastModifiedDateTime"),
-                    })
+                    items.append(
+                        {
+                            "id": item.get("id"),
+                            "name": item.get("name"),
+                            "type": "folder" if "folder" in item else "file",
+                            "size": item.get("size", 0),
+                            "path": item.get("parentReference", {}).get("path", ""),
+                            "web_url": item.get("webUrl"),
+                            "modified_time": item.get("lastModifiedDateTime"),
+                        }
+                    )
 
                 return items
             else:
@@ -778,14 +822,20 @@ class microsoft_sharepoint(Extensions):
                     for hit in hit_container.get("hitsContainers", []):
                         for result in hit.get("hits", []):
                             resource = result.get("resource", {})
-                            items.append({
-                                "id": resource.get("id"),
-                                "name": resource.get("name"),
-                                "web_url": resource.get("webUrl"),
-                                "size": resource.get("size"),
-                                "modified_time": resource.get("lastModifiedDateTime"),
-                                "site_name": resource.get("parentReference", {}).get("siteId"),
-                            })
+                            items.append(
+                                {
+                                    "id": resource.get("id"),
+                                    "name": resource.get("name"),
+                                    "web_url": resource.get("webUrl"),
+                                    "size": resource.get("size"),
+                                    "modified_time": resource.get(
+                                        "lastModifiedDateTime"
+                                    ),
+                                    "site_name": resource.get(
+                                        "parentReference", {}
+                                    ).get("siteId"),
+                                }
+                            )
 
                 return items
 

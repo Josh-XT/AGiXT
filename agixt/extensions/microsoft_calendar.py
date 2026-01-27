@@ -185,12 +185,16 @@ class microsoft_calendar(Extensions):
                     self.auth = MagicalAuth(token=self.api_key)
                     self.timezone = self.auth.get_timezone()
                 except Exception as e:
-                    logging.error(f"Error initializing Microsoft Calendar client: {str(e)}")
+                    logging.error(
+                        f"Error initializing Microsoft Calendar client: {str(e)}"
+                    )
 
     def verify_user(self):
         """Verifies that the current access token is valid."""
         if self.auth:
-            self.access_token = self.auth.refresh_oauth_token(provider="microsoft_calendar")
+            self.access_token = self.auth.refresh_oauth_token(
+                provider="microsoft_calendar"
+            )
 
         headers = {"Authorization": f"Bearer {self.access_token}"}
         response = requests.get("https://graph.microsoft.com/v1.0/me", headers=headers)
@@ -401,9 +405,7 @@ class microsoft_calendar(Extensions):
                 "message": f"Failed to create calendar event: {str(e)}",
             }
 
-    async def get_calendar_items(
-        self, start_date=None, end_date=None, max_items=10
-    ):
+    async def get_calendar_items(self, start_date=None, end_date=None, max_items=10):
         """
         Retrieves calendar events within a date range.
 
@@ -467,9 +469,7 @@ class microsoft_calendar(Extensions):
             response = requests.get(url, headers=headers)
 
             if response.status_code != 200:
-                alt_url = (
-                    f"https://graph.microsoft.com/v1.0/me/events?$top={max_items}"
-                )
+                alt_url = f"https://graph.microsoft.com/v1.0/me/events?$top={max_items}"
                 alt_response = requests.get(alt_url, headers=headers)
 
                 if alt_response.status_code == 200:
@@ -547,9 +547,7 @@ class microsoft_calendar(Extensions):
             start_of_day = date.replace(
                 hour=start_hour, minute=0, second=0, microsecond=0
             )
-            end_of_day = date.replace(
-                hour=end_hour, minute=0, second=0, microsecond=0
-            )
+            end_of_day = date.replace(hour=end_hour, minute=0, second=0, microsecond=0)
 
             events = await self.get_calendar_items(
                 start_date=start_of_day,
@@ -570,23 +568,27 @@ class microsoft_calendar(Extensions):
 
             for busy_start, busy_end in busy_times:
                 if current_time + timedelta(minutes=duration_minutes) <= busy_start:
-                    available_slots.append({
-                        "start": current_time.strftime("%Y-%m-%d %H:%M"),
-                        "end": busy_start.strftime("%Y-%m-%d %H:%M"),
-                        "duration_available": int(
-                            (busy_start - current_time).total_seconds() / 60
-                        ),
-                    })
+                    available_slots.append(
+                        {
+                            "start": current_time.strftime("%Y-%m-%d %H:%M"),
+                            "end": busy_start.strftime("%Y-%m-%d %H:%M"),
+                            "duration_available": int(
+                                (busy_start - current_time).total_seconds() / 60
+                            ),
+                        }
+                    )
                 current_time = max(current_time, busy_end)
 
             if current_time + timedelta(minutes=duration_minutes) <= end_of_day:
-                available_slots.append({
-                    "start": current_time.strftime("%Y-%m-%d %H:%M"),
-                    "end": end_of_day.strftime("%Y-%m-%d %H:%M"),
-                    "duration_available": int(
-                        (end_of_day - current_time).total_seconds() / 60
-                    ),
-                })
+                available_slots.append(
+                    {
+                        "start": current_time.strftime("%Y-%m-%d %H:%M"),
+                        "end": end_of_day.strftime("%Y-%m-%d %H:%M"),
+                        "duration_available": int(
+                            (end_of_day - current_time).total_seconds() / 60
+                        ),
+                    }
+                )
 
             return available_slots
 

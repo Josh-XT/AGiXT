@@ -229,7 +229,7 @@ class google_sso(Extensions):
                 return {"error": f"Failed to get profile: {response.text}"}
 
             data = response.json()
-            
+
             profile = {
                 "email": data.get("emailAddresses", [{}])[0].get("value", ""),
                 "first_name": data.get("names", [{}])[0].get("givenName", ""),

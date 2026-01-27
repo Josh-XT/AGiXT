@@ -209,7 +209,9 @@ class microsoft_email(Extensions):
                     self.auth = MagicalAuth(token=self.api_key)
                     self.timezone = self.auth.get_timezone()
                 except Exception as e:
-                    logging.error(f"Error initializing Microsoft Email client: {str(e)}")
+                    logging.error(
+                        f"Error initializing Microsoft Email client: {str(e)}"
+                    )
 
         self.attachments_dir = kwargs.get(
             "conversation_directory", "./WORKSPACE/attachments"
@@ -221,7 +223,9 @@ class microsoft_email(Extensions):
         Verifies that the current access token corresponds to a valid user.
         """
         if self.auth:
-            self.access_token = self.auth.refresh_oauth_token(provider="microsoft_email")
+            self.access_token = self.auth.refresh_oauth_token(
+                provider="microsoft_email"
+            )
 
         headers = {"Authorization": f"Bearer {self.access_token}"}
         response = requests.get("https://graph.microsoft.com/v1.0/me", headers=headers)
@@ -669,9 +673,7 @@ class microsoft_email(Extensions):
 
             endpoint = "replyAll" if reply_all else "reply"
             reply_data = {
-                "message": {
-                    "body": {"contentType": "HTML", "content": reply_body}
-                }
+                "message": {"body": {"contentType": "HTML", "content": reply_body}}
             }
 
             response = requests.post(
@@ -716,7 +718,10 @@ class microsoft_email(Extensions):
             folder_id = None
 
             if segments:
-                if len(segments) == 1 and segments[0] in self.WELL_KNOWN_FOLDER_CANONICALS:
+                if (
+                    len(segments) == 1
+                    and segments[0] in self.WELL_KNOWN_FOLDER_CANONICALS
+                ):
                     folder_id = segments[0]
                 else:
                     folder_id = self._resolve_mail_folder_id(segments, headers)
@@ -778,12 +783,14 @@ class microsoft_email(Extensions):
                         file_path = os.path.join(save_dir, filename)
                         with open(file_path, "wb") as f:
                             f.write(base64.b64decode(content))
-                        saved_files.append({
-                            "filename": filename,
-                            "path": file_path,
-                            "size": attachment.get("size", 0),
-                            "content_type": attachment.get("contentType", ""),
-                        })
+                        saved_files.append(
+                            {
+                                "filename": filename,
+                                "path": file_path,
+                                "size": attachment.get("size", 0),
+                                "content_type": attachment.get("contentType", ""),
+                            }
+                        )
 
             return saved_files
 

@@ -185,7 +185,9 @@ class microsoft_sso(Extensions):
                 data = response.json()
                 name = f"{data.get('givenName', '')} {data.get('surname', '')}".strip()
                 email = data.get("mail") or data.get("userPrincipalName", "")
-                return f"Microsoft SSO connection verified. Connected as: {name} ({email})"
+                return (
+                    f"Microsoft SSO connection verified. Connected as: {name} ({email})"
+                )
             else:
                 return f"Microsoft SSO verification failed: {response.text}"
         except Exception as e:
