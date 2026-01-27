@@ -195,6 +195,8 @@ class web_browsing(Extensions):
         Returns:
             str: The results of the web search in markdown format.
         """
+        from urllib.parse import quote_plus
+
         try:
             websearch_depth = int(websearch_depth)
             if websearch_depth < 1:
@@ -205,11 +207,94 @@ class web_browsing(Extensions):
             websearch_depth = 3
 
         try:
-            # Use the ddgs package for reliable DuckDuckGo search
-            from ddgs import DDGS
+            # Use Playwright for reliable web search via DuckDuckGo
+            await self._ensure_browser_page(headless=True)
 
-            with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=websearch_depth))
+            search_url = f"https://duckduckgo.com/?q={quote_plus(query)}&t=h_&ia=web"
+            await self.page.goto(search_url, wait_until="domcontentloaded")
+
+            # Wait for search results to load
+            try:
+                await self.page.wait_for_selector(
+                    'article[data-testid="result"]', timeout=10000
+                )
+            except:
+                # Try alternate selector
+                await self.page.wait_for_selector(".result", timeout=5000)
+
+            # Extract search results
+            results = []
+
+            # Try modern DuckDuckGo layout first
+            result_elements = await self.page.query_selector_all(
+                'article[data-testid="result"]'
+            )
+
+            if result_elements:
+                for element in result_elements[:websearch_depth]:
+                    try:
+                        # Get title and URL
+                        title_el = await element.query_selector(
+                            'a[data-testid="result-title-a"]'
+                        )
+                        if not title_el:
+                            title_el = await element.query_selector("h2 a")
+
+                        snippet_el = await element.query_selector(
+                            'div[data-result="snippet"]'
+                        )
+                        if not snippet_el:
+                            snippet_el = await element.query_selector(
+                                ".result__snippet"
+                            )
+
+                        if title_el:
+                            title = await title_el.inner_text()
+                            url = await title_el.get_attribute("href")
+                            snippet = ""
+                            if snippet_el:
+                                snippet = await snippet_el.inner_text()
+
+                            if title and url:
+                                results.append(
+                                    {
+                                        "title": title.strip(),
+                                        "href": url,
+                                        "body": snippet.strip() if snippet else "",
+                                    }
+                                )
+                    except Exception as e:
+                        logging.debug(f"Error parsing result element: {e}")
+                        continue
+
+            # Fallback to classic layout
+            if not results:
+                result_elements = await self.page.query_selector_all(
+                    ".result__body, .result"
+                )
+                for element in result_elements[:websearch_depth]:
+                    try:
+                        title_el = await element.query_selector(".result__a")
+                        snippet_el = await element.query_selector(".result__snippet")
+
+                        if title_el:
+                            title = await title_el.inner_text()
+                            url = await title_el.get_attribute("href")
+                            snippet = ""
+                            if snippet_el:
+                                snippet = await snippet_el.inner_text()
+
+                            if title and url:
+                                results.append(
+                                    {
+                                        "title": title.strip(),
+                                        "href": url,
+                                        "body": snippet.strip() if snippet else "",
+                                    }
+                                )
+                    except Exception as e:
+                        logging.debug(f"Error parsing classic result: {e}")
+                        continue
 
             if not results:
                 return f"No search results found for: {query}"
@@ -226,11 +311,9 @@ class web_browsing(Extensions):
 
             return "\n".join(output_lines)
 
-        except ImportError:
-            logging.warning(
-                "ddgs package not installed, falling back to internal search"
-            )
-            # Fallback to internal search_the_web
+        except Exception as e:
+            logging.error(f"Web search error: {e}")
+            # Fallback to internal search
             try:
                 result = await search_the_web(
                     query=query,
@@ -239,12 +322,9 @@ class web_browsing(Extensions):
                     conversation_name=self.conversation_name or "-",
                 )
                 return result
-            except Exception as e:
-                logging.error(f"Fallback search error: {e}")
+            except Exception as e2:
+                logging.error(f"Fallback search error: {e2}")
                 return f"Error performing web search: {str(e)}"
-        except Exception as e:
-            logging.error(f"Web search error: {e}")
-            return f"Error performing web search: {str(e)}"
 
     async def _ensure_browser_page(self, headless: bool = True):
         """Internal helper to ensure Playwright, browser, context, and page are initialized."""
