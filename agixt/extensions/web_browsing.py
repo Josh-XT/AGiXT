@@ -83,7 +83,6 @@ pytesseract = _import_optional("pytesseract", "pytesseract")
 Image = _import_optional("PIL.Image", "Pillow")
 
 from Extensions import Extensions
-from Websearch import search_the_web
 import xml.etree.ElementTree as ET
 
 # Configure logging
@@ -195,7 +194,9 @@ class web_browsing(Extensions):
         Returns:
             str: The results of the web search in markdown format.
         """
-        from urllib.parse import quote_plus
+        from urllib.parse import quote, unquote
+        from html.parser import HTMLParser
+        import httpx
 
         try:
             websearch_depth = int(websearch_depth)
@@ -206,95 +207,88 @@ class web_browsing(Extensions):
         except:
             websearch_depth = 3
 
+        class DDGHTMLParser(HTMLParser):
+            """Parser for DuckDuckGo HTML search results."""
+
+            def __init__(self):
+                super().__init__()
+                self.results = []
+                self.in_result_link = False
+                self.in_snippet_link = False
+                self.current_result = {}
+
+            def handle_starttag(self, tag, attrs):
+                attrs_dict = dict(attrs)
+                class_attr = attrs_dict.get("class", "")
+
+                if tag == "a" and "result__a" in class_attr:
+                    self.in_result_link = True
+                    raw_url = attrs_dict.get("href", "")
+                    # Extract actual URL from DuckDuckGo redirect
+                    if "uddg=" in raw_url:
+                        try:
+                            url_part = raw_url.split("uddg=")[1].split("&")[0]
+                            self.current_result["url"] = unquote(url_part)
+                        except:
+                            self.current_result["url"] = raw_url
+                    else:
+                        self.current_result["url"] = raw_url
+                    self.current_result["title"] = ""
+                elif tag == "a" and "result__snippet" in class_attr:
+                    self.in_snippet_link = True
+                    self.current_result["snippet"] = ""
+
+            def handle_endtag(self, tag):
+                if tag == "a" and self.in_result_link:
+                    self.in_result_link = False
+                elif tag == "a" and self.in_snippet_link:
+                    self.in_snippet_link = False
+                    # Save result when snippet ends (it comes after title)
+                    if self.current_result.get("url") and self.current_result.get(
+                        "title"
+                    ):
+                        # Filter out ads (DDG ads have tracking URLs)
+                        url = self.current_result.get("url", "")
+                        if not any(
+                            ad in url
+                            for ad in ["duckduckgo.com/y.js", "ad_provider", "ad_type"]
+                        ):
+                            self.results.append(self.current_result.copy())
+                    self.current_result = {}
+
+            def handle_data(self, data):
+                if self.in_result_link:
+                    self.current_result["title"] = (
+                        self.current_result.get("title", "") + data.strip()
+                    )
+                elif self.in_snippet_link:
+                    self.current_result["snippet"] = (
+                        self.current_result.get("snippet", "") + data.strip()
+                    )
+
         try:
-            # Use Playwright for reliable web search via DuckDuckGo
-            await self._ensure_browser_page(headless=True)
+            # Use DuckDuckGo HTML interface with httpx (works without JavaScript)
+            search_url = f"https://html.duckduckgo.com/html/?q={quote(query)}"
 
-            search_url = f"https://duckduckgo.com/?q={quote_plus(query)}&t=h_&ia=web"
-            await self.page.goto(search_url, wait_until="domcontentloaded")
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Accept-Encoding": "gzip, deflate",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+            }
 
-            # Wait for search results to load
-            try:
-                await self.page.wait_for_selector(
-                    'article[data-testid="result"]', timeout=10000
-                )
-            except:
-                # Try alternate selector
-                await self.page.wait_for_selector(".result", timeout=5000)
+            async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+                response = await client.get(search_url, headers=headers)
+                response.raise_for_status()
 
-            # Extract search results
-            results = []
+            # Parse HTML results
+            parser = DDGHTMLParser()
+            parser.feed(response.text)
 
-            # Try modern DuckDuckGo layout first
-            result_elements = await self.page.query_selector_all(
-                'article[data-testid="result"]'
-            )
-
-            if result_elements:
-                for element in result_elements[:websearch_depth]:
-                    try:
-                        # Get title and URL
-                        title_el = await element.query_selector(
-                            'a[data-testid="result-title-a"]'
-                        )
-                        if not title_el:
-                            title_el = await element.query_selector("h2 a")
-
-                        snippet_el = await element.query_selector(
-                            'div[data-result="snippet"]'
-                        )
-                        if not snippet_el:
-                            snippet_el = await element.query_selector(
-                                ".result__snippet"
-                            )
-
-                        if title_el:
-                            title = await title_el.inner_text()
-                            url = await title_el.get_attribute("href")
-                            snippet = ""
-                            if snippet_el:
-                                snippet = await snippet_el.inner_text()
-
-                            if title and url:
-                                results.append(
-                                    {
-                                        "title": title.strip(),
-                                        "href": url,
-                                        "body": snippet.strip() if snippet else "",
-                                    }
-                                )
-                    except Exception as e:
-                        logging.debug(f"Error parsing result element: {e}")
-                        continue
-
-            # Fallback to classic layout
-            if not results:
-                result_elements = await self.page.query_selector_all(
-                    ".result__body, .result"
-                )
-                for element in result_elements[:websearch_depth]:
-                    try:
-                        title_el = await element.query_selector(".result__a")
-                        snippet_el = await element.query_selector(".result__snippet")
-
-                        if title_el:
-                            title = await title_el.inner_text()
-                            url = await title_el.get_attribute("href")
-                            snippet = ""
-                            if snippet_el:
-                                snippet = await snippet_el.inner_text()
-
-                            if title and url:
-                                results.append(
-                                    {
-                                        "title": title.strip(),
-                                        "href": url,
-                                        "body": snippet.strip() if snippet else "",
-                                    }
-                                )
-                    except Exception as e:
-                        logging.debug(f"Error parsing classic result: {e}")
-                        continue
+            results = parser.results[:websearch_depth]
 
             if not results:
                 return f"No search results found for: {query}"
@@ -303,28 +297,17 @@ class web_browsing(Extensions):
             output_lines = [f"## Search Results for: {query}\n"]
             for r in results:
                 title = r.get("title", "Untitled")
-                url = r.get("href", "")
-                body = r.get("body", "")
+                url = r.get("url", "")
+                snippet = r.get("snippet", "")
                 output_lines.append(f"### [{title}]({url})")
-                if body:
-                    output_lines.append(f"{body}\n")
+                if snippet:
+                    output_lines.append(f"{snippet}\n")
 
             return "\n".join(output_lines)
 
         except Exception as e:
             logging.error(f"Web search error: {e}")
-            # Fallback to internal search
-            try:
-                result = await search_the_web(
-                    query=query,
-                    token=self.api_key,
-                    agent_name=self.agent_name,
-                    conversation_name=self.conversation_name or "-",
-                )
-                return result
-            except Exception as e2:
-                logging.error(f"Fallback search error: {e2}")
-                return f"Error performing web search: {str(e)}"
+            return f"Error performing web search: {str(e)}"
 
     async def _ensure_browser_page(self, headless: bool = True):
         """Internal helper to ensure Playwright, browser, context, and page are initialized."""
