@@ -3093,7 +3093,9 @@ def _stop_local(stop_ezlocalai_too: bool = True, stop_redis_too: bool = False) -
                     if orphan_pid != pid:
                         try:
                             os.kill(orphan_pid, signal.SIGKILL)
-                            print(f"Killed orphaned run-local.py process (PID {orphan_pid})")
+                            print(
+                                f"Killed orphaned run-local.py process (PID {orphan_pid})"
+                            )
                         except (ProcessLookupError, PermissionError):
                             pass
     except Exception:
