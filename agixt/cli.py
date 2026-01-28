@@ -2488,15 +2488,7 @@ def start_ezlocalai():
 
 def stop_ezlocalai():
     """Stop ezLocalai using the ezlocalai CLI."""
-    print("Stopping ezLocalai...")
-    try:
-        subprocess.run(["ezlocalai", "stop"], check=True)
-    except FileNotFoundError:
-        raise CLIError(
-            "ezlocalai CLI not found. Install it with: pip install ezlocalai"
-        )
-    except subprocess.CalledProcessError as e:
-        print(f"Error stopping ezLocalai: {e}")
+    pass
 
 
 def restart_ezlocalai():
@@ -2831,10 +2823,6 @@ def _stop_all(local: bool = False) -> None:
     else:
         print("\n[1/3] Stopping web interface (Docker)...")
         _stop_web_docker()
-
-    # Stop ezLocalai (always Docker)
-    print("\n[2/3] Stopping ezLocalai...")
-    stop_ezlocalai()
 
     # Stop AGiXT
     if local:

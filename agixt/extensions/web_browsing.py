@@ -350,7 +350,7 @@ class web_browsing(Extensions):
                         "Accept-Encoding": "gzip, deflate, br",
                         "DNT": "1",  # Do Not Track
                         "Connection": "keep-alive",
-                        "Upgrade-Insecure-Requests": "1",
+                        # Note: "Upgrade-Insecure-Requests" header removed - causes sites like X.com to block requests
                         "Sec-Fetch-Dest": "document",
                         "Sec-Fetch-Mode": "navigate",
                         "Sec-Fetch-Site": "none",
@@ -448,72 +448,220 @@ class web_browsing(Extensions):
             raise
 
     async def _call_prompt_agent(self, timeout: int = None, **kwargs):
-        """Call ApiClient.prompt_agent in a background thread (with optional timeout for stuck requests)."""
-        if not self.ApiClient:
-            raise RuntimeError("ApiClient is not configured.")
+        """Call LLM via streaming chat completions endpoint for faster response."""
+        import httpx
+        import json as json_module
 
-        import concurrent.futures
-
-        # Use ThreadPoolExecutor for better timeout control than asyncio.to_thread
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         start_time = time.time()
 
+        # Extract user_input from prompt_args - this is the actual prompt content
+        user_input = kwargs.get("prompt_args", {}).get("user_input", "")
+        if not user_input:
+            user_input = kwargs.get("user_input", "")
+
+        if not user_input:
+            raise ValueError("No user_input provided for LLM call")
+
+        # Get API base URI and auth from ApiClient
+        base_uri = getattr(self.ApiClient, "base_uri", "http://localhost:7437")
+        auth_header = getattr(self.ApiClient, "headers", {}).get("Authorization", "")
+
+        # Build chat completions request
+        messages = [{"role": "user", "content": user_input}]
+
+        payload = {
+            "model": self.agent_name,
+            "messages": messages,
+            "stream": True,
+            "max_tokens": 4096,
+            "temperature": 0.7,
+            "user": self.conversation_name or "-",
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": auth_header,
+        }
+
+        url = f"{base_uri}/v1/chat/completions"
+        response_text = ""
+
         try:
-            logging.debug(f"Starting prompt_agent call with timeout={timeout}s...")
+            logging.debug(
+                f"Starting streaming chat completion with timeout={timeout}s..."
+            )
 
-            # Submit the blocking call to the executor
-            future = executor.submit(self.ApiClient.prompt_agent, **kwargs)
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(timeout or 120.0, connect=10.0)
+            ) as client:
+                async with client.stream(
+                    "POST", url, json=payload, headers=headers
+                ) as response:
+                    if response.status_code != 200:
+                        error_body = await response.aread()
+                        raise RuntimeError(
+                            f"Chat completions failed with status {response.status_code}: {error_body.decode()}"
+                        )
 
-            # Wait for completion with timeout
-            if timeout:
-                try:
-                    # Use run_in_executor to await the future with timeout
-                    response = await asyncio.wait_for(
-                        asyncio.get_event_loop().run_in_executor(
-                            None, lambda: future.result(timeout=timeout)
-                        ),
-                        timeout=timeout
-                        + 1,  # Give slightly more time than the future's timeout
-                    )
-                except (
-                    concurrent.futures.TimeoutError,
-                    asyncio.TimeoutError,
-                ) as timeout_error:
-                    elapsed = time.time() - start_time
-                    error_msg = f"LLM call timed out after {elapsed:.1f}s (timeout was {timeout}s)"
-                    logging.error(error_msg)
-                    logging.warning(
-                        "The background thread is still running and cannot be killed. "
-                        "If ezlocalai is overloaded, consider restarting it or increasing MAX_CONCURRENT_REQUESTS."
-                    )
-                    # Cancel the future (won't stop the thread but marks it as cancelled)
-                    future.cancel()
-                    raise TimeoutError(error_msg)
-            else:
-                response = await asyncio.get_event_loop().run_in_executor(
-                    None, future.result
-                )
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
+                        if line.startswith("data: "):
+                            data = line[6:]  # Remove "data: " prefix
+                            if data.strip() == "[DONE]":
+                                break
+                            try:
+                                chunk = json_module.loads(data)
+                                if "choices" in chunk and chunk["choices"]:
+                                    delta = chunk["choices"][0].get("delta", {})
+                                    content = delta.get("content", "")
+                                    if content:
+                                        response_text += content
+                            except json_module.JSONDecodeError:
+                                continue
 
             elapsed = time.time() - start_time
             logging.debug(
-                f"prompt_agent call completed in {elapsed:.1f}s, response length: {len(str(response)) if response else 0}"
+                f"Streaming chat completion completed in {elapsed:.1f}s, response length: {len(response_text)}"
             )
+            logging.info(
+                f"Response: {response_text[:500]}..."
+                if len(response_text) > 500
+                else f"Response: {response_text}"
+            )
+            return response_text
 
-        except TimeoutError:
-            # Re-raise timeout errors
-            raise
+        except httpx.TimeoutException as e:
+            elapsed = time.time() - start_time
+            error_msg = f"LLM streaming call timed out after {elapsed:.1f}s (timeout was {timeout}s)"
+            logging.error(error_msg)
+            raise TimeoutError(error_msg)
         except Exception as e:
             elapsed = time.time() - start_time
             logging.error(
-                f"Error in _call_prompt_agent after {elapsed:.1f}s: {e}", exc_info=True
+                f"Error in streaming chat completion after {elapsed:.1f}s: {e}",
+                exc_info=True,
             )
             raise
-        finally:
-            # Shutdown executor (won't kill threads but prevents new submissions)
-            executor.shutdown(wait=False)
 
-        logging.info(f"Response: {response}")
-        return response
+    async def _chunk_and_evaluate_content(
+        self, content: str, url: str, max_chunk_tokens: int = 8000
+    ) -> list:
+        """
+        Chunk content into manageable pieces and have the LLM evaluate each chunk
+        to determine what's important to remember, creating subactivities for each.
+
+        Args:
+            content: The full page content to process
+            url: The URL the content came from (for references)
+            max_chunk_tokens: Maximum tokens per chunk (default 8000, ~32k chars)
+
+        Returns:
+            list: List of summaries/memories created for each chunk
+        """
+        from Globals import get_tokens
+
+        # Approximate chars per token (conservative estimate)
+        chars_per_token = 4
+        max_chunk_chars = max_chunk_tokens * chars_per_token
+
+        # Split content into chunks
+        chunks = []
+        current_pos = 0
+        content_length = len(content)
+
+        while current_pos < content_length:
+            # Find a good break point (end of sentence or paragraph)
+            end_pos = min(current_pos + max_chunk_chars, content_length)
+
+            if end_pos < content_length:
+                # Try to find a paragraph break
+                para_break = content.rfind("\n\n", current_pos, end_pos)
+                if para_break > current_pos + (max_chunk_chars // 2):
+                    end_pos = para_break + 2
+                else:
+                    # Try to find a sentence break
+                    for sep in [". ", ".\n", "! ", "!\n", "? ", "?\n"]:
+                        sent_break = content.rfind(sep, current_pos, end_pos)
+                        if sent_break > current_pos + (max_chunk_chars // 2):
+                            end_pos = sent_break + len(sep)
+                            break
+
+            chunk = content[current_pos:end_pos].strip()
+            if chunk:
+                chunks.append(chunk)
+            current_pos = end_pos
+
+        if not chunks:
+            return []
+
+        logging.info(
+            f"Split content ({content_length} chars) into {len(chunks)} chunks for evaluation"
+        )
+
+        memories = []
+
+        for i, chunk in enumerate(chunks):
+            chunk_tokens = get_tokens(chunk)
+            logging.info(
+                f"Processing chunk {i+1}/{len(chunks)} ({chunk_tokens} tokens)"
+            )
+
+            # Ask the LLM to evaluate the chunk and extract what's important
+            evaluation_prompt = f"""You are analyzing web page content from: {url}
+
+Analyze the following content chunk and extract ONLY the key information that would be valuable to remember. Focus on:
+- Main facts, data, and specific information
+- Names, dates, numbers, and concrete details
+- Key statements or quotes
+- Important relationships or connections mentioned
+
+If the content is mostly navigation, ads, or boilerplate, respond with just: "No significant content to remember."
+
+Format your response as a concise summary of what's important to remember. Include specific details and references.
+
+Content chunk {i+1}/{len(chunks)}:
+---
+{chunk[:max_chunk_chars]}
+---
+
+What key information should be remembered from this content?"""
+
+            try:
+                # Call LLM to evaluate the chunk
+                evaluation = await self._call_prompt_agent(
+                    timeout=60,
+                    prompt_args={"user_input": evaluation_prompt},
+                )
+
+                if evaluation and evaluation.strip():
+                    evaluation = evaluation.strip()
+
+                    # Skip if LLM determined no significant content
+                    if "no significant content" in evaluation.lower():
+                        logging.info(f"Chunk {i+1}: No significant content to remember")
+                        continue
+
+                    # Create subactivity with the LLM's evaluation
+                    memory_entry = (
+                        f"From {url} (chunk {i+1}/{len(chunks)}):\n{evaluation}"
+                    )
+                    memories.append(memory_entry)
+
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}] Remembered from {url}:\n\n{evaluation}",
+                        conversation_name=self.conversation_name,
+                    )
+                    logging.info(
+                        f"Chunk {i+1}: Created memory subactivity ({len(evaluation)} chars)"
+                    )
+
+            except Exception as eval_error:
+                logging.warning(f"Failed to evaluate chunk {i+1}: {eval_error}")
+                continue
+
+        return memories
 
     def get_text_safely(self, element) -> str:
         """
@@ -532,6 +680,120 @@ class web_browsing(Extensions):
             return text if text else ""
         except (AttributeError, TypeError):
             return ""
+
+    async def _wait_for_content_stability(
+        self,
+        max_wait_seconds: float = 15,
+        check_interval: float = 0.5,
+        min_content_length: int = 300,
+    ) -> bool:
+        """
+        Wait for page content to stabilize, which is important for JavaScript-heavy SPAs
+        like Twitter/X.com, React apps, etc. that render content dynamically after initial page load.
+
+        This method polls the page content and waits until either:
+        1. The content stops changing between checks (stable) AND meets minimum threshold
+        2. Maximum wait time is reached
+
+        For JavaScript-heavy sites, this ensures that React/Vue/Angular apps have
+        actually rendered their content before we try to analyze it.
+
+        Args:
+            max_wait_seconds: Maximum time to wait for content stability (increased to 15s for SPAs)
+            check_interval: Time between content checks in seconds
+            min_content_length: Minimum content length to consider page "loaded enough" (lowered to 300)
+
+        Returns:
+            bool: True if content stabilized, False if timeout reached
+        """
+        if self.page is None or self.page.is_closed():
+            logging.warning("Cannot wait for content stability: page not available")
+            return False
+
+        logging.info(
+            f"Waiting for page content to stabilize (max {max_wait_seconds}s)..."
+        )
+
+        start_time = time.monotonic()
+        last_content_hash = None
+        last_content_length = 0
+        stable_checks = 0
+        required_stable_checks = 2  # Require 2 consecutive stable checks
+        content_growing = True  # Track if content is still growing
+        no_growth_checks = 0
+
+        while (time.monotonic() - start_time) < max_wait_seconds:
+            try:
+                # Get current page content
+                content = await self.page.evaluate(
+                    "() => document.body ? document.body.innerText : ''"
+                )
+                content_length = len(content) if content else 0
+                current_hash = (
+                    hashlib.md5(content.encode("utf-8", "ignore")).hexdigest()
+                    if content
+                    else ""
+                )
+
+                logging.debug(
+                    f"Content check: {content_length} chars, hash: {current_hash[:8]}..."
+                )
+
+                # Track if content is growing (indicates JS is still rendering)
+                if content_length > last_content_length:
+                    content_growing = True
+                    no_growth_checks = 0
+                else:
+                    no_growth_checks += 1
+                    if no_growth_checks >= 3:
+                        content_growing = False
+
+                # Check if content is sufficient AND stable
+                if content_length >= min_content_length:
+                    if current_hash == last_content_hash:
+                        stable_checks += 1
+                        if stable_checks >= required_stable_checks:
+                            elapsed = time.monotonic() - start_time
+                            logging.info(
+                                f"Content stabilized after {elapsed:.1f}s with {content_length} chars"
+                            )
+                            return True
+                    else:
+                        stable_checks = 0
+                elif (
+                    content_length < min_content_length
+                    and not content_growing
+                    and no_growth_checks >= 5
+                ):
+                    # Content is small but stable - might be a JS-disabled error page
+                    # Log this but continue waiting in case JS is still loading
+                    elapsed = time.monotonic() - start_time
+                    logging.warning(
+                        f"Content is small ({content_length} chars) and not growing after {elapsed:.1f}s - may indicate JS rendering issue"
+                    )
+
+                last_content_hash = current_hash
+                last_content_length = content_length
+                await asyncio.sleep(check_interval)
+
+            except Exception as e:
+                logging.warning(f"Error during content stability check: {e}")
+                await asyncio.sleep(check_interval)
+
+        elapsed = time.monotonic() - start_time
+        final_length = 0
+        try:
+            final_content = await self.page.evaluate(
+                "() => document.body ? document.body.innerText : ''"
+            )
+            final_length = len(final_content) if final_content else 0
+        except:
+            pass
+
+        logging.warning(
+            f"Content stability timeout after {elapsed:.1f}s. Final content length: {final_length} chars"
+        )
+        return False
 
     async def get_form_fields(self) -> str:
         """
@@ -920,9 +1182,11 @@ class web_browsing(Extensions):
 
             logging.info(f"Navigating to {url}...")
 
-            # Try different wait strategies in order of preference
-            wait_strategies = ["domcontentloaded", "load", "networkidle"]
+            # Try networkidle first (best for SPAs like Twitter/X.com that render via JavaScript)
+            # Fall back to simpler strategies if networkidle times out
+            wait_strategies = ["networkidle", "load", "domcontentloaded"]
             last_error = None
+            navigation_successful = False
 
             for wait_strategy in wait_strategies:
                 try:
@@ -937,7 +1201,8 @@ class web_browsing(Extensions):
 
                     # Additional validation - ensure we actually got to a page
                     if current_url and current_url != "about:blank":
-                        return f"Successfully navigated to {current_url}"
+                        navigation_successful = True
+                        break
                     else:
                         logging.warning(
                             f"Navigation resulted in blank page, trying next strategy..."
@@ -969,6 +1234,31 @@ class web_browsing(Extensions):
                     else:
                         # For other errors, don't try other strategies
                         raise e
+
+            # If navigation succeeded, ensure JavaScript has had time to render
+            if navigation_successful:
+                try:
+                    # For JavaScript-heavy SPAs, wait a bit for initial JS rendering
+                    # This is crucial for sites like Twitter/X.com, Facebook, etc.
+                    await self.page.wait_for_timeout(2000)  # 2 second baseline wait
+
+                    # Try to wait for network to truly settle if we didn't use networkidle
+                    if wait_strategy != "networkidle":
+                        try:
+                            await self.page.wait_for_load_state(
+                                "networkidle", timeout=5000
+                            )
+                        except PlaywrightTimeoutError:
+                            logging.debug(
+                                "Additional networkidle wait timed out, continuing..."
+                            )
+
+                    return f"Successfully navigated to {current_url}"
+                except Exception as wait_error:
+                    logging.warning(
+                        f"Post-navigation wait encountered issue: {wait_error}, continuing anyway..."
+                    )
+                    return f"Successfully navigated to {current_url}"
 
             # If all strategies failed, return a more detailed error
             timeout_seconds = timeout // 1000
@@ -2804,12 +3094,11 @@ class web_browsing(Extensions):
                         await self.page.wait_for_timeout(200)
 
                 elif operation == "scrape_to_memory":
-                    # Agent explicitly requests to scrape current page content into memory
-                    # This is used when the agent needs detailed content for analysis/reference
+                    # Agent explicitly requests to scrape current page content
+                    # This evaluates content in chunks with the LLM and creates subactivities
+                    # for what the LLM determines is important to remember
                     if not self.ApiClient:
-                        raise ValueError(
-                            "Cannot scrape to memory: ApiClient unavailable"
-                        )
+                        raise ValueError("Cannot scrape content: ApiClient unavailable")
 
                     try:
                         # Get current page content
@@ -2821,33 +3110,25 @@ class web_browsing(Extensions):
                         scrape_url = self.page.url if self.page else current_url
 
                         logging.info(
-                            f"Agent requested scraping {scrape_url} into memory ({content_length} chars)"
+                            f"Agent requested scraping {scrape_url} ({content_length} chars)"
                         )
 
-                        # Use the browse_links pattern to scrape into memory
-                        # Use _call_prompt_agent for reliable timeout handling
-                        await self._call_prompt_agent(
-                            timeout=90,  # Explicit timeout for scraping large pages
-                            agent_name=self.agent_name,
-                            prompt_name="Think About It",
-                            prompt_args={
-                                "user_input": f"{scrape_url} \n Scraping page content into memory for detailed analysis",
-                                "websearch": False,
-                                "analyze_user_input": False,
-                                "disable_commands": True,
-                                "log_user_input": False,
-                                "log_output": False,
-                                "browse_links": True,  # Triggers scrape_websites() flow
-                                "tts": False,
-                                "conversation_name": self.conversation_name,
-                            },
+                        # Use LLM to evaluate content in chunks and determine what to remember
+                        # Each chunk creates subactivities for important information
+                        memories = await self._chunk_and_evaluate_content(
+                            content=page_content_to_scrape,
+                            url=scrape_url,
+                            max_chunk_tokens=8000,  # ~32k chars per chunk
                         )
 
-                        op_result = f"Successfully scraped {content_length} characters from {scrape_url} into conversational memory"
+                        if memories:
+                            op_result = f"Evaluated {content_length} characters from {scrape_url}, created {len(memories)} memory entries"
+                        else:
+                            op_result = f"Evaluated {content_length} characters from {scrape_url}, no significant content to remember"
                         logging.info(op_result)
 
                     except Exception as scrape_error:
-                        raise Exception(f"Failed to scrape to memory: {scrape_error}")
+                        raise Exception(f"Failed to scrape content: {scrape_error}")
 
                 elif operation == "handle_mfa":
                     # Agent wants to handle MFA by scanning QR code and entering TOTP
@@ -3184,7 +3465,12 @@ Current Page Content Snippet (for context):
         return element.text.strip()
 
     def extract_interaction_block(self, response: str) -> str:
-        """Extracts the <interaction>...</interaction> XML block from a response string."""
+        """Extracts the <interaction>...</interaction> XML block from a response string.
+
+        If the LLM returns an empty XML block or natural language response instead of XML,
+        this method will attempt to convert the response into a valid 'respond' operation
+        so the agent can gracefully report its findings back to the user.
+        """
         # Allow for potential variations in whitespace and attributes within the interaction tag
         match = re.search(
             r"<interaction.*?>.*?</interaction>", response, re.DOTALL | re.IGNORECASE
@@ -3198,11 +3484,71 @@ Current Page Content Snippet (for context):
                     "Found <step> block outside <interaction>, wrapping it."
                 )
                 return f'<?xml version="1.0" encoding="UTF-8"?>\n<interaction>{match.group(0)}</interaction>'
-            raise ValueError(
-                f"No valid <interaction> or <step> block found in response.\nResponse was:\n{response}"
+
+            # No XML found at all - the LLM returned natural language
+            # Convert the response to a 'respond' operation so we can gracefully exit
+            logging.warning(
+                "LLM returned natural language instead of XML. Converting to 'respond' operation."
             )
+            # Escape any XML special characters in the response
+            escaped_response = (
+                response.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace('"', "&quot;")
+                .replace("'", "&apos;")
+            )
+            # Truncate if too long
+            if len(escaped_response) > 2000:
+                escaped_response = escaped_response[:1997] + "..."
+
+            return f"""<?xml version="1.0" encoding="UTF-8"?>
+<interaction>
+<step>
+<operation>respond</operation>
+<selector></selector>
+<value>{escaped_response}</value>
+<description>LLM provided findings directly instead of XML - converting to respond operation.</description>
+</step>
+</interaction>"""
 
         xml_block = match.group(0).strip()
+
+        # Check for empty interaction block (e.g., "<interaction></interaction>" or with whitespace only)
+        empty_check = re.sub(
+            r"<interaction[^>]*>\s*</interaction>", "", xml_block, flags=re.IGNORECASE
+        )
+        if not empty_check.strip():
+            # Empty interaction block - the LLM thinks the task is complete but didn't specify how
+            logging.warning(
+                "LLM returned empty <interaction> block. Converting to 'done' operation."
+            )
+            return f"""<?xml version="1.0" encoding="UTF-8"?>
+<interaction>
+<step>
+<operation>done</operation>
+<selector></selector>
+<value></value>
+<description>Task appears to be complete based on current page state.</description>
+</step>
+</interaction>"""
+
+        # Check if the interaction block contains a step element
+        if not re.search(r"<step>.*?</step>", xml_block, re.DOTALL | re.IGNORECASE):
+            # Has interaction but no step - treat as empty
+            logging.warning(
+                "LLM returned <interaction> without <step>. Converting to 'done' operation."
+            )
+            return f"""<?xml version="1.0" encoding="UTF-8"?>
+<interaction>
+<step>
+<operation>done</operation>
+<selector></selector>
+<value></value>
+<description>Task appears to be complete based on current page state.</description>
+</step>
+</interaction>"""
+
         # Basic cleaning (less aggressive)
         xml_block = re.sub(
             r"^\s+", "", xml_block, flags=re.MULTILINE
@@ -3434,6 +3780,17 @@ Current Page Content Snippet (for context):
         except Exception as nav_error:
             return (
                 f"Failed to initialize browser or navigate to starting URL: {nav_error}"
+            )
+
+        # Wait for page content to stabilize (important for JavaScript-heavy SPAs like Twitter/X.com)
+        # This helps ensure dynamic content is rendered before we start analyzing
+        try:
+            await self._wait_for_content_stability(
+                max_wait_seconds=15, min_content_length=300
+            )
+        except Exception as stability_error:
+            logging.warning(
+                f"Content stability wait encountered an issue: {stability_error}. Continuing anyway."
             )
 
         # Estimate task complexity and adjust iteration limit accordingly
@@ -3692,7 +4049,20 @@ This means either:
 Do NOT press Enter again! Instead, look for clickable links in the current page content and click one, or use scrape_to_memory to save the current page information.
 """
 
-            planning_context = f"""You are an autonomous web interaction agent. Plan the *single next step* to accomplish the overall task.
+            planning_context = f"""**CRITICAL FORMAT REQUIREMENT**: You MUST respond with ONLY valid XML in this exact format - NO natural language, NO explanations outside the XML:
+<interaction><step><operation>...</operation><selector>...</selector><value>...</value><description>...</description></step></interaction>
+
+If you have already gathered the information needed to complete the task, use the 'respond' operation to report your findings:
+<interaction><step><operation>respond</operation><selector></selector><value>YOUR FINDINGS HERE</value><description>Reporting results to user.</description></step></interaction>
+
+If the task is complete, use the 'done' operation:
+<interaction><step><operation>done</operation><selector></selector><value></value><description>Task complete.</description></step></interaction>
+
+NEVER respond with plain text. ALWAYS use XML format.
+
+---
+
+You are an autonomous web interaction agent. Plan the *single next step* to accomplish the overall task.
 {last_action_reminder}
 OVERALL TASK: {task}
 
@@ -3702,7 +4072,7 @@ CURRENT STATE:
 - URL Changed Since Last Step: {url_changed}
 - Page Content: {len(current_page_content)} characters available (not in planning context for efficiency)
 
-**NOTE**: Full page content is NOT included in planning context to keep it lean. Use `scrape_to_memory` operation if you need to save detailed page content to your conversational memory for later reference.
+**NOTE**: Full page content is NOT included in planning context to keep it lean. Use `scrape_to_memory` operation if you need to capture detailed page content for analysis.
 
 AVAILABLE STABLE SELECTORS (Prefer these):
 {os.linesep.join([f'- {s}' for s in available_selectors]) if available_selectors else '- (No specific stable selectors detected, rely on standard attributes like name, type, placeholder or text content for clicks/verification)'}
@@ -3724,7 +4094,7 @@ RULES & INSTRUCTIONS FOR YOUR RESPONSE:
 5.  For `fill`, `select`, `evaluate`: Put the text/value/script to use in the `<value>` tag.
 6.  For `press`: Put the key name in `<value>` (e.g., "Enter", "Escape", "Tab", "ArrowDown"). Use this to submit forms or navigate with keyboard.
 7.  **IMPORTANT**: After filling a search box, chat input, or form field, you MUST press Enter in the next step to submit/search. Don't just fill and wait - actively press Enter to trigger the action.
-8.  For `scrape_to_memory`: Use this to save the current page's detailed content into your conversational memory for later reference. No selector/value needed. Use this when you need to deeply analyze content (articles, documentation, product details, etc.) or save information for the user. **IMPORTANT FOR SEARCH RESULTS**: If you're on a search results page:
+8.  For `scrape_to_memory`: Use this to capture the current page's detailed content as a subactivity for immediate reference. No selector/value needed. Use this when you need to deeply analyze content (articles, documentation, product details, etc.) or extract information for the user. The content will be available in your conversation context. **IMPORTANT FOR SEARCH RESULTS**: If you're on a search results page:
     - First use `get_content` or `scrape_to_memory` to see the actual search results with their titles and URLs
     - Then identify a specific result link (by looking at the titles/descriptions in the content)
     - CLICK on that result by using its visible text in the <value> field (e.g., "GitHub - devxt/agixt" or "AGiXT Documentation")
@@ -3758,9 +4128,9 @@ EXAMPLE FILL (single field):
 EXAMPLE PRESS:
 <interaction><step><operation>press</operation><selector></selector><value>Enter</value><description>Press Enter key to submit the search form.</description></step></interaction>
 
-EXAMPLE SCRAPE TO MEMORY (save detailed content):
-<interaction><step><operation>scrape_to_memory</operation><selector></selector><value></value><description>Scrape the GitHub repository README and details into memory for detailed analysis.</description></step></interaction>
-<interaction><step><operation>scrape_to_memory</operation><selector></selector><value></value><description>Save this article content to memory so I can reference it when answering questions.</description></step></interaction>
+EXAMPLE SCRAPE TO MEMORY (capture page content):
+<interaction><step><operation>scrape_to_memory</operation><selector></selector><value></value><description>Scrape the GitHub repository README and details for detailed analysis.</description></step></interaction>
+<interaction><step><operation>scrape_to_memory</operation><selector></selector><value></value><description>Capture this article content so I can reference it when answering questions.</description></step></interaction>
 
 EXAMPLE HANDLE MFA (scan QR code and enter TOTP):
 <interaction><step><operation>handle_mfa</operation><selector>input[name='mfa_token']</selector><value></value><description>Scan the QR code on the page and automatically enter the generated TOTP code into the MFA field, then submit.</description></step></interaction>
