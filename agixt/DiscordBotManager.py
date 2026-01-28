@@ -355,7 +355,14 @@ class CompanyDiscordBot:
                             file_info.get("content_type", ""),
                             file_info.get("filename", ""),
                         )
-                        file_guidance += f"- `{file_info['local_path']}` ({file_info['filename']}) - {file_type_desc}\n"
+                        # Use relative_path for agent context (falls back to local_path for compatibility)
+                        display_path = file_info.get(
+                            "relative_path",
+                            file_info.get(
+                                "local_path", file_info.get("filename", "unknown")
+                            ),
+                        )
+                        file_guidance += f"- `{display_path}` ({file_info['filename']}) - {file_type_desc}\n"
                     file_guidance += "\nYou can access these files using file reading commands or vision analysis as appropriate.\n\n"
 
                 # Add channel info to context so agent knows where it is
@@ -411,8 +418,12 @@ class CompanyDiscordBot:
 
                     # Add current message file paths to content for clarity
                     if current_msg_files:
+                        # Use relative_path for agent context (falls back to local_path for compatibility)
                         file_list = ", ".join(
-                            [f"`{f['local_path']}`" for f in current_msg_files]
+                            [
+                                f"`{f.get('relative_path', f.get('local_path', f.get('filename', 'unknown')))}`"
+                                for f in current_msg_files
+                            ]
                         )
                         content = f"{content}\n\n[User attached files: {file_list}]"
 
@@ -704,8 +715,16 @@ class CompanyDiscordBot:
                                     file_info.get("content_type", ""),
                                     file_info.get("filename", ""),
                                 )
+                                # Use relative_path for agent context (falls back to local_path for compatibility)
+                                display_path = file_info.get(
+                                    "relative_path",
+                                    file_info.get(
+                                        "local_path",
+                                        file_info.get("filename", "unknown"),
+                                    ),
+                                )
                                 attachment_info_parts.append(
-                                    f"{attachment.filename} -> `{file_info['local_path']}` ({file_type})"
+                                    f"{attachment.filename} -> `{display_path}` ({file_type})"
                                 )
                             else:
                                 attachment_info_parts.append(attachment.filename)
@@ -814,6 +833,9 @@ HOW TO READ:
             safe_filename = f"{message_id}_{attachment.filename}"
             local_path = os.path.join(attachments_dir, safe_filename)
 
+            # Calculate relative path for agent context (relative to conversation workspace)
+            relative_path = os.path.join("discord_attachments", safe_filename)
+
             # Download the file
             async with aiohttp.ClientSession() as session:
                 async with session.get(attachment.url) as response:
@@ -825,6 +847,7 @@ HOW TO READ:
                         logger.debug(f"Downloaded attachment to: {local_path}")
                         return {
                             "local_path": local_path,
+                            "relative_path": relative_path,  # Path relative to agent's working directory
                             "filename": attachment.filename,
                             "content_type": attachment.content_type
                             or "application/octet-stream",
