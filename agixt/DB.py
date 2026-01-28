@@ -6552,18 +6552,24 @@ SERVER_CONFIG_DEFINITIONS = [
 
 def get_server_config_encryption_key():
     """
-    Get or generate a server-wide encryption key for sensitive config values.
-    This is stored in the filesystem as it's needed before the database is accessible.
+    Get the server-wide encryption key for sensitive config values.
+    Uses AGIXT_API_KEY as the base to derive a Fernet-compatible key.
+    This ensures encryption is portable between servers with the same API key.
     """
-    key_file = os.path.join(os.path.dirname(__file__), ".server_config_key")
-    if os.path.exists(key_file):
-        with open(key_file, "rb") as f:
-            return f.read()
-    else:
-        key = Fernet.generate_key()
-        with open(key_file, "wb") as f:
-            f.write(key)
-        return key
+    import base64
+    import hashlib
+
+    # Get AGIXT_API_KEY from environment
+    api_key = os.getenv("AGIXT_API_KEY", "")
+    if not api_key:
+        # Fallback to a default key if AGIXT_API_KEY not set
+        # This is less secure but allows the system to function
+        api_key = "default-agixt-key-please-set-env"
+
+    # Derive a Fernet-compatible key (32 bytes, base64 encoded) from the API key
+    # Using SHA256 hash to get consistent 32 bytes
+    key_hash = hashlib.sha256(api_key.encode()).digest()
+    return base64.urlsafe_b64encode(key_hash)
 
 
 def encrypt_config_value(value: str) -> str:
