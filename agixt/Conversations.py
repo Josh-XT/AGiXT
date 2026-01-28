@@ -115,7 +115,7 @@ def broadcast_message_sync(conversation_id: str, event_type: str, message_data: 
 
 def get_conversation_id_by_name(conversation_name, user_id, create_if_missing=True):
     """Get the conversation ID by name, optionally creating it if it doesn't exist.
-    
+
     Args:
         conversation_name: The name of the conversation
         user_id: The user ID who owns the conversation
