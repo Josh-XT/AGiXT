@@ -1130,6 +1130,173 @@ async def get_discord_bot_invite(
     )
 
 
+class SlackBotInviteResponse(BaseModel):
+    """Response model for Slack bot invite URL."""
+
+    bot_install_url: Optional[str] = None
+    workspace_name: Optional[str] = None
+    is_slack_connected: bool = False
+
+
+@app.get(
+    "/v1/slack/bot-invite",
+    response_model=SlackBotInviteResponse,
+    summary="Get Slack bot install URL for the user",
+    description="Returns URL to install the Slack bot to a workspace. "
+    "Requires the user to have connected their Slack account via OAuth.",
+    tags=["Auth"],
+)
+async def get_slack_bot_invite(
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Get Slack bot install URL for the authenticated user.
+
+    Returns:
+    - bot_install_url: URL to install the bot to a Slack workspace
+    - workspace_name: The user's connected workspace name (if available)
+    - is_slack_connected: Whether the user has connected their Slack account
+    """
+    from Globals import getenv
+    from DB import get_session, ServerExtensionSetting
+
+    # Check if user has Slack connected
+    auth = MagicalAuth(token=authorization)
+    connected_providers = auth.get_sso_connections()
+    is_slack_connected = "slack" in [p.lower() for p in connected_providers]
+
+    # Get the Slack client ID from server settings
+    client_id = getenv("SLACK_CLIENT_ID")
+    if not client_id:
+        session = get_session()
+        try:
+            setting = (
+                session.query(ServerExtensionSetting)
+                .filter(ServerExtensionSetting.setting_key == "SLACK_CLIENT_ID")
+                .first()
+            )
+            if setting:
+                client_id = setting.setting_value
+        finally:
+            session.close()
+
+    if not client_id:
+        return SlackBotInviteResponse(
+            is_slack_connected=is_slack_connected,
+        )
+
+    # Get the redirect URI
+    app_uri = getenv("APP_URI", "http://localhost:3100")
+    redirect_uri = f"{app_uri}/user/oauth/slack"
+
+    # Bot scopes for Slack workspace functionality
+    bot_scopes = [
+        "app_mentions:read",
+        "channels:history",
+        "channels:read",
+        "chat:write",
+        "files:read",
+        "groups:history",
+        "groups:read",
+        "im:history",
+        "im:read",
+        "im:write",
+        "mpim:history",
+        "mpim:read",
+        "users:read",
+        "users:read.email",
+    ]
+
+    # Generate bot install URL (Slack's Add to Slack button URL)
+    bot_install_url = (
+        f"https://slack.com/oauth/v2/authorize"
+        f"?client_id={client_id}"
+        f"&scope={','.join(bot_scopes)}"
+        f"&redirect_uri={redirect_uri}"
+    )
+
+    return SlackBotInviteResponse(
+        bot_install_url=bot_install_url,
+        is_slack_connected=is_slack_connected,
+    )
+
+
+class TeamsBotInviteResponse(BaseModel):
+    """Response model for Teams bot invite URL."""
+
+    bot_install_url: Optional[str] = None
+    admin_center_url: Optional[str] = None
+    is_teams_connected: bool = False
+
+
+@app.get(
+    "/v1/teams/bot-invite",
+    response_model=TeamsBotInviteResponse,
+    summary="Get Microsoft Teams bot install information for the user",
+    description="Returns information for installing the Teams bot to a workspace. "
+    "Requires the user to have connected their Microsoft Teams account via OAuth.",
+    tags=["Auth"],
+)
+async def get_teams_bot_invite(
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Get Microsoft Teams bot install information for the authenticated user.
+
+    Returns:
+    - bot_install_url: URL to install the bot (Teams admin center)
+    - admin_center_url: URL to the Teams admin center for app management
+    - is_teams_connected: Whether the user has connected their Teams account
+    """
+    from Globals import getenv
+    from DB import get_session, ServerExtensionSetting
+
+    # Check if user has Teams connected
+    auth = MagicalAuth(token=authorization)
+    connected_providers = auth.get_sso_connections()
+    is_teams_connected = "teams" in [p.lower() for p in connected_providers]
+    
+    # Also check for microsoft SSO since Teams uses Microsoft identity
+    if not is_teams_connected:
+        is_teams_connected = "microsoft" in [p.lower() for p in connected_providers]
+
+    # Get the Teams client ID from server settings
+    client_id = getenv("TEAMS_CLIENT_ID") or getenv("MICROSOFT_CLIENT_ID")
+    if not client_id:
+        session = get_session()
+        try:
+            setting = (
+                session.query(ServerExtensionSetting)
+                .filter(ServerExtensionSetting.setting_key == "TEAMS_CLIENT_ID")
+                .first()
+            )
+            if setting:
+                client_id = setting.setting_value
+        finally:
+            session.close()
+
+    if not client_id:
+        return TeamsBotInviteResponse(
+            is_teams_connected=is_teams_connected,
+        )
+
+    # Teams apps are installed through the Teams admin center or via app manifest
+    # The admin center URL is the primary way to manage Teams apps
+    admin_center_url = "https://admin.teams.microsoft.com/policies/manage-apps"
+    
+    # For custom Teams apps, organizations upload an app package (manifest.json + icons)
+    # This URL points to the admin center where admins can manage app policies
+    bot_install_url = admin_center_url
+
+    return TeamsBotInviteResponse(
+        bot_install_url=bot_install_url,
+        admin_center_url=admin_center_url,
+        is_teams_connected=is_teams_connected,
+    )
+
+
 @app.get("/v1/companies", response_model=List[CompanyResponse], tags=["Companies"])
 async def get_companies(
     email: str = Depends(verify_api_key), authorization: str = Header(None)
