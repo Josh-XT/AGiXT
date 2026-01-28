@@ -900,7 +900,8 @@ class Extensions:
         agixt_server = getenv("AGIXT_URI")
         # Use hash-based agent workspace (matches Agent.working_directory)
         agent_hash = hashlib.sha256(str(self.agent_id).encode()).hexdigest()[:16]
-        agent_workspace = os.path.join(os.getcwd(), "WORKSPACE", f"agent_{agent_hash}")
+        agent_folder = f"agent_{agent_hash}"
+        agent_workspace = os.path.join(os.getcwd(), "WORKSPACE", agent_folder)
         injection_variables = {
             "user": self.user,
             "user_id": self.user_id,
@@ -915,7 +916,8 @@ class Extensions:
             "conversation_directory": os.path.join(
                 agent_workspace, self.conversation_id
             ),
-            "output_url": f"{agixt_server}/outputs/{self.agent_id}/{self.conversation_id}/",
+            # Use hashed agent folder in URL to match where files are actually saved
+            "output_url": f"{agixt_server}/outputs/{agent_folder}/{self.conversation_id}/",
             **self.agent_config["settings"],
             **credentials,
         }

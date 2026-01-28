@@ -116,6 +116,8 @@ class web_browsing(Extensions):
 
     def __init__(self, **kwargs):
         self.agent_name = kwargs.get("agent_name", "gpt4free")
+        self.agent_id = kwargs.get("agent_id")  # Needed for vision/inference calls
+        self.user = kwargs.get("user")  # Needed for Agent instantiation
         self.user_id = kwargs.get("user_id", "")
         self.conversation_name = kwargs.get("conversation_name", "")
         self.WORKING_DIRECTORY = kwargs.get(
@@ -3133,6 +3135,132 @@ What key information should be remembered from this content?"""
                             f"Agent requested scraping {scrape_url} ({content_length} chars)"
                         )
 
+                        # Store the scraped content so we can include it in the final response
+                        # This is critical for information extraction tasks like reading tweets
+                        if not hasattr(self, "_scraped_content"):
+                            self._scraped_content = []
+
+                        # Truncate content for storage if too long, but keep enough for context
+                        content_preview = (
+                            page_content_to_scrape[:15000]
+                            if len(page_content_to_scrape) > 15000
+                            else page_content_to_scrape
+                        )
+
+                        # Check for images in the content and analyze them
+                        image_analysis_results = []
+                        if "=== Media Content ===" in page_content_to_scrape:
+                            # Extract image URLs from the scraped content
+                            import re as regex
+
+                            image_url_pattern = (
+                                r"\[(?:media|image|card)\]\s*(https?://[^\s\)]+)"
+                            )
+                            image_urls = regex.findall(
+                                image_url_pattern, page_content_to_scrape
+                            )
+
+                            if image_urls:
+                                logging.info(
+                                    f"Found {len(image_urls)} images to analyze"
+                                )
+
+                                # Analyze up to 3 images using vision
+                                for i, img_url in enumerate(image_urls[:3]):
+                                    try:
+                                        # Download image and analyze with vision
+                                        import httpx
+                                        import base64
+
+                                        async with httpx.AsyncClient(
+                                            timeout=30.0
+                                        ) as client:
+                                            response = await client.get(
+                                                img_url, follow_redirects=True
+                                            )
+                                            if response.status_code == 200:
+                                                image_data = response.content
+                                                # Determine image type from content-type or URL
+                                                content_type = response.headers.get(
+                                                    "content-type", "image/jpeg"
+                                                )
+                                                if (
+                                                    "png" in content_type
+                                                    or img_url.endswith(".png")
+                                                ):
+                                                    img_type = "png"
+                                                elif (
+                                                    "gif" in content_type
+                                                    or img_url.endswith(".gif")
+                                                ):
+                                                    img_type = "gif"
+                                                elif (
+                                                    "webp" in content_type
+                                                    or img_url.endswith(".webp")
+                                                ):
+                                                    img_type = "webp"
+                                                else:
+                                                    img_type = "jpeg"
+
+                                                base64_image = base64.b64encode(
+                                                    image_data
+                                                ).decode("utf-8")
+                                                base64_image_url = f"data:image/{img_type};base64,{base64_image}"
+
+                                                # Use vision to analyze the image
+                                                if self.agent_id and self.ApiClient:
+                                                    from Agent import Agent
+
+                                                    agent = Agent(
+                                                        agent_id=self.agent_id,
+                                                        ApiClient=self.ApiClient,
+                                                        user=self.user,
+                                                    )
+
+                                                    analysis_prompt = "Describe this image in detail. What does it show? If there's text, include it."
+                                                    image_description = (
+                                                        await agent.inference(
+                                                            prompt=analysis_prompt,
+                                                            images=[base64_image_url],
+                                                        )
+                                                    )
+                                                else:
+                                                    logging.warning(
+                                                        f"Cannot analyze image - agent_id: {self.agent_id}, ApiClient: {self.ApiClient}"
+                                                    )
+                                                    image_description = None
+
+                                                if image_description:
+                                                    image_analysis_results.append(
+                                                        f"\n**Image {i+1} Analysis** (from {img_url[:80]}...):\n{image_description}"
+                                                    )
+                                                    logging.info(
+                                                        f"Image {i+1} analyzed successfully"
+                                                    )
+                                    except Exception as img_error:
+                                        logging.warning(
+                                            f"Failed to analyze image {img_url}: {img_error}"
+                                        )
+                                        image_analysis_results.append(
+                                            f"\n**Image {i+1}** ({img_url[:80]}...): Could not analyze - {str(img_error)[:100]}"
+                                        )
+
+                        # Add image analysis to content
+                        if image_analysis_results:
+                            content_preview += (
+                                "\n\n=== IMAGE ANALYSIS ===\n"
+                                + "\n".join(image_analysis_results)
+                            )
+
+                        self._scraped_content.append(
+                            {
+                                "url": scrape_url,
+                                "content": content_preview,
+                                "full_length": content_length,
+                                "images_analyzed": len(image_analysis_results),
+                            }
+                        )
+
                         # Use LLM to evaluate content in chunks and determine what to remember
                         # Each chunk creates subactivities for important information
                         memories = await self._chunk_and_evaluate_content(
@@ -3142,10 +3270,12 @@ What key information should be remembered from this content?"""
                         )
 
                         if memories:
-                            op_result = f"Evaluated {content_length} characters from {scrape_url}, created {len(memories)} memory entries"
+                            op_result = f"Scraped {content_length} characters from {scrape_url}, created {len(memories)} memory entries, analyzed {len(image_analysis_results)} images. Content preview:\n\n{content_preview[:3000]}..."
                         else:
-                            op_result = f"Evaluated {content_length} characters from {scrape_url}, no significant content to remember"
-                        logging.info(op_result)
+                            op_result = f"Scraped {content_length} characters from {scrape_url}, analyzed {len(image_analysis_results)} images. Content preview:\n\n{content_preview[:3000]}..."
+                        logging.info(
+                            f"Scrape completed: {content_length} chars, {len(image_analysis_results)} images from {scrape_url}"
+                        )
 
                     except Exception as scrape_error:
                         raise Exception(f"Failed to scrape content: {scrape_error}")
@@ -3752,32 +3882,34 @@ Current Page Content Snippet (for context):
 
     async def interact_with_webpage(self, url: str, task: str):
         """
-        Executes a multi-step web interaction workflow based on a natural language task.
-        This command is suitable for complex actions like form filling, multi-page navigation,
-        login processes, and information extraction across pages.
+        USE THIS COMMAND TO GET INFORMATION FROM ANY URL - websites, social media posts, tweets, articles, etc.
 
-        The assistant uses Playwright to interact with the page and an LLM to plan each step.
-        It iteratively:
-        1. Analyzes the current page state (URL, content, form fields).
-        2. Prompts an LLM to determine the *single next best step* (e.g., click, fill, wait)
-           based on the overall task and current state, using only stable selectors.
-        3. Executes the planned step using Playwright actions.
-        4. Validates the step's outcome and handles errors with retries or stops if necessary.
-        5. Logs detailed sub-activities, including screenshots and page summaries.
-        6. Continues until the task is marked 'done' by the LLM plan or a maximum number
-           of iterations is reached.
+        This is the primary command for extracting content from URLs. It uses a real browser (Playwright)
+        to navigate to the URL, wait for dynamic content to load (including JavaScript-heavy sites like
+        X.com/Twitter, Facebook, Instagram, etc.), and extract the requested information.
+
+        WHEN TO USE THIS COMMAND:
+        - User shares a URL and asks what it says or contains
+        - User asks about a tweet, social media post, or article at a specific URL
+        - User wants information extracted from any webpage
+        - User wants to interact with a website (fill forms, click buttons, navigate)
+        - The task requires reading content from a dynamic/JavaScript-heavy website
+
+        DO NOT use "View Image" for URLs to webpages - that is only for image files.
+        DO NOT tell the user you cannot access URLs - use THIS command instead.
+
+        Examples:
+        - "What does this tweet say: https://x.com/user/status/123" -> Use this command with task="Extract the tweet content"
+        - "Summarize this article: https://example.com/article" -> Use this command with task="Extract and summarize the article"
+        - "What's on this page: https://example.com" -> Use this command with task="Extract the main content"
 
         Args:
-            url (str): The starting URL for the web interaction workflow.
-            task (str): A natural language description of the overall goal to be accomplished
-                      (e.g., "Log in using username 'test' and password 'pass123'",
-                      "Find the contact email address on the about page",
-                      "Add the first product to the cart").
+            url (str): The URL to navigate to (website, tweet, social media post, article, etc.)
+            task (str): What information to extract or what action to perform
+                      (e.g., "Extract the tweet content", "Get the article text", "Find the price")
 
         Returns:
-            str: A summary of the actions taken, the final status (success or failure),
-                 and potentially the result of the task (e.g., extracted information).
-                 Detailed logs are sent via ApiClient messages.
+            str: The extracted information or a summary of the actions taken.
 
         Notes: If you need to search the web, use search.brave.com as the url.
         """
@@ -4685,6 +4817,22 @@ Previous error: {last_parse_error}
                 f"Web interaction task '{task}' finished.\nSummary of actions:\n"
                 + "\n".join(results_summary)
             )
+
+        # Include scraped content in the final output so the agent can use it to answer the user
+        if hasattr(self, "_scraped_content") and self._scraped_content:
+            final_output += "\n\n**--- SCRAPED CONTENT FROM PAGE ---**\n"
+            for scraped in self._scraped_content:
+                final_output += f"\n**URL**: {scraped['url']}\n"
+                final_output += f"**Content** ({scraped['full_length']} chars total):\n"
+                final_output += scraped["content"][
+                    :8000
+                ]  # Include up to 8k chars of content
+                if scraped["full_length"] > 8000:
+                    final_output += "\n... (content truncated)"
+                final_output += "\n"
+            # Clear for next run
+            self._scraped_content = []
+
         logging.info(f"Interaction task '{task}' finished. Final URL: {last_url}")
 
         # Optionally close browser here or let it persist
@@ -4782,6 +4930,119 @@ Previous error: {last_parse_error}
                 if len(content_texts) > 100:
                     structured_content.append("\n[... Content truncated ...]")
 
+            # Extract images - especially important for social media posts
+            images = soup.find_all("img")
+            image_urls = []
+            for img in images:
+                src = img.get("src") or img.get("data-src") or img.get("data-srcset")
+                alt = img.get("alt", "")
+                if src:
+                    # Filter out tiny icons, avatars, and tracking pixels
+                    # Social media content images are usually larger
+                    width = img.get("width", "")
+                    height = img.get("height", "")
+
+                    # Skip if explicitly small (icons, avatars typically < 100px)
+                    try:
+                        if width and int(width) < 100:
+                            continue
+                        if height and int(height) < 100:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+
+                    # Skip common non-content images
+                    skip_patterns = [
+                        "emoji",
+                        "icon",
+                        "avatar",
+                        "profile",
+                        "logo",
+                        "badge",
+                        "placeholder",
+                        "loading",
+                        "spinner",
+                        "pixel",
+                        "tracking",
+                        "/static/",
+                        "twemoji",
+                        ".svg",
+                    ]
+                    if any(pattern in src.lower() for pattern in skip_patterns):
+                        continue
+
+                    # Ensure full URL
+                    if src.startswith("//"):
+                        src = "https:" + src
+                    elif src.startswith("/"):
+                        # Get base URL from current page
+                        base_url = self.page.url.split("/")[0:3]
+                        src = "/".join(base_url) + src
+
+                    # For X.com/Twitter, look for actual media content
+                    if "x.com" in self.page.url or "twitter.com" in self.page.url:
+                        # Twitter media images contain these patterns
+                        if any(
+                            p in src
+                            for p in [
+                                "pbs.twimg.com/media",
+                                "video.twimg.com",
+                                "pbs.twimg.com/ext_tw_video",
+                            ]
+                        ):
+                            image_urls.append({"url": src, "alt": alt, "type": "media"})
+                        elif "pbs.twimg.com/card_img" in src:
+                            image_urls.append({"url": src, "alt": alt, "type": "card"})
+                    else:
+                        # For other sites, include larger images
+                        image_urls.append({"url": src, "alt": alt, "type": "image"})
+
+            # Also check for video elements (common on Twitter/X)
+            videos = soup.find_all(["video", "source"])
+            video_urls = []
+            for video in videos:
+                src = video.get("src") or video.get("data-src")
+                poster = video.get("poster")  # Video thumbnail
+                if src and (
+                    "video" in src.lower()
+                    or ".mp4" in src.lower()
+                    or ".m3u8" in src.lower()
+                ):
+                    video_urls.append({"url": src, "poster": poster, "type": "video"})
+                elif poster:
+                    video_urls.append(
+                        {"url": poster, "poster": poster, "type": "video_poster"}
+                    )
+
+            # Add media section to content
+            if image_urls or video_urls:
+                structured_content.append("\n=== Media Content ===")
+
+                if image_urls:
+                    structured_content.append(
+                        f"\n**Images Found ({len(image_urls)}):**"
+                    )
+                    for i, img_info in enumerate(
+                        image_urls[:10], 1
+                    ):  # Limit to 10 images
+                        alt_text = (
+                            f" (alt: {img_info['alt']})" if img_info["alt"] else ""
+                        )
+                        structured_content.append(
+                            f"  {i}. [{img_info['type']}] {img_info['url']}{alt_text}"
+                        )
+
+                if video_urls:
+                    structured_content.append(
+                        f"\n**Videos Found ({len(video_urls)}):**"
+                    )
+                    for i, vid_info in enumerate(
+                        video_urls[:5], 1
+                    ):  # Limit to 5 videos
+                        structured_content.append(
+                            f"  {i}. [{vid_info['type']}] {vid_info['url']}"
+                        )
+
             final_content = "\n".join(filter(None, structured_content))
             # Further cleanup
             final_content = re.sub(
@@ -4789,7 +5050,7 @@ Previous error: {last_parse_error}
             )  # Consolidate multiple newlines
 
             logging.info(
-                f"Page content retrieved and structured. Length: {len(final_content)}"
+                f"Page content retrieved and structured. Length: {len(final_content)}, Images: {len(image_urls)}, Videos: {len(video_urls)}"
             )
             return (
                 final_content.strip()

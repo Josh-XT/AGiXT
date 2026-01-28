@@ -657,14 +657,38 @@ class Conversations:
             session.commit()
         else:
             # Mark all notifications as read for this conversation
-            (
-                session.query(Message)
-                .filter(
-                    Message.conversation_id == conversation.id, Message.notify == True
-                )
-                .update({"notify": False})
-            )
-        session.commit()
+            # Use retry logic with exponential backoff for SQLite lock handling
+            max_retries = 3
+            retry_delay = 0.1  # Start with 100ms
+            for attempt in range(max_retries):
+                try:
+                    (
+                        session.query(Message)
+                        .filter(
+                            Message.conversation_id == conversation.id,
+                            Message.notify == True,
+                        )
+                        .update({"notify": False}, synchronize_session=False)
+                    )
+                    session.commit()
+                    break  # Success, exit retry loop
+                except Exception as e:
+                    session.rollback()
+                    if (
+                        "database is locked" in str(e).lower()
+                        and attempt < max_retries - 1
+                    ):
+                        import time
+
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        logging.warning(
+                            f"Database locked on notify update, retrying (attempt {attempt + 2}/{max_retries})"
+                        )
+                    else:
+                        # Log but don't fail - marking notifications as read is not critical
+                        logging.warning(f"Failed to mark notifications as read: {e}")
+                        break
         offset = (page - 1) * limit
         messages = (
             session.query(Message)

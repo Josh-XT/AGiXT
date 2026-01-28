@@ -297,19 +297,30 @@ class CompanyDiscordBot:
             try:
                 # Create a background task to keep typing indicator active
                 async def keep_typing():
-                    try:
-                        while True:
+                    consecutive_errors = 0
+                    while True:
+                        try:
                             # Use the HTTP API directly to trigger typing
                             await message.channel._state.http.send_typing(
                                 message.channel.id
                             )
+                            consecutive_errors = 0  # Reset on success
                             await asyncio.sleep(
-                                5
-                            )  # Discord typing lasts ~10 seconds, refresh every 5
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as e:
-                        logger.debug(f"Typing indicator error: {e}")
+                                3
+                            )  # Discord typing lasts ~10 seconds, refresh every 3 for reliability
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as e:
+                            consecutive_errors += 1
+                            if consecutive_errors > 5:
+                                logger.warning(
+                                    f"Typing indicator stopped after {consecutive_errors} consecutive errors: {e}"
+                                )
+                                break
+                            logger.debug(
+                                f"Typing indicator error (attempt {consecutive_errors}): {e}"
+                            )
+                            await asyncio.sleep(1)  # Brief pause before retry
 
                 typing_task = asyncio.create_task(keep_typing())
 
@@ -372,7 +383,7 @@ class CompanyDiscordBot:
 - The agent can use 'Search Discord Channel' command to search for specific content further back in this channel's history.
 
 **IMPORTANT TOOL GUIDANCE:**
-- To get information from a specific URL or link, use 'Fetch Webpage Content' with the full URL.
+- To get information from a URL or link (especially social media like X/Twitter), use 'Interact with Webpage' with the full URL. This uses a real browser to navigate and extract content.
 - For Goodreads books, the URL format is: https://www.goodreads.com/book/show/{id}
 - For general web research without a specific URL, use 'Web Search'.
 - For images in the channel, use vision/image analysis commands with the file path.
@@ -512,13 +523,26 @@ class CompanyDiscordBot:
                     else "I couldn't generate a response."
                 )
 
-                # Split long messages if needed
+                # Extract workspace files from the response and prepare them as Discord attachments
+                # This handles URLs like {AGIXT_URI}/outputs/agent_{hash}/{conversation_id}/{filename}
+                reply, discord_files = await self._extract_and_prepare_workspace_files(
+                    reply, user_jwt
+                )
+
+                # Split long messages if needed and send with file attachments
                 if len(reply) > 2000:
                     chunks = [reply[i : i + 2000] for i in range(0, len(reply), 2000)]
-                    for chunk in chunks:
-                        await message.reply(chunk)
+                    for i, chunk in enumerate(chunks):
+                        # Attach files to the first chunk only
+                        if i == 0 and discord_files:
+                            await message.reply(chunk, files=discord_files)
+                        else:
+                            await message.reply(chunk)
                 else:
-                    await message.reply(reply)
+                    if discord_files:
+                        await message.reply(reply, files=discord_files)
+                    else:
+                        await message.reply(reply)
 
             except Exception as e:
                 logger.error(
@@ -900,6 +924,107 @@ HOW TO READ:
             return "VIDEO FILE"
 
         return "FILE - Use appropriate file reading commands"
+
+    async def _extract_and_prepare_workspace_files(
+        self, response_text: str, user_jwt: str
+    ) -> tuple:
+        """
+        Extract workspace file URLs from the response and prepare them as Discord file attachments.
+
+        This handles URLs like:
+        - {AGIXT_URI}/outputs/agent_{hash}/{conversation_id}/{filename}
+        - Markdown links: [text]({AGIXT_URI}/outputs/...)
+        - HTML links: href="{AGIXT_URI}/outputs/..."
+        - Image tags: src="{AGIXT_URI}/outputs/..."
+
+        Returns:
+            tuple: (modified_text, list_of_discord_files)
+        """
+        import re
+        import io
+        import aiohttp
+
+        agixt_uri = getenv("AGIXT_URI", "http://localhost:7437")
+
+        # Pattern to match workspace output URLs
+        # Matches both plain URLs and URLs embedded in markdown/html
+        url_pattern = re.compile(
+            rf'(?:(?:\[([^\]]*)\]\()|(?:(?:src|href)=["\']))?'
+            rf'({re.escape(agixt_uri)}/outputs/[^\s"\'\)>]+)'
+            rf"(?:[\"\'\)])?",
+            re.IGNORECASE,
+        )
+
+        discord_files = []
+        modified_text = response_text
+        urls_processed = set()  # Track processed URLs to avoid duplicates
+
+        for match in url_pattern.finditer(response_text):
+            url = match.group(2) if match.group(2) else match.group(0)
+
+            # Skip if we've already processed this URL
+            if url in urls_processed:
+                continue
+            urls_processed.add(url)
+
+            # Extract filename from URL
+            try:
+                # URL format: .../outputs/agent_{hash}/{conversation_id}/{filename}
+                filename = url.split("/")[-1]
+                # URL decode the filename
+                import urllib.parse
+
+                filename = urllib.parse.unquote(filename)
+
+                # Remove any query parameters
+                if "?" in filename:
+                    filename = filename.split("?")[0]
+
+                if not filename:
+                    continue
+
+                # Download the file from the AGiXT server (with auth)
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        headers = {"Authorization": f"Bearer {user_jwt}"}
+                        async with session.get(url, headers=headers) as resp:
+                            if resp.status == 200:
+                                file_data = await resp.read()
+
+                                # Create Discord file object
+                                discord_file = discord_module.File(
+                                    io.BytesIO(file_data), filename=filename
+                                )
+                                discord_files.append(discord_file)
+
+                                # Replace the URL in the text with a note that the file is attached
+                                # Handle different formats
+                                full_match = match.group(0)
+                                link_text = (
+                                    match.group(1) if match.group(1) else filename
+                                )
+
+                                # Replace with attachment reference
+                                replacement = f"[📎 {link_text} (attached)]"
+                                modified_text = modified_text.replace(
+                                    full_match, replacement, 1
+                                )
+
+                                logger.info(
+                                    f"Prepared workspace file for Discord upload: {filename}"
+                                )
+                            else:
+                                logger.warning(
+                                    f"Failed to download workspace file {url}: HTTP {resp.status}"
+                                )
+                except Exception as e:
+                    logger.error(f"Error downloading workspace file {url}: {e}")
+
+            except Exception as e:
+                logger.debug(f"Could not process URL {url}: {e}")
+                continue
+
+        return modified_text, discord_files
 
     async def start(self):
         """Start the Discord bot."""

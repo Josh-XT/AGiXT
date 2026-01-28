@@ -432,10 +432,15 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         self, image_path: str, query: str = "What is in this image?"
     ) -> str:
         """
-        View and analyze an image file in the agent's workspace
+        View and analyze an IMAGE FILE (png, jpg, gif, etc.) in the agent's workspace.
+
+        THIS IS ONLY FOR IMAGE FILES - NOT FOR WEBPAGES OR URLS TO WEBSITES/TWEETS/ARTICLES.
+
+        For URLs to webpages, tweets, articles, or any website content, use "Interact with Webpage" instead.
+        This command is specifically for analyzing the visual content of image files.
 
         Args:
-        image_path (str): The path to the image file in the agent's workspace, or a URL to an image to download to the agent's workspace and view.
+        image_path (str): The path to an image file in the agent's workspace, or a direct URL to an image file (e.g., ending in .png, .jpg, .gif)
         query (str): The question or analysis to perform on the image
 
         Returns:
