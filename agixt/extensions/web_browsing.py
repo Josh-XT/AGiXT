@@ -448,11 +448,19 @@ class web_browsing(Extensions):
             raise
 
     async def _call_prompt_agent(self, timeout: int = None, **kwargs):
-        """Call LLM via streaming chat completions endpoint for faster response."""
+        """Call LLM via streaming chat completions endpoint for faster response.
+
+        IMPORTANT: This calls ezlocalai directly to get the RAW LLM response.
+        The AGiXT /v1/chat/completions endpoint filters thinking tags and only
+        returns answer content, but for web browsing we need the full XML
+        response including <interaction> and <step> tags.
+        """
         import httpx
         import json as json_module
+        import asyncio
 
         start_time = time.time()
+        effective_timeout = timeout or 120
 
         # Extract user_input from prompt_args - this is the actual prompt content
         user_input = kwargs.get("prompt_args", {}).get("user_input", "")
@@ -462,37 +470,33 @@ class web_browsing(Extensions):
         if not user_input:
             raise ValueError("No user_input provided for LLM call")
 
-        # Get API base URI and auth from ApiClient
-        base_uri = getattr(self.ApiClient, "base_uri", "http://localhost:7437")
-        auth_header = getattr(self.ApiClient, "headers", {}).get("Authorization", "")
+        # Call ezlocalai directly to get raw LLM response
+        # The AGiXT endpoint filters thinking tags - we need the full response for XML parsing
+        ezlocalai_url = os.environ.get("EZLOCALAI_URL", "http://localhost:8091")
 
-        # Build chat completions request
+        # Build chat completions request for ezlocalai
         messages = [{"role": "user", "content": user_input}]
 
         payload = {
-            "model": self.agent_name,
+            "model": os.environ.get(
+                "DEFAULT_MODEL", "unsloth/Qwen3-4B-Instruct-2507-GGUF"
+            ),
             "messages": messages,
             "stream": True,
             "max_tokens": 4096,
             "temperature": 0.7,
-            "user": self.conversation_name or "-",
         }
 
         headers = {
             "Content-Type": "application/json",
-            "Authorization": auth_header,
         }
 
-        url = f"{base_uri}/v1/chat/completions"
-        response_text = ""
+        url = f"{ezlocalai_url}/v1/chat/completions"
 
-        try:
-            logging.debug(
-                f"Starting streaming chat completion with timeout={timeout}s..."
-            )
-
+        async def do_streaming_request():
+            response_text = ""
             async with httpx.AsyncClient(
-                timeout=httpx.Timeout(timeout or 120.0, connect=10.0)
+                timeout=httpx.Timeout(effective_timeout + 30, connect=10.0)
             ) as client:
                 async with client.stream(
                     "POST", url, json=payload, headers=headers
@@ -519,6 +523,17 @@ class web_browsing(Extensions):
                                         response_text += content
                             except json_module.JSONDecodeError:
                                 continue
+            return response_text
+
+        try:
+            logging.debug(
+                f"Starting streaming chat completion to ezlocalai with timeout={effective_timeout}s..."
+            )
+
+            # Use asyncio.wait_for to enforce hard timeout on the entire streaming operation
+            response_text = await asyncio.wait_for(
+                do_streaming_request(), timeout=effective_timeout
+            )
 
             elapsed = time.time() - start_time
             logging.debug(
@@ -531,9 +546,14 @@ class web_browsing(Extensions):
             )
             return response_text
 
+        except asyncio.TimeoutError:
+            elapsed = time.time() - start_time
+            error_msg = f"LLM streaming call timed out after {elapsed:.1f}s (timeout was {effective_timeout}s)"
+            logging.error(error_msg)
+            raise TimeoutError(error_msg)
         except httpx.TimeoutException as e:
             elapsed = time.time() - start_time
-            error_msg = f"LLM streaming call timed out after {elapsed:.1f}s (timeout was {timeout}s)"
+            error_msg = f"LLM streaming call timed out after {elapsed:.1f}s (timeout was {effective_timeout}s)"
             logging.error(error_msg)
             raise TimeoutError(error_msg)
         except Exception as e:

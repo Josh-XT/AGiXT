@@ -3076,7 +3076,30 @@ def _stop_local(stop_ezlocalai_too: bool = True, stop_redis_too: bool = False) -
                 except PermissionError as e:
                     print(f"Permission denied killing process {port_pid}: {e}")
 
-    elif not stopped_by_pid:
+    # Kill any remaining run-local.py processes by name
+    # This catches orphaned parent processes that aren't bound to port 7437
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "run-local.py"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                if line:
+                    orphan_pid = int(line)
+                    if orphan_pid != pid:
+                        try:
+                            os.kill(orphan_pid, signal.SIGKILL)
+                            print(f"Killed orphaned run-local.py process (PID {orphan_pid})")
+                        except (ProcessLookupError, PermissionError):
+                            pass
+    except Exception:
+        pass  # pgrep not available or other error
+
+    if not stopped_by_pid and not pids_on_port:
         print("No AGiXT local processes found running.")
 
     # Clean up PID file
