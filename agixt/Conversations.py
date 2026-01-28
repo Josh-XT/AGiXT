@@ -113,14 +113,24 @@ def broadcast_message_sync(conversation_id: str, event_type: str, message_data: 
         logging.warning(f"broadcast_message_sync error: {e}")
 
 
-def get_conversation_id_by_name(conversation_name, user_id):
+def get_conversation_id_by_name(conversation_name, user_id, create_if_missing=True):
+    """Get the conversation ID by name, optionally creating it if it doesn't exist.
+    
+    Args:
+        conversation_name: The name of the conversation
+        user_id: The user ID who owns the conversation
+        create_if_missing: If True (default), creates the conversation if it doesn't exist.
+                          If False, returns None when conversation doesn't exist.
+    """
     user_id = str(user_id)
     cache_key = _get_conversation_cache_key(conversation_name, user_id)
 
-    # Check SharedCache first
-    cached = shared_cache.get(cache_key)
-    if cached is not None:
-        return cached
+    # Only use cache when create_if_missing=True, because cached IDs might reference
+    # deleted conversations and we need to verify existence when not creating
+    if create_if_missing:
+        cached = shared_cache.get(cache_key)
+        if cached is not None:
+            return cached
 
     session = get_session()
     user = session.query(User).filter(User.id == user_id).first()
@@ -133,6 +143,11 @@ def get_conversation_id_by_name(conversation_name, user_id):
         .first()
     )
     if not conversation:
+        if not create_if_missing:
+            session.close()
+            # Clear any stale cache entry
+            shared_cache.delete(cache_key)
+            return None
         # Create conversation directly to avoid recursive call to Conversations.__init__
         conversation = Conversation(name=conversation_name, user_id=user_id)
         session.add(conversation)
