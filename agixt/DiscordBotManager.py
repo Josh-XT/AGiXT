@@ -288,6 +288,68 @@ class CompanyDiscordBot:
                     ):
                         content = content.replace(f"<@&{role.id}>", "").strip()
 
+            # Check if this message is a reply to another message
+            # If so, include the replied-to message content for context
+            replied_to_content = None
+            if message.reference and message.reference.message_id:
+                try:
+                    # Fetch the message being replied to
+                    replied_msg = await message.channel.fetch_message(
+                        message.reference.message_id
+                    )
+                    if replied_msg:
+                        # Build the replied-to content including any attachments
+                        replied_text = replied_msg.content or ""
+                        replied_author = (
+                            replied_msg.author.display_name or replied_msg.author.name
+                        )
+
+                        # Include attachment URLs from the replied message
+                        if replied_msg.attachments:
+                            attachment_urls = [
+                                att.url for att in replied_msg.attachments
+                            ]
+                            if replied_text:
+                                replied_text += "\n\nAttachments: " + ", ".join(
+                                    attachment_urls
+                                )
+                            else:
+                                replied_text = "Attachments: " + ", ".join(
+                                    attachment_urls
+                                )
+
+                        # Include embeds (links that Discord auto-previews)
+                        if replied_msg.embeds:
+                            embed_info = []
+                            for embed in replied_msg.embeds:
+                                if embed.url:
+                                    embed_info.append(embed.url)
+                                elif embed.title:
+                                    embed_info.append(f"[{embed.title}]")
+                            if embed_info:
+                                if replied_text:
+                                    replied_text += "\nEmbedded links: " + ", ".join(
+                                        embed_info
+                                    )
+                                else:
+                                    replied_text = "Embedded links: " + ", ".join(
+                                        embed_info
+                                    )
+
+                        if replied_text:
+                            replied_to_content = (
+                                f"[Replying to {replied_author}]: {replied_text}"
+                            )
+                            logger.info(
+                                f"Message is a reply to: {replied_to_content[:200]}..."
+                            )
+                except Exception as e:
+                    logger.warning(f"Could not fetch replied-to message: {e}")
+
+            # Prepend the replied-to content to the user's message
+            if replied_to_content:
+                content = f"{replied_to_content}\n\n[User's request]: {content}"
+
             # If the message is empty after removing the mention and has no attachments, ignore it
             if not content and not message.attachments:
                 return
@@ -531,7 +593,7 @@ class CompanyDiscordBot:
 
                 # Split long messages if needed and send with file attachments
                 if len(reply) > 2000:
-                    chunks = [reply[i : i + 2000] for i in range(0, len(reply), 2000)]
+                    chunks = self._split_message_intelligently(reply, max_length=2000)
                     for i, chunk in enumerate(chunks):
                         # Attach files to the first chunk only
                         if i == 0 and discord_files:
@@ -924,6 +986,82 @@ HOW TO READ:
             return "VIDEO FILE"
 
         return "FILE - Use appropriate file reading commands"
+
+    def _split_message_intelligently(
+        self, text: str, max_length: int = 2000
+    ) -> list[str]:
+        """
+        Split a message into chunks that fit within Discord's character limit,
+        but split at natural breakpoints (newlines, sentences, words) rather than
+        mid-word or mid-sentence.
+
+        Priority for split points:
+        1. Double newlines (paragraph breaks)
+        2. Single newlines
+        3. Sentence endings (. ! ?)
+        4. Word boundaries (spaces)
+        5. Hard cut (last resort)
+
+        Args:
+            text: The text to split
+            max_length: Maximum length per chunk (Discord limit is 2000)
+
+        Returns:
+            List of text chunks, each within max_length
+        """
+        if len(text) <= max_length:
+            return [text]
+
+        chunks = []
+        remaining = text
+
+        while len(remaining) > max_length:
+            # Find the best split point within the limit
+            chunk = remaining[:max_length]
+
+            # Try to find split points in order of preference
+            split_point = None
+
+            # 1. Look for double newline (paragraph break) - best split
+            last_para = chunk.rfind("\n\n")
+            if last_para > max_length * 0.3:  # Don't split too early
+                split_point = last_para + 2  # Include the newlines in the first chunk
+
+            # 2. Look for single newline
+            if split_point is None:
+                last_newline = chunk.rfind("\n")
+                if last_newline > max_length * 0.3:
+                    split_point = last_newline + 1
+
+            # 3. Look for sentence ending (. ! ? followed by space or newline)
+            if split_point is None:
+                # Search backwards for sentence endings
+                for i in range(len(chunk) - 1, int(max_length * 0.3), -1):
+                    if chunk[i] in ".!?" and (
+                        i + 1 >= len(chunk) or chunk[i + 1] in " \n"
+                    ):
+                        split_point = i + 1
+                        break
+
+            # 4. Look for word boundary (space)
+            if split_point is None:
+                last_space = chunk.rfind(" ")
+                if last_space > max_length * 0.3:
+                    split_point = last_space + 1
+
+            # 5. Hard cut as last resort
+            if split_point is None:
+                split_point = max_length
+
+            # Extract the chunk and update remaining
+            chunks.append(remaining[:split_point].rstrip())
+            remaining = remaining[split_point:].lstrip()
+
+        # Add any remaining text
+        if remaining:
+            chunks.append(remaining)
+
+        return chunks
 
     async def _extract_and_prepare_workspace_files(
         self, response_text: str, user_jwt: str
