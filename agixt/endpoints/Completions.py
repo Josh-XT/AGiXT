@@ -119,11 +119,13 @@ async def chat_completion(
         if prompt.stream:
             return StreamingResponse(
                 safe_stream_wrapper(agixt.chat_completions_stream(prompt=prompt)),
-                media_type="text/plain; charset=utf-8",
+                media_type="text/event-stream",
                 headers={
-                    "Cache-Control": "no-cache",
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
                     "Connection": "keep-alive",
-                    "Content-Type": "text/plain; charset=utf-8",
+                    "Content-Type": "text/event-stream; charset=utf-8",
+                    "X-Accel-Buffering": "no",
+                    "Transfer-Encoding": "chunked",
                 },
             )
         else:
@@ -204,11 +206,13 @@ async def mcp_chat_completion(
         if prompt.stream:
             return StreamingResponse(
                 safe_stream_wrapper(agixt.chat_completions_stream(prompt=prompt)),
-                media_type="text/plain; charset=utf-8",
+                media_type="text/event-stream",
                 headers={
-                    "Cache-Control": "no-cache",
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
                     "Connection": "keep-alive",
-                    "Content-Type": "text/plain; charset=utf-8",
+                    "Content-Type": "text/event-stream; charset=utf-8",
+                    "X-Accel-Buffering": "no",
+                    "Transfer-Encoding": "chunked",
                 },
             )
         else:
