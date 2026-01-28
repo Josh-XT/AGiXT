@@ -1676,6 +1676,115 @@ print(output)
         except Exception as e:
             return f"Error making API call: {str(e)}"
 
+    async def check_domain_availability(self, domain: str) -> bool:
+        """
+        Check if a domain name is available for registration.
+
+        Uses WHOIS lookup to determine if a domain is already registered.
+        A domain is considered available if no WHOIS record is found.
+
+        Args:
+            domain (str): The domain name to check (e.g., "example.com").
+                          Can include or exclude the protocol (http/https).
+
+        Returns:
+            bool: True if the domain is available for registration,
+                  False if the domain is already registered or an error occurred.
+
+        Raises:
+            No exceptions are raised; errors are handled internally and logged.
+
+        Example:
+            >>> await check_domain_availability("example.com")
+            False  # Domain is registered
+            >>> await check_domain_availability("some-random-unregistered-domain-12345.com")
+            True   # Domain is available
+        """
+        import re
+        import socket
+
+        try:
+            # Clean and validate the domain input
+            if not domain or not isinstance(domain, str):
+                logging.error(
+                    "[check_domain_availability] Invalid domain: domain must be a non-empty string"
+                )
+                return False
+
+            # Remove protocol if present (http://, https://, etc.)
+            cleaned_domain = re.sub(r"^https?://", "", domain.strip().lower())
+
+            # Remove trailing slashes and paths
+            cleaned_domain = cleaned_domain.split("/")[0]
+
+            # Remove www. prefix if present
+            if cleaned_domain.startswith("www."):
+                cleaned_domain = cleaned_domain[4:]
+
+            # Validate domain format using regex
+            # Domain must have at least one dot, valid characters, and proper TLD
+            domain_pattern = r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
+            if not re.match(domain_pattern, cleaned_domain):
+                logging.error(
+                    f"[check_domain_availability] Invalid domain format: {domain}"
+                )
+                return False
+
+            # Try WHOIS lookup using python-whois library
+            try:
+                import whois
+
+                whois_info = whois.whois(cleaned_domain)
+
+                # Check if the domain has registration information
+                # If domain_name is None or empty, domain is likely available
+                if whois_info.domain_name is None:
+                    logging.info(
+                        f"[check_domain_availability] Domain {cleaned_domain} appears to be available (no WHOIS record)"
+                    )
+                    return True
+
+                # Domain is registered
+                logging.info(
+                    f"[check_domain_availability] Domain {cleaned_domain} is registered"
+                )
+                return False
+
+            except whois.parser.PywhoisError:
+                # WHOIS lookup failed - domain might be available
+                logging.info(
+                    f"[check_domain_availability] Domain {cleaned_domain} appears to be available (WHOIS lookup failed)"
+                )
+                return True
+
+            except ImportError:
+                # python-whois not installed, fall back to DNS lookup
+                logging.warning(
+                    "[check_domain_availability] python-whois not installed, falling back to DNS lookup"
+                )
+
+                # Fallback: Use DNS lookup to check if domain resolves
+                try:
+                    socket.gethostbyname(cleaned_domain)
+                    # Domain resolves, likely registered
+                    logging.info(
+                        f"[check_domain_availability] Domain {cleaned_domain} resolves via DNS (likely registered)"
+                    )
+                    return False
+                except socket.gaierror:
+                    # Domain doesn't resolve - might be available
+                    # Note: This is not 100% accurate as registered domains may not have DNS records
+                    logging.info(
+                        f"[check_domain_availability] Domain {cleaned_domain} does not resolve via DNS (might be available)"
+                    )
+                    return True
+
+        except Exception as e:
+            logging.error(
+                f"[check_domain_availability] Error checking domain {domain}: {str(e)}"
+            )
+            return False
+
     async def get_mindmap(self, task: str, additional_context: str = ""):
         """
         Get a mindmap for a task
