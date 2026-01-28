@@ -1740,9 +1740,22 @@ Example: memories, persona, files"""
                 significant_user_words = {w for w in user_input_words if len(w) >= 5}
                 # Exclude very common words that match too broadly
                 common_desc_words = {
-                    "using", "based", "files", "given", "input", "output",
-                    "returns", "creates", "provides", "allows", "enables",
-                    "information", "content", "system", "current", "specified"
+                    "using",
+                    "based",
+                    "files",
+                    "given",
+                    "input",
+                    "output",
+                    "returns",
+                    "creates",
+                    "provides",
+                    "allows",
+                    "enables",
+                    "information",
+                    "content",
+                    "system",
+                    "current",
+                    "specified",
                 }
                 significant_desc_words = significant_desc_words - common_desc_words
                 # Require 3+ matching significant words for description-based inclusion
@@ -1992,39 +2005,39 @@ Example: Web Search, Read File"""
             # Prioritize: 1) Explicitly requested, 2) always_include, 3) file/web commands if relevant, 4) LLM selected
             prioritized = []
             remaining = []
-            
+
             # Tier 1: Explicitly requested commands (user mentioned by name)
             for cmd in valid_commands:
                 if cmd in explicitly_requested_commands:
                     prioritized.append(cmd)
                 else:
                     remaining.append(cmd)
-            
+
             # Tier 2: Always include commands
             for cmd in remaining[:]:
                 if cmd in always_include:
                     prioritized.append(cmd)
                     remaining.remove(cmd)
-            
+
             # Tier 3: File/web commands if relevant context
             if has_uploaded_files or file_context:
                 for cmd in remaining[:]:
                     if cmd in file_commands and len(prioritized) < MAX_COMMANDS:
                         prioritized.append(cmd)
                         remaining.remove(cmd)
-            
+
             if has_url_reference:
                 for cmd in remaining[:]:
                     if cmd in web_commands and len(prioritized) < MAX_COMMANDS:
                         prioritized.append(cmd)
                         remaining.remove(cmd)
-            
+
             # Fill remaining slots with LLM-selected commands (preserve order = relevance)
             for cmd in remaining:
                 if len(prioritized) >= MAX_COMMANDS:
                     break
                 prioritized.append(cmd)
-            
+
             valid_commands = prioritized
             logging.info(
                 f"[select_commands_for_task] Capped commands from {len(unique_commands)} to {len(valid_commands)}"
