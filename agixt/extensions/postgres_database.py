@@ -1,7 +1,7 @@
 import logging
 from Globals import install_package_if_missing
 
-install_package_if_missing("psycopg2")
+install_package_if_missing("psycopg2-binary")
 import psycopg2
 import psycopg2.extras
 import logging
