@@ -133,6 +133,10 @@ async def lifespan(app: FastAPI):
         _load_global_cache()
         logging.debug("Extensions hub cache loaded for worker")
 
+        # NOTE: The Discord Bot Manager runs in the main process (run-local.py)
+        # and stores its status in Redis for cross-process access.
+        # See DiscordBotManager.py for details.
+
         # Pre-warm extension module cache to speed up first request
         # This imports all extension modules once at startup rather than on first request
         try:

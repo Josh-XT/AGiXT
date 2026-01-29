@@ -353,6 +353,8 @@ async def start_service(is_restart=False):
             raise RuntimeError("Uvicorn failed to start")
 
         # Start Discord Bot Manager as a background task
+        # It runs in the main process and stores its status in Redis
+        # so uvicorn workers can query it
         section_start = startup_timer.section_start()
         await start_discord_bots()
         startup_timer.section_end("Discord Bot Manager startup", section_start)
@@ -418,7 +420,7 @@ async def restart_service():
     logger.warning("Attempting to restart AGiXT service...")
 
     try:
-        # Stop Discord bots first
+        # Stop Discord bots first (clears Redis status)
         await stop_discord_bots()
 
         # Kill existing uvicorn process if any

@@ -61,6 +61,7 @@ class CompanySendGridEmailBot:
         bot_agent_id: str = None,
         bot_permission_mode: str = "recognized_users",
         bot_owner_id: str = None,
+        bot_allowlist: str = None,
     ):
         self.company_id = company_id
         self.company_name = company_name
@@ -71,6 +72,13 @@ class CompanySendGridEmailBot:
         self.bot_agent_id = bot_agent_id
         self.bot_permission_mode = bot_permission_mode
         self.bot_owner_id = bot_owner_id
+        # Parse allowlist - comma-separated email addresses
+        self.bot_allowlist = set()
+        if bot_allowlist:
+            for item in bot_allowlist.split(","):
+                item = item.strip().lower()  # Normalize to lowercase
+                if item:
+                    self.bot_allowlist.add(item)
 
         self._is_running = False
         self._started_at: Optional[datetime] = None
@@ -93,6 +101,18 @@ class CompanySendGridEmailBot:
                 owner = db.query(User).filter(User.id == self.bot_owner_id).first()
                 if owner and owner.email.lower() == sender_email:
                     return True, owner.email
+            return False, None
+
+        elif self.bot_permission_mode == "allowlist":
+            # Only emails from addresses in the allowlist are processed
+            if sender_email not in self.bot_allowlist:
+                return False, None
+            # Use owner context for allowlist users
+            if self.bot_owner_id:
+                with get_session() as db:
+                    owner = db.query(User).filter(User.id == self.bot_owner_id).first()
+                    if owner:
+                        return True, owner.email
             return False, None
 
         elif self.bot_permission_mode == "recognized_users":

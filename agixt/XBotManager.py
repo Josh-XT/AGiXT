@@ -129,6 +129,7 @@ class CompanyXBot:
         bot_agent_id: str = None,
         bot_permission_mode: str = "recognized_users",
         bot_owner_id: str = None,
+        bot_allowlist: str = None,
     ):
         """
         Initialize the X bot for a company.
@@ -139,8 +140,9 @@ class CompanyXBot:
             bot_token: OAuth access token for the bot account
             bot_user_id: X user ID for the bot account
             bot_agent_id: Specific agent ID to use (None = user's default)
-            bot_permission_mode: Permission mode (owner_only, recognized_users, anyone)
+            bot_permission_mode: Permission mode (owner_only, recognized_users, allowlist, anyone)
             bot_owner_id: User ID of who configured this bot
+            bot_allowlist: Comma-separated X usernames or user IDs for allowlist mode
         """
         self.company_id = company_id
         self.company_name = company_name
@@ -151,13 +153,23 @@ class CompanyXBot:
         self.bot_agent_id = bot_agent_id
         self.bot_permission_mode = bot_permission_mode
         self.bot_owner_id = bot_owner_id
+        # Parse allowlist - comma-separated X usernames or user IDs
+        self.bot_allowlist = set()
+        if bot_allowlist:
+            for item in bot_allowlist.split(","):
+                item = item.strip().lower()  # Normalize to lowercase
+                if item.startswith("@"):
+                    item = item[1:]  # Remove @ prefix
+                if item:
+                    self.bot_allowlist.add(item)
 
         # Bot state
         self.is_running = False
         self.started_at: Optional[datetime] = None
         self.last_dm_check: Optional[datetime] = None
         self.last_mention_check: Optional[datetime] = None
-        self.messages_processed = 0
+        self.messages_processed = self._load_messages_processed()
+        self._unsaved_message_count = 0  # Track unsaved increments for batching
 
         # Track processed message IDs to avoid duplicates
         self.processed_dm_ids: Set[str] = set()
@@ -177,6 +189,89 @@ class CompanyXBot:
         self._user_id_cache: Dict[str, str] = {}
 
         logger.info(f"Initialized X bot for company {company_name} ({company_id})")
+
+    def _load_messages_processed(self) -> int:
+        """Load the messages_processed count from the database."""
+        try:
+            with get_session() as db:
+                if self.company_id == "server":
+                    # Server-level bot
+                    setting = (
+                        db.query(ServerExtensionSetting)
+                        .filter(
+                            ServerExtensionSetting.extension_name == "x",
+                            ServerExtensionSetting.setting_key == "X_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+                else:
+                    # Company-level bot
+                    setting = (
+                        db.query(CompanyExtensionSetting)
+                        .filter(
+                            CompanyExtensionSetting.company_id == self.company_id,
+                            CompanyExtensionSetting.extension_name == "x",
+                            CompanyExtensionSetting.setting_key == "X_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+                
+                if setting and setting.setting_value:
+                    return int(setting.setting_value)
+        except Exception as e:
+            logger.warning(f"Could not load messages_processed for {self.company_id}: {e}")
+        return 0
+
+    def _save_messages_processed(self):
+        """Save the messages_processed count to the database."""
+        try:
+            with get_session() as db:
+                if self.company_id == "server":
+                    # Server-level bot
+                    setting = (
+                        db.query(ServerExtensionSetting)
+                        .filter(
+                            ServerExtensionSetting.extension_name == "x",
+                            ServerExtensionSetting.setting_key == "X_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+                    if setting:
+                        setting.setting_value = str(self.messages_processed)
+                    else:
+                        setting = ServerExtensionSetting(
+                            extension_name="x",
+                            setting_key="X_MESSAGES_PROCESSED",
+                            setting_value=str(self.messages_processed),
+                            is_sensitive=False,
+                        )
+                        db.add(setting)
+                else:
+                    # Company-level bot
+                    setting = (
+                        db.query(CompanyExtensionSetting)
+                        .filter(
+                            CompanyExtensionSetting.company_id == self.company_id,
+                            CompanyExtensionSetting.extension_name == "x",
+                            CompanyExtensionSetting.setting_key == "X_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+                    if setting:
+                        setting.setting_value = str(self.messages_processed)
+                    else:
+                        setting = CompanyExtensionSetting(
+                            company_id=self.company_id,
+                            extension_name="x",
+                            setting_key="X_MESSAGES_PROCESSED",
+                            setting_value=str(self.messages_processed),
+                            is_sensitive=False,
+                        )
+                        db.add(setting)
+                db.commit()
+                self._unsaved_message_count = 0
+        except Exception as e:
+            logger.warning(f"Could not save messages_processed for {self.company_id}: {e}")
 
     def _get_headers(self) -> Dict[str, str]:
         """Get authentication headers for X API requests."""
@@ -454,6 +549,10 @@ class CompanyXBot:
 
         logger.info(f"Processing DM from @{sender_username}: {text[:100]}...")
         self.messages_processed += 1
+        self._unsaved_message_count += 1
+        # Save every 5 messages or on first message to batch DB writes
+        if self._unsaved_message_count >= 5 or self.messages_processed == 1:
+            self._save_messages_processed()
 
         # Get AGiXT user ID for permission checks
         agixt_user_id = self._get_agixt_user_id(sender_id)
@@ -464,6 +563,14 @@ class CompanyXBot:
             # Only the owner can interact
             if not agixt_user_id or agixt_user_id != self.bot_owner_id:
                 return
+        elif self.bot_permission_mode == "allowlist":
+            # Only users in the allowlist can interact (check both username and ID)
+            if str(sender_id) not in self.bot_allowlist and sender_username.lower() not in self.bot_allowlist:
+                logger.debug(f"X user {sender_username} ({sender_id}) not in allowlist, ignoring DM")
+                return
+            # For allowlist mode, use owner context if no linked account
+            if not agixt_user_id:
+                use_owner_context = True
         elif self.bot_permission_mode == "recognized_users":
             # Default behavior - only users with linked accounts
             if not agixt_user_id:
@@ -633,6 +740,10 @@ class CompanyXBot:
 
         logger.info(f"Processing mention from @{author_username}: {text[:100]}...")
         self.messages_processed += 1
+        self._unsaved_message_count += 1
+        # Save every 5 messages or on first message to batch DB writes
+        if self._unsaved_message_count >= 5 or self.messages_processed == 1:
+            self._save_messages_processed()
 
         # Get AGiXT user ID for permission checks
         agixt_user_id = self._get_agixt_user_id(author_id)
@@ -642,6 +753,14 @@ class CompanyXBot:
         if self.bot_permission_mode == "owner_only":
             if not agixt_user_id or agixt_user_id != self.bot_owner_id:
                 return
+        elif self.bot_permission_mode == "allowlist":
+            # Only users in the allowlist can interact (check both username and ID)
+            if str(author_id) not in self.bot_allowlist and author_username.lower() not in self.bot_allowlist:
+                logger.debug(f"X user @{author_username} ({author_id}) not in allowlist, ignoring mention")
+                return
+            # For allowlist mode, use owner context if no linked account
+            if not agixt_user_id:
+                use_owner_context = True
         elif self.bot_permission_mode == "recognized_users":
             if not agixt_user_id:
                 return
@@ -945,6 +1064,9 @@ class CompanyXBot:
     async def stop(self):
         """Stop the bot."""
         logger.info(f"Stopping X bot for {self.company_name}")
+        # Save any unsaved message count before stopping
+        if self._unsaved_message_count > 0:
+            self._save_messages_processed()
         self.is_running = False
 
     def get_status(self) -> XBotStatus:
@@ -981,101 +1103,121 @@ class XBotManager:
     async def _get_companies_with_x_bot(self) -> List[Dict]:
         """
         Get all companies that have X bot configuration.
+        
+        Supports both:
+        1. OAuth-based authentication (preferred) - uses agent's connected X account
+        2. Legacy token-based authentication (fallback) - uses manually entered tokens
 
         Returns:
             List of company configs with X bot settings
         """
+        from MagicalAuth import get_agent_oauth_credentials
         companies = []
 
         with get_session() as session:
-            # Query for companies with X bot token set
-            settings = (
+            # First, find all companies that have X bot enabled
+            enabled_settings = (
                 session.query(CompanyExtensionSetting)
                 .filter(
-                    CompanyExtensionSetting.setting_name == "x_bot_token",
-                    CompanyExtensionSetting.setting_value.isnot(None),
-                    CompanyExtensionSetting.setting_value != "",
+                    CompanyExtensionSetting.extension_name == "x",
+                    CompanyExtensionSetting.setting_key == "x_bot_enabled",
+                    CompanyExtensionSetting.setting_value.in_(["true", "True", "1", "yes"]),
                 )
                 .all()
             )
 
-            for setting in settings:
+            for enabled_setting in enabled_settings:
                 company = (
-                    session.query(Company).filter_by(id=setting.company_id).first()
+                    session.query(Company).filter_by(id=enabled_setting.company_id).first()
                 )
                 if not company:
                     continue
-
-                # Get bot user ID
-                bot_user_id_setting = (
-                    session.query(CompanyExtensionSetting)
-                    .filter_by(
-                        company_id=setting.company_id,
-                        setting_name="x_bot_user_id",
-                    )
-                    .first()
-                )
-
-                # Get enabled setting (default to True if token exists)
-                enabled_setting = (
-                    session.query(CompanyExtensionSetting)
-                    .filter_by(
-                        company_id=setting.company_id,
-                        setting_name="x_bot_enabled",
-                    )
-                    .first()
-                )
-
-                is_enabled = True
-                if enabled_setting and enabled_setting.setting_value:
-                    is_enabled = enabled_setting.setting_value.lower() in (
-                        "true",
-                        "1",
-                        "yes",
-                    )
-
-                if not is_enabled:
-                    continue
-
-                # Get new permission settings
+                    
+                company_id = str(enabled_setting.company_id)
+                
+                # Get agent_id first - needed for OAuth lookup
                 agent_id_setting = (
                     session.query(CompanyExtensionSetting)
                     .filter_by(
-                        company_id=setting.company_id,
-                        setting_name="x_bot_agent_id",
+                        company_id=enabled_setting.company_id,
+                        extension_name="x",
+                        setting_key="x_bot_agent_id",
                     )
                     .first()
                 )
+                agent_id = agent_id_setting.setting_value if agent_id_setting else None
+                
+                # Get permission settings
                 permission_mode_setting = (
                     session.query(CompanyExtensionSetting)
                     .filter_by(
-                        company_id=setting.company_id,
-                        setting_name="x_bot_permission_mode",
+                        company_id=enabled_setting.company_id,
+                        extension_name="x",
+                        setting_key="x_bot_permission_mode",
                     )
                     .first()
                 )
                 owner_id_setting = (
                     session.query(CompanyExtensionSetting)
                     .filter_by(
-                        company_id=setting.company_id,
-                        setting_name="x_bot_owner_id",
+                        company_id=enabled_setting.company_id,
+                        extension_name="x",
+                        setting_key="x_bot_owner_id",
                     )
                     .first()
                 )
+                
+                bot_token = None
+                bot_user_id = None
+                
+                # Try OAuth credentials first (preferred method)
+                if agent_id:
+                    oauth_creds = get_agent_oauth_credentials(agent_id, "x")
+                    if oauth_creds:
+                        bot_token = oauth_creds.get("access_token")
+                        bot_user_id = oauth_creds.get("provider_user_id")
+                        logger.info(f"Using OAuth credentials for X bot (company: {company.name})")
+                
+                # Fallback to legacy manual token if no OAuth
+                if not bot_token:
+                    token_setting = (
+                        session.query(CompanyExtensionSetting)
+                        .filter_by(
+                            company_id=enabled_setting.company_id,
+                            extension_name="x",
+                            setting_key="x_bot_token",
+                        )
+                        .first()
+                    )
+                    if token_setting and token_setting.setting_value:
+                        from endpoints.ServerConfig import decrypt_config_value
+                        bot_token = decrypt_config_value(token_setting.setting_value)
+                        
+                    # Legacy bot user ID
+                    bot_user_id_setting = (
+                        session.query(CompanyExtensionSetting)
+                        .filter_by(
+                            company_id=enabled_setting.company_id,
+                            extension_name="x",
+                            setting_key="x_bot_user_id",
+                        )
+                        .first()
+                    )
+                    if bot_user_id_setting:
+                        bot_user_id = bot_user_id_setting.setting_value
+                
+                # Skip if no credentials available
+                if not bot_token:
+                    logger.warning(f"No X credentials available for company {company.name} - skipping")
+                    continue
 
                 companies.append(
                     {
-                        "company_id": str(setting.company_id),
+                        "company_id": company_id,
                         "company_name": company.name,
-                        "bot_token": setting.setting_value,
-                        "bot_user_id": (
-                            bot_user_id_setting.setting_value
-                            if bot_user_id_setting
-                            else None
-                        ),
-                        "bot_agent_id": (
-                            agent_id_setting.setting_value if agent_id_setting else None
-                        ),
+                        "bot_token": bot_token,
+                        "bot_user_id": bot_user_id,
+                        "bot_agent_id": agent_id,
                         "bot_permission_mode": (
                             permission_mode_setting.setting_value
                             if permission_mode_setting

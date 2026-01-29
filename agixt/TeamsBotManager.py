@@ -92,6 +92,7 @@ class CompanyTeamsBot:
         bot_agent_id: str = None,
         bot_permission_mode: str = "recognized_users",
         bot_owner_id: str = None,
+        bot_allowlist: str = None,
     ):
         self.company_id = company_id
         self.company_name = company_name
@@ -102,6 +103,13 @@ class CompanyTeamsBot:
         self.bot_agent_id = bot_agent_id
         self.bot_permission_mode = bot_permission_mode
         self.bot_owner_id = bot_owner_id
+        # Parse allowlist - comma-separated Teams user IDs or emails
+        self.bot_allowlist = set()
+        if bot_allowlist:
+            for item in bot_allowlist.split(","):
+                item = item.strip().lower()  # Normalize to lowercase
+                if item:
+                    self.bot_allowlist.add(item)
 
         # Initialize Bot Framework adapter
         settings = BotFrameworkAdapterSettings(app_id, app_password)
@@ -184,6 +192,33 @@ class CompanyTeamsBot:
             except Exception as e:
                 logger.warning(f"Error checking owner permission: {e}")
                 return
+        elif self.bot_permission_mode == "allowlist":
+            # Only Teams users in the allowlist can interact (check both ID and email)
+            user_id_lower = user_id.lower() if user_id else ""
+            user_email_lower = user_email.lower() if user_email else ""
+            # Also check the UPN (User Principal Name) from activity
+            upn = turn_context.activity.from_property.aad_object_id or ""
+            upn_lower = upn.lower() if upn else ""
+            
+            if user_id_lower not in self.bot_allowlist and user_email_lower not in self.bot_allowlist and upn_lower not in self.bot_allowlist:
+                logger.debug(f"Teams user {user_id} not in allowlist, ignoring")
+                return
+            # For allowlist mode, use owner context if no linked account
+            if not user_email:
+                use_owner_context = True
+                if self.bot_owner_id:
+                    try:
+                        from DB import User
+                        with get_session() as db:
+                            owner = db.query(User).filter(User.id == self.bot_owner_id).first()
+                            if owner:
+                                user_email = owner.email
+                    except Exception as e:
+                        logger.error(f"Error getting owner email for allowlist user: {e}")
+                        return
+                if not user_email:
+                    logger.warning("Cannot handle allowlist interaction: no owner configured")
+                    return
         elif self.bot_permission_mode == "recognized_users":
             # Default behavior - only users with linked accounts
             if not user_email:

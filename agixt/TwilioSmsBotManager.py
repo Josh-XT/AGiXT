@@ -63,6 +63,7 @@ class CompanyTwilioSmsBot:
         bot_agent_id: str = None,
         bot_permission_mode: str = "recognized_users",
         bot_owner_id: str = None,
+        bot_allowlist: str = None,
     ):
         self.company_id = company_id
         self.company_name = company_name
@@ -74,6 +75,13 @@ class CompanyTwilioSmsBot:
         self.bot_agent_id = bot_agent_id
         self.bot_permission_mode = bot_permission_mode
         self.bot_owner_id = bot_owner_id
+        # Parse allowlist - comma-separated phone numbers
+        self.bot_allowlist = set()
+        if bot_allowlist:
+            for item in bot_allowlist.split(","):
+                item = item.strip()
+                if item:
+                    self.bot_allowlist.add(self._normalize_phone_static(item))
 
         self._is_running = False
         self._started_at: Optional[datetime] = None
@@ -81,6 +89,15 @@ class CompanyTwilioSmsBot:
 
         # Twilio client
         self.twilio_client = Client(account_sid, auth_token)
+
+    @staticmethod
+    def _normalize_phone_static(phone: str) -> str:
+        """Static method to normalize phone number for comparison."""
+        import re
+        phone = re.sub(r"[^\d+]", "", phone)
+        if not phone.startswith("+"):
+            phone = "+" + phone
+        return phone
 
     def _normalize_phone(self, phone: str) -> str:
         """Normalize phone number for comparison."""
@@ -143,6 +160,18 @@ class CompanyTwilioSmsBot:
                     if owner_phone == from_phone:
                         return True, owner.email
 
+            return False, None
+
+        elif self.bot_permission_mode == "allowlist":
+            # Only SMS from phone numbers in the allowlist are processed
+            if from_phone not in self.bot_allowlist:
+                return False, None
+            # Use owner context for allowlist users
+            if self.bot_owner_id:
+                with get_session() as db:
+                    owner = db.query(User).filter(User.id == self.bot_owner_id).first()
+                    if owner:
+                        return True, owner.email
             return False, None
 
         elif self.bot_permission_mode == "recognized_users":

@@ -91,6 +91,7 @@ class CompanySlackBot:
         bot_agent_id: str = None,
         bot_permission_mode: str = "recognized_users",
         bot_owner_id: str = None,
+        bot_allowlist: str = None,
     ):
         self.company_id = company_id
         self.company_name = company_name
@@ -102,9 +103,16 @@ class CompanySlackBot:
             bot_agent_id  # The specific agent to use (None = user's default)
         )
         self.bot_permission_mode = (
-            bot_permission_mode  # owner_only, recognized_users, anyone
+            bot_permission_mode  # owner_only, recognized_users, allowlist, anyone
         )
         self.bot_owner_id = bot_owner_id  # User ID of who configured this bot
+        # Parse allowlist - comma-separated Slack user IDs
+        self.bot_allowlist = set()
+        if bot_allowlist:
+            for item in bot_allowlist.split(","):
+                item = item.strip().upper()  # Slack user IDs are uppercase
+                if item:
+                    self.bot_allowlist.add(item)
 
         # Initialize Slack clients
         self.web_client = WebClient(token=bot_token)
@@ -193,6 +201,30 @@ class CompanySlackBot:
             except Exception as e:
                 logger.warning(f"Error checking owner permission: {e}")
                 return
+        elif self.bot_permission_mode == "allowlist":
+            # Only Slack users in the allowlist can interact
+            if user_id.upper() not in self.bot_allowlist:
+                logger.debug(f"Slack user {user_id} not in allowlist, ignoring")
+                return
+            # For allowlist mode, use owner context if no linked account
+            if not user_email:
+                use_owner_context = True
+                if self.bot_owner_id:
+                    try:
+                        with get_session() as db:
+                            owner = (
+                                db.query(User)
+                                .filter(User.id == self.bot_owner_id)
+                                .first()
+                            )
+                            if owner:
+                                user_email = owner.email
+                    except Exception as e:
+                        logger.error(f"Error getting owner email for allowlist user: {e}")
+                        return
+                if not user_email:
+                    logger.warning("Cannot handle allowlist interaction: no owner configured")
+                    return
         elif self.bot_permission_mode == "recognized_users":
             if not user_email:
                 try:

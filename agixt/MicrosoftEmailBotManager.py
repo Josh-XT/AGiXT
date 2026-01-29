@@ -62,6 +62,7 @@ class CompanyMicrosoftEmailBot:
         bot_permission_mode: str = "recognized_users",
         bot_owner_id: str = None,
         poll_interval: int = 60,
+        bot_allowlist: str = None,
     ):
         self.company_id = company_id
         self.company_name = company_name
@@ -73,6 +74,13 @@ class CompanyMicrosoftEmailBot:
         self.bot_permission_mode = bot_permission_mode
         self.bot_owner_id = bot_owner_id
         self.poll_interval = poll_interval
+        # Parse allowlist - comma-separated email addresses
+        self.bot_allowlist = set()
+        if bot_allowlist:
+            for item in bot_allowlist.split(","):
+                item = item.strip().lower()  # Normalize to lowercase
+                if item:
+                    self.bot_allowlist.add(item)
 
         self._is_running = False
         self._started_at: Optional[datetime] = None
@@ -183,14 +191,28 @@ class CompanyMicrosoftEmailBot:
         Check if sender is allowed based on permission mode.
         Returns (allowed: bool, user_email: str or None)
         """
+        sender_email_lower = sender_email.lower() if sender_email else ""
+        
         if self.bot_permission_mode == "owner_only":
             if not self.bot_owner_id:
                 return False, None
             # Check if sender is the owner
             with get_session() as db:
                 owner = db.query(User).filter(User.id == self.bot_owner_id).first()
-                if owner and owner.email.lower() == sender_email:
+                if owner and owner.email.lower() == sender_email_lower:
                     return True, owner.email
+            return False, None
+
+        elif self.bot_permission_mode == "allowlist":
+            # Only emails from addresses in the allowlist are processed
+            if sender_email_lower not in self.bot_allowlist:
+                return False, None
+            # Use owner context for allowlist users
+            if self.bot_owner_id:
+                with get_session() as db:
+                    owner = db.query(User).filter(User.id == self.bot_owner_id).first()
+                    if owner:
+                        return True, owner.email
             return False, None
 
         elif self.bot_permission_mode == "recognized_users":

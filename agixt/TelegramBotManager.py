@@ -122,6 +122,7 @@ class CompanyTelegramBot:
         bot_agent_id: str = None,
         bot_permission_mode: str = "recognized_users",
         bot_owner_id: str = None,
+        bot_allowlist: str = None,
     ):
         """
         Initialize the Telegram bot for a company.
@@ -131,8 +132,9 @@ class CompanyTelegramBot:
             company_name: Human-readable company name
             bot_token: Telegram bot token from BotFather
             bot_agent_id: Specific agent ID to use (None = user's default)
-            bot_permission_mode: Permission mode (owner_only, recognized_users, anyone)
+            bot_permission_mode: Permission mode (owner_only, recognized_users, allowlist, anyone)
             bot_owner_id: User ID of who configured this bot
+            bot_allowlist: Comma-separated Telegram user IDs for allowlist mode
         """
         self.company_id = company_id
         self.company_name = company_name
@@ -143,12 +145,20 @@ class CompanyTelegramBot:
         self.bot_agent_id = bot_agent_id
         self.bot_permission_mode = bot_permission_mode
         self.bot_owner_id = bot_owner_id
+        # Parse allowlist - comma-separated Telegram user IDs
+        self.bot_allowlist = set()
+        if bot_allowlist:
+            for item in bot_allowlist.split(","):
+                item = item.strip()
+                if item:
+                    self.bot_allowlist.add(item)
 
         # Bot state
         self.is_running = False
         self.started_at: Optional[datetime] = None
         self.last_update_id = 0
-        self.messages_processed = 0
+        self.messages_processed = self._load_messages_processed()
+        self._unsaved_message_count = 0  # Track unsaved increments for batching
 
         # Bot info (fetched on start)
         self.bot_id: Optional[int] = None
@@ -166,6 +176,93 @@ class CompanyTelegramBot:
         logger.info(
             f"Initialized Telegram bot for company {company_name} ({company_id})"
         )
+
+    def _load_messages_processed(self) -> int:
+        """Load the messages_processed count from the database."""
+        try:
+            from DB import ServerExtensionSetting
+            
+            with get_session() as db:
+                if self.company_id == "server":
+                    # Server-level bot
+                    setting = (
+                        db.query(ServerExtensionSetting)
+                        .filter(
+                            ServerExtensionSetting.extension_name == "telegram",
+                            ServerExtensionSetting.setting_key == "TELEGRAM_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+                else:
+                    # Company-level bot
+                    setting = (
+                        db.query(CompanyExtensionSetting)
+                        .filter(
+                            CompanyExtensionSetting.company_id == self.company_id,
+                            CompanyExtensionSetting.extension_name == "telegram",
+                            CompanyExtensionSetting.setting_key == "TELEGRAM_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+                
+                if setting and setting.setting_value:
+                    return int(setting.setting_value)
+        except Exception as e:
+            logger.warning(f"Could not load messages_processed for {self.company_id}: {e}")
+        return 0
+
+    def _save_messages_processed(self):
+        """Save the messages_processed count to the database."""
+        try:
+            from DB import ServerExtensionSetting
+            
+            with get_session() as db:
+                if self.company_id == "server":
+                    # Server-level bot
+                    setting = (
+                        db.query(ServerExtensionSetting)
+                        .filter(
+                            ServerExtensionSetting.extension_name == "telegram",
+                            ServerExtensionSetting.setting_key == "TELEGRAM_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+                    if setting:
+                        setting.setting_value = str(self.messages_processed)
+                    else:
+                        setting = ServerExtensionSetting(
+                            extension_name="telegram",
+                            setting_key="TELEGRAM_MESSAGES_PROCESSED",
+                            setting_value=str(self.messages_processed),
+                            is_sensitive=False,
+                        )
+                        db.add(setting)
+                else:
+                    # Company-level bot
+                    setting = (
+                        db.query(CompanyExtensionSetting)
+                        .filter(
+                            CompanyExtensionSetting.company_id == self.company_id,
+                            CompanyExtensionSetting.extension_name == "telegram",
+                            CompanyExtensionSetting.setting_key == "TELEGRAM_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+                    if setting:
+                        setting.setting_value = str(self.messages_processed)
+                    else:
+                        setting = CompanyExtensionSetting(
+                            company_id=self.company_id,
+                            extension_name="telegram",
+                            setting_key="TELEGRAM_MESSAGES_PROCESSED",
+                            setting_value=str(self.messages_processed),
+                            is_sensitive=False,
+                        )
+                        db.add(setting)
+                db.commit()
+                self._unsaved_message_count = 0
+        except Exception as e:
+            logger.warning(f"Could not save messages_processed for {self.company_id}: {e}")
 
     def _make_request(self, method: str, data: dict = None, files: dict = None):
         """Make a request to the Telegram Bot API."""
@@ -445,6 +542,10 @@ class CompanyTelegramBot:
                 f"Processing message from {username or user_id}: {text[:100]}..."
             )
             self.messages_processed += 1
+            self._unsaved_message_count += 1
+            # Save every 5 messages or on first message to batch DB writes
+            if self._unsaved_message_count >= 5 or self.messages_processed == 1:
+                self._save_messages_processed()
 
             # Get AGiXT user ID for permission checks
             agixt_user_id = self._get_agixt_user_id(user_id)
@@ -455,6 +556,14 @@ class CompanyTelegramBot:
                 # Only the owner can interact
                 if not agixt_user_id or agixt_user_id != self.bot_owner_id:
                     return
+            elif self.bot_permission_mode == "allowlist":
+                # Only users in the allowlist can interact
+                if str(user_id) not in self.bot_allowlist:
+                    logger.debug(f"Telegram user {user_id} not in allowlist, ignoring")
+                    return
+                # For allowlist mode, use owner context if no linked account
+                if not agixt_user_id:
+                    use_owner_context = True
             elif self.bot_permission_mode == "recognized_users":
                 # Default behavior - only users with linked accounts
                 if not agixt_user_id:
@@ -664,6 +773,9 @@ class CompanyTelegramBot:
     async def stop(self):
         """Stop the bot."""
         logger.info(f"Stopping Telegram bot for {self.company_name}")
+        # Save any unsaved message count before stopping
+        if self._unsaved_message_count > 0:
+            self._save_messages_processed()
         self.is_running = False
 
     def get_status(self) -> TelegramBotStatus:
@@ -765,6 +877,14 @@ class TelegramBotManager:
                     )
                     .first()
                 )
+                allowlist_setting = (
+                    session.query(CompanyExtensionSetting)
+                    .filter_by(
+                        company_id=setting.company_id,
+                        setting_name="telegram_bot_allowlist",
+                    )
+                    .first()
+                )
 
                 companies.append(
                     {
@@ -781,6 +901,9 @@ class TelegramBotManager:
                         ),
                         "bot_owner_id": (
                             owner_id_setting.setting_value if owner_id_setting else None
+                        ),
+                        "bot_allowlist": (
+                            allowlist_setting.setting_value if allowlist_setting else None
                         ),
                     }
                 )
@@ -829,6 +952,7 @@ class TelegramBotManager:
                     "bot_permission_mode", "recognized_users"
                 ),
                 bot_owner_id=config.get("bot_owner_id"),
+                bot_allowlist=config.get("bot_allowlist"),
             )
 
             self.bots[company_id] = bot

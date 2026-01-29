@@ -134,6 +134,7 @@ class CompanyWhatsAppBot:
         bot_agent_id: str = None,
         bot_permission_mode: str = "recognized_users",
         bot_owner_id: str = None,
+        bot_allowlist: str = None,
     ):
         """
         Initialize the WhatsApp bot for a company.
@@ -145,8 +146,9 @@ class CompanyWhatsAppBot:
             access_token: Graph API access token
             display_phone_number: Human-readable phone number
             bot_agent_id: Specific agent ID to use (None = user's default)
-            bot_permission_mode: Permission mode (owner_only, recognized_users, anyone)
+            bot_permission_mode: Permission mode (owner_only, recognized_users, allowlist, anyone)
             bot_owner_id: User ID of who configured this bot
+            bot_allowlist: Comma-separated phone numbers for allowlist mode
         """
         self.company_id = company_id
         self.company_name = company_name
@@ -160,6 +162,18 @@ class CompanyWhatsAppBot:
         self.bot_agent_id = bot_agent_id
         self.bot_permission_mode = bot_permission_mode
         self.bot_owner_id = bot_owner_id
+        # Parse allowlist - comma-separated phone numbers
+        self.bot_allowlist = set()
+        if bot_allowlist:
+            import re
+            for item in bot_allowlist.split(","):
+                item = item.strip()
+                # Normalize phone number (remove non-digits except +)
+                item = re.sub(r"[^\d+]", "", item)
+                if not item.startswith("+"):
+                    item = "+" + item
+                if item:
+                    self.bot_allowlist.add(item)
 
         # Bot state
         self.is_running = True
@@ -432,6 +446,18 @@ class CompanyWhatsAppBot:
             # Only the owner can interact
             if not agixt_user_id or agixt_user_id != self.bot_owner_id:
                 return
+        elif self.bot_permission_mode == "allowlist":
+            # Only phone numbers in the allowlist can interact
+            import re
+            normalized_phone = re.sub(r"[^\d+]", "", sender_phone)
+            if not normalized_phone.startswith("+"):
+                normalized_phone = "+" + normalized_phone
+            if normalized_phone not in self.bot_allowlist:
+                logger.debug(f"WhatsApp number {sender_phone} not in allowlist, ignoring")
+                return
+            # For allowlist mode, use owner context if no linked account
+            if not agixt_user_id:
+                use_owner_context = True
         elif self.bot_permission_mode == "recognized_users":
             # Default behavior - only users with linked accounts
             if not agixt_user_id:
