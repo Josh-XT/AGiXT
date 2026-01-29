@@ -99,18 +99,49 @@ class BotStatus:
     is_running: bool = False
     error: Optional[str] = None
     guild_count: int = 0
+    messages_processed: int = 0
 
 
 class CompanyDiscordBot:
     """
     A Discord bot instance for a specific company.
     Handles user impersonation based on Discord user ID mapping.
+
+    Permission modes:
+    - owner_only: Only the user who set up the bot can interact
+    - recognized_users: Only users with linked AGiXT accounts can interact (default)
+    - anyone: Anyone can interact with the bot
     """
 
-    def __init__(self, company_id: str, company_name: str, discord_token: str):
+    def __init__(
+        self,
+        company_id: str,
+        company_name: str,
+        discord_token: str,
+        bot_agent_id: str = None,
+        bot_permission_mode: str = "recognized_users",
+        bot_owner_id: str = None,
+        bot_allowlist: str = None,
+    ):
         self.company_id = company_id
         self.company_name = company_name
         self.discord_token = discord_token
+
+        # Bot configuration
+        self.bot_agent_id = (
+            bot_agent_id  # The specific agent to use (None = user's default)
+        )
+        self.bot_permission_mode = (
+            bot_permission_mode  # owner_only, recognized_users, allowlist, anyone
+        )
+        self.bot_owner_id = bot_owner_id  # User ID of who configured this bot
+        # Parse allowlist - comma-separated Discord user IDs
+        self.bot_allowlist = set()
+        if bot_allowlist:
+            for item in bot_allowlist.split(","):
+                item = item.strip()
+                if item:
+                    self.bot_allowlist.add(item)
 
         # Set up Discord bot using imported modules
         intents = discord_module.Intents.default()
@@ -125,9 +156,106 @@ class CompanyDiscordBot:
         self.team_channel_config: Dict[str, Dict[str, str]] = {}
         self._is_ready = False
         self._started_at: Optional[datetime] = None
+        self._messages_processed: int = self._load_messages_processed()
+        self._unsaved_message_count: int = 0  # Track unsaved increments for batching
 
         # Register event handlers
         self._setup_events()
+
+    def _load_messages_processed(self) -> int:
+        """Load the messages_processed count from the database."""
+        try:
+            from DB import ServerExtensionSetting
+
+            with get_session() as db:
+                if self.company_id == "server":
+                    # Server-level bot
+                    setting = (
+                        db.query(ServerExtensionSetting)
+                        .filter(
+                            ServerExtensionSetting.extension_name == "discord",
+                            ServerExtensionSetting.setting_key
+                            == "DISCORD_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+                else:
+                    # Company-level bot
+                    setting = (
+                        db.query(CompanyExtensionSetting)
+                        .filter(
+                            CompanyExtensionSetting.company_id == self.company_id,
+                            CompanyExtensionSetting.extension_name == "discord",
+                            CompanyExtensionSetting.setting_key
+                            == "DISCORD_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+
+                if setting and setting.setting_value:
+                    return int(setting.setting_value)
+        except Exception as e:
+            logger.warning(
+                f"Could not load messages_processed for {self.company_id}: {e}"
+            )
+        return 0
+
+    def _save_messages_processed(self):
+        """Save the messages_processed count to the database."""
+        try:
+            from DB import ServerExtensionSetting
+
+            with get_session() as db:
+                if self.company_id == "server":
+                    # Server-level bot
+                    setting = (
+                        db.query(ServerExtensionSetting)
+                        .filter(
+                            ServerExtensionSetting.extension_name == "discord",
+                            ServerExtensionSetting.setting_key
+                            == "DISCORD_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+                    if setting:
+                        setting.setting_value = str(self._messages_processed)
+                    else:
+                        setting = ServerExtensionSetting(
+                            extension_name="discord",
+                            setting_key="DISCORD_MESSAGES_PROCESSED",
+                            setting_value=str(self._messages_processed),
+                            is_sensitive=False,
+                        )
+                        db.add(setting)
+                else:
+                    # Company-level bot
+                    setting = (
+                        db.query(CompanyExtensionSetting)
+                        .filter(
+                            CompanyExtensionSetting.company_id == self.company_id,
+                            CompanyExtensionSetting.extension_name == "discord",
+                            CompanyExtensionSetting.setting_key
+                            == "DISCORD_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+                    if setting:
+                        setting.setting_value = str(self._messages_processed)
+                    else:
+                        setting = CompanyExtensionSetting(
+                            company_id=self.company_id,
+                            extension_name="discord",
+                            setting_key="DISCORD_MESSAGES_PROCESSED",
+                            setting_value=str(self._messages_processed),
+                            is_sensitive=False,
+                        )
+                        db.add(setting)
+                db.commit()
+                self._unsaved_message_count = 0
+        except Exception as e:
+            logger.warning(
+                f"Could not save messages_processed for {self.company_id}: {e}"
+            )
 
     def _setup_events(self):
         """Set up Discord event handlers."""
@@ -218,13 +346,92 @@ class CompanyDiscordBot:
         import base64
         import aiohttp
 
-        # Get user email from Discord ID mapping
+        # Check permission mode first
         user_email = self._get_user_email_from_discord_id(message.author.id)
 
-        if not user_email:
-            # User hasn't connected their Discord account via OAuth
-            # Optionally send a message telling them to connect their account
-            return
+        # Apply permission mode checks
+        if self.bot_permission_mode == "owner_only":
+            # Only the owner can interact
+            if not user_email or not self.bot_owner_id:
+                return
+            # Check if this user is the owner
+            try:
+                from MagicalAuth import get_user_id
+
+                interacting_user_id = str(get_user_id(user_email))
+                if interacting_user_id != self.bot_owner_id:
+                    # Not the owner - silently ignore
+                    return
+            except Exception as e:
+                logger.warning(f"Error checking owner permission: {e}")
+                return
+        elif self.bot_permission_mode == "allowlist":
+            # Only users in the allowlist can interact
+            discord_user_id = str(message.author.id)
+            if discord_user_id not in self.bot_allowlist:
+                # User not in allowlist - silently ignore
+                logger.debug(
+                    f"Discord user {discord_user_id} not in allowlist, ignoring"
+                )
+                return
+            # For allowlist mode, we can proceed even without a linked account
+            # Use owner context if no user_email
+            if not user_email and self.bot_owner_id:
+                try:
+                    from DB import User
+
+                    with get_session() as db:
+                        owner = (
+                            db.query(User).filter(User.id == self.bot_owner_id).first()
+                        )
+                        if owner:
+                            user_email = owner.email
+                except Exception as e:
+                    logger.error(f"Error getting owner email for allowlist user: {e}")
+                    return
+                if not user_email:
+                    logger.warning(
+                        "Cannot handle allowlist interaction: no owner configured"
+                    )
+                    return
+        elif self.bot_permission_mode == "recognized_users":
+            # Default behavior - only users with linked accounts
+            if not user_email:
+                # User hasn't connected their Discord account via OAuth
+                # Optionally send a message telling them to connect their account
+                return
+        elif self.bot_permission_mode == "anyone":
+            # Anyone can interact - we'll create anonymous/guest interactions
+            pass  # Continue even if user_email is None
+        else:
+            # Unknown permission mode, default to recognized_users behavior
+            if not user_email:
+                return
+
+        # For "anyone" mode without a linked account, use the bot owner's context
+        use_owner_context = False
+        if not user_email and self.bot_permission_mode == "anyone":
+            use_owner_context = True
+            if self.bot_owner_id:
+                try:
+                    from DB import User
+
+                    with get_session() as db:
+                        owner = (
+                            db.query(User).filter(User.id == self.bot_owner_id).first()
+                        )
+                        if owner:
+                            user_email = owner.email
+                except Exception as e:
+                    logger.error(
+                        f"Error getting owner email for anonymous interaction: {e}"
+                    )
+                    return
+            if not user_email:
+                logger.warning(
+                    "Cannot handle anonymous interaction: no owner configured"
+                )
+                return
 
         # Get JWT for impersonation
         user_jwt = impersonate_user(user_email)
@@ -232,62 +439,91 @@ class CompanyDiscordBot:
         # Create internal client for this user
         agixt = InternalClient(api_key=user_jwt, user=user_email)
 
-        # Get the user's primary agent
-        try:
-            agents = agixt.get_agents()
-            if agents and len(agents) > 0:
-                # Use the first agent (primary) for this user
-                agent_name = (
-                    agents[0].get("name", "XT")
-                    if isinstance(agents[0], dict)
-                    else agents[0]
-                )
-            else:
-                agent_name = "XT"  # Fallback to default
-        except Exception as e:
-            logger.warning(f"Could not get user's agents, using default: {e}")
-            agent_name = "XT"
+        # Determine which agent to use
+        # Priority: 1. Bot's configured agent, 2. User's selected agent, 3. User's primary agent
+        agent_name = None
+        agent_id = None
+
+        # If bot has a configured agent, use it
+        if self.bot_agent_id:
+            agent_id = self.bot_agent_id
+            # Get the agent name from the ID
+            try:
+                agents = agixt.get_agents()
+                for agent in agents:
+                    if isinstance(agent, dict) and str(agent.get("id")) == str(
+                        self.bot_agent_id
+                    ):
+                        agent_name = agent.get("name", "XT")
+                        break
+                if not agent_name:
+                    logger.warning(
+                        f"Configured bot agent ID {self.bot_agent_id} not found, using default"
+                    )
+            except Exception as e:
+                logger.warning(f"Could not lookup configured agent: {e}")
+
+        # If no configured agent, use user's primary agent
+        if not agent_name:
+            try:
+                agents = agixt.get_agents()
+                if agents and len(agents) > 0:
+                    # Use the first agent (primary) for this user
+                    agent_name = (
+                        agents[0].get("name", "XT")
+                        if isinstance(agents[0], dict)
+                        else agents[0]
+                    )
+                else:
+                    agent_name = "XT"  # Fallback to default
+            except Exception as e:
+                logger.warning(f"Could not get user's agents, using default: {e}")
+                agent_name = "XT"
 
         # Handle silent admin commands (!list, !select, !clear, !team, !personal)
+        # Only allow commands if not using owner context (i.e., user has their own account)
         content_lower = message.content.strip().lower()
-        if content_lower.startswith("!list"):
-            await self._handle_list_command(
-                message, agixt, agents if "agents" in dir() else None
-            )
-            return
-        elif content_lower.startswith("!select "):
-            await self._handle_select_command(message, agixt)
-            return
-        elif content_lower.startswith("!clear"):
-            await self._handle_clear_command(message, agixt, agent_name)
-            return
-        elif content_lower.startswith("!team "):
-            await self._handle_team_command(message, agixt, user_email)
-            return
-        elif content_lower.startswith("!personal"):
-            await self._handle_personal_command(message, user_email)
-            return
+        if not use_owner_context:
+            if content_lower.startswith("!list"):
+                await self._handle_list_command(
+                    message, agixt, agents if "agents" in dir() else None
+                )
+                return
+            elif content_lower.startswith("!select "):
+                await self._handle_select_command(message, agixt)
+                return
+            elif content_lower.startswith("!clear"):
+                await self._handle_clear_command(message, agixt, agent_name)
+                return
+            elif content_lower.startswith("!team "):
+                await self._handle_team_command(message, agixt, user_email)
+                return
+            elif content_lower.startswith("!personal"):
+                await self._handle_personal_command(message, user_email)
+                return
 
-        # Check if channel is in team mode
+        # Check if channel is in team mode (only for recognized users without configured agent)
         channel_id = str(message.channel.id)
-        is_team_mode = channel_id in self.team_channel_config
+        is_team_mode = channel_id in self.team_channel_config and not use_owner_context
 
-        if is_team_mode:
-            # Team mode: use the channel's assigned agent
-            team_config = self.team_channel_config[channel_id]
-            agent_name = team_config["agent_name"]
-            # Get the admin's JWT to run as the agent owner
-            admin_email = self._get_user_email_from_discord_id(
-                int(team_config["admin_user_id"])
-            )
-            if admin_email:
-                admin_jwt = impersonate_user(admin_email)
-                agixt = InternalClient(api_key=admin_jwt, user=admin_email)
-        else:
-            # Personal mode: check if user has a selected agent for this channel
-            selection_key = (str(message.author.id), str(message.channel.id))
-            if selection_key in self.user_agent_selection:
-                agent_name = self.user_agent_selection[selection_key]
+        # Only apply team mode / personal selection if no bot-level agent is configured
+        if not self.bot_agent_id:
+            if is_team_mode:
+                # Team mode: use the channel's assigned agent
+                team_config = self.team_channel_config[channel_id]
+                agent_name = team_config["agent_name"]
+                # Get the admin's JWT to run as the agent owner
+                admin_email = self._get_user_email_from_discord_id(
+                    int(team_config["admin_user_id"])
+                )
+                if admin_email:
+                    admin_jwt = impersonate_user(admin_email)
+                    agixt = InternalClient(api_key=admin_jwt, user=admin_email)
+            elif not use_owner_context:
+                # Personal mode: check if user has a selected agent for this channel
+                selection_key = (str(message.author.id), str(message.channel.id))
+                if selection_key in self.user_agent_selection:
+                    agent_name = self.user_agent_selection[selection_key]
 
         # Check if the message is a direct message or mentions the bot
         is_dm = isinstance(message.channel, discord_module.DMChannel)
@@ -661,6 +897,13 @@ class CompanyDiscordBot:
                         await message.reply(reply, files=discord_files)
                     else:
                         await message.reply(reply)
+
+                # Increment message counter after successful response and persist to DB
+                self._messages_processed += 1
+                self._unsaved_message_count += 1
+                # Save every 5 messages or on first message to batch DB writes
+                if self._unsaved_message_count >= 5 or self._messages_processed == 1:
+                    self._save_messages_processed()
 
             except Exception as e:
                 logger.error(
@@ -1636,6 +1879,9 @@ HOW TO READ:
 
     async def stop(self):
         """Stop the Discord bot gracefully."""
+        # Save any unsaved message count before stopping
+        if self._unsaved_message_count > 0:
+            self._save_messages_processed()
         if not self.bot.is_closed():
             await self.bot.close()
         self._is_ready = False
@@ -1710,7 +1956,8 @@ class DiscordBotManager:
     def get_company_bot_config(self) -> Dict[str, Dict[str, str]]:
         """
         Get Discord bot configuration for all companies from the database.
-        Returns: {company_id: {"token": "...", "enabled": "true/false", "name": "..."}}
+        Returns: {company_id: {"token": "...", "enabled": "true/false", "name": "...",
+                               "agent_id": "...", "permission_mode": "...", "owner_id": "...", "allowlist": "..."}}
         """
         configs = {}
 
@@ -1721,7 +1968,14 @@ class DiscordBotManager:
                 .filter(CompanyExtensionSetting.extension_name == "discord")
                 .filter(
                     CompanyExtensionSetting.setting_key.in_(
-                        ["DISCORD_BOT_TOKEN", "DISCORD_BOT_ENABLED"]
+                        [
+                            "DISCORD_BOT_TOKEN",
+                            "DISCORD_BOT_ENABLED",
+                            "discord_bot_agent_id",
+                            "discord_bot_permission_mode",
+                            "discord_bot_owner_id",
+                            "discord_bot_allowlist",
+                        ]
                     )
                 )
                 .all()
@@ -1741,6 +1995,10 @@ class DiscordBotManager:
                         "name": company.name if company else "Unknown",
                         "token": None,
                         "enabled": "false",
+                        "agent_id": None,
+                        "permission_mode": "recognized_users",
+                        "owner_id": None,
+                        "allowlist": None,
                     }
 
                 # Decrypt if needed
@@ -1754,11 +2012,26 @@ class DiscordBotManager:
                     configs[company_id]["token"] = value
                 elif setting.setting_key == "DISCORD_BOT_ENABLED":
                     configs[company_id]["enabled"] = value
+                elif setting.setting_key == "discord_bot_agent_id":
+                    configs[company_id]["agent_id"] = value
+                elif setting.setting_key == "discord_bot_permission_mode":
+                    configs[company_id]["permission_mode"] = value or "recognized_users"
+                elif setting.setting_key == "discord_bot_owner_id":
+                    configs[company_id]["owner_id"] = value
+                elif setting.setting_key == "discord_bot_allowlist":
+                    configs[company_id]["allowlist"] = value
 
         return configs
 
     async def start_bot_for_company(
-        self, company_id: str, company_name: str, token: str
+        self,
+        company_id: str,
+        company_name: str,
+        token: str,
+        agent_id: str = None,
+        permission_mode: str = "recognized_users",
+        owner_id: str = None,
+        allowlist: str = None,
     ) -> bool:
         """Start a Discord bot for a specific company."""
         if company_id in self.bots and company_id in self._tasks:
@@ -1766,7 +2039,15 @@ class DiscordBotManager:
             return False
 
         try:
-            bot = CompanyDiscordBot(company_id, company_name, token)
+            bot = CompanyDiscordBot(
+                company_id=company_id,
+                company_name=company_name,
+                discord_token=token,
+                bot_agent_id=agent_id,
+                bot_permission_mode=permission_mode,
+                bot_owner_id=owner_id,
+                bot_allowlist=allowlist,
+            )
             self.bots[company_id] = bot
 
             # Create and store the task
@@ -1779,7 +2060,8 @@ class DiscordBotManager:
             )
 
             logger.info(
-                f"Started Discord bot for company {company_name} ({company_id})"
+                f"Started Discord bot for company {company_name} ({company_id}) "
+                f"[agent_id={agent_id}, permission_mode={permission_mode}]"
             )
             return True
 
@@ -1879,7 +2161,15 @@ class DiscordBotManager:
                     and company_id not in self.bots
                 ):
                     await self.start_bot_for_company(
-                        company_id, config["name"], config["token"]
+                        company_id=company_id,
+                        company_name=config["name"],
+                        token=config["token"],
+                        agent_id=config.get("agent_id"),
+                        permission_mode=config.get(
+                            "permission_mode", "recognized_users"
+                        ),
+                        owner_id=config.get("owner_id"),
+                        allowlist=config.get("allowlist"),
                     )
 
         elif server_token:
@@ -1954,35 +2244,157 @@ class DiscordBotManager:
                 started_at=bot.started_at,
                 is_running=bot.is_ready,
                 guild_count=bot.guild_count,
+                messages_processed=bot._messages_processed,
             )
         return statuses
 
     def get_bot_status(self, company_id: str) -> Optional[BotStatus]:
-        """Get status of a specific company's bot."""
+        """Get status of a specific company's bot.
+
+        If a company doesn't have their own bot but the server-level bot is running,
+        returns the server bot status (since it handles messages for all companies).
+        """
+        # First check for company-specific bot
         bot = self.bots.get(company_id)
-        if not bot:
+        if bot:
+            return BotStatus(
+                company_id=company_id,
+                company_name=bot.company_name,
+                started_at=bot.started_at,
+                is_running=bot.is_ready,
+                guild_count=bot.guild_count,
+                messages_processed=bot._messages_processed,
+            )
+
+        # If no company-specific bot, check if server-level bot is running
+        # The server-level bot handles all companies, so report its status
+        server_bot = self.bots.get(self.SERVER_BOT_ID)
+        if server_bot:
+            return BotStatus(
+                company_id=company_id,  # Return the requested company_id
+                company_name=f"{server_bot.company_name} (shared)",
+                started_at=server_bot.started_at,
+                is_running=server_bot.is_ready,
+                guild_count=server_bot.guild_count,
+                messages_processed=server_bot._messages_processed,
+            )
+
+        return None
+
+    def _publish_status_to_redis(self):
+        """Publish bot status to Redis for cross-process access."""
+        try:
+            import redis
+            import json
+            from Globals import getenv
+
+            redis_host = getenv("REDIS_HOST")
+            if not redis_host:
+                return
+
+            redis_uri = getenv("REDIS_URI")
+            if redis_uri:
+                r = redis.from_url(redis_uri)
+            else:
+                r = redis.Redis(host=redis_host, port=6379, db=0)
+
+            # Build status for all bots
+            statuses = {}
+            for company_id, bot in self.bots.items():
+                statuses[company_id] = {
+                    "company_id": company_id,
+                    "company_name": bot.company_name,
+                    "started_at": (
+                        bot.started_at.isoformat() if bot.started_at else None
+                    ),
+                    "is_running": bot.is_ready,
+                    "guild_count": bot.guild_count,
+                }
+
+            r.set(
+                "agixt:discord_bot_status", json.dumps(statuses), ex=30
+            )  # 30 second TTL
+            r.set("agixt:discord_bot_manager_running", "1", ex=30)
+
+        except Exception as e:
+            logger.warning(f"Failed to publish Discord bot status to Redis: {e}")
+
+    async def _status_publisher_loop(self):
+        """Background task to periodically publish status to Redis."""
+        while self._running:
+            self._publish_status_to_redis()
+            await asyncio.sleep(5)  # Update every 5 seconds
+
+
+# Redis-based status retrieval for cross-process access
+def get_discord_bot_status_from_redis(company_id: str) -> Optional[BotStatus]:
+    """Get Discord bot status from Redis (for uvicorn worker processes)."""
+    try:
+        import redis
+        import json
+        from Globals import getenv
+
+        redis_host = getenv("REDIS_HOST")
+        if not redis_host:
             return None
-        return BotStatus(
-            company_id=company_id,
-            company_name=bot.company_name,
-            started_at=bot.started_at,
-            is_running=bot.is_ready,
-            guild_count=bot.guild_count,
-        )
+
+        redis_uri = getenv("REDIS_URI")
+        if redis_uri:
+            r = redis.from_url(redis_uri)
+        else:
+            r = redis.Redis(host=redis_host, port=6379, db=0)
+
+        # Check if manager is running
+        if not r.get("agixt:discord_bot_manager_running"):
+            return None
+
+        status_data = r.get("agixt:discord_bot_status")
+        if not status_data:
+            return None
+
+        statuses = json.loads(status_data)
+
+        # Check for company-specific bot
+        if company_id in statuses:
+            s = statuses[company_id]
+            return BotStatus(
+                company_id=s["company_id"],
+                company_name=s["company_name"],
+                started_at=(
+                    datetime.fromisoformat(s["started_at"]) if s["started_at"] else None
+                ),
+                is_running=s["is_running"],
+                guild_count=s.get("guild_count", 0),
+            )
+
+        # Check for server-level bot
+        if "server" in statuses:
+            s = statuses["server"]
+            return BotStatus(
+                company_id=company_id,
+                company_name=f"{s['company_name']} (shared)",
+                started_at=(
+                    datetime.fromisoformat(s["started_at"]) if s["started_at"] else None
+                ),
+                is_running=s["is_running"],
+                guild_count=s.get("guild_count", 0),
+            )
+
+        return None
+
+    except Exception as e:
+        logger.warning(f"Failed to get Discord bot status from Redis: {e}")
+        return None
 
 
-# Global instance for use in endpoints
-_manager: Optional[DiscordBotManager] = None
-
-
-def get_discord_bot_manager() -> Optional[DiscordBotManager]:
-    """Get the global Discord bot manager instance."""
-    return _manager
+# Use the registry for global manager storage - it's a simple module that doesn't
+# have complex import logic, so builtins access is consistent
+from BotManagerRegistry import set_discord_bot_manager as _registry_set
+from BotManagerRegistry import get_discord_bot_manager
 
 
 async def start_discord_bot_manager():
     """Start the global Discord bot manager."""
-    global _manager
 
     if not DISCORD_AVAILABLE:
         logger.warning(
@@ -1990,15 +2402,38 @@ async def start_discord_bot_manager():
         )
         return None
 
-    if _manager is None:
-        _manager = DiscordBotManager()
-    await _manager.start()
-    return _manager
+    manager = get_discord_bot_manager()
+    if manager is None:
+        manager = DiscordBotManager()
+        _registry_set(manager)
+    await manager.start()
+
+    # Start the status publisher background task
+    asyncio.create_task(manager._status_publisher_loop())
+
+    return manager
 
 
 async def stop_discord_bot_manager():
     """Stop the global Discord bot manager."""
-    global _manager
-    if _manager:
-        await _manager.stop()
-        _manager = None
+    manager = get_discord_bot_manager()
+    if manager:
+        await manager.stop()
+        _registry_set(None)
+
+        # Clear Redis status
+        try:
+            import redis
+            from Globals import getenv
+
+            redis_host = getenv("REDIS_HOST")
+            if redis_host:
+                redis_uri = getenv("REDIS_URI")
+                if redis_uri:
+                    r = redis.from_url(redis_uri)
+                else:
+                    r = redis.Redis(host=redis_host, port=6379, db=0)
+                r.delete("agixt:discord_bot_status")
+                r.delete("agixt:discord_bot_manager_running")
+        except Exception as e:
+            logger.warning(f"Failed to clear Discord bot status from Redis: {e}")

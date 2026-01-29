@@ -1022,6 +1022,19 @@ def import_all_data():
 
             invalidate_extension_cache()
 
+            # Re-initialize extension tables after hub cloning
+            # This ensures GitHub-cloned extension models get their tables created
+            # (the initial initialize_extension_tables runs before hubs are cloned)
+            try:
+                from DB import initialize_extension_tables
+
+                initialize_extension_tables()
+                logging.info("Re-initialized extension tables after hub cloning")
+            except Exception as table_err:
+                logging.warning(
+                    f"Failed to re-initialize extension tables: {table_err}"
+                )
+
         # Initialize global cache for extension paths and pricing config
         # This runs BEFORE workers spawn, so workers can load from cache
         initialize_global_cache()

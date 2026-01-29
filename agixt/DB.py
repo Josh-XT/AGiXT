@@ -594,6 +594,12 @@ class UserOAuth(Base):
         ForeignKey("oauth_provider.id"),
     )
     provider = relationship("OAuthProvider")
+    agent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("agent.id"),
+        nullable=True,
+    )  # When set, these credentials belong to a specific agent for bot use
+    agent = relationship("Agent", foreign_keys=[agent_id])
     account_name = Column(String, nullable=False)
     access_token = Column(String, default="", nullable=False)
     refresh_token = Column(String, default="", nullable=False)
@@ -3779,7 +3785,8 @@ def migrate_webhook_outgoing_table():
 
 def discover_extension_models():
     """
-    Discover and register all extension models
+    Discover and register all extension models from all extension directories
+    (including GitHub-cloned hubs in extensions/ subdirectories)
     """
     import importlib
     import glob
@@ -3787,39 +3794,50 @@ def discover_extension_models():
 
     extension_models = []
 
-    # Collect all extension directories to search
-    extensions_dirs = []
+    # Get all extension search paths from ExtensionsHub (includes GitHub-cloned hubs)
+    try:
+        from ExtensionsHub import ExtensionsHub
 
-    # Default extensions directory
+        hub = ExtensionsHub()
+        extensions_dirs = hub.get_extension_search_paths()
+    except Exception as e:
+        logging.debug(f"Could not load ExtensionsHub for model discovery: {e}")
+        # Fall back to default extensions directory
+        default_ext_dir = os.path.join(os.path.dirname(__file__), "extensions")
+        extensions_dirs = [default_ext_dir] if os.path.exists(default_ext_dir) else []
+
+    # Also ensure default extensions directory is included
     default_ext_dir = os.path.join(os.path.dirname(__file__), "extensions")
-    if os.path.exists(default_ext_dir):
-        extensions_dirs.append(default_ext_dir)
-
-    # Also check EXTENSIONS_HUB for local paths
-    hub_urls = os.environ.get("EXTENSIONS_HUB", "")
-    if hub_urls:
-        for source in hub_urls.split(","):
-            source = source.strip()
-            if source and not source.startswith("http"):
-                # It's a local path
-                abs_path = os.path.abspath(os.path.expanduser(source))
-                if os.path.exists(abs_path) and os.path.isdir(abs_path):
-                    extensions_dirs.append(abs_path)
-                    # Make sure it's in sys.path
-                    if abs_path not in sys.path:
-                        sys.path.insert(0, abs_path)
+    if os.path.exists(default_ext_dir) and default_ext_dir not in extensions_dirs:
+        extensions_dirs.insert(0, default_ext_dir)
 
     for extensions_dir in extensions_dirs:
+        if not os.path.exists(extensions_dir) or not os.path.isdir(extensions_dir):
+            continue
+
+        # Ensure the directory is in sys.path for imports
+        if extensions_dir not in sys.path:
+            sys.path.insert(0, extensions_dir)
+
         command_files = glob.glob(os.path.join(extensions_dir, "*.py"))
 
         for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
+            # Skip __init__.py and private modules
+            if module_name.startswith("_"):
+                continue
             try:
                 # Try to import from the directory
                 if extensions_dir == default_ext_dir:
                     module = importlib.import_module(f"extensions.{module_name}")
                 else:
-                    module = importlib.import_module(module_name)
+                    # For hub extensions, import directly since dir is in sys.path
+                    # First check if module is already imported to avoid reimporting
+                    if module_name in sys.modules:
+                        # Reload to pick up any changes
+                        module = importlib.reload(sys.modules[module_name])
+                    else:
+                        module = importlib.import_module(module_name)
 
                 # Check if the module has any classes that inherit from ExtensionDatabaseMixin
                 for attr_name in dir(module):
@@ -3831,9 +3849,12 @@ def discover_extension_models():
                             attr, "extension_models"
                         ):
                             extension_models.extend(attr.extension_models)
+                            logging.debug(
+                                f"Discovered {len(attr.extension_models)} models from {module_name}"
+                            )
             except Exception as e:
                 logging.debug(
-                    f"Could not import extension {module_name} for model discovery: {e}"
+                    f"Could not import extension {module_name} from {extensions_dir} for model discovery: {e}"
                 )
 
     return extension_models
@@ -5094,8 +5115,9 @@ def migrate_task_item_table():
 
 def migrate_user_oauth_table():
     """
-    Migration function to add provider_user_id column to user_oauth table.
-    This stores the provider's user ID (e.g., Discord numeric user ID).
+    Migration function to add provider_user_id and agent_id columns to user_oauth table.
+    - provider_user_id: stores the provider's user ID (e.g., Discord numeric user ID)
+    - agent_id: when set, these OAuth credentials belong to a specific agent for bot use
     """
     if engine is None:
         return
@@ -5104,6 +5126,7 @@ def migrate_user_oauth_table():
         with get_db_session() as session:
             columns_to_add = [
                 ("provider_user_id", "TEXT"),
+                ("agent_id", "TEXT"),  # FK to agent.id - for agent-specific OAuth creds
             ]
 
             if DATABASE_TYPE == "sqlite":
