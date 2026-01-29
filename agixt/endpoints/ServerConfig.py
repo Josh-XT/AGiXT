@@ -1670,7 +1670,7 @@ BOT_PLATFORM_SETTINGS = {
         ],
         "extension_name": "discord",
         "oauth_provider": None,  # Discord bot tokens are different from user OAuth
-        "description": "Discord bots require a Bot Token from the Discord Developer Portal. User authentication uses OAuth.",
+        "description": "Engage gaming communities and online groups with 24/7 AI-powered chat support in Discord servers and DMs.",
         "allowlist_type": "discord_user_ids",
         "allowlist_placeholder": "123456789012345678, 234567890123456789",
         "allowlist_help": "Enter Discord user IDs separated by commas. Right-click a user in Discord and select 'Copy User ID'.",
@@ -1687,7 +1687,7 @@ BOT_PLATFORM_SETTINGS = {
         ],
         "extension_name": "slack",
         "oauth_provider": None,  # Slack bots need app tokens, not user OAuth
-        "description": "Slack bots require App-level tokens from the Slack API dashboard.",
+        "description": "Supercharge your team's productivity with an AI assistant that answers questions and automates tasks in Slack.",
         "allowlist_type": "slack_user_ids",
         "allowlist_placeholder": "U01234ABCDE, U05678FGHIJ",
         "allowlist_help": "Enter Slack user IDs (starting with 'U') separated by commas. Find user IDs in Slack user profiles.",
@@ -1704,7 +1704,7 @@ BOT_PLATFORM_SETTINGS = {
         "extension_name": "teams",
         "oauth_provider": "microsoft",  # Uses Microsoft OAuth
         "oauth_provider_display": "Microsoft",
-        "description": "Connect your Microsoft account to enable Teams messaging.",
+        "description": "Bring intelligent automation to your workplace with AI chat support directly in Microsoft Teams.",
         "allowlist_type": "teams_user_ids",
         "allowlist_placeholder": "user@company.com, another@company.com",
         "allowlist_help": "Enter Microsoft/Teams email addresses separated by commas.",
@@ -1721,7 +1721,7 @@ BOT_PLATFORM_SETTINGS = {
         "extension_name": "x",
         "oauth_provider": "x",  # Uses X/Twitter OAuth
         "oauth_provider_display": "X (Twitter)",
-        "description": "Connect your X account to enable posting and messaging.",
+        "description": "Automatically engage with followers, respond to DMs, and handle mentions on X (Twitter) around the clock.",
         "allowlist_type": "x_user_ids",
         "allowlist_placeholder": "elonmusk, jack, 12345678",
         "allowlist_help": "Enter X usernames (without @) or user IDs separated by commas.",
@@ -1738,7 +1738,7 @@ BOT_PLATFORM_SETTINGS = {
         "extension_name": "facebook",
         "oauth_provider": "facebook",  # Uses Facebook OAuth
         "oauth_provider_display": "Facebook",
-        "description": "Connect your Facebook account and select a Page to enable messaging.",
+        "description": "Provide instant customer support on your Facebook page with AI-powered Messenger responses.",
         "allowlist_type": "facebook_user_ids",
         "allowlist_placeholder": "123456789012345, 234567890123456",
         "allowlist_help": "Enter Facebook user IDs (PSIDs from Messenger) separated by commas.",
@@ -1754,7 +1754,7 @@ BOT_PLATFORM_SETTINGS = {
         ],
         "extension_name": "telegram",
         "oauth_provider": None,  # Telegram bots use BotFather tokens, not OAuth
-        "description": "Telegram bots require a token from @BotFather.",
+        "description": "Reach users globally with an AI bot that handles conversations in Telegram groups and private chats.",
         "allowlist_type": "telegram_user_ids",
         "allowlist_placeholder": "123456789, 987654321",
         "allowlist_help": "Enter Telegram user IDs (numbers) separated by commas. Users can get their ID from @userinfobot.",
@@ -1770,7 +1770,7 @@ BOT_PLATFORM_SETTINGS = {
         ],
         "extension_name": "whatsapp",
         "oauth_provider": None,  # WhatsApp Business API requires manual setup
-        "description": "WhatsApp Business requires credentials from Meta Business Suite.",
+        "description": "Deliver personalized customer service at scale through WhatsApp Business conversations.",
         "allowlist_type": "phone_numbers",
         "allowlist_placeholder": "+1234567890, +0987654321",
         "allowlist_help": "Enter phone numbers with country code separated by commas (e.g., +1234567890).",
@@ -1787,7 +1787,7 @@ BOT_PLATFORM_SETTINGS = {
         "extension_name": "microsoft_email",
         "oauth_provider": "microsoft",  # Uses Microsoft OAuth
         "oauth_provider_display": "Microsoft (Outlook/365)",
-        "description": "Connect your Microsoft account to enable email integration.",
+        "description": "Automatically triage and respond to Outlook/365 emails, reducing response times and workload.",
         "allowlist_type": "email_addresses",
         "allowlist_placeholder": "user@example.com, client@company.com",
         "allowlist_help": "Enter email addresses separated by commas. Only emails from these senders will be processed.",
@@ -1804,7 +1804,7 @@ BOT_PLATFORM_SETTINGS = {
         "extension_name": "google_email",
         "oauth_provider": "google",  # Uses Google OAuth
         "oauth_provider_display": "Google (Gmail)",
-        "description": "Connect your Google account to enable Gmail integration.",
+        "description": "Let AI handle routine Gmail inquiries so you can focus on what matters most.",
         "allowlist_type": "email_addresses",
         "allowlist_placeholder": "user@example.com, client@company.com",
         "allowlist_help": "Enter email addresses separated by commas. Only emails from these senders will be processed.",
@@ -1820,7 +1820,7 @@ BOT_PLATFORM_SETTINGS = {
         ],
         "extension_name": "sendgrid_email",
         "oauth_provider": None,  # SendGrid uses API keys
-        "description": "SendGrid requires an API key from the SendGrid dashboard.",
+        "description": "Process high volumes of inbound emails automatically with intelligent AI responses via SendGrid.",
         "allowlist_type": "email_addresses",
         "allowlist_placeholder": "user@example.com, client@company.com",
         "allowlist_help": "Enter email addresses separated by commas. Only emails from these senders will be processed.",
@@ -1836,7 +1836,7 @@ BOT_PLATFORM_SETTINGS = {
         ],
         "extension_name": "twilio_sms",
         "oauth_provider": None,  # Twilio uses API credentials
-        "description": "Twilio SMS requires credentials from the Twilio Console.",
+        "description": "Enable conversational SMS support that feels personal while scaling to thousands of customers.",
         "allowlist_type": "phone_numbers",
         "allowlist_placeholder": "+1234567890, +0987654321",
         "allowlist_help": "Enter phone numbers with country code separated by commas (e.g., +1234567890).",
@@ -1863,7 +1863,7 @@ BOT_PLATFORM_SETTINGS = {
         ],
         "extension_name": "github",
         "oauth_provider": None,  # Uses GitHub token or App credentials
-        "description": "GitHub bot handles issues, PRs, and code reviews with AI assistance.",
+        "description": "Automate code reviews, fix issues, and manage PRs with AI-powered GitHub integration.",
         "allowlist_type": "github_identifiers",
         "allowlist_placeholder": "octocat, my-org, owner/repo",
         "allowlist_help": "Enter GitHub usernames, organization names, or repository names (owner/repo) separated by commas.",
@@ -3633,17 +3633,18 @@ async def get_bot_platforms(
 def _get_platform_description(platform: str) -> str:
     """Get description for a bot platform."""
     descriptions = {
-        "discord": "Connect your AI agent to Discord servers for chat interactions.",
-        "slack": "Integrate your AI agent with Slack workspaces.",
-        "teams": "Deploy your AI agent to Microsoft Teams channels.",
-        "x": "Connect your AI agent to X (Twitter) for DM and mention-based interactions.",
-        "facebook": "Integrate your AI agent with Facebook Messenger for page conversations.",
-        "telegram": "Deploy your AI agent as a Telegram bot.",
-        "whatsapp": "Connect your AI agent to WhatsApp Business for messaging.",
-        "microsoft_email": "Connect your AI agent to Microsoft Outlook/365 email for automated email responses.",
-        "google_email": "Connect your AI agent to Gmail for automated email responses.",
-        "sendgrid_email": "Connect your AI agent to SendGrid for inbound email processing and responses.",
-        "twilio_sms": "Connect your AI agent to Twilio for SMS text message conversations.",
+        "discord": "Engage gaming communities and online groups with 24/7 AI-powered chat support in Discord servers and DMs.",
+        "slack": "Supercharge your team's productivity with an AI assistant that answers questions and automates tasks in Slack.",
+        "teams": "Bring intelligent automation to your workplace with AI chat support directly in Microsoft Teams.",
+        "x": "Automatically engage with followers, respond to DMs, and handle mentions on X (Twitter) around the clock.",
+        "facebook": "Provide instant customer support on your Facebook page with AI-powered Messenger responses.",
+        "telegram": "Reach users globally with an AI bot that handles conversations in Telegram groups and private chats.",
+        "whatsapp": "Deliver personalized customer service at scale through WhatsApp Business conversations.",
+        "microsoft_email": "Automatically triage and respond to Outlook/365 emails, reducing response times and workload.",
+        "google_email": "Let AI handle routine Gmail inquiries so you can focus on what matters most.",
+        "sendgrid_email": "Process high volumes of inbound emails automatically with intelligent AI responses via SendGrid.",
+        "twilio_sms": "Enable conversational SMS support that feels personal while scaling to thousands of customers.",
+        "github": "Automate code reviews, fix issues, and manage PRs with AI-powered GitHub integration.",
     }
     return descriptions.get(platform, "")
 
