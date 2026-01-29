@@ -119,6 +119,10 @@ class CompanyDiscordBot:
 
         # Cache for Discord user ID -> email mapping
         self.discord_user_cache: Dict[str, str] = {}
+        # Cache for user's selected agent per channel (personal mode): {(user_id, channel_id): agent_name}
+        self.user_agent_selection: Dict[tuple, str] = {}
+        # Team channel configuration: {channel_id: {"agent_name": str, "admin_user_id": str}}
+        self.team_channel_config: Dict[str, Dict[str, str]] = {}
         self._is_ready = False
         self._started_at: Optional[datetime] = None
 
@@ -244,6 +248,47 @@ class CompanyDiscordBot:
             logger.warning(f"Could not get user's agents, using default: {e}")
             agent_name = "XT"
 
+        # Handle silent admin commands (!list, !select, !clear, !team, !personal)
+        content_lower = message.content.strip().lower()
+        if content_lower.startswith("!list"):
+            await self._handle_list_command(
+                message, agixt, agents if "agents" in dir() else None
+            )
+            return
+        elif content_lower.startswith("!select "):
+            await self._handle_select_command(message, agixt)
+            return
+        elif content_lower.startswith("!clear"):
+            await self._handle_clear_command(message, agixt, agent_name)
+            return
+        elif content_lower.startswith("!team "):
+            await self._handle_team_command(message, agixt, user_email)
+            return
+        elif content_lower.startswith("!personal"):
+            await self._handle_personal_command(message, user_email)
+            return
+
+        # Check if channel is in team mode
+        channel_id = str(message.channel.id)
+        is_team_mode = channel_id in self.team_channel_config
+
+        if is_team_mode:
+            # Team mode: use the channel's assigned agent
+            team_config = self.team_channel_config[channel_id]
+            agent_name = team_config["agent_name"]
+            # Get the admin's JWT to run as the agent owner
+            admin_email = self._get_user_email_from_discord_id(
+                int(team_config["admin_user_id"])
+            )
+            if admin_email:
+                admin_jwt = impersonate_user(admin_email)
+                agixt = InternalClient(api_key=admin_jwt, user=admin_email)
+        else:
+            # Personal mode: check if user has a selected agent for this channel
+            selection_key = (str(message.author.id), str(message.channel.id))
+            if selection_key in self.user_agent_selection:
+                agent_name = self.user_agent_selection[selection_key]
+
         # Check if the message is a direct message or mentions the bot
         is_dm = isinstance(message.channel, discord_module.DMChannel)
         is_group_dm = isinstance(message.channel, discord_module.GroupChannel)
@@ -349,6 +394,13 @@ class CompanyDiscordBot:
             # Prepend the replied-to content to the user's message
             if replied_to_content:
                 content = f"{replied_to_content}\n\n[User's request]: {content}"
+
+            # In team mode, add user attribution so agent knows who's speaking
+            channel_id_for_mode = str(message.channel.id)
+            is_team_mode = channel_id_for_mode in self.team_channel_config
+            if is_team_mode:
+                display_name = message.author.display_name or message.author.name
+                content = f"[{display_name}]: {content}"
 
             # If the message is empty after removing the mention and has no attachments, ignore it
             if not content and not message.attachments:
@@ -585,6 +637,10 @@ class CompanyDiscordBot:
                     else "I couldn't generate a response."
                 )
 
+                # In team mode, prefix the reply with agent name at company name
+                if is_team_mode:
+                    reply = f"**{agent_name}** at **{self.company_name}**:\n{reply}"
+
                 # Extract workspace files from the response and prepare them as Discord attachments
                 # This handles URLs like {AGIXT_URI}/outputs/agent_{hash}/{conversation_id}/{filename}
                 reply, discord_files = await self._extract_and_prepare_workspace_files(
@@ -619,6 +675,412 @@ class CompanyDiscordBot:
                         await typing_task
                     except asyncio.CancelledError:
                         pass
+
+    async def _handle_list_command(self, message, agixt, agents=None):
+        """Handle the !list command to show available agents. Silently deletes command and DMs user."""
+        from datetime import datetime
+
+        try:
+            # Delete the command message silently
+            try:
+                await message.delete()
+            except discord_module.errors.Forbidden:
+                pass  # May not have permission to delete in DMs or certain channels
+            except Exception as e:
+                logger.debug(f"Could not delete command message: {e}")
+
+            # Get agents if not passed
+            if agents is None:
+                agents = agixt.get_agents()
+
+            if not agents:
+                await message.author.send("You don't have any agents configured.")
+                return
+
+            # Build the agent list
+            agent_list = []
+            channel_id = str(message.channel.id)
+            is_team_mode = channel_id in self.team_channel_config
+            team_agent = (
+                self.team_channel_config.get(channel_id, {}).get("agent_name")
+                if is_team_mode
+                else None
+            )
+
+            for i, agent in enumerate(agents, 1):
+                name = (
+                    agent.get("name", "Unknown") if isinstance(agent, dict) else agent
+                )
+                agent_id = agent.get("id", "") if isinstance(agent, dict) else ""
+                status = agent.get("status", "") if isinstance(agent, dict) else ""
+
+                markers = []
+                # Check if this is the team agent for this channel
+                if is_team_mode and name == team_agent:
+                    markers.append("🤖 team agent")
+                # Check if this agent is currently selected for personal mode
+                selection_key = (str(message.author.id), str(message.channel.id))
+                if (
+                    not is_team_mode
+                    and self.user_agent_selection.get(selection_key) == name
+                ):
+                    markers.append("✅ current")
+
+                marker_str = f" ({', '.join(markers)})" if markers else ""
+                agent_list.append(f"{i}. **{name}**{marker_str}")
+
+            # Get channel description for the tip
+            if isinstance(message.channel, discord_module.DMChannel):
+                channel_desc = "DMs"
+            elif message.guild and hasattr(message.channel, "name"):
+                channel_desc = f"**{message.guild.name}** › #{message.channel.name}"
+            elif hasattr(message.channel, "name"):
+                channel_desc = f"#{message.channel.name}"
+            else:
+                channel_desc = "this channel"
+
+            response = "**Your Available Agents:**\n" + "\n".join(agent_list)
+
+            # Add mode-specific tips
+            if is_team_mode:
+                response += f"\n\n🏢 **Team Mode Active** for {channel_desc}\n"
+                response += f"All members share conversations with **{team_agent}**.\n"
+                response += (
+                    f"*Admins: Use `!personal` to switch back to personal mode.*"
+                )
+            else:
+                response += f"\n\n*Use `!select <agent_name>` to switch agents for {channel_desc}.*\n"
+                response += f"*Admins: Use `!team <agent_name>` to enable team mode.*"
+
+            # DM the user the list
+            await message.author.send(response)
+
+        except Exception as e:
+            logger.error(f"Error handling !list command: {e}")
+            try:
+                await message.author.send(f"Error listing agents: {str(e)}")
+            except:
+                pass
+
+    async def _handle_select_command(self, message, agixt):
+        """Handle the !select command to switch agents. Silently deletes command and DMs user."""
+        try:
+            # Delete the command message silently
+            try:
+                await message.delete()
+            except discord_module.errors.Forbidden:
+                pass
+            except Exception as e:
+                logger.debug(f"Could not delete command message: {e}")
+
+            # Parse the agent name from the command
+            parts = message.content.strip().split(maxsplit=1)
+            if len(parts) < 2:
+                await message.author.send(
+                    "Usage: `!select <agent_name>`\nUse `!list` to see available agents."
+                )
+                return
+
+            requested_agent = parts[1].strip()
+
+            # Get available agents to validate
+            agents = agixt.get_agents()
+            if not agents:
+                await message.author.send("You don't have any agents configured.")
+                return
+
+            # Find matching agent (case-insensitive)
+            matched_agent = None
+            for agent in agents:
+                name = agent.get("name", "") if isinstance(agent, dict) else agent
+                if name.lower() == requested_agent.lower():
+                    matched_agent = name
+                    break
+
+            if not matched_agent:
+                # Build list of available agents for helpful error message
+                available = [
+                    agent.get("name", agent) if isinstance(agent, dict) else agent
+                    for agent in agents
+                ]
+                await message.author.send(
+                    f"Agent `{requested_agent}` not found.\n\n"
+                    f"**Available agents:** {', '.join(available)}\n"
+                    f"Use `!list` to see all your agents."
+                )
+                return
+
+            # Store the selection for this user in this channel
+            selection_key = (str(message.author.id), str(message.channel.id))
+            self.user_agent_selection[selection_key] = matched_agent
+
+            # Get channel name for confirmation (include server name)
+            if isinstance(message.channel, discord_module.DMChannel):
+                channel_desc = "DMs"
+            elif message.guild and hasattr(message.channel, "name"):
+                channel_desc = f"**{message.guild.name}** › #{message.channel.name}"
+            elif hasattr(message.channel, "name"):
+                channel_desc = f"#{message.channel.name}"
+            else:
+                channel_desc = "this channel"
+
+            await message.author.send(
+                f"✅ Switched to **{matched_agent}** for {channel_desc}.\n"
+                f"All your future messages there will go to this agent."
+            )
+
+        except Exception as e:
+            logger.error(f"Error handling !select command: {e}")
+            try:
+                await message.author.send(f"Error selecting agent: {str(e)}")
+            except:
+                pass
+
+    async def _handle_clear_command(self, message, agixt, current_agent_name):
+        """Handle the !clear command to archive conversation and start fresh. Silently deletes command and DMs user."""
+        from datetime import datetime
+
+        try:
+            # Delete the command message silently
+            try:
+                await message.delete()
+            except discord_module.errors.Forbidden:
+                pass
+            except Exception as e:
+                logger.debug(f"Could not delete command message: {e}")
+
+            # Check for user's selected agent in this channel
+            selection_key = (str(message.author.id), str(message.channel.id))
+            if selection_key in self.user_agent_selection:
+                current_agent_name = self.user_agent_selection[selection_key]
+
+            # Get the current conversation name for this channel
+            current_conversation = self._get_conversation_name(message)
+
+            # Generate timestamped archive name
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            archived_name = f"{current_conversation}-archived-{timestamp}"
+
+            # Rename the conversation to archive it
+            try:
+                agixt.rename_conversation(
+                    agent_name=current_agent_name,
+                    conversation_name=current_conversation,
+                    new_conversation_name=archived_name,
+                )
+
+                # Get channel description for confirmation message (include server name)
+                if isinstance(message.channel, discord_module.DMChannel):
+                    channel_desc = "DMs"
+                elif message.guild and hasattr(message.channel, "name"):
+                    channel_desc = f"**{message.guild.name}** › #{message.channel.name}"
+                elif hasattr(message.channel, "name"):
+                    channel_desc = f"#{message.channel.name}"
+                else:
+                    channel_desc = "this channel"
+
+                await message.author.send(
+                    f"✅ Conversation cleared for {channel_desc}.\n"
+                    f"Previous conversation archived as: `{archived_name}`\n"
+                    f"Starting fresh with **{current_agent_name}**!"
+                )
+
+            except Exception as e:
+                logger.warning(f"Could not rename conversation: {e}")
+                # Even if rename fails, the next message will start a new conversation anyway
+                await message.author.send(
+                    f"✅ Context cleared for this channel.\n"
+                    f"Starting fresh with **{current_agent_name}**!"
+                )
+
+        except Exception as e:
+            logger.error(f"Error handling !clear command: {e}")
+            try:
+                await message.author.send(f"Error clearing conversation: {str(e)}")
+            except:
+                pass
+
+    async def _is_company_admin(self, user_email: str) -> bool:
+        """Check if a user is a company admin (role_id <= 2)."""
+        try:
+            from MagicalAuth import MagicalAuth
+
+            user_jwt = impersonate_user(user_email)
+            auth = MagicalAuth(token=user_jwt)
+            if auth.user_id:
+                role_id = auth.get_user_role()
+                return role_id is not None and role_id <= 2
+        except Exception as e:
+            logger.warning(f"Could not check admin status for {user_email}: {e}")
+        return False
+
+    async def _handle_team_command(self, message, agixt, user_email: str):
+        """Handle the !team command to set a channel to team mode with a shared agent. Admin only."""
+        try:
+            # Delete the command message silently
+            try:
+                await message.delete()
+            except discord_module.errors.Forbidden:
+                pass
+            except Exception as e:
+                logger.debug(f"Could not delete command message: {e}")
+
+            # Check if user is a company admin
+            if not await self._is_company_admin(user_email):
+                await message.author.send(
+                    "❌ Only company admins can configure team channels.\n"
+                    "Contact your company administrator to set up team mode."
+                )
+                return
+
+            # Don't allow in DMs
+            if isinstance(message.channel, discord_module.DMChannel):
+                await message.author.send("❌ Team mode is not available in DMs.")
+                return
+
+            # Parse the agent name from the command
+            parts = message.content.strip().split(maxsplit=1)
+            if len(parts) < 2:
+                await message.author.send(
+                    "Usage: `!team <agent_name>`\n\n"
+                    "This sets the channel to **team mode** where all company members "
+                    "talk to the same shared agent with shared context.\n\n"
+                    "Use `!list` to see your available agents.\n"
+                    "Use `!personal` to switch back to personal mode."
+                )
+                return
+
+            requested_agent = parts[1].strip()
+
+            # Get available agents to validate
+            agents = agixt.get_agents()
+            if not agents:
+                await message.author.send("You don't have any agents configured.")
+                return
+
+            # Find matching agent (case-insensitive)
+            matched_agent = None
+            for agent in agents:
+                name = agent.get("name", "") if isinstance(agent, dict) else agent
+                if name.lower() == requested_agent.lower():
+                    matched_agent = name
+                    break
+
+            if not matched_agent:
+                available = [
+                    agent.get("name", agent) if isinstance(agent, dict) else agent
+                    for agent in agents
+                ]
+                await message.author.send(
+                    f"Agent `{requested_agent}` not found.\n\n"
+                    f"**Available agents:** {', '.join(available)}\n"
+                    f"Use `!list` to see all your agents."
+                )
+                return
+
+            # Set the channel to team mode
+            channel_id = str(message.channel.id)
+            self.team_channel_config[channel_id] = {
+                "agent_name": matched_agent,
+                "admin_user_id": str(message.author.id),
+            }
+
+            # Get channel description for confirmation
+            if message.guild and hasattr(message.channel, "name"):
+                channel_desc = f"**{message.guild.name}** › #{message.channel.name}"
+            elif hasattr(message.channel, "name"):
+                channel_desc = f"#{message.channel.name}"
+            else:
+                channel_desc = "this channel"
+
+            await message.author.send(
+                f"✅ **Team mode enabled** for {channel_desc}\n\n"
+                f"🤖 **Agent:** {matched_agent}\n"
+                f"🏢 **Company:** {self.company_name}\n\n"
+                f"All company members in this channel will now talk to **{matched_agent}** "
+                f"with shared conversation context.\n\n"
+                f"Responses will be prefixed with:\n"
+                f"> **{matched_agent}** at **{self.company_name}**:\n\n"
+                f"Use `!personal` to switch back to personal mode."
+            )
+
+            logger.info(
+                f"Team mode enabled for channel {channel_id} with agent {matched_agent} "
+                f"by admin {user_email}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error handling !team command: {e}")
+            try:
+                await message.author.send(f"Error setting team mode: {str(e)}")
+            except:
+                pass
+
+    async def _handle_personal_command(self, message, user_email: str):
+        """Handle the !personal command to switch a channel back to personal mode. Admin only."""
+        try:
+            # Delete the command message silently
+            try:
+                await message.delete()
+            except discord_module.errors.Forbidden:
+                pass
+            except Exception as e:
+                logger.debug(f"Could not delete command message: {e}")
+
+            # Check if user is a company admin
+            if not await self._is_company_admin(user_email):
+                await message.author.send(
+                    "❌ Only company admins can configure team channels.\n"
+                    "Contact your company administrator to change channel mode."
+                )
+                return
+
+            channel_id = str(message.channel.id)
+
+            # Get channel description for confirmation
+            if isinstance(message.channel, discord_module.DMChannel):
+                channel_desc = "DMs"
+            elif message.guild and hasattr(message.channel, "name"):
+                channel_desc = f"**{message.guild.name}** › #{message.channel.name}"
+            elif hasattr(message.channel, "name"):
+                channel_desc = f"#{message.channel.name}"
+            else:
+                channel_desc = "this channel"
+
+            # Check if channel is in team mode
+            if channel_id not in self.team_channel_config:
+                await message.author.send(
+                    f"ℹ️ {channel_desc} is already in personal mode.\n"
+                    f"Each user talks to their own selected agent."
+                )
+                return
+
+            # Get the previous team config for logging
+            old_config = self.team_channel_config[channel_id]
+            old_agent = old_config.get("agent_name", "Unknown")
+
+            # Remove team mode
+            del self.team_channel_config[channel_id]
+
+            await message.author.send(
+                f"✅ **Personal mode restored** for {channel_desc}\n\n"
+                f"Previously was team mode with agent **{old_agent}**.\n\n"
+                f"Now each user will talk to their own selected agent.\n"
+                f"Use `!select <agent>` to choose your personal agent.\n"
+                f"Use `!team <agent>` to re-enable team mode."
+            )
+
+            logger.info(
+                f"Personal mode restored for channel {channel_id} by admin {user_email} "
+                f"(was team mode with {old_agent})"
+            )
+
+        except Exception as e:
+            logger.error(f"Error handling !personal command: {e}")
+            try:
+                await message.author.send(f"Error switching to personal mode: {str(e)}")
+            except:
+                pass
 
     async def _get_channel_context(
         self,
