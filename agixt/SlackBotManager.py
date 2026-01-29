@@ -220,10 +220,14 @@ class CompanySlackBot:
                             if owner:
                                 user_email = owner.email
                     except Exception as e:
-                        logger.error(f"Error getting owner email for allowlist user: {e}")
+                        logger.error(
+                            f"Error getting owner email for allowlist user: {e}"
+                        )
                         return
                 if not user_email:
-                    logger.warning("Cannot handle allowlist interaction: no owner configured")
+                    logger.warning(
+                        "Cannot handle allowlist interaction: no owner configured"
+                    )
                     return
         elif self.bot_permission_mode == "recognized_users":
             if not user_email:

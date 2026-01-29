@@ -1563,8 +1563,12 @@ class DeployedBotInfo(BaseModel):
     agent_name: Optional[str] = None
     enabled: bool  # Whether the bot is configured as enabled
     is_running: bool  # Whether the bot is actually running
-    is_paused: bool = False  # Whether the bot is paused (enabled but not running intentionally)
-    is_server_level: bool = False  # Whether this is a server-level bot (vs company-level)
+    is_paused: bool = (
+        False  # Whether the bot is paused (enabled but not running intentionally)
+    )
+    is_server_level: bool = (
+        False  # Whether this is a server-level bot (vs company-level)
+    )
     permission_mode: str = "recognized_users"
     permission_mode_label: str = "Recognized Users"
     permission_privacy: str = "private"  # "private" or "public"
@@ -1632,15 +1636,19 @@ BOT_PERMISSION_MODES = [
     },
 ]
 
+
 def get_permission_modes_with_app_name():
     """Get permission modes with app_name substituted."""
     from Globals import getenv
+
     app_name = getenv("APP_NAME") or "AGiXT"
     modes = []
     for mode in BOT_PERMISSION_MODES:
         mode_copy = mode.copy()
         mode_copy["label"] = mode_copy["label"].replace("{app_name}", app_name)
-        mode_copy["description"] = mode_copy["description"].replace("{app_name}", app_name)
+        mode_copy["description"] = mode_copy["description"].replace(
+            "{app_name}", app_name
+        )
         modes.append(mode_copy)
     return modes
 
@@ -1650,7 +1658,9 @@ def get_permission_modes_with_app_name():
 # When oauth_provider is set, the bot uses OAuth credentials from the selected agent's connections
 BOT_PLATFORM_SETTINGS = {
     "discord": {
-        "required": ["DISCORD_BOT_TOKEN"],  # Discord bots need their own bot token (not user OAuth)
+        "required": [
+            "DISCORD_BOT_TOKEN"
+        ],  # Discord bots need their own bot token (not user OAuth)
         "optional": [
             "DISCORD_BOT_ENABLED",
             "discord_bot_agent_id",
@@ -1911,6 +1921,7 @@ def _get_bot_manager(platform: str):
         elif platform == "github":
             from GitHubBotManager import get_github_bot_manager
             import asyncio
+
             return asyncio.get_event_loop().run_until_complete(get_github_bot_manager())
         return None
     except Exception as e:
@@ -1926,7 +1937,7 @@ def _get_bot_status_for_platform(
         # Special handling for Discord - it uses Redis for cross-process status
         if platform == "discord":
             from DiscordBotManager import get_discord_bot_status_from_redis
-            
+
             status = get_discord_bot_status_from_redis(company_id)
             if not status:
                 return BotStatusResponse(
@@ -1935,12 +1946,18 @@ def _get_bot_status_for_platform(
                     platform=platform,
                     is_running=False,
                 )
-            
+
             return BotStatusResponse(
                 company_id=company_id,
-                company_name=status.company_name if hasattr(status, "company_name") else company_name,
+                company_name=(
+                    status.company_name
+                    if hasattr(status, "company_name")
+                    else company_name
+                ),
                 platform=platform,
-                is_running=status.is_running if hasattr(status, "is_running") else False,
+                is_running=(
+                    status.is_running if hasattr(status, "is_running") else False
+                ),
                 started_at=(
                     status.started_at.isoformat()
                     if hasattr(status, "started_at") and status.started_at
@@ -1948,9 +1965,13 @@ def _get_bot_status_for_platform(
                 ),
                 messages_processed=0,
                 error=status.error if hasattr(status, "error") else None,
-                extra={"guild_count": status.guild_count} if hasattr(status, "guild_count") else None,
+                extra=(
+                    {"guild_count": status.guild_count}
+                    if hasattr(status, "guild_count")
+                    else None
+                ),
             )
-        
+
         # For other platforms, use the manager pattern
         manager = _get_bot_manager(platform)
         if not manager:
@@ -2090,12 +2111,12 @@ async def get_company_deployed_bots(
 
         for platform, config in BOT_PLATFORM_SETTINGS.items():
             extension_name = config["extension_name"]
-            
+
             # Check if bot is enabled for this platform
             enabled_key = f"{platform}_bot_enabled"
             if platform == "discord":
                 enabled_key = "DISCORD_BOT_ENABLED"
-            
+
             enabled_setting = (
                 db.query(CompanyExtensionSetting)
                 .filter(
@@ -2105,17 +2126,21 @@ async def get_company_deployed_bots(
                 )
                 .first()
             )
-            
-            is_enabled = enabled_setting and enabled_setting.setting_value and enabled_setting.setting_value.lower() == "true"
-            
+
+            is_enabled = (
+                enabled_setting
+                and enabled_setting.setting_value
+                and enabled_setting.setting_value.lower() == "true"
+            )
+
             if not is_enabled:
                 continue  # Skip non-deployed bots
-            
+
             # Get agent info
             agent_id_key = f"{platform}_bot_agent_id"
             if platform == "discord":
                 agent_id_key = "discord_bot_agent_id"
-                
+
             agent_setting = (
                 db.query(CompanyExtensionSetting)
                 .filter(
@@ -2127,16 +2152,16 @@ async def get_company_deployed_bots(
             )
             agent_id = agent_setting.setting_value if agent_setting else None
             agent_name = None
-            
+
             if agent_id:
                 agent = db.query(Agent).filter(Agent.id == agent_id).first()
                 agent_name = agent.name if agent else None
-            
+
             # Get permission mode
             perm_mode_key = f"{platform}_bot_permission_mode"
             if platform == "discord":
                 perm_mode_key = "discord_bot_permission_mode"
-                
+
             perm_setting = (
                 db.query(CompanyExtensionSetting)
                 .filter(
@@ -2146,8 +2171,10 @@ async def get_company_deployed_bots(
                 )
                 .first()
             )
-            permission_mode = perm_setting.setting_value if perm_setting else "recognized_users"
-            
+            permission_mode = (
+                perm_setting.setting_value if perm_setting else "recognized_users"
+            )
+
             # Get permission mode label and privacy using app-name substitution
             perm_modes = get_permission_modes_with_app_name()
             perm_mode_label = "Recognized Users"
@@ -2157,7 +2184,7 @@ async def get_company_deployed_bots(
                     perm_mode_label = mode["label"]
                     perm_privacy = mode.get("privacy", "private")
                     break
-            
+
             # Check if bot is paused
             paused_key = f"{platform}_bot_paused"
             paused_setting = (
@@ -2169,15 +2196,23 @@ async def get_company_deployed_bots(
                 )
                 .first()
             )
-            is_paused = bool(paused_setting and paused_setting.setting_value and paused_setting.setting_value.lower() == "true")
-            
+            is_paused = bool(
+                paused_setting
+                and paused_setting.setting_value
+                and paused_setting.setting_value.lower() == "true"
+            )
+
             # Get runtime status
-            runtime_status = _get_bot_status_for_platform(platform, company_id, company_name)
+            runtime_status = _get_bot_status_for_platform(
+                platform, company_id, company_name
+            )
             is_running = runtime_status.is_running if runtime_status else False
             started_at = runtime_status.started_at if runtime_status else None
-            messages_processed = runtime_status.messages_processed if runtime_status else 0
+            messages_processed = (
+                runtime_status.messages_processed if runtime_status else 0
+            )
             error = runtime_status.error if runtime_status else None
-            
+
             # Determine status
             if error:
                 status = "error"
@@ -2194,56 +2229,65 @@ async def get_company_deployed_bots(
             else:
                 status = "offline"
                 status_message = "Bot is not running"
-            
+
             # Check OAuth connection for OAuth-based platforms
             uses_oauth = bool(config.get("oauth_provider"))
             oauth_connected = False
             oauth_provider = config.get("oauth_provider")
-            
+
             if uses_oauth and agent_id:
                 from MagicalAuth import get_agent_oauth_credentials
+
                 agent_creds = get_agent_oauth_credentials(agent_id, oauth_provider)
                 oauth_connected = agent_creds is not None
-            
+
             # Get platform display name
             platform_name = _get_platform_display_name(platform)
-            
+
             # Get timestamps from settings (use enabled setting as proxy for created_at)
             created_at = None
             updated_at = None
             if enabled_setting:
-                if hasattr(enabled_setting, 'created_at') and enabled_setting.created_at:
+                if (
+                    hasattr(enabled_setting, "created_at")
+                    and enabled_setting.created_at
+                ):
                     created_at = enabled_setting.created_at.isoformat()
-                if hasattr(enabled_setting, 'updated_at') and enabled_setting.updated_at:
+                if (
+                    hasattr(enabled_setting, "updated_at")
+                    and enabled_setting.updated_at
+                ):
                     updated_at = enabled_setting.updated_at.isoformat()
-            
-            deployed_bots.append(DeployedBotInfo(
-                id=f"{company_id}_{platform}",
-                platform=platform,
-                platform_name=platform_name,
-                company_id=company_id,
-                company_name=company_name,
-                agent_id=agent_id,
-                agent_name=agent_name,
-                enabled=is_enabled,
-                is_running=is_running,
-                is_paused=is_paused,
-                is_server_level=False,  # Company-level bot
-                permission_mode=permission_mode,
-                permission_mode_label=perm_mode_label,
-                permission_privacy=perm_privacy,
-                status=status,
-                status_message=status_message,
-                started_at=started_at,
-                messages_processed=messages_processed,
-                uses_oauth=uses_oauth,
-                oauth_connected=oauth_connected,
-                oauth_provider=oauth_provider,
-                created_at=created_at,
-                updated_at=updated_at,
-                error=error,
-            ))
-    
+
+            deployed_bots.append(
+                DeployedBotInfo(
+                    id=f"{company_id}_{platform}",
+                    platform=platform,
+                    platform_name=platform_name,
+                    company_id=company_id,
+                    company_name=company_name,
+                    agent_id=agent_id,
+                    agent_name=agent_name,
+                    enabled=is_enabled,
+                    is_running=is_running,
+                    is_paused=is_paused,
+                    is_server_level=False,  # Company-level bot
+                    permission_mode=permission_mode,
+                    permission_mode_label=perm_mode_label,
+                    permission_privacy=perm_privacy,
+                    status=status,
+                    status_message=status_message,
+                    started_at=started_at,
+                    messages_processed=messages_processed,
+                    uses_oauth=uses_oauth,
+                    oauth_connected=oauth_connected,
+                    oauth_provider=oauth_provider,
+                    created_at=created_at,
+                    updated_at=updated_at,
+                    error=error,
+                )
+            )
+
     return DeployedBotsResponse(
         bots=deployed_bots,
         total_count=len(deployed_bots),
@@ -2278,19 +2322,20 @@ async def get_server_deployed_bots(
     running_count = 0
     paused_count = 0
     error_count = 0
-    
+
     from Globals import getenv
+
     app_name = getenv("APP_NAME") or "AGiXT"
 
     with get_session() as db:
         for platform, config in BOT_PLATFORM_SETTINGS.items():
             extension_name = config["extension_name"]
-            
+
             # Check if server-level bot is enabled for this platform
             enabled_key = f"{platform}_bot_enabled"
             if platform == "discord":
                 enabled_key = "DISCORD_BOT_ENABLED"
-            
+
             # Check ServerExtensionSetting for server-level configuration
             enabled_setting = (
                 db.query(ServerExtensionSetting)
@@ -2300,14 +2345,20 @@ async def get_server_deployed_bots(
                 )
                 .first()
             )
-            
-            is_enabled = enabled_setting and enabled_setting.setting_value and enabled_setting.setting_value.lower() == "true"
-            
+
+            is_enabled = (
+                enabled_setting
+                and enabled_setting.setting_value
+                and enabled_setting.setting_value.lower() == "true"
+            )
+
             # Also check if token exists (for platforms that need it)
-            token_key = config.get("required", [None])[0] if config.get("required") else None
+            token_key = (
+                config.get("required", [None])[0] if config.get("required") else None
+            )
             has_token = False
             uses_oauth = bool(config.get("oauth_provider"))
-            
+
             if token_key:
                 # Platform requires a token - check if it exists
                 token_setting = (
@@ -2326,16 +2377,16 @@ async def get_server_deployed_bots(
             else:
                 # No required token and no OAuth - shouldn't happen, but default to enabled check
                 has_token = is_enabled
-            
+
             # Server bot is deployed if either enabled=true or has a token configured
             if not (is_enabled or has_token):
                 continue
-            
+
             # Get agent info (server-level)
             agent_id_key = f"{platform}_bot_agent_id"
             if platform == "discord":
                 agent_id_key = "discord_bot_agent_id"
-                
+
             agent_setting = (
                 db.query(ServerExtensionSetting)
                 .filter(
@@ -2346,16 +2397,16 @@ async def get_server_deployed_bots(
             )
             agent_id = agent_setting.setting_value if agent_setting else None
             agent_name = None
-            
+
             if agent_id:
                 agent = db.query(Agent).filter(Agent.id == agent_id).first()
                 agent_name = agent.name if agent else None
-            
+
             # Get permission mode
             perm_mode_key = f"{platform}_bot_permission_mode"
             if platform == "discord":
                 perm_mode_key = "discord_bot_permission_mode"
-                
+
             perm_setting = (
                 db.query(ServerExtensionSetting)
                 .filter(
@@ -2365,8 +2416,10 @@ async def get_server_deployed_bots(
                 .first()
             )
             # Server-level bots default to app_users permission
-            permission_mode = perm_setting.setting_value if perm_setting else "app_users"
-            
+            permission_mode = (
+                perm_setting.setting_value if perm_setting else "app_users"
+            )
+
             # Get permission mode label and privacy
             perm_modes = get_permission_modes_with_app_name()
             perm_mode_label = f"{app_name} Users"
@@ -2376,7 +2429,7 @@ async def get_server_deployed_bots(
                     perm_mode_label = mode["label"]
                     perm_privacy = mode.get("privacy", "public")
                     break
-            
+
             # Check if bot is paused
             paused_key = f"{platform}_bot_paused"
             paused_setting = (
@@ -2387,15 +2440,23 @@ async def get_server_deployed_bots(
                 )
                 .first()
             )
-            is_paused = bool(paused_setting and paused_setting.setting_value and paused_setting.setting_value.lower() == "true")
-            
+            is_paused = bool(
+                paused_setting
+                and paused_setting.setting_value
+                and paused_setting.setting_value.lower() == "true"
+            )
+
             # Get runtime status - use "server" as company_id for server-level bots
-            runtime_status = _get_bot_status_for_platform(platform, "server", f"{app_name} Server")
+            runtime_status = _get_bot_status_for_platform(
+                platform, "server", f"{app_name} Server"
+            )
             is_running = runtime_status.is_running if runtime_status else False
             started_at = runtime_status.started_at if runtime_status else None
-            messages_processed = runtime_status.messages_processed if runtime_status else 0
+            messages_processed = (
+                runtime_status.messages_processed if runtime_status else 0
+            )
             error = runtime_status.error if runtime_status else None
-            
+
             # Determine status
             if error:
                 status = "error"
@@ -2412,51 +2473,59 @@ async def get_server_deployed_bots(
             else:
                 status = "offline"
                 status_message = "Bot is not running"
-            
+
             # Check OAuth connection
             uses_oauth = bool(config.get("oauth_provider"))
             oauth_connected = False
             oauth_provider = config.get("oauth_provider")
-            
+
             # Get platform display name
             platform_name = _get_platform_display_name(platform)
-            
+
             # Get timestamps
             created_at = None
             updated_at = None
             if enabled_setting:
-                if hasattr(enabled_setting, 'created_at') and enabled_setting.created_at:
+                if (
+                    hasattr(enabled_setting, "created_at")
+                    and enabled_setting.created_at
+                ):
                     created_at = enabled_setting.created_at.isoformat()
-                if hasattr(enabled_setting, 'updated_at') and enabled_setting.updated_at:
+                if (
+                    hasattr(enabled_setting, "updated_at")
+                    and enabled_setting.updated_at
+                ):
                     updated_at = enabled_setting.updated_at.isoformat()
-            
-            deployed_bots.append(DeployedBotInfo(
-                id=f"server_{platform}",
-                platform=platform,
-                platform_name=platform_name,
-                company_id="server",
-                company_name=f"{app_name} Server",
-                agent_id=agent_id,
-                agent_name=agent_name,
-                enabled=is_enabled or has_token,
-                is_running=is_running,
-                is_paused=is_paused,
-                is_server_level=True,
-                permission_mode=permission_mode,
-                permission_mode_label=perm_mode_label,
-                permission_privacy=perm_privacy,
-                status=status,
-                status_message=status_message,
-                started_at=started_at,
-                messages_processed=messages_processed,
-                uses_oauth=uses_oauth,
-                oauth_connected=oauth_connected,
-                oauth_provider=oauth_provider,
-                created_at=created_at,
-                updated_at=updated_at,
-                error=error,
-            ))
-    
+
+            deployed_bots.append(
+                DeployedBotInfo(
+                    id=f"server_{platform}",
+                    platform=platform,
+                    platform_name=platform_name,
+                    company_id="server",
+                    company_name=f"{app_name} Server",
+                    agent_id=agent_id,
+                    agent_name=agent_name,
+                    enabled=is_enabled or has_token,
+                    is_running=is_running,
+                    is_paused=is_paused,
+                    is_server_level=True,
+                    permission_mode=permission_mode,
+                    permission_mode_label=perm_mode_label,
+                    permission_privacy=perm_privacy,
+                    status=status,
+                    status_message=status_message,
+                    started_at=started_at,
+                    messages_processed=messages_processed,
+                    uses_oauth=uses_oauth,
+                    oauth_connected=oauth_connected,
+                    oauth_provider=oauth_provider,
+                    created_at=created_at,
+                    updated_at=updated_at,
+                    error=error,
+                )
+            )
+
     return DeployedBotsResponse(
         bots=deployed_bots,
         total_count=len(deployed_bots),
@@ -2573,7 +2642,7 @@ async def remove_company_bot(
 
     platform_config = BOT_PLATFORM_SETTINGS[platform]
     extension_name = platform_config["extension_name"]
-    
+
     # Disable the bot first (this will stop it if running)
     enabled_key = f"{platform}_bot_enabled"
     if platform == "discord":
@@ -2590,15 +2659,15 @@ async def remove_company_bot(
             )
             .first()
         )
-        
+
         if enabled_setting:
             enabled_setting.setting_value = "false"
             db.commit()
-    
+
     # Stop the bot if it's running
     try:
         manager = _get_bot_manager(platform)
-        if manager and hasattr(manager, 'stop_bot'):
+        if manager and hasattr(manager, "stop_bot"):
             manager.stop_bot(company_id)
     except Exception as e:
         logging.warning(f"Error stopping {platform} bot during removal: {e}")
@@ -2612,6 +2681,7 @@ async def remove_company_bot(
 
 
 # Server-level bot management endpoints (super admin only)
+
 
 @app.post(
     "/v1/server/bots/{platform}/enable",
@@ -2643,7 +2713,7 @@ async def enable_server_bot(
 
     platform_config = BOT_PLATFORM_SETTINGS[platform]
     extension_name = platform_config["extension_name"]
-    
+
     enabled_key = f"{platform}_bot_enabled"
     if platform == "discord":
         enabled_key = "DISCORD_BOT_ENABLED"
@@ -2658,7 +2728,7 @@ async def enable_server_bot(
             )
             .first()
         )
-        
+
         if enabled_setting:
             enabled_setting.setting_value = "true" if request.enabled else "false"
         else:
@@ -2668,13 +2738,13 @@ async def enable_server_bot(
                 setting_value="true" if request.enabled else "false",
             )
             db.add(enabled_setting)
-        
+
         # Update agent_id if provided
         if request.agent_id:
             agent_id_key = f"{platform}_bot_agent_id"
             if platform == "discord":
                 agent_id_key = "discord_bot_agent_id"
-            
+
             agent_setting = (
                 db.query(ServerExtensionSetting)
                 .filter(
@@ -2683,7 +2753,7 @@ async def enable_server_bot(
                 )
                 .first()
             )
-            
+
             if agent_setting:
                 agent_setting.setting_value = request.agent_id
             else:
@@ -2693,13 +2763,13 @@ async def enable_server_bot(
                     setting_value=request.agent_id,
                 )
                 db.add(agent_setting)
-        
+
         # Update permission_mode if provided
         if request.permission_mode:
             perm_mode_key = f"{platform}_bot_permission_mode"
             if platform == "discord":
                 perm_mode_key = "discord_bot_permission_mode"
-            
+
             perm_setting = (
                 db.query(ServerExtensionSetting)
                 .filter(
@@ -2708,7 +2778,7 @@ async def enable_server_bot(
                 )
                 .first()
             )
-            
+
             if perm_setting:
                 perm_setting.setting_value = request.permission_mode
             else:
@@ -2718,7 +2788,7 @@ async def enable_server_bot(
                     setting_value=request.permission_mode,
                 )
                 db.add(perm_setting)
-        
+
         # Update any additional settings
         if request.settings:
             for key, value in request.settings.items():
@@ -2730,9 +2800,14 @@ async def enable_server_bot(
                     )
                     .first()
                 )
-                
-                is_sensitive = key.upper() in ["TOKEN", "SECRET", "KEY", "PASSWORD"] or "TOKEN" in key.upper() or "SECRET" in key.upper() or "KEY" in key.upper()
-                
+
+                is_sensitive = (
+                    key.upper() in ["TOKEN", "SECRET", "KEY", "PASSWORD"]
+                    or "TOKEN" in key.upper()
+                    or "SECRET" in key.upper()
+                    or "KEY" in key.upper()
+                )
+
                 if setting:
                     if is_sensitive and value:
                         setting.setting_value = encrypt_config_value(value)
@@ -2743,11 +2818,15 @@ async def enable_server_bot(
                     new_setting = ServerExtensionSetting(
                         extension_name=extension_name,
                         setting_key=key,
-                        setting_value=encrypt_config_value(value) if is_sensitive and value else value,
+                        setting_value=(
+                            encrypt_config_value(value)
+                            if is_sensitive and value
+                            else value
+                        ),
                         is_sensitive=is_sensitive,
                     )
                     db.add(new_setting)
-        
+
         db.commit()
 
     platform_name = _get_platform_display_name(platform)
@@ -2789,7 +2868,7 @@ async def pause_server_bot(
 
     platform_config = BOT_PLATFORM_SETTINGS[platform]
     extension_name = platform_config["extension_name"]
-    
+
     paused_key = f"{platform}_bot_paused"
 
     with get_session() as db:
@@ -2801,7 +2880,7 @@ async def pause_server_bot(
             )
             .first()
         )
-        
+
         if paused_setting:
             paused_setting.setting_value = "true" if request.paused else "false"
         else:
@@ -2811,7 +2890,7 @@ async def pause_server_bot(
                 setting_value="true" if request.paused else "false",
             )
             db.add(paused_setting)
-        
+
         db.commit()
 
     platform_name = _get_platform_display_name(platform)
@@ -2853,7 +2932,7 @@ async def remove_server_bot(
 
     platform_config = BOT_PLATFORM_SETTINGS[platform]
     extension_name = platform_config["extension_name"]
-    
+
     enabled_key = f"{platform}_bot_enabled"
     if platform == "discord":
         enabled_key = "DISCORD_BOT_ENABLED"
@@ -2868,18 +2947,20 @@ async def remove_server_bot(
             )
             .first()
         )
-        
+
         if enabled_setting:
             enabled_setting.setting_value = "false"
             db.commit()
-    
+
     # Stop the bot if running
     try:
         manager = _get_bot_manager(platform)
-        if manager and hasattr(manager, 'stop_bot'):
+        if manager and hasattr(manager, "stop_bot"):
             manager.stop_bot("server")
     except Exception as e:
-        logging.warning(f"Error stopping server-level {platform} bot during removal: {e}")
+        logging.warning(
+            f"Error stopping server-level {platform} bot during removal: {e}"
+        )
 
     platform_name = _get_platform_display_name(platform)
 
@@ -3002,13 +3083,13 @@ async def get_company_bot_settings(
                         settings[setting_key] = "••••••••"
                 else:
                     settings[setting_key] = setting.setting_value
-                    
+
                 # Track agent_id for OAuth lookup
-                if setting_key.endswith('_agent_id'):
+                if setting_key.endswith("_agent_id"):
                     agent_id = setting.setting_value
             else:
                 settings[setting_key] = None
-                
+
         # Check for agent_id in standard location too
         if not agent_id:
             agent_setting = (
@@ -3016,7 +3097,8 @@ async def get_company_bot_settings(
                 .filter(
                     CompanyExtensionSetting.company_id == company_id,
                     CompanyExtensionSetting.extension_name == extension_name,
-                    CompanyExtensionSetting.setting_key == f"{extension_name}_bot_agent_id",
+                    CompanyExtensionSetting.setting_key
+                    == f"{extension_name}_bot_agent_id",
                 )
                 .first()
             )
@@ -3035,29 +3117,36 @@ async def get_company_bot_settings(
         "allowlist_placeholder": platform_config.get("allowlist_placeholder"),
         "allowlist_help": platform_config.get("allowlist_help"),
     }
-    
+
     # Add OAuth connection status for OAuth-based platforms
     oauth_provider = platform_config.get("oauth_provider")
     if oauth_provider:
         response["uses_oauth"] = True
         response["oauth_provider"] = oauth_provider
-        response["oauth_provider_display"] = platform_config.get("oauth_provider_display", oauth_provider.title())
-        
+        response["oauth_provider_display"] = platform_config.get(
+            "oauth_provider_display", oauth_provider.title()
+        )
+
         # Check if agent has OAuth credentials
         if agent_id:
             from MagicalAuth import get_agent_oauth_credentials
+
             agent_creds = get_agent_oauth_credentials(agent_id, oauth_provider)
             if agent_creds:
                 response["oauth_connected"] = True
-                response["oauth_account_name"] = agent_creds.get("account_name", "Connected")
-                response["oauth_is_agent_specific"] = agent_creds.get("is_agent_specific", False)
+                response["oauth_account_name"] = agent_creds.get(
+                    "account_name", "Connected"
+                )
+                response["oauth_is_agent_specific"] = agent_creds.get(
+                    "is_agent_specific", False
+                )
             else:
                 response["oauth_connected"] = False
         else:
             response["oauth_connected"] = False
     else:
         response["uses_oauth"] = False
-        
+
     return response
 
 
@@ -3104,14 +3193,19 @@ async def enable_company_bot(
         # If enabling, check that required settings exist or OAuth is connected
         if request.enabled:
             oauth_provider = platform_config.get("oauth_provider")
-            
+
             if oauth_provider and request.agent_id:
                 # For OAuth-based platforms, check if agent has OAuth credentials
                 from MagicalAuth import get_agent_oauth_credentials
-                agent_creds = get_agent_oauth_credentials(request.agent_id, oauth_provider)
-                
+
+                agent_creds = get_agent_oauth_credentials(
+                    request.agent_id, oauth_provider
+                )
+
                 if not agent_creds:
-                    provider_display = platform_config.get("oauth_provider_display", oauth_provider.title())
+                    provider_display = platform_config.get(
+                        "oauth_provider_display", oauth_provider.title()
+                    )
                     raise HTTPException(
                         status_code=400,
                         detail=f"Please connect your {provider_display} account first. Go to Settings → Connections to link your account.",
@@ -3221,7 +3315,13 @@ async def enable_company_bot(
         # Save permission_mode if provided
         if request.permission_mode:
             # Validate permission mode
-            valid_modes = ["owner_only", "recognized_users", "allowlist", "app_users", "anyone"]
+            valid_modes = [
+                "owner_only",
+                "recognized_users",
+                "allowlist",
+                "app_users",
+                "anyone",
+            ]
             if request.permission_mode not in valid_modes:
                 raise HTTPException(
                     status_code=400,
@@ -3506,18 +3606,22 @@ async def get_bot_platforms(
             "extension_name": config["extension_name"],
             "required_settings": config["required"],
             "optional_settings": config["optional"],
-            "description": config.get("description", _get_platform_description(platform)),
+            "description": config.get(
+                "description", _get_platform_description(platform)
+            ),
             "setup_url": _get_platform_setup_url(platform),
         }
-        
+
         # Add OAuth info if this platform supports OAuth
         if config.get("oauth_provider"):
             platform_info["oauth_provider"] = config["oauth_provider"]
-            platform_info["oauth_provider_display"] = config.get("oauth_provider_display", config["oauth_provider"].title())
+            platform_info["oauth_provider_display"] = config.get(
+                "oauth_provider_display", config["oauth_provider"].title()
+            )
             platform_info["uses_oauth"] = True
         else:
             platform_info["uses_oauth"] = False
-            
+
         platforms.append(platform_info)
 
     return {
@@ -5025,7 +5129,10 @@ async def github_webhook(
             .first()
         )
 
-        if not bot_enabled_setting or bot_enabled_setting.setting_value.lower() != "true":
+        if (
+            not bot_enabled_setting
+            or bot_enabled_setting.setting_value.lower() != "true"
+        ):
             raise HTTPException(
                 status_code=400, detail="GitHub bot is not enabled for this company"
             )
@@ -5049,9 +5156,7 @@ async def github_webhook(
     if webhook_secret and signature_header:
         expected_signature = (
             "sha256="
-            + hmac.new(
-                webhook_secret.encode("utf-8"), body, hashlib.sha256
-            ).hexdigest()
+            + hmac.new(webhook_secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
         )
         if not hmac.compare_digest(signature_header, expected_signature):
             logging.warning(
@@ -5081,7 +5186,7 @@ async def github_webhook(
 
         manager = GitHubBotManager(company_id=company_id)
         result = await manager.handle_webhook(
-            event_type=event_type, 
+            event_type=event_type,
             payload=payload,
             company_id=company_id,
             skip_signature_check=True,  # Already verified above

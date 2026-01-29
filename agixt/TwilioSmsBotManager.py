@@ -94,6 +94,7 @@ class CompanyTwilioSmsBot:
     def _normalize_phone_static(phone: str) -> str:
         """Static method to normalize phone number for comparison."""
         import re
+
         phone = re.sub(r"[^\d+]", "", phone)
         if not phone.startswith("+"):
             phone = "+" + phone

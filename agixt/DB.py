@@ -3814,11 +3814,11 @@ def discover_extension_models():
     for extensions_dir in extensions_dirs:
         if not os.path.exists(extensions_dir) or not os.path.isdir(extensions_dir):
             continue
-            
+
         # Ensure the directory is in sys.path for imports
         if extensions_dir not in sys.path:
             sys.path.insert(0, extensions_dir)
-            
+
         command_files = glob.glob(os.path.join(extensions_dir, "*.py"))
 
         for command_file in command_files:

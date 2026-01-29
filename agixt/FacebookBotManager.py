@@ -197,7 +197,8 @@ class CompanyFacebookBot:
                         db.query(ServerExtensionSetting)
                         .filter(
                             ServerExtensionSetting.extension_name == "facebook",
-                            ServerExtensionSetting.setting_key == "FACEBOOK_MESSAGES_PROCESSED",
+                            ServerExtensionSetting.setting_key
+                            == "FACEBOOK_MESSAGES_PROCESSED",
                         )
                         .first()
                     )
@@ -208,15 +209,18 @@ class CompanyFacebookBot:
                         .filter(
                             CompanyExtensionSetting.company_id == self.company_id,
                             CompanyExtensionSetting.extension_name == "facebook",
-                            CompanyExtensionSetting.setting_key == "FACEBOOK_MESSAGES_PROCESSED",
+                            CompanyExtensionSetting.setting_key
+                            == "FACEBOOK_MESSAGES_PROCESSED",
                         )
                         .first()
                     )
-                
+
                 if setting and setting.setting_value:
                     return int(setting.setting_value)
         except Exception as e:
-            logger.warning(f"Could not load messages_processed for {self.company_id}: {e}")
+            logger.warning(
+                f"Could not load messages_processed for {self.company_id}: {e}"
+            )
         return 0
 
     def _save_messages_processed(self):
@@ -229,7 +233,8 @@ class CompanyFacebookBot:
                         db.query(ServerExtensionSetting)
                         .filter(
                             ServerExtensionSetting.extension_name == "facebook",
-                            ServerExtensionSetting.setting_key == "FACEBOOK_MESSAGES_PROCESSED",
+                            ServerExtensionSetting.setting_key
+                            == "FACEBOOK_MESSAGES_PROCESSED",
                         )
                         .first()
                     )
@@ -250,7 +255,8 @@ class CompanyFacebookBot:
                         .filter(
                             CompanyExtensionSetting.company_id == self.company_id,
                             CompanyExtensionSetting.extension_name == "facebook",
-                            CompanyExtensionSetting.setting_key == "FACEBOOK_MESSAGES_PROCESSED",
+                            CompanyExtensionSetting.setting_key
+                            == "FACEBOOK_MESSAGES_PROCESSED",
                         )
                         .first()
                     )
@@ -268,7 +274,9 @@ class CompanyFacebookBot:
                 db.commit()
                 self._unsaved_message_count = 0
         except Exception as e:
-            logger.warning(f"Could not save messages_processed for {self.company_id}: {e}")
+            logger.warning(
+                f"Could not save messages_processed for {self.company_id}: {e}"
+            )
 
     def _refresh_user_id_cache(self):
         """Refresh the Facebook user ID to AGiXT user ID cache."""
@@ -970,7 +978,10 @@ class FacebookBotManager:
                         if page_id not in active_page_ids:
                             # Save message count before removing
                             bot = self.bots[page_id]
-                            if hasattr(bot, '_unsaved_message_count') and bot._unsaved_message_count > 0:
+                            if (
+                                hasattr(bot, "_unsaved_message_count")
+                                and bot._unsaved_message_count > 0
+                            ):
                                 bot._save_messages_processed()
                             del self.bots[page_id]
                             logger.info(f"Removed Facebook bot for page {page_id}")

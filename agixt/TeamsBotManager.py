@@ -199,8 +199,12 @@ class CompanyTeamsBot:
             # Also check the UPN (User Principal Name) from activity
             upn = turn_context.activity.from_property.aad_object_id or ""
             upn_lower = upn.lower() if upn else ""
-            
-            if user_id_lower not in self.bot_allowlist and user_email_lower not in self.bot_allowlist and upn_lower not in self.bot_allowlist:
+
+            if (
+                user_id_lower not in self.bot_allowlist
+                and user_email_lower not in self.bot_allowlist
+                and upn_lower not in self.bot_allowlist
+            ):
                 logger.debug(f"Teams user {user_id} not in allowlist, ignoring")
                 return
             # For allowlist mode, use owner context if no linked account
@@ -209,15 +213,24 @@ class CompanyTeamsBot:
                 if self.bot_owner_id:
                     try:
                         from DB import User
+
                         with get_session() as db:
-                            owner = db.query(User).filter(User.id == self.bot_owner_id).first()
+                            owner = (
+                                db.query(User)
+                                .filter(User.id == self.bot_owner_id)
+                                .first()
+                            )
                             if owner:
                                 user_email = owner.email
                     except Exception as e:
-                        logger.error(f"Error getting owner email for allowlist user: {e}")
+                        logger.error(
+                            f"Error getting owner email for allowlist user: {e}"
+                        )
                         return
                 if not user_email:
-                    logger.warning("Cannot handle allowlist interaction: no owner configured")
+                    logger.warning(
+                        "Cannot handle allowlist interaction: no owner configured"
+                    )
                     return
         elif self.bot_permission_mode == "recognized_users":
             # Default behavior - only users with linked accounts

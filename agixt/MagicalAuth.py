@@ -765,14 +765,14 @@ def get_sso_credentials(user_id):
 def get_agent_oauth_credentials(agent_id: str, provider_name: str = None):
     """
     Get OAuth credentials associated with a specific agent.
-    
+
     If the agent has its own OAuth credentials for the provider, use those.
     Otherwise, fall back to the agent owner's credentials.
-    
+
     Args:
         agent_id: The agent's UUID
         provider_name: Optional provider name to filter by (e.g., 'x', 'microsoft', 'google')
-        
+
     Returns:
         Dict with provider credentials: {
             'access_token': str,
@@ -785,17 +785,17 @@ def get_agent_oauth_credentials(agent_id: str, provider_name: str = None):
         or None if not found
     """
     from DB import get_session, UserOAuth, OAuthProvider, Agent
-    
+
     session = get_session()
     try:
         # Get the agent to find its owner
         agent = session.query(Agent).filter(Agent.id == agent_id).first()
         if not agent:
             return None
-            
+
         # First, look for agent-specific OAuth credentials
         query = session.query(UserOAuth).filter(UserOAuth.agent_id == agent_id)
-        
+
         if provider_name:
             provider = (
                 session.query(OAuthProvider)
@@ -804,9 +804,9 @@ def get_agent_oauth_credentials(agent_id: str, provider_name: str = None):
             )
             if provider:
                 query = query.filter(UserOAuth.provider_id == provider.id)
-        
+
         agent_oauth = query.first()
-        
+
         if agent_oauth:
             # Agent has its own credentials
             provider = (
@@ -815,16 +815,16 @@ def get_agent_oauth_credentials(agent_id: str, provider_name: str = None):
                 .first()
             )
             return {
-                'access_token': agent_oauth.access_token,
-                'refresh_token': agent_oauth.refresh_token,
-                'provider_user_id': agent_oauth.provider_user_id,
-                'token_expires_at': agent_oauth.token_expires_at,
-                'account_name': agent_oauth.account_name,
-                'user_id': str(agent_oauth.user_id),
-                'provider_name': provider.name if provider else None,
-                'is_agent_specific': True,
+                "access_token": agent_oauth.access_token,
+                "refresh_token": agent_oauth.refresh_token,
+                "provider_user_id": agent_oauth.provider_user_id,
+                "token_expires_at": agent_oauth.token_expires_at,
+                "account_name": agent_oauth.account_name,
+                "user_id": str(agent_oauth.user_id),
+                "provider_name": provider.name if provider else None,
+                "is_agent_specific": True,
             }
-        
+
         # Fall back to agent owner's credentials (without agent_id set)
         if agent.user_id and provider_name:
             provider = (
@@ -842,16 +842,16 @@ def get_agent_oauth_credentials(agent_id: str, provider_name: str = None):
                 )
                 if owner_oauth:
                     return {
-                        'access_token': owner_oauth.access_token,
-                        'refresh_token': owner_oauth.refresh_token,
-                        'provider_user_id': owner_oauth.provider_user_id,
-                        'token_expires_at': owner_oauth.token_expires_at,
-                        'account_name': owner_oauth.account_name,
-                        'user_id': str(owner_oauth.user_id),
-                        'provider_name': provider.name if provider else None,
-                        'is_agent_specific': False,
+                        "access_token": owner_oauth.access_token,
+                        "refresh_token": owner_oauth.refresh_token,
+                        "provider_user_id": owner_oauth.provider_user_id,
+                        "token_expires_at": owner_oauth.token_expires_at,
+                        "account_name": owner_oauth.account_name,
+                        "user_id": str(owner_oauth.user_id),
+                        "provider_name": provider.name if provider else None,
+                        "is_agent_specific": False,
                     }
-        
+
         return None
     finally:
         session.close()
@@ -860,26 +860,26 @@ def get_agent_oauth_credentials(agent_id: str, provider_name: str = None):
 def get_all_agent_oauth_connections(agent_id: str):
     """
     Get all OAuth connections for an agent (both agent-specific and inherited from owner).
-    
+
     Args:
         agent_id: The agent's UUID
-        
+
     Returns:
         Dict mapping provider names to credential info
     """
     from DB import get_session, UserOAuth, OAuthProvider, Agent
-    
+
     session = get_session()
     try:
         agent = session.query(Agent).filter(Agent.id == agent_id).first()
         if not agent:
             return {}
-        
+
         connections = {}
-        
+
         # Get all OAuth providers
         providers = session.query(OAuthProvider).all()
-        
+
         for provider in providers:
             # Check for agent-specific credentials first
             agent_oauth = (
@@ -888,13 +888,13 @@ def get_all_agent_oauth_connections(agent_id: str):
                 .filter(UserOAuth.provider_id == provider.id)
                 .first()
             )
-            
+
             if agent_oauth:
                 connections[provider.name] = {
-                    'connected': True,
-                    'account_name': agent_oauth.account_name,
-                    'is_agent_specific': True,
-                    'provider_user_id': agent_oauth.provider_user_id,
+                    "connected": True,
+                    "account_name": agent_oauth.account_name,
+                    "is_agent_specific": True,
+                    "provider_user_id": agent_oauth.provider_user_id,
                 }
             elif agent.user_id:
                 # Check for owner's credentials
@@ -907,12 +907,12 @@ def get_all_agent_oauth_connections(agent_id: str):
                 )
                 if owner_oauth:
                     connections[provider.name] = {
-                        'connected': True,
-                        'account_name': owner_oauth.account_name,
-                        'is_agent_specific': False,
-                        'provider_user_id': owner_oauth.provider_user_id,
+                        "connected": True,
+                        "account_name": owner_oauth.account_name,
+                        "is_agent_specific": False,
+                        "provider_user_id": owner_oauth.provider_user_id,
                     }
-        
+
         return connections
     finally:
         session.close()

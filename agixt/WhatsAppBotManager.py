@@ -166,6 +166,7 @@ class CompanyWhatsAppBot:
         self.bot_allowlist = set()
         if bot_allowlist:
             import re
+
             for item in bot_allowlist.split(","):
                 item = item.strip()
                 # Normalize phone number (remove non-digits except +)
@@ -449,11 +450,14 @@ class CompanyWhatsAppBot:
         elif self.bot_permission_mode == "allowlist":
             # Only phone numbers in the allowlist can interact
             import re
+
             normalized_phone = re.sub(r"[^\d+]", "", sender_phone)
             if not normalized_phone.startswith("+"):
                 normalized_phone = "+" + normalized_phone
             if normalized_phone not in self.bot_allowlist:
-                logger.debug(f"WhatsApp number {sender_phone} not in allowlist, ignoring")
+                logger.debug(
+                    f"WhatsApp number {sender_phone} not in allowlist, ignoring"
+                )
                 return
             # For allowlist mode, use owner context if no linked account
             if not agixt_user_id:

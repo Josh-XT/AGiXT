@@ -166,7 +166,7 @@ class CompanyDiscordBot:
         """Load the messages_processed count from the database."""
         try:
             from DB import ServerExtensionSetting
-            
+
             with get_session() as db:
                 if self.company_id == "server":
                     # Server-level bot
@@ -174,7 +174,8 @@ class CompanyDiscordBot:
                         db.query(ServerExtensionSetting)
                         .filter(
                             ServerExtensionSetting.extension_name == "discord",
-                            ServerExtensionSetting.setting_key == "DISCORD_MESSAGES_PROCESSED",
+                            ServerExtensionSetting.setting_key
+                            == "DISCORD_MESSAGES_PROCESSED",
                         )
                         .first()
                     )
@@ -185,22 +186,25 @@ class CompanyDiscordBot:
                         .filter(
                             CompanyExtensionSetting.company_id == self.company_id,
                             CompanyExtensionSetting.extension_name == "discord",
-                            CompanyExtensionSetting.setting_key == "DISCORD_MESSAGES_PROCESSED",
+                            CompanyExtensionSetting.setting_key
+                            == "DISCORD_MESSAGES_PROCESSED",
                         )
                         .first()
                     )
-                
+
                 if setting and setting.setting_value:
                     return int(setting.setting_value)
         except Exception as e:
-            logger.warning(f"Could not load messages_processed for {self.company_id}: {e}")
+            logger.warning(
+                f"Could not load messages_processed for {self.company_id}: {e}"
+            )
         return 0
 
     def _save_messages_processed(self):
         """Save the messages_processed count to the database."""
         try:
             from DB import ServerExtensionSetting
-            
+
             with get_session() as db:
                 if self.company_id == "server":
                     # Server-level bot
@@ -208,7 +212,8 @@ class CompanyDiscordBot:
                         db.query(ServerExtensionSetting)
                         .filter(
                             ServerExtensionSetting.extension_name == "discord",
-                            ServerExtensionSetting.setting_key == "DISCORD_MESSAGES_PROCESSED",
+                            ServerExtensionSetting.setting_key
+                            == "DISCORD_MESSAGES_PROCESSED",
                         )
                         .first()
                     )
@@ -229,7 +234,8 @@ class CompanyDiscordBot:
                         .filter(
                             CompanyExtensionSetting.company_id == self.company_id,
                             CompanyExtensionSetting.extension_name == "discord",
-                            CompanyExtensionSetting.setting_key == "DISCORD_MESSAGES_PROCESSED",
+                            CompanyExtensionSetting.setting_key
+                            == "DISCORD_MESSAGES_PROCESSED",
                         )
                         .first()
                     )
@@ -247,7 +253,9 @@ class CompanyDiscordBot:
                 db.commit()
                 self._unsaved_message_count = 0
         except Exception as e:
-            logger.warning(f"Could not save messages_processed for {self.company_id}: {e}")
+            logger.warning(
+                f"Could not save messages_processed for {self.company_id}: {e}"
+            )
 
     def _setup_events(self):
         """Set up Discord event handlers."""
@@ -362,22 +370,29 @@ class CompanyDiscordBot:
             discord_user_id = str(message.author.id)
             if discord_user_id not in self.bot_allowlist:
                 # User not in allowlist - silently ignore
-                logger.debug(f"Discord user {discord_user_id} not in allowlist, ignoring")
+                logger.debug(
+                    f"Discord user {discord_user_id} not in allowlist, ignoring"
+                )
                 return
             # For allowlist mode, we can proceed even without a linked account
             # Use owner context if no user_email
             if not user_email and self.bot_owner_id:
                 try:
                     from DB import User
+
                     with get_session() as db:
-                        owner = db.query(User).filter(User.id == self.bot_owner_id).first()
+                        owner = (
+                            db.query(User).filter(User.id == self.bot_owner_id).first()
+                        )
                         if owner:
                             user_email = owner.email
                 except Exception as e:
                     logger.error(f"Error getting owner email for allowlist user: {e}")
                     return
                 if not user_email:
-                    logger.warning("Cannot handle allowlist interaction: no owner configured")
+                    logger.warning(
+                        "Cannot handle allowlist interaction: no owner configured"
+                    )
                     return
         elif self.bot_permission_mode == "recognized_users":
             # Default behavior - only users with linked accounts
@@ -2235,7 +2250,7 @@ class DiscordBotManager:
 
     def get_bot_status(self, company_id: str) -> Optional[BotStatus]:
         """Get status of a specific company's bot.
-        
+
         If a company doesn't have their own bot but the server-level bot is running,
         returns the server bot status (since it handles messages for all companies).
         """
@@ -2250,7 +2265,7 @@ class DiscordBotManager:
                 guild_count=bot.guild_count,
                 messages_processed=bot._messages_processed,
             )
-        
+
         # If no company-specific bot, check if server-level bot is running
         # The server-level bot handles all companies, so report its status
         server_bot = self.bots.get(self.SERVER_BOT_ID)
@@ -2263,43 +2278,47 @@ class DiscordBotManager:
                 guild_count=server_bot.guild_count,
                 messages_processed=server_bot._messages_processed,
             )
-        
+
         return None
-    
+
     def _publish_status_to_redis(self):
         """Publish bot status to Redis for cross-process access."""
         try:
             import redis
             import json
             from Globals import getenv
-            
+
             redis_host = getenv("REDIS_HOST")
             if not redis_host:
                 return
-            
+
             redis_uri = getenv("REDIS_URI")
             if redis_uri:
                 r = redis.from_url(redis_uri)
             else:
                 r = redis.Redis(host=redis_host, port=6379, db=0)
-            
+
             # Build status for all bots
             statuses = {}
             for company_id, bot in self.bots.items():
                 statuses[company_id] = {
                     "company_id": company_id,
                     "company_name": bot.company_name,
-                    "started_at": bot.started_at.isoformat() if bot.started_at else None,
+                    "started_at": (
+                        bot.started_at.isoformat() if bot.started_at else None
+                    ),
                     "is_running": bot.is_ready,
                     "guild_count": bot.guild_count,
                 }
-            
-            r.set("agixt:discord_bot_status", json.dumps(statuses), ex=30)  # 30 second TTL
+
+            r.set(
+                "agixt:discord_bot_status", json.dumps(statuses), ex=30
+            )  # 30 second TTL
             r.set("agixt:discord_bot_manager_running", "1", ex=30)
-            
+
         except Exception as e:
             logger.warning(f"Failed to publish Discord bot status to Redis: {e}")
-    
+
     async def _status_publisher_loop(self):
         """Background task to periodically publish status to Redis."""
         while self._running:
@@ -2314,51 +2333,55 @@ def get_discord_bot_status_from_redis(company_id: str) -> Optional[BotStatus]:
         import redis
         import json
         from Globals import getenv
-        
+
         redis_host = getenv("REDIS_HOST")
         if not redis_host:
             return None
-        
+
         redis_uri = getenv("REDIS_URI")
         if redis_uri:
             r = redis.from_url(redis_uri)
         else:
             r = redis.Redis(host=redis_host, port=6379, db=0)
-        
+
         # Check if manager is running
         if not r.get("agixt:discord_bot_manager_running"):
             return None
-        
+
         status_data = r.get("agixt:discord_bot_status")
         if not status_data:
             return None
-        
+
         statuses = json.loads(status_data)
-        
+
         # Check for company-specific bot
         if company_id in statuses:
             s = statuses[company_id]
             return BotStatus(
                 company_id=s["company_id"],
                 company_name=s["company_name"],
-                started_at=datetime.fromisoformat(s["started_at"]) if s["started_at"] else None,
+                started_at=(
+                    datetime.fromisoformat(s["started_at"]) if s["started_at"] else None
+                ),
                 is_running=s["is_running"],
                 guild_count=s.get("guild_count", 0),
             )
-        
+
         # Check for server-level bot
         if "server" in statuses:
             s = statuses["server"]
             return BotStatus(
                 company_id=company_id,
                 company_name=f"{s['company_name']} (shared)",
-                started_at=datetime.fromisoformat(s["started_at"]) if s["started_at"] else None,
+                started_at=(
+                    datetime.fromisoformat(s["started_at"]) if s["started_at"] else None
+                ),
                 is_running=s["is_running"],
                 guild_count=s.get("guild_count", 0),
             )
-        
+
         return None
-        
+
     except Exception as e:
         logger.warning(f"Failed to get Discord bot status from Redis: {e}")
         return None
@@ -2384,10 +2407,10 @@ async def start_discord_bot_manager():
         manager = DiscordBotManager()
         _registry_set(manager)
     await manager.start()
-    
+
     # Start the status publisher background task
     asyncio.create_task(manager._status_publisher_loop())
-    
+
     return manager
 
 
@@ -2397,12 +2420,12 @@ async def stop_discord_bot_manager():
     if manager:
         await manager.stop()
         _registry_set(None)
-        
+
         # Clear Redis status
         try:
             import redis
             from Globals import getenv
-            
+
             redis_host = getenv("REDIS_HOST")
             if redis_host:
                 redis_uri = getenv("REDIS_URI")
@@ -2414,4 +2437,3 @@ async def stop_discord_bot_manager():
                 r.delete("agixt:discord_bot_manager_running")
         except Exception as e:
             logger.warning(f"Failed to clear Discord bot status from Redis: {e}")
-

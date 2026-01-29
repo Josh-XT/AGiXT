@@ -181,7 +181,7 @@ class CompanyTelegramBot:
         """Load the messages_processed count from the database."""
         try:
             from DB import ServerExtensionSetting
-            
+
             with get_session() as db:
                 if self.company_id == "server":
                     # Server-level bot
@@ -189,7 +189,8 @@ class CompanyTelegramBot:
                         db.query(ServerExtensionSetting)
                         .filter(
                             ServerExtensionSetting.extension_name == "telegram",
-                            ServerExtensionSetting.setting_key == "TELEGRAM_MESSAGES_PROCESSED",
+                            ServerExtensionSetting.setting_key
+                            == "TELEGRAM_MESSAGES_PROCESSED",
                         )
                         .first()
                     )
@@ -200,22 +201,25 @@ class CompanyTelegramBot:
                         .filter(
                             CompanyExtensionSetting.company_id == self.company_id,
                             CompanyExtensionSetting.extension_name == "telegram",
-                            CompanyExtensionSetting.setting_key == "TELEGRAM_MESSAGES_PROCESSED",
+                            CompanyExtensionSetting.setting_key
+                            == "TELEGRAM_MESSAGES_PROCESSED",
                         )
                         .first()
                     )
-                
+
                 if setting and setting.setting_value:
                     return int(setting.setting_value)
         except Exception as e:
-            logger.warning(f"Could not load messages_processed for {self.company_id}: {e}")
+            logger.warning(
+                f"Could not load messages_processed for {self.company_id}: {e}"
+            )
         return 0
 
     def _save_messages_processed(self):
         """Save the messages_processed count to the database."""
         try:
             from DB import ServerExtensionSetting
-            
+
             with get_session() as db:
                 if self.company_id == "server":
                     # Server-level bot
@@ -223,7 +227,8 @@ class CompanyTelegramBot:
                         db.query(ServerExtensionSetting)
                         .filter(
                             ServerExtensionSetting.extension_name == "telegram",
-                            ServerExtensionSetting.setting_key == "TELEGRAM_MESSAGES_PROCESSED",
+                            ServerExtensionSetting.setting_key
+                            == "TELEGRAM_MESSAGES_PROCESSED",
                         )
                         .first()
                     )
@@ -244,7 +249,8 @@ class CompanyTelegramBot:
                         .filter(
                             CompanyExtensionSetting.company_id == self.company_id,
                             CompanyExtensionSetting.extension_name == "telegram",
-                            CompanyExtensionSetting.setting_key == "TELEGRAM_MESSAGES_PROCESSED",
+                            CompanyExtensionSetting.setting_key
+                            == "TELEGRAM_MESSAGES_PROCESSED",
                         )
                         .first()
                     )
@@ -262,7 +268,9 @@ class CompanyTelegramBot:
                 db.commit()
                 self._unsaved_message_count = 0
         except Exception as e:
-            logger.warning(f"Could not save messages_processed for {self.company_id}: {e}")
+            logger.warning(
+                f"Could not save messages_processed for {self.company_id}: {e}"
+            )
 
     def _make_request(self, method: str, data: dict = None, files: dict = None):
         """Make a request to the Telegram Bot API."""
@@ -903,7 +911,9 @@ class TelegramBotManager:
                             owner_id_setting.setting_value if owner_id_setting else None
                         ),
                         "bot_allowlist": (
-                            allowlist_setting.setting_value if allowlist_setting else None
+                            allowlist_setting.setting_value
+                            if allowlist_setting
+                            else None
                         ),
                     }
                 )

@@ -264,7 +264,7 @@ class CompanyGoogleEmailBot:
         Returns (allowed: bool, user_email: str or None)
         """
         sender_email_lower = sender_email.lower() if sender_email else ""
-        
+
         if self.bot_permission_mode == "owner_only":
             if not self.bot_owner_id:
                 return False, None
