@@ -488,8 +488,12 @@ class facebook(Extensions):
                         "message": post.get("message", ""),
                         "created_time": post.get("created_time", ""),
                         "shares": post.get("shares", {}).get("count", 0),
-                        "likes": post.get("likes", {}).get("summary", {}).get("total_count", 0),
-                        "comments": post.get("comments", {}).get("summary", {}).get("total_count", 0),
+                        "likes": post.get("likes", {})
+                        .get("summary", {})
+                        .get("total_count", 0),
+                        "comments": post.get("comments", {})
+                        .get("summary", {})
+                        .get("total_count", 0),
                     }
                 )
 

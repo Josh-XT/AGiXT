@@ -25,33 +25,33 @@ Telegram Bot API Documentation: https://core.telegram.org/bots/api
 def get_telegram_user_ids(company_id=None):
     """
     Get mapping of Telegram user IDs to AGiXT user IDs for a company.
-    
+
     Note: Telegram user IDs are numeric. Users link their accounts by
     sending a command to the bot with their AGiXT auth token.
-    
+
     Args:
         company_id: Optional company ID to filter by
-        
+
     Returns:
         Dict mapping Telegram user ID (string) -> AGiXT user ID
     """
     from DB import get_session, UserOAuth, OAuthProvider
-    
+
     user_ids = {}
     with get_session() as session:
         provider = session.query(OAuthProvider).filter_by(name="telegram").first()
         if not provider:
             return user_ids
-            
+
         query = session.query(UserOAuth).filter_by(provider_id=provider.id)
-        
+
         if company_id:
             query = query.filter(UserOAuth.company_id == company_id)
-            
+
         for oauth in query.all():
             if oauth.provider_user_id:
                 user_ids[oauth.provider_user_id] = str(oauth.user_id)
-                
+
     return user_ids
 
 
@@ -64,11 +64,11 @@ class telegram(Extensions):
     - Create and manage polls
     - Get updates and message history
     - Manage group chats
-    
+
     The extension uses a bot token from Telegram's BotFather.
     AI agents should use this when they need to interact with Telegram
     for notifications, conversations, or group management.
-    
+
     To create a bot:
     1. Message @BotFather on Telegram
     2. Send /newbot and follow the prompts
@@ -120,32 +120,32 @@ class telegram(Extensions):
     def _make_request(self, method: str, data: dict = None, files: dict = None):
         """
         Make a request to the Telegram Bot API.
-        
+
         Args:
             method: API method name
             data: Request parameters
             files: Files to upload
-            
+
         Returns:
             API response
         """
         url = f"{self.base_url}/{method}"
-        
+
         try:
             if files:
                 response = requests.post(url, data=data, files=files)
             else:
                 response = requests.post(url, json=data)
-            
+
             result = response.json()
-            
+
             if not result.get("ok"):
                 error_desc = result.get("description", "Unknown error")
                 logging.error(f"Telegram API error: {error_desc}")
                 return {"error": error_desc}
-            
+
             return result.get("result")
-            
+
         except Exception as e:
             logging.error(f"Telegram request failed: {str(e)}")
             return {"error": str(e)}
@@ -159,16 +159,18 @@ class telegram(Extensions):
         """
         try:
             result = self._make_request("getMe")
-            
+
             if "error" in result:
                 return result
-            
+
             return {
                 "id": result.get("id"),
                 "username": result.get("username"),
                 "first_name": result.get("first_name"),
                 "can_join_groups": result.get("can_join_groups", False),
-                "can_read_all_group_messages": result.get("can_read_all_group_messages", False),
+                "can_read_all_group_messages": result.get(
+                    "can_read_all_group_messages", False
+                ),
                 "supports_inline_queries": result.get("supports_inline_queries", False),
             }
 
@@ -201,7 +203,7 @@ class telegram(Extensions):
             # Telegram has a 4096 character limit
             if len(text) > 4096:
                 # Split into chunks
-                chunks = [text[i:i+4000] for i in range(0, len(text), 4000)]
+                chunks = [text[i : i + 4000] for i in range(0, len(text), 4000)]
                 results = []
                 for chunk in chunks:
                     result = await self.send_message(
@@ -209,22 +211,22 @@ class telegram(Extensions):
                     )
                     results.append(result)
                 return results[-1]  # Return last message info
-            
+
             data = {
                 "chat_id": chat_id,
                 "text": text,
                 "parse_mode": parse_mode,
                 "disable_notification": disable_notification,
             }
-            
+
             if reply_to_message_id:
                 data["reply_to_message_id"] = reply_to_message_id
-            
+
             result = self._make_request("sendMessage", data)
-            
+
             if "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {
                 "success": True,
                 "message_id": result.get("message_id"),
@@ -265,7 +267,7 @@ class telegram(Extensions):
                 if caption:
                     data["caption"] = caption[:1024]
                     data["parse_mode"] = parse_mode
-                
+
                 result = self._make_request("sendPhoto", data)
             else:
                 # It's a file path
@@ -274,23 +276,24 @@ class telegram(Extensions):
                     if os.path.exists(photo_path):
                         full_path = photo_path
                     else:
-                        return {"success": False, "error": f"Photo not found: {photo_path}"}
-                
+                        return {
+                            "success": False,
+                            "error": f"Photo not found: {photo_path}",
+                        }
+
                 data = {"chat_id": chat_id}
                 if caption:
                     data["caption"] = caption[:1024]
                     data["parse_mode"] = parse_mode
-                
+
                 with open(full_path, "rb") as photo_file:
                     result = self._make_request(
-                        "sendPhoto",
-                        data,
-                        files={"photo": photo_file}
+                        "sendPhoto", data, files={"photo": photo_file}
                     )
-            
+
             if "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {
                 "success": True,
                 "message_id": result.get("message_id"),
@@ -321,7 +324,9 @@ class telegram(Extensions):
             dict: Sent message information
         """
         try:
-            if document_path.startswith("http://") or document_path.startswith("https://"):
+            if document_path.startswith("http://") or document_path.startswith(
+                "https://"
+            ):
                 data = {
                     "chat_id": chat_id,
                     "document": document_path,
@@ -329,7 +334,7 @@ class telegram(Extensions):
                 if caption:
                     data["caption"] = caption[:1024]
                     data["parse_mode"] = parse_mode
-                
+
                 result = self._make_request("sendDocument", data)
             else:
                 full_path = os.path.join(self.WORKING_DIRECTORY, document_path)
@@ -337,23 +342,24 @@ class telegram(Extensions):
                     if os.path.exists(document_path):
                         full_path = document_path
                     else:
-                        return {"success": False, "error": f"Document not found: {document_path}"}
-                
+                        return {
+                            "success": False,
+                            "error": f"Document not found: {document_path}",
+                        }
+
                 data = {"chat_id": chat_id}
                 if caption:
                     data["caption"] = caption[:1024]
                     data["parse_mode"] = parse_mode
-                
+
                 with open(full_path, "rb") as doc_file:
                     result = self._make_request(
-                        "sendDocument",
-                        data,
-                        files={"document": doc_file}
+                        "sendDocument", data, files={"document": doc_file}
                     )
-            
+
             if "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {
                 "success": True,
                 "message_id": result.get("message_id"),
@@ -390,7 +396,7 @@ class telegram(Extensions):
                 return {"success": False, "error": "Poll needs at least 2 options"}
             if len(options) > 10:
                 options = options[:10]
-            
+
             data = {
                 "chat_id": chat_id,
                 "question": question[:300],
@@ -398,12 +404,12 @@ class telegram(Extensions):
                 "is_anonymous": is_anonymous,
                 "allows_multiple_answers": allows_multiple_answers,
             }
-            
+
             result = self._make_request("sendPoll", data)
-            
+
             if "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {
                 "success": True,
                 "message_id": result.get("message_id"),
@@ -417,7 +423,7 @@ class telegram(Extensions):
     async def get_updates(self, offset: int = None, limit: int = 100):
         """
         Gets incoming updates (messages, etc.) for the bot.
-        
+
         Note: This is for polling-based bots. Webhook bots receive updates automatically.
 
         Args:
@@ -431,18 +437,18 @@ class telegram(Extensions):
             data = {"limit": min(limit, 100)}
             if offset:
                 data["offset"] = offset
-            
+
             result = self._make_request("getUpdates", data)
-            
+
             if isinstance(result, dict) and "error" in result:
                 return {"error": result["error"]}
-            
+
             updates = []
             for update in result:
                 update_obj = {
                     "update_id": update.get("update_id"),
                 }
-                
+
                 if "message" in update:
                     msg = update["message"]
                     update_obj["type"] = "message"
@@ -455,9 +461,9 @@ class telegram(Extensions):
                         "text": msg.get("text", ""),
                         "date": msg.get("date"),
                     }
-                
+
                 updates.append(update_obj)
-            
+
             return updates
 
         except Exception as e:
@@ -476,10 +482,10 @@ class telegram(Extensions):
         """
         try:
             result = self._make_request("getChat", {"chat_id": chat_id})
-            
+
             if "error" in result:
                 return {"error": result["error"]}
-            
+
             return {
                 "id": result.get("id"),
                 "type": result.get("type"),
@@ -507,10 +513,10 @@ class telegram(Extensions):
         """
         try:
             result = self._make_request("getChatMemberCount", {"chat_id": chat_id})
-            
+
             if isinstance(result, dict) and "error" in result:
                 return {"error": result["error"]}
-            
+
             return {"count": result}
 
         except Exception as e:
@@ -529,10 +535,10 @@ class telegram(Extensions):
         """
         try:
             result = self._make_request("leaveChat", {"chat_id": chat_id})
-            
+
             if isinstance(result, dict) and "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {"success": True}
 
         except Exception as e:
@@ -552,13 +558,12 @@ class telegram(Extensions):
         """
         try:
             result = self._make_request(
-                "setChatTitle",
-                {"chat_id": chat_id, "title": title[:128]}
+                "setChatTitle", {"chat_id": chat_id, "title": title[:128]}
             )
-            
+
             if isinstance(result, dict) and "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {"success": True}
 
         except Exception as e:
@@ -579,19 +584,21 @@ class telegram(Extensions):
         try:
             result = self._make_request(
                 "setChatDescription",
-                {"chat_id": chat_id, "description": description[:255]}
+                {"chat_id": chat_id, "description": description[:255]},
             )
-            
+
             if isinstance(result, dict) and "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {"success": True}
 
         except Exception as e:
             logging.error(f"Error setting chat description: {str(e)}")
             return {"success": False, "error": str(e)}
 
-    async def pin_message(self, chat_id: str, message_id: int, disable_notification: bool = False):
+    async def pin_message(
+        self, chat_id: str, message_id: int, disable_notification: bool = False
+    ):
         """
         Pins a message in a chat.
 
@@ -610,12 +617,12 @@ class telegram(Extensions):
                     "chat_id": chat_id,
                     "message_id": message_id,
                     "disable_notification": disable_notification,
-                }
+                },
             )
-            
+
             if isinstance(result, dict) and "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {"success": True}
 
         except Exception as e:
@@ -637,12 +644,12 @@ class telegram(Extensions):
             data = {"chat_id": chat_id}
             if message_id:
                 data["message_id"] = message_id
-            
+
             result = self._make_request("unpinChatMessage", data)
-            
+
             if isinstance(result, dict) and "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {"success": True}
 
         except Exception as e:
@@ -662,13 +669,12 @@ class telegram(Extensions):
         """
         try:
             result = self._make_request(
-                "deleteMessage",
-                {"chat_id": chat_id, "message_id": message_id}
+                "deleteMessage", {"chat_id": chat_id, "message_id": message_id}
             )
-            
+
             if isinstance(result, dict) and "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {"success": True}
 
         except Exception as e:
@@ -702,12 +708,12 @@ class telegram(Extensions):
                     "from_chat_id": from_chat_id,
                     "message_id": message_id,
                     "disable_notification": disable_notification,
-                }
+                },
             )
-            
+
             if isinstance(result, dict) and "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {
                 "success": True,
                 "message_id": result.get("message_id"),

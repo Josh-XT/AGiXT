@@ -36,34 +36,34 @@ WhatsApp Cloud API Documentation: https://developers.facebook.com/docs/whatsapp/
 def get_whatsapp_user_ids(company_id=None):
     """
     Get mapping of WhatsApp phone numbers to AGiXT user IDs for a company.
-    
+
     WhatsApp identifies users by their phone numbers.
     Users link their accounts by sending a message to the bot
     and completing verification.
-    
+
     Args:
         company_id: Optional company ID to filter by
-        
+
     Returns:
         Dict mapping WhatsApp phone number -> AGiXT user ID
     """
     from DB import get_session, UserOAuth, OAuthProvider
-    
+
     user_ids = {}
     with get_session() as session:
         provider = session.query(OAuthProvider).filter_by(name="whatsapp").first()
         if not provider:
             return user_ids
-            
+
         query = session.query(UserOAuth).filter_by(provider_id=provider.id)
-        
+
         if company_id:
             query = query.filter(UserOAuth.company_id == company_id)
-            
+
         for oauth in query.all():
             if oauth.provider_user_id:
                 user_ids[oauth.provider_user_id] = str(oauth.user_id)
-                
+
     return user_ids
 
 
@@ -77,11 +77,11 @@ class whatsapp(Extensions):
     - Send interactive messages (buttons, lists)
     - Mark messages as read
     - Get business profile information
-    
+
     The extension requires WhatsApp Business API access through Meta.
     AI agents should use this when they need to communicate via WhatsApp
     for customer support, notifications, or conversational AI.
-    
+
     Note: WhatsApp has strict policies on messaging. You can only message
     users who have messaged you first within the last 24 hours, unless
     using approved template messages.
@@ -95,7 +95,7 @@ class whatsapp(Extensions):
         self.phone_number_id = kwargs.get("WHATSAPP_PHONE_NUMBER_ID", None)
         self.business_account_id = kwargs.get("WHATSAPP_BUSINESS_ACCOUNT_ID", None)
         self.auth = None
-        
+
         # Fallback to environment variables
         if not self.access_token:
             self.access_token = getenv("WHATSAPP_ACCESS_TOKEN")
@@ -103,7 +103,7 @@ class whatsapp(Extensions):
             self.phone_number_id = getenv("WHATSAPP_PHONE_NUMBER_ID")
         if not self.business_account_id:
             self.business_account_id = getenv("WHATSAPP_BUSINESS_ACCOUNT_ID")
-        
+
         self.base_url = "https://graph.facebook.com/v18.0"
 
         if self.access_token and self.phone_number_id:
@@ -139,21 +139,23 @@ class whatsapp(Extensions):
             "Content-Type": "application/json",
         }
 
-    def _make_request(self, method: str, endpoint: str, data: dict = None, files: dict = None):
+    def _make_request(
+        self, method: str, endpoint: str, data: dict = None, files: dict = None
+    ):
         """
         Make a request to the WhatsApp Cloud API.
-        
+
         Args:
             method: HTTP method (GET, POST, etc.)
             endpoint: API endpoint
             data: Request data
             files: Files to upload
-            
+
         Returns:
             API response
         """
         url = f"{self.base_url}/{endpoint}"
-        
+
         try:
             if method.upper() == "GET":
                 response = requests.get(url, headers=self._get_headers(), params=data)
@@ -162,16 +164,16 @@ class whatsapp(Extensions):
                 response = requests.post(url, headers=headers, data=data, files=files)
             else:
                 response = requests.post(url, headers=self._get_headers(), json=data)
-            
+
             result = response.json()
-            
+
             if "error" in result:
                 error_msg = result["error"].get("message", "Unknown error")
                 logging.error(f"WhatsApp API error: {error_msg}")
                 return {"error": error_msg}
-            
+
             return result
-            
+
         except Exception as e:
             logging.error(f"WhatsApp request failed: {str(e)}")
             return {"error": str(e)}
@@ -197,16 +199,20 @@ class whatsapp(Extensions):
             # WhatsApp has a 4096 character limit
             if len(message) > 4096:
                 # Split into chunks
-                chunks = [message[i:i+4000] for i in range(0, len(message), 4000)]
+                chunks = [message[i : i + 4000] for i in range(0, len(message), 4000)]
                 results = []
                 for chunk in chunks:
-                    result = await self.send_text_message(recipient_phone, chunk, preview_url)
+                    result = await self.send_text_message(
+                        recipient_phone, chunk, preview_url
+                    )
                     results.append(result)
                 return results[-1]
-            
+
             # Normalize phone number (remove + and spaces)
-            recipient_phone = recipient_phone.replace("+", "").replace(" ", "").replace("-", "")
-            
+            recipient_phone = (
+                recipient_phone.replace("+", "").replace(" ", "").replace("-", "")
+            )
+
             data = {
                 "messaging_product": "whatsapp",
                 "recipient_type": "individual",
@@ -217,12 +223,14 @@ class whatsapp(Extensions):
                     "body": message,
                 },
             }
-            
-            result = self._make_request("POST", f"{self.phone_number_id}/messages", data)
-            
+
+            result = self._make_request(
+                "POST", f"{self.phone_number_id}/messages", data
+            )
+
             if "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {
                 "success": True,
                 "message_id": result.get("messages", [{}])[0].get("id", ""),
@@ -252,8 +260,10 @@ class whatsapp(Extensions):
             dict: Response containing message ID and success status
         """
         try:
-            recipient_phone = recipient_phone.replace("+", "").replace(" ", "").replace("-", "")
-            
+            recipient_phone = (
+                recipient_phone.replace("+", "").replace(" ", "").replace("-", "")
+            )
+
             if image_path and not image_url:
                 # Need to upload the image first
                 full_path = os.path.join(self.WORKING_DIRECTORY, image_path)
@@ -261,8 +271,11 @@ class whatsapp(Extensions):
                     if os.path.exists(image_path):
                         full_path = image_path
                     else:
-                        return {"success": False, "error": f"Image not found: {image_path}"}
-                
+                        return {
+                            "success": False,
+                            "error": f"Image not found: {image_path}",
+                        }
+
                 # Upload media
                 with open(full_path, "rb") as f:
                     upload_result = self._make_request(
@@ -271,12 +284,12 @@ class whatsapp(Extensions):
                         data={"messaging_product": "whatsapp"},
                         files={"file": f},
                     )
-                
+
                 if "error" in upload_result:
                     return {"success": False, "error": upload_result["error"]}
-                
+
                 media_id = upload_result.get("id")
-                
+
                 data = {
                     "messaging_product": "whatsapp",
                     "recipient_type": "individual",
@@ -292,15 +305,17 @@ class whatsapp(Extensions):
                     "type": "image",
                     "image": {"link": image_url},
                 }
-            
+
             if caption:
                 data["image"]["caption"] = caption[:1024]
-            
-            result = self._make_request("POST", f"{self.phone_number_id}/messages", data)
-            
+
+            result = self._make_request(
+                "POST", f"{self.phone_number_id}/messages", data
+            )
+
             if "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {
                 "success": True,
                 "message_id": result.get("messages", [{}])[0].get("id", ""),
@@ -332,16 +347,21 @@ class whatsapp(Extensions):
             dict: Response containing message ID and success status
         """
         try:
-            recipient_phone = recipient_phone.replace("+", "").replace(" ", "").replace("-", "")
-            
+            recipient_phone = (
+                recipient_phone.replace("+", "").replace(" ", "").replace("-", "")
+            )
+
             if document_path and not document_url:
                 full_path = os.path.join(self.WORKING_DIRECTORY, document_path)
                 if not os.path.exists(full_path):
                     if os.path.exists(document_path):
                         full_path = document_path
                     else:
-                        return {"success": False, "error": f"Document not found: {document_path}"}
-                
+                        return {
+                            "success": False,
+                            "error": f"Document not found: {document_path}",
+                        }
+
                 # Upload media
                 with open(full_path, "rb") as f:
                     upload_result = self._make_request(
@@ -350,21 +370,21 @@ class whatsapp(Extensions):
                         data={"messaging_product": "whatsapp"},
                         files={"file": f},
                     )
-                
+
                 if "error" in upload_result:
                     return {"success": False, "error": upload_result["error"]}
-                
+
                 media_id = upload_result.get("id")
-                
+
                 document_data = {"id": media_id}
             else:
                 document_data = {"link": document_url}
-            
+
             if filename:
                 document_data["filename"] = filename
             if caption:
                 document_data["caption"] = caption[:1024]
-            
+
             data = {
                 "messaging_product": "whatsapp",
                 "recipient_type": "individual",
@@ -372,12 +392,14 @@ class whatsapp(Extensions):
                 "type": "document",
                 "document": document_data,
             }
-            
-            result = self._make_request("POST", f"{self.phone_number_id}/messages", data)
-            
+
+            result = self._make_request(
+                "POST", f"{self.phone_number_id}/messages", data
+            )
+
             if "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {
                 "success": True,
                 "message_id": result.get("messages", [{}])[0].get("id", ""),
@@ -408,8 +430,10 @@ class whatsapp(Extensions):
             dict: Response containing message ID and success status
         """
         try:
-            recipient_phone = recipient_phone.replace("+", "").replace(" ", "").replace("-", "")
-            
+            recipient_phone = (
+                recipient_phone.replace("+", "").replace(" ", "").replace("-", "")
+            )
+
             data = {
                 "messaging_product": "whatsapp",
                 "recipient_type": "individual",
@@ -420,15 +444,17 @@ class whatsapp(Extensions):
                     "language": {"code": language_code},
                 },
             }
-            
+
             if components:
                 data["template"]["components"] = components
-            
-            result = self._make_request("POST", f"{self.phone_number_id}/messages", data)
-            
+
+            result = self._make_request(
+                "POST", f"{self.phone_number_id}/messages", data
+            )
+
             if "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {
                 "success": True,
                 "message_id": result.get("messages", [{}])[0].get("id", ""),
@@ -460,30 +486,34 @@ class whatsapp(Extensions):
             dict: Response containing message ID and success status
         """
         try:
-            recipient_phone = recipient_phone.replace("+", "").replace(" ", "").replace("-", "")
-            
+            recipient_phone = (
+                recipient_phone.replace("+", "").replace(" ", "").replace("-", "")
+            )
+
             # Format buttons (max 3, title max 20 chars)
             formatted_buttons = []
             for i, btn in enumerate(buttons[:3]):
-                formatted_buttons.append({
-                    "type": "reply",
-                    "reply": {
-                        "id": btn.get("id", f"btn_{i}"),
-                        "title": btn.get("title", f"Button {i+1}")[:20],
+                formatted_buttons.append(
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": btn.get("id", f"btn_{i}"),
+                            "title": btn.get("title", f"Button {i+1}")[:20],
+                        },
                     }
-                })
-            
+                )
+
             interactive = {
                 "type": "button",
                 "body": {"text": body_text[:1024]},
                 "action": {"buttons": formatted_buttons},
             }
-            
+
             if header_text:
                 interactive["header"] = {"type": "text", "text": header_text[:60]}
             if footer_text:
                 interactive["footer"] = {"text": footer_text[:60]}
-            
+
             data = {
                 "messaging_product": "whatsapp",
                 "recipient_type": "individual",
@@ -491,12 +521,14 @@ class whatsapp(Extensions):
                 "type": "interactive",
                 "interactive": interactive,
             }
-            
-            result = self._make_request("POST", f"{self.phone_number_id}/messages", data)
-            
+
+            result = self._make_request(
+                "POST", f"{self.phone_number_id}/messages", data
+            )
+
             if "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {
                 "success": True,
                 "message_id": result.get("messages", [{}])[0].get("id", ""),
@@ -530,23 +562,29 @@ class whatsapp(Extensions):
             dict: Response containing message ID and success status
         """
         try:
-            recipient_phone = recipient_phone.replace("+", "").replace(" ", "").replace("-", "")
-            
+            recipient_phone = (
+                recipient_phone.replace("+", "").replace(" ", "").replace("-", "")
+            )
+
             # Format sections (max 10 sections, 10 rows each)
             formatted_sections = []
             for section in sections[:10]:
                 formatted_rows = []
                 for row in section.get("rows", [])[:10]:
-                    formatted_rows.append({
-                        "id": row.get("id", ""),
-                        "title": row.get("title", "")[:24],
-                        "description": row.get("description", "")[:72],
-                    })
-                formatted_sections.append({
-                    "title": section.get("title", "")[:24],
-                    "rows": formatted_rows,
-                })
-            
+                    formatted_rows.append(
+                        {
+                            "id": row.get("id", ""),
+                            "title": row.get("title", "")[:24],
+                            "description": row.get("description", "")[:72],
+                        }
+                    )
+                formatted_sections.append(
+                    {
+                        "title": section.get("title", "")[:24],
+                        "rows": formatted_rows,
+                    }
+                )
+
             interactive = {
                 "type": "list",
                 "body": {"text": body_text[:1024]},
@@ -555,12 +593,12 @@ class whatsapp(Extensions):
                     "sections": formatted_sections,
                 },
             }
-            
+
             if header_text:
                 interactive["header"] = {"type": "text", "text": header_text[:60]}
             if footer_text:
                 interactive["footer"] = {"text": footer_text[:60]}
-            
+
             data = {
                 "messaging_product": "whatsapp",
                 "recipient_type": "individual",
@@ -568,12 +606,14 @@ class whatsapp(Extensions):
                 "type": "interactive",
                 "interactive": interactive,
             }
-            
-            result = self._make_request("POST", f"{self.phone_number_id}/messages", data)
-            
+
+            result = self._make_request(
+                "POST", f"{self.phone_number_id}/messages", data
+            )
+
             if "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {
                 "success": True,
                 "message_id": result.get("messages", [{}])[0].get("id", ""),
@@ -599,12 +639,14 @@ class whatsapp(Extensions):
                 "status": "read",
                 "message_id": message_id,
             }
-            
-            result = self._make_request("POST", f"{self.phone_number_id}/messages", data)
-            
+
+            result = self._make_request(
+                "POST", f"{self.phone_number_id}/messages", data
+            )
+
             if "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {"success": True}
 
         except Exception as e:
@@ -622,12 +664,14 @@ class whatsapp(Extensions):
             result = self._make_request(
                 "GET",
                 f"{self.phone_number_id}/whatsapp_business_profile",
-                {"fields": "about,address,description,email,profile_picture_url,websites,vertical"},
+                {
+                    "fields": "about,address,description,email,profile_picture_url,websites,vertical"
+                },
             )
-            
+
             if "error" in result:
                 return {"error": result["error"]}
-            
+
             data = result.get("data", [{}])[0]
             return {
                 "about": data.get("about", ""),
@@ -668,7 +712,7 @@ class whatsapp(Extensions):
         """
         try:
             data = {"messaging_product": "whatsapp"}
-            
+
             if about:
                 data["about"] = about[:139]
             if address:
@@ -681,16 +725,16 @@ class whatsapp(Extensions):
                 data["websites"] = websites[:2]
             if vertical:
                 data["vertical"] = vertical
-            
+
             result = self._make_request(
                 "POST",
                 f"{self.phone_number_id}/whatsapp_business_profile",
                 data,
             )
-            
+
             if "error" in result:
                 return {"success": False, "error": result["error"]}
-            
+
             return {"success": True}
 
         except Exception as e:
@@ -710,10 +754,10 @@ class whatsapp(Extensions):
         """
         try:
             result = self._make_request("GET", media_id)
-            
+
             if "error" in result:
                 return {"error": result["error"]}
-            
+
             return {
                 "url": result.get("url", ""),
                 "mime_type": result.get("mime_type", ""),

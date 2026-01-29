@@ -1520,6 +1520,7 @@ class BotStatusResponse(BaseModel):
 
 class BotPermissionMode:
     """Permission modes for bot interactions."""
+
     OWNER_ONLY = "owner_only"  # Only the user who set up the bot can interact
     RECOGNIZED_USERS = "recognized_users"  # Only users with AGiXT accounts can interact
     ANYONE = "anyone"  # Anyone can interact with the bot
@@ -1552,66 +1553,142 @@ class AllBotsStatusResponse(BaseModel):
 
 # Bot permission modes
 BOT_PERMISSION_MODES = [
-    {"value": "owner_only", "label": "Owner Only", "description": "Only the user who configured the bot can interact with it"},
-    {"value": "recognized_users", "label": "Recognized Users", "description": "Only users with linked AGiXT accounts can interact"},
-    {"value": "anyone", "label": "Anyone", "description": "Anyone can interact with the bot"},
+    {
+        "value": "owner_only",
+        "label": "Owner Only",
+        "description": "Only the user who configured the bot can interact with it",
+    },
+    {
+        "value": "recognized_users",
+        "label": "Recognized Users",
+        "description": "Only users with linked AGiXT accounts can interact",
+    },
+    {
+        "value": "anyone",
+        "label": "Anyone",
+        "description": "Anyone can interact with the bot",
+    },
 ]
 
 # Platform-specific setting requirements
 BOT_PLATFORM_SETTINGS = {
     "discord": {
         "required": ["DISCORD_BOT_TOKEN"],
-        "optional": ["DISCORD_BOT_ENABLED", "discord_bot_agent_id", "discord_bot_permission_mode", "discord_bot_owner_id"],
+        "optional": [
+            "DISCORD_BOT_ENABLED",
+            "discord_bot_agent_id",
+            "discord_bot_permission_mode",
+            "discord_bot_owner_id",
+        ],
         "extension_name": "discord",
     },
     "slack": {
         "required": ["slack_bot_token", "slack_signing_secret"],
-        "optional": ["slack_bot_enabled", "slack_bot_agent_id", "slack_bot_permission_mode", "slack_bot_owner_id", "slack_app_token"],
+        "optional": [
+            "slack_bot_enabled",
+            "slack_bot_agent_id",
+            "slack_bot_permission_mode",
+            "slack_bot_owner_id",
+            "slack_app_token",
+        ],
         "extension_name": "slack",
     },
     "teams": {
         "required": ["teams_app_id", "teams_app_password"],
-        "optional": ["teams_bot_enabled", "teams_bot_agent_id", "teams_bot_permission_mode", "teams_bot_owner_id"],
+        "optional": [
+            "teams_bot_enabled",
+            "teams_bot_agent_id",
+            "teams_bot_permission_mode",
+            "teams_bot_owner_id",
+        ],
         "extension_name": "teams",
     },
     "x": {
-        "required": ["x_bot_token", "x_api_key", "x_api_secret", "x_access_token", "x_access_secret"],
-        "optional": ["x_bot_enabled", "x_bot_agent_id", "x_bot_permission_mode", "x_bot_owner_id"],
+        "required": [
+            "x_bot_token",
+            "x_api_key",
+            "x_api_secret",
+            "x_access_token",
+            "x_access_secret",
+        ],
+        "optional": [
+            "x_bot_enabled",
+            "x_bot_agent_id",
+            "x_bot_permission_mode",
+            "x_bot_owner_id",
+        ],
         "extension_name": "x",
     },
     "facebook": {
         "required": ["facebook_page_id", "facebook_page_token"],
-        "optional": ["facebook_bot_enabled", "facebook_bot_agent_id", "facebook_bot_permission_mode", "facebook_bot_owner_id", "facebook_app_secret"],
+        "optional": [
+            "facebook_bot_enabled",
+            "facebook_bot_agent_id",
+            "facebook_bot_permission_mode",
+            "facebook_bot_owner_id",
+            "facebook_app_secret",
+        ],
         "extension_name": "facebook",
     },
     "telegram": {
         "required": ["telegram_bot_token"],
-        "optional": ["telegram_bot_enabled", "telegram_bot_agent_id", "telegram_bot_permission_mode", "telegram_bot_owner_id"],
+        "optional": [
+            "telegram_bot_enabled",
+            "telegram_bot_agent_id",
+            "telegram_bot_permission_mode",
+            "telegram_bot_owner_id",
+        ],
         "extension_name": "telegram",
     },
     "whatsapp": {
         "required": ["whatsapp_phone_number_id", "whatsapp_access_token"],
-        "optional": ["whatsapp_bot_enabled", "whatsapp_bot_agent_id", "whatsapp_bot_permission_mode", "whatsapp_bot_owner_id", "whatsapp_display_phone_number"],
+        "optional": [
+            "whatsapp_bot_enabled",
+            "whatsapp_bot_agent_id",
+            "whatsapp_bot_permission_mode",
+            "whatsapp_bot_owner_id",
+            "whatsapp_display_phone_number",
+        ],
         "extension_name": "whatsapp",
     },
     "microsoft_email": {
         "required": ["MICROSOFT_EMAIL_ACCESS_TOKEN", "MICROSOFT_EMAIL_REFRESH_TOKEN"],
-        "optional": ["microsoft_email_bot_enabled", "microsoft_email_bot_agent_id", "microsoft_email_bot_permission_mode", "microsoft_email_bot_owner_id"],
+        "optional": [
+            "microsoft_email_bot_enabled",
+            "microsoft_email_bot_agent_id",
+            "microsoft_email_bot_permission_mode",
+            "microsoft_email_bot_owner_id",
+        ],
         "extension_name": "microsoft_email",
     },
     "google_email": {
         "required": ["GOOGLE_EMAIL_ACCESS_TOKEN", "GOOGLE_EMAIL_REFRESH_TOKEN"],
-        "optional": ["google_email_bot_enabled", "google_email_bot_agent_id", "google_email_bot_permission_mode", "google_email_bot_owner_id"],
+        "optional": [
+            "google_email_bot_enabled",
+            "google_email_bot_agent_id",
+            "google_email_bot_permission_mode",
+            "google_email_bot_owner_id",
+        ],
         "extension_name": "google_email",
     },
     "sendgrid_email": {
         "required": ["SENDGRID_API_KEY", "SENDGRID_EMAIL"],
-        "optional": ["sendgrid_email_bot_enabled", "sendgrid_email_bot_agent_id", "sendgrid_email_bot_permission_mode", "sendgrid_email_bot_owner_id"],
+        "optional": [
+            "sendgrid_email_bot_enabled",
+            "sendgrid_email_bot_agent_id",
+            "sendgrid_email_bot_permission_mode",
+            "sendgrid_email_bot_owner_id",
+        ],
         "extension_name": "sendgrid_email",
     },
     "twilio_sms": {
         "required": ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER"],
-        "optional": ["twilio_sms_bot_enabled", "twilio_sms_bot_agent_id", "twilio_sms_bot_permission_mode", "twilio_sms_bot_owner_id"],
+        "optional": [
+            "twilio_sms_bot_enabled",
+            "twilio_sms_bot_agent_id",
+            "twilio_sms_bot_permission_mode",
+            "twilio_sms_bot_owner_id",
+        ],
         "extension_name": "twilio_sms",
     },
 }
@@ -1621,47 +1698,60 @@ def _get_bot_manager(platform: str):
     """Get the bot manager for a specific platform."""
     if platform == "discord":
         from DiscordBotManager import get_discord_bot_manager
+
         return get_discord_bot_manager()
     elif platform == "slack":
         from SlackBotManager import get_slack_bot_manager
+
         return get_slack_bot_manager()
     elif platform == "teams":
         from TeamsBotManager import get_teams_bot_manager
+
         return get_teams_bot_manager()
     elif platform == "x":
         from XBotManager import get_x_bot_manager
+
         return get_x_bot_manager()
     elif platform == "facebook":
         from FacebookBotManager import get_facebook_bot_manager
+
         return get_facebook_bot_manager()
     elif platform == "telegram":
         from TelegramBotManager import get_telegram_bot_manager
+
         return get_telegram_bot_manager()
     elif platform == "whatsapp":
         from WhatsAppBotManager import get_whatsapp_bot_manager
+
         return get_whatsapp_bot_manager()
     elif platform == "microsoft_email":
         from MicrosoftEmailBotManager import get_microsoft_email_bot_manager
+
         return get_microsoft_email_bot_manager()
     elif platform == "google_email":
         from GoogleEmailBotManager import get_google_email_bot_manager
+
         return get_google_email_bot_manager()
     elif platform == "sendgrid_email":
         from SendGridEmailBotManager import get_sendgrid_email_bot_manager
+
         return get_sendgrid_email_bot_manager()
     elif platform == "twilio_sms":
         from TwilioSmsBotManager import get_twilio_sms_bot_manager
+
         return get_twilio_sms_bot_manager()
     return None
 
 
-def _get_bot_status_for_platform(platform: str, company_id: str, company_name: str) -> Optional[BotStatusResponse]:
+def _get_bot_status_for_platform(
+    platform: str, company_id: str, company_name: str
+) -> Optional[BotStatusResponse]:
     """Get bot status for a specific platform and company."""
     try:
         manager = _get_bot_manager(platform)
         if not manager:
             return None
-        
+
         status = manager.get_bot_status(company_id)
         if not status:
             return BotStatusResponse(
@@ -1670,19 +1760,29 @@ def _get_bot_status_for_platform(platform: str, company_id: str, company_name: s
                 platform=platform,
                 is_running=False,
             )
-        
+
         # Build extra data based on platform
         extra = {}
         if platform == "discord" and hasattr(status, "guild_count"):
             extra["guild_count"] = status.guild_count
-        
+
         return BotStatusResponse(
             company_id=company_id,
-            company_name=status.company_name if hasattr(status, "company_name") else company_name,
+            company_name=(
+                status.company_name if hasattr(status, "company_name") else company_name
+            ),
             platform=platform,
             is_running=status.is_running if hasattr(status, "is_running") else False,
-            started_at=status.started_at.isoformat() if hasattr(status, "started_at") and status.started_at else None,
-            messages_processed=status.messages_processed if hasattr(status, "messages_processed") else 0,
+            started_at=(
+                status.started_at.isoformat()
+                if hasattr(status, "started_at") and status.started_at
+                else None
+            ),
+            messages_processed=(
+                status.messages_processed
+                if hasattr(status, "messages_processed")
+                else 0
+            ),
             error=status.error if hasattr(status, "error") else None,
             extra=extra if extra else None,
         )
@@ -1730,9 +1830,15 @@ async def get_company_all_bots_status(
         facebook=_get_bot_status_for_platform("facebook", company_id, company_name),
         telegram=_get_bot_status_for_platform("telegram", company_id, company_name),
         whatsapp=_get_bot_status_for_platform("whatsapp", company_id, company_name),
-        microsoft_email=_get_bot_status_for_platform("microsoft_email", company_id, company_name),
-        google_email=_get_bot_status_for_platform("google_email", company_id, company_name),
-        sendgrid_email=_get_bot_status_for_platform("sendgrid_email", company_id, company_name),
+        microsoft_email=_get_bot_status_for_platform(
+            "microsoft_email", company_id, company_name
+        ),
+        google_email=_get_bot_status_for_platform(
+            "google_email", company_id, company_name
+        ),
+        sendgrid_email=_get_bot_status_for_platform(
+            "sendgrid_email", company_id, company_name
+        ),
         twilio_sms=_get_bot_status_for_platform("twilio_sms", company_id, company_name),
     )
 
@@ -1842,7 +1948,9 @@ async def get_company_bot_settings(
                 if setting.is_sensitive:
                     value = setting.setting_value
                     if len(value) > 8:
-                        settings[setting_key] = f"{value[:4]}{'•' * (len(value) - 8)}{value[-4:]}"
+                        settings[setting_key] = (
+                            f"{value[:4]}{'•' * (len(value) - 8)}{value[-4:]}"
+                        )
                     else:
                         settings[setting_key] = "••••••••"
                 else:
@@ -1903,8 +2011,12 @@ async def enable_company_bot(
         if request.enabled:
             for required_key in platform_config["required"]:
                 # Check if provided in request
-                provided = request.settings and required_key in request.settings and request.settings[required_key]
-                
+                provided = (
+                    request.settings
+                    and required_key in request.settings
+                    and request.settings[required_key]
+                )
+
                 # Check if exists in database
                 existing = (
                     db.query(CompanyExtensionSetting)
@@ -1915,7 +2027,7 @@ async def enable_company_bot(
                     )
                     .first()
                 )
-                
+
                 if not provided and (not existing or not existing.setting_value):
                     raise HTTPException(
                         status_code=400,
@@ -1927,7 +2039,7 @@ async def enable_company_bot(
             for key, value in request.settings.items():
                 if value is None:
                     continue
-                    
+
                 existing = (
                     db.query(CompanyExtensionSetting)
                     .filter(
@@ -1952,6 +2064,7 @@ async def enable_company_bot(
                     existing.is_sensitive = is_sensitive
                 else:
                     from DB import get_new_id
+
                     new_setting = CompanyExtensionSetting(
                         id=get_new_id(),
                         company_id=company_id,
@@ -1978,14 +2091,17 @@ async def enable_company_bot(
                 existing_agent.setting_value = request.agent_id
             else:
                 from DB import get_new_id
-                db.add(CompanyExtensionSetting(
-                    id=get_new_id(),
-                    company_id=company_id,
-                    extension_name=extension_name,
-                    setting_key=agent_id_key,
-                    setting_value=request.agent_id,
-                    is_sensitive=False,
-                ))
+
+                db.add(
+                    CompanyExtensionSetting(
+                        id=get_new_id(),
+                        company_id=company_id,
+                        extension_name=extension_name,
+                        setting_key=agent_id_key,
+                        setting_value=request.agent_id,
+                        is_sensitive=False,
+                    )
+                )
 
         # Save permission_mode if provided
         if request.permission_mode:
@@ -1996,7 +2112,7 @@ async def enable_company_bot(
                     status_code=400,
                     detail=f"Invalid permission_mode: {request.permission_mode}. Valid modes: {valid_modes}",
                 )
-            
+
             permission_key = f"{extension_name}_bot_permission_mode"
             existing_perm = (
                 db.query(CompanyExtensionSetting)
@@ -2011,14 +2127,17 @@ async def enable_company_bot(
                 existing_perm.setting_value = request.permission_mode
             else:
                 from DB import get_new_id
-                db.add(CompanyExtensionSetting(
-                    id=get_new_id(),
-                    company_id=company_id,
-                    extension_name=extension_name,
-                    setting_key=permission_key,
-                    setting_value=request.permission_mode,
-                    is_sensitive=False,
-                ))
+
+                db.add(
+                    CompanyExtensionSetting(
+                        id=get_new_id(),
+                        company_id=company_id,
+                        extension_name=extension_name,
+                        setting_key=permission_key,
+                        setting_value=request.permission_mode,
+                        is_sensitive=False,
+                    )
+                )
 
         # Save owner_id (the user who is enabling this bot)
         owner_id_key = f"{extension_name}_bot_owner_id"
@@ -2034,14 +2153,17 @@ async def enable_company_bot(
         if not existing_owner:
             # Only set owner on first enable, don't overwrite
             from DB import get_new_id
-            db.add(CompanyExtensionSetting(
-                id=get_new_id(),
-                company_id=company_id,
-                extension_name=extension_name,
-                setting_key=owner_id_key,
-                setting_value=str(auth.user_id),
-                is_sensitive=False,
-            ))
+
+            db.add(
+                CompanyExtensionSetting(
+                    id=get_new_id(),
+                    company_id=company_id,
+                    extension_name=extension_name,
+                    setting_key=owner_id_key,
+                    setting_value=str(auth.user_id),
+                    is_sensitive=False,
+                )
+            )
 
         # Update enabled setting
         existing_enabled = (
@@ -2060,6 +2182,7 @@ async def enable_company_bot(
             existing_enabled.setting_value = enabled_value
         else:
             from DB import get_new_id
+
             new_setting = CompanyExtensionSetting(
                 id=get_new_id(),
                 company_id=company_id,
@@ -2077,6 +2200,7 @@ async def enable_company_bot(
         manager = _get_bot_manager(platform)
         if manager and hasattr(manager, "sync_bots"):
             import asyncio
+
             asyncio.create_task(manager.sync_bots())
     except Exception as e:
         logging.error(f"Error syncing {platform} bots: {e}")
@@ -2182,10 +2306,22 @@ async def get_all_bots_admin(
                         "status": "running",
                         "bots": [
                             {
-                                "company_id": s.company_id if hasattr(s, "company_id") else k,
-                                "company_name": s.company_name if hasattr(s, "company_name") else "Unknown",
-                                "is_running": s.is_running if hasattr(s, "is_running") else False,
-                                "started_at": s.started_at.isoformat() if hasattr(s, "started_at") and s.started_at else None,
+                                "company_id": (
+                                    s.company_id if hasattr(s, "company_id") else k
+                                ),
+                                "company_name": (
+                                    s.company_name
+                                    if hasattr(s, "company_name")
+                                    else "Unknown"
+                                ),
+                                "is_running": (
+                                    s.is_running if hasattr(s, "is_running") else False
+                                ),
+                                "started_at": (
+                                    s.started_at.isoformat()
+                                    if hasattr(s, "started_at") and s.started_at
+                                    else None
+                                ),
                                 "error": s.error if hasattr(s, "error") else None,
                             }
                             for k, s in statuses.items()
@@ -2199,10 +2335,22 @@ async def get_all_bots_admin(
                     "status": "running",
                     "bots": [
                         {
-                            "company_id": s.company_id if hasattr(s, "company_id") else "unknown",
-                            "company_name": s.company_name if hasattr(s, "company_name") else "Unknown",
-                            "is_running": s.is_running if hasattr(s, "is_running") else False,
-                            "started_at": s.started_at.isoformat() if hasattr(s, "started_at") and s.started_at else None,
+                            "company_id": (
+                                s.company_id if hasattr(s, "company_id") else "unknown"
+                            ),
+                            "company_name": (
+                                s.company_name
+                                if hasattr(s, "company_name")
+                                else "Unknown"
+                            ),
+                            "is_running": (
+                                s.is_running if hasattr(s, "is_running") else False
+                            ),
+                            "started_at": (
+                                s.started_at.isoformat()
+                                if hasattr(s, "started_at") and s.started_at
+                                else None
+                            ),
                             "error": s.error if hasattr(s, "error") else None,
                         }
                         for s in statuses
@@ -2237,15 +2385,17 @@ async def get_bot_platforms(
 
     platforms = []
     for platform, config in BOT_PLATFORM_SETTINGS.items():
-        platforms.append({
-            "id": platform,
-            "name": _get_platform_display_name(platform),
-            "extension_name": config["extension_name"],
-            "required_settings": config["required"],
-            "optional_settings": config["optional"],
-            "description": _get_platform_description(platform),
-            "setup_url": _get_platform_setup_url(platform),
-        })
+        platforms.append(
+            {
+                "id": platform,
+                "name": _get_platform_display_name(platform),
+                "extension_name": config["extension_name"],
+                "required_settings": config["required"],
+                "optional_settings": config["optional"],
+                "description": _get_platform_description(platform),
+                "setup_url": _get_platform_setup_url(platform),
+            }
+        )
 
     return {
         "platforms": platforms,

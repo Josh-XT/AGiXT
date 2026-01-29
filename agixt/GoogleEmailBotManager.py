@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BotStatus:
     """Status information for a company's Google Email bot."""
+
     company_id: str
     company_name: str
     started_at: Optional[datetime] = None
@@ -47,7 +48,7 @@ class CompanyGoogleEmailBot:
     """
     A Google Email bot instance for a specific company.
     Polls for new emails and responds using the configured AI agent.
-    
+
     Permission modes:
     - owner_only: Only emails from the owner's address are processed
     - recognized_users: Only emails from users with linked AGiXT accounts are processed
@@ -69,23 +70,23 @@ class CompanyGoogleEmailBot:
         self.company_name = company_name
         self.access_token = access_token
         self.refresh_token = refresh_token
-        
+
         # Bot configuration
         self.bot_agent_id = bot_agent_id
         self.bot_permission_mode = bot_permission_mode
         self.bot_owner_id = bot_owner_id
         self.poll_interval = poll_interval
-        
+
         self._is_running = False
         self._started_at: Optional[datetime] = None
         self._messages_processed = 0
         self._last_check: Optional[datetime] = None
         self._stop_event = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
-        
+
         # Track processed message IDs to avoid duplicates
         self._processed_ids: set = set()
-        
+
         # Google API settings
         self.client_id = getenv("GOOGLE_CLIENT_ID")
         self.client_secret = getenv("GOOGLE_CLIENT_SECRET")
@@ -114,15 +115,17 @@ class CompanyGoogleEmailBot:
             logger.error(f"Error refreshing token: {e}")
             return False
 
-    def _make_gmail_request(self, method: str, endpoint: str, **kwargs) -> Optional[dict]:
+    def _make_gmail_request(
+        self, method: str, endpoint: str, **kwargs
+    ) -> Optional[dict]:
         """Make a request to Gmail API with automatic token refresh."""
         headers = {"Authorization": f"Bearer {self.access_token}"}
         if "headers" in kwargs:
             headers.update(kwargs.pop("headers"))
-        
+
         url = f"{self.gmail_base_url}{endpoint}"
         response = requests.request(method, url, headers=headers, **kwargs)
-        
+
         if response.status_code == 401:
             # Token expired, try to refresh
             if self._refresh_access_token():
@@ -130,7 +133,7 @@ class CompanyGoogleEmailBot:
                 response = requests.request(method, url, headers=headers, **kwargs)
             else:
                 return None
-        
+
         if response.status_code >= 200 and response.status_code < 300:
             if response.text:
                 return response.json()
@@ -147,23 +150,21 @@ class CompanyGoogleEmailBot:
             params={
                 "q": "is:unread in:inbox",
                 "maxResults": 10,
-            }
+            },
         )
-        
+
         if not result or "messages" not in result:
             return []
-        
+
         # Get full message details for each
         messages = []
         for msg_ref in result.get("messages", []):
             msg_detail = self._make_gmail_request(
-                "GET",
-                f"/messages/{msg_ref['id']}",
-                params={"format": "full"}
+                "GET", f"/messages/{msg_ref['id']}", params={"format": "full"}
             )
             if msg_detail:
                 messages.append(msg_detail)
-        
+
         return messages
 
     def _mark_as_read(self, message_id: str):
@@ -171,7 +172,7 @@ class CompanyGoogleEmailBot:
         self._make_gmail_request(
             "POST",
             f"/messages/{message_id}/modify",
-            json={"removeLabelIds": ["UNREAD"]}
+            json={"removeLabelIds": ["UNREAD"]},
         )
 
     def _send_reply(self, original_message: dict, reply_content: str):
@@ -179,15 +180,15 @@ class CompanyGoogleEmailBot:
         # Extract headers from original message
         headers = original_message.get("payload", {}).get("headers", [])
         headers_dict = {h["name"].lower(): h["value"] for h in headers}
-        
+
         to_email = headers_dict.get("from", "")
         subject = headers_dict.get("subject", "")
         if not subject.lower().startswith("re:"):
             subject = f"Re: {subject}"
-        
+
         message_id = headers_dict.get("message-id", "")
         thread_id = original_message.get("threadId")
-        
+
         # Create MIME message
         mime_message = MIMEMultipart()
         mime_message["to"] = to_email
@@ -195,21 +196,17 @@ class CompanyGoogleEmailBot:
         if message_id:
             mime_message["In-Reply-To"] = message_id
             mime_message["References"] = message_id
-        
+
         mime_message.attach(MIMEText(reply_content, "html"))
-        
+
         # Encode and send
         raw = base64.urlsafe_b64encode(mime_message.as_bytes()).decode()
-        
+
         body = {"raw": raw}
         if thread_id:
             body["threadId"] = thread_id
-        
-        self._make_gmail_request(
-            "POST",
-            "/messages/send",
-            json=body
-        )
+
+        self._make_gmail_request("POST", "/messages/send", json=body)
 
     def _get_sender_email(self, message: dict) -> str:
         """Extract sender email from message."""
@@ -226,10 +223,12 @@ class CompanyGoogleEmailBot:
     def _get_email_body(self, message: dict) -> str:
         """Extract email body text from message."""
         payload = message.get("payload", {})
-        
+
         def extract_body(part):
             if "body" in part and "data" in part["body"]:
-                return base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", errors="ignore")
+                return base64.urlsafe_b64decode(part["body"]["data"]).decode(
+                    "utf-8", errors="ignore"
+                )
             if "parts" in part:
                 for subpart in part["parts"]:
                     if subpart.get("mimeType") == "text/plain":
@@ -241,13 +240,14 @@ class CompanyGoogleEmailBot:
                     if body:
                         return body
             return ""
-        
+
         body = extract_body(payload)
-        
+
         # Clean HTML if present
         import re
-        body = re.sub(r'<[^>]+>', '', body).strip()
-        
+
+        body = re.sub(r"<[^>]+>", "", body).strip()
+
         return body
 
     def _is_sender_allowed(self, sender_email: str) -> tuple:
@@ -263,14 +263,14 @@ class CompanyGoogleEmailBot:
                 if owner and owner.email.lower() == sender_email:
                     return True, owner.email
             return False, None
-        
+
         elif self.bot_permission_mode == "recognized_users":
             with get_session() as db:
                 user = db.query(User).filter(User.email == sender_email).first()
                 if user:
                     return True, user.email
             return False, None
-        
+
         elif self.bot_permission_mode == "anyone":
             if self.bot_owner_id:
                 with get_session() as db:
@@ -278,7 +278,7 @@ class CompanyGoogleEmailBot:
                     if owner:
                         return True, owner.email
             return False, None
-        
+
         return False, None
 
     async def _process_email(self, message: dict):
@@ -286,67 +286,73 @@ class CompanyGoogleEmailBot:
         message_id = message.get("id")
         if message_id in self._processed_ids:
             return
-        
+
         sender_email = self._get_sender_email(message)
         allowed, user_email = self._is_sender_allowed(sender_email)
-        
+
         if not allowed:
             logger.debug(f"Email from {sender_email} not allowed by permission mode")
             self._mark_as_read(message_id)
             self._processed_ids.add(message_id)
             return
-        
+
         try:
             # Get the email content
             headers = message.get("payload", {}).get("headers", [])
             headers_dict = {h["name"].lower(): h["value"] for h in headers}
             subject = headers_dict.get("subject", "No Subject")
             body_text = self._get_email_body(message)
-            
+
             # Create prompt from email
             prompt = f"Subject: {subject}\n\nMessage:\n{body_text}"
-            
+
             # Get JWT for the user
             user_jwt = impersonate_user(user_email)
             agixt = InternalClient(api_key=user_jwt, user=user_email)
-            
+
             # Determine agent to use
             agent_name = None
             if self.bot_agent_id:
                 agents = agixt.get_agents()
                 for agent in agents:
-                    if isinstance(agent, dict) and str(agent.get("id")) == str(self.bot_agent_id):
+                    if isinstance(agent, dict) and str(agent.get("id")) == str(
+                        self.bot_agent_id
+                    ):
                         agent_name = agent.get("name")
                         break
-            
+
             if not agent_name:
                 agents = agixt.get_agents()
                 if agents:
-                    agent_name = agents[0].get("name", "XT") if isinstance(agents[0], dict) else agents[0]
+                    agent_name = (
+                        agents[0].get("name", "XT")
+                        if isinstance(agents[0], dict)
+                        else agents[0]
+                    )
                 else:
                     agent_name = "XT"
-            
+
             # Create conversation name
             thread_id = message.get("threadId", message_id)[:8]
             conversation_name = f"Gmail-{sender_email}-{thread_id}"
-            
+
             # Get response from agent
             response = agixt.chat(
                 agent_name=agent_name,
                 user_input=prompt,
                 conversation_name=conversation_name,
             )
-            
+
             if response:
                 # Format response as HTML
                 html_response = f"<p>{response.replace(chr(10), '<br>')}</p>"
                 self._send_reply(message, html_response)
                 self._messages_processed += 1
                 logger.info(f"Replied to email from {sender_email}")
-            
+
             self._mark_as_read(message_id)
             self._processed_ids.add(message_id)
-            
+
         except Exception as e:
             logger.error(f"Error processing email {message_id}: {e}")
             self._mark_as_read(message_id)
@@ -358,19 +364,18 @@ class CompanyGoogleEmailBot:
             try:
                 self._last_check = datetime.now()
                 emails = self._get_unread_emails()
-                
+
                 for email in emails:
                     if self._stop_event.is_set():
                         break
                     await self._process_email(email)
-                
+
             except Exception as e:
                 logger.error(f"Error in email poll loop for {self.company_name}: {e}")
-            
+
             try:
                 await asyncio.wait_for(
-                    self._stop_event.wait(),
-                    timeout=self.poll_interval
+                    self._stop_event.wait(), timeout=self.poll_interval
                 )
                 break
             except asyncio.TimeoutError:
@@ -380,7 +385,7 @@ class CompanyGoogleEmailBot:
         """Start the email bot."""
         if self._is_running:
             return
-        
+
         self._is_running = True
         self._started_at = datetime.now()
         self._stop_event.clear()
@@ -391,13 +396,13 @@ class CompanyGoogleEmailBot:
         """Stop the email bot."""
         self._stop_event.set()
         self._is_running = False
-        
+
         if self._task:
             try:
                 await asyncio.wait_for(self._task, timeout=5.0)
             except asyncio.TimeoutError:
                 self._task.cancel()
-        
+
         logger.info(f"Google Email bot stopped for {self.company_name}")
 
     def get_status(self) -> BotStatus:
@@ -417,7 +422,7 @@ class GoogleEmailBotManager:
     Manages Google Email bots for all companies.
     Singleton pattern ensures only one manager exists.
     """
-    
+
     _instance = None
     _lock = threading.Lock()
 
@@ -432,7 +437,7 @@ class GoogleEmailBotManager:
     def __init__(self):
         if self._initialized:
             return
-        
+
         self._initialized = True
         self._bots: Dict[str, CompanyGoogleEmailBot] = {}
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -454,32 +459,38 @@ class GoogleEmailBotManager:
     def get_company_bot_config(self, company_id: str) -> Optional[dict]:
         """Get Google Email bot configuration for a company."""
         with get_session() as db:
-            settings = db.query(CompanyExtensionSetting).filter(
-                CompanyExtensionSetting.company_id == company_id,
-                CompanyExtensionSetting.extension_name == "google_email",
-            ).all()
-            
+            settings = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == "google_email",
+                )
+                .all()
+            )
+
             if not settings:
                 return None
-            
+
             config = {}
             for setting in settings:
                 config[setting.setting_name] = setting.setting_value
-            
+
             if config.get("google_email_bot_enabled", "").lower() != "true":
                 return None
-            
+
             access_token = config.get("GOOGLE_EMAIL_ACCESS_TOKEN")
             refresh_token = config.get("GOOGLE_EMAIL_REFRESH_TOKEN")
-            
+
             if not access_token or not refresh_token:
                 return None
-            
+
             return {
                 "access_token": access_token,
                 "refresh_token": refresh_token,
                 "agent_id": config.get("google_email_bot_agent_id"),
-                "permission_mode": config.get("google_email_bot_permission_mode", "recognized_users"),
+                "permission_mode": config.get(
+                    "google_email_bot_permission_mode", "recognized_users"
+                ),
                 "owner_id": config.get("google_email_bot_owner_id"),
             }
 
@@ -488,17 +499,17 @@ class GoogleEmailBotManager:
         if company_id in self._bots:
             logger.debug(f"Google Email bot already running for company {company_id}")
             return
-        
+
         config = self.get_company_bot_config(company_id)
         if not config:
             logger.debug(f"No valid Google Email config for company {company_id}")
             return
-        
+
         if not company_name:
             with get_session() as db:
                 company = db.query(Company).filter(Company.id == company_id).first()
                 company_name = company.name if company else "Unknown"
-        
+
         bot = CompanyGoogleEmailBot(
             company_id=company_id,
             company_name=company_name,
@@ -508,7 +519,7 @@ class GoogleEmailBotManager:
             bot_permission_mode=config.get("permission_mode", "recognized_users"),
             bot_owner_id=config.get("owner_id"),
         )
-        
+
         self._bots[company_id] = bot
         await bot.start()
 
@@ -516,7 +527,7 @@ class GoogleEmailBotManager:
         """Stop Google Email bot for a specific company."""
         if company_id not in self._bots:
             return
-        
+
         bot = self._bots[company_id]
         await bot.stop()
         del self._bots[company_id]
@@ -524,18 +535,22 @@ class GoogleEmailBotManager:
     async def sync_bots(self):
         """Sync bots with database configuration."""
         with get_session() as db:
-            enabled_settings = db.query(CompanyExtensionSetting).filter(
-                CompanyExtensionSetting.extension_name == "google_email",
-                CompanyExtensionSetting.setting_name == "google_email_bot_enabled",
-                CompanyExtensionSetting.setting_value == "true",
-            ).all()
-            
+            enabled_settings = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.extension_name == "google_email",
+                    CompanyExtensionSetting.setting_name == "google_email_bot_enabled",
+                    CompanyExtensionSetting.setting_value == "true",
+                )
+                .all()
+            )
+
             enabled_company_ids = {s.company_id for s in enabled_settings}
-        
+
         for company_id in enabled_company_ids:
             if company_id not in self._bots:
                 await self.start_bot_for_company(company_id)
-        
+
         for company_id in list(self._bots.keys()):
             if company_id not in enabled_company_ids:
                 await self.stop_bot_for_company(company_id)
@@ -547,14 +562,14 @@ class GoogleEmailBotManager:
                 await self.sync_bots()
             except Exception as e:
                 logger.error(f"Error syncing Google Email bots: {e}")
-            
+
             await asyncio.sleep(60)
 
     async def start(self):
         """Start the bot manager."""
         if self._running:
             return
-        
+
         self._running = True
         await self.sync_bots()
         self._sync_task = asyncio.create_task(self._periodic_sync())
@@ -563,17 +578,17 @@ class GoogleEmailBotManager:
     async def stop(self):
         """Stop all bots and the manager."""
         self._running = False
-        
+
         if self._sync_task:
             self._sync_task.cancel()
             try:
                 await self._sync_task
             except asyncio.CancelledError:
                 pass
-        
+
         for company_id in list(self._bots.keys()):
             await self.stop_bot_for_company(company_id)
-        
+
         logger.info("Google Email Bot Manager stopped")
 
     def get_bot_status(self, company_id: str) -> Optional[BotStatus]:

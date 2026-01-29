@@ -76,7 +76,7 @@ class CompanyTeamsBot:
     """
     A Teams bot instance for a specific company.
     Handles user impersonation based on Teams user ID mapping.
-    
+
     Permission modes:
     - owner_only: Only the user who set up the bot can interact
     - recognized_users: Only users with linked AGiXT accounts can interact (default)
@@ -97,7 +97,7 @@ class CompanyTeamsBot:
         self.company_name = company_name
         self.app_id = app_id
         self.app_password = app_password
-        
+
         # Bot configuration
         self.bot_agent_id = bot_agent_id
         self.bot_permission_mode = bot_permission_mode
@@ -169,7 +169,7 @@ class CompanyTeamsBot:
         # Get user email from Teams ID mapping
         user_email = self._get_user_email_from_teams_id(user_id)
         use_owner_context = False
-        
+
         # Apply permission mode checks
         if self.bot_permission_mode == "owner_only":
             # Only the owner can interact
@@ -177,6 +177,7 @@ class CompanyTeamsBot:
                 return
             try:
                 from MagicalAuth import get_user_id
+
                 interacting_user_id = str(get_user_id(user_email))
                 if interacting_user_id != self.bot_owner_id:
                     return
@@ -200,15 +201,22 @@ class CompanyTeamsBot:
                 if self.bot_owner_id:
                     try:
                         from DB import User
+
                         with get_session() as db:
-                            owner = db.query(User).filter(User.id == self.bot_owner_id).first()
+                            owner = (
+                                db.query(User)
+                                .filter(User.id == self.bot_owner_id)
+                                .first()
+                            )
                             if owner:
                                 user_email = owner.email
                     except Exception as e:
                         logger.error(f"Error getting owner email: {e}")
                         return
                 if not user_email:
-                    logger.warning("Cannot handle anonymous interaction: no owner configured")
+                    logger.warning(
+                        "Cannot handle anonymous interaction: no owner configured"
+                    )
                     return
         else:
             # Unknown permission mode, default to recognized_users behavior
@@ -229,20 +237,24 @@ class CompanyTeamsBot:
 
         # Determine which agent to use
         agent_name = None
-        
+
         # If bot has a configured agent, use it
         if self.bot_agent_id:
             try:
                 agents = agixt.get_agents()
                 for agent in agents:
-                    if isinstance(agent, dict) and str(agent.get("id")) == str(self.bot_agent_id):
+                    if isinstance(agent, dict) and str(agent.get("id")) == str(
+                        self.bot_agent_id
+                    ):
                         agent_name = agent.get("name", "XT")
                         break
                 if not agent_name:
-                    logger.warning(f"Configured bot agent ID {self.bot_agent_id} not found, using default")
+                    logger.warning(
+                        f"Configured bot agent ID {self.bot_agent_id} not found, using default"
+                    )
             except Exception as e:
                 logger.warning(f"Could not lookup configured agent: {e}")
-        
+
         # If no configured agent, get the user's primary agent
         if not agent_name:
             try:
@@ -263,13 +275,17 @@ class CompanyTeamsBot:
         if not use_owner_context:
             text_lower = text.lower()
             if text_lower.startswith("!list"):
-                await self._handle_list_command(turn_context, agixt, agents if 'agents' in dir() else None)
+                await self._handle_list_command(
+                    turn_context, agixt, agents if "agents" in dir() else None
+                )
                 return
             elif text_lower.startswith("!select "):
                 await self._handle_select_command(turn_context, user_id, text, agixt)
                 return
             elif text_lower.startswith("!clear"):
-                await self._handle_clear_command(turn_context, user_id, agixt, agent_name)
+                await self._handle_clear_command(
+                    turn_context, user_id, agixt, agent_name
+                )
                 return
 
         # Check for user's selected agent in this conversation (only if no bot-level agent configured)
@@ -282,7 +298,9 @@ class CompanyTeamsBot:
         if not self.bot_agent_id and conversation_id in self.team_conversation_config:
             team_config = self.team_conversation_config[conversation_id]
             agent_name = team_config["agent_name"]
-            admin_email = self._get_user_email_from_teams_id(team_config["admin_user_id"])
+            admin_email = self._get_user_email_from_teams_id(
+                team_config["admin_user_id"]
+            )
             if admin_email:
                 admin_jwt = impersonate_user(admin_email)
                 agixt = InternalClient(api_key=admin_jwt, user=admin_email)
@@ -295,8 +313,14 @@ class CompanyTeamsBot:
 
         try:
             # Get channel info for context
-            channel_name = activity.channel_data.get("channel", {}).get("name", "") if activity.channel_data else ""
-            conversation_name = self._get_conversation_name(conversation_id, channel_name)
+            channel_name = (
+                activity.channel_data.get("channel", {}).get("name", "")
+                if activity.channel_data
+                else ""
+            )
+            conversation_name = self._get_conversation_name(
+                conversation_id, channel_name
+            )
 
             # Import AGiXT class
             from XT import AGiXT
@@ -361,7 +385,9 @@ class CompanyTeamsBot:
 
             # Collect response
             full_response = ""
-            async for chunk in agixt_instance.chat_completions_stream(prompt=chat_prompt):
+            async for chunk in agixt_instance.chat_completions_stream(
+                prompt=chat_prompt
+            ):
                 if chunk.startswith("data: "):
                     data = chunk[6:].strip()
                     if data == "[DONE]":
@@ -390,7 +416,9 @@ class CompanyTeamsBot:
             )
 
         except Exception as e:
-            logger.error(f"Error handling Teams message for company {self.company_name}: {e}")
+            logger.error(
+                f"Error handling Teams message for company {self.company_name}: {e}"
+            )
             await turn_context.send_activity(
                 Activity(
                     type=ActivityTypes.message,
@@ -415,7 +443,9 @@ class CompanyTeamsBot:
 
             agent_list = []
             for i, agent in enumerate(agents, 1):
-                name = agent.get("name", "Unknown") if isinstance(agent, dict) else agent
+                name = (
+                    agent.get("name", "Unknown") if isinstance(agent, dict) else agent
+                )
                 agent_list.append(f"{i}. **{name}**")
 
             response = "**Your Available Agents:**\n" + "\n".join(agent_list)
@@ -487,7 +517,9 @@ class CompanyTeamsBot:
         except Exception as e:
             logger.error(f"Error handling !select command: {e}")
 
-    async def _handle_clear_command(self, turn_context, user_id, agixt, current_agent_name):
+    async def _handle_clear_command(
+        self, turn_context, user_id, agixt, current_agent_name
+    ):
         """Handle the !clear command."""
         try:
             conversation_id = turn_context.activity.conversation.id
@@ -627,8 +659,14 @@ class TeamsBotManager:
                 .filter(CompanyExtensionSetting.extension_name == "teams")
                 .filter(
                     CompanyExtensionSetting.setting_key.in_(
-                        ["MICROSOFT_APP_ID", "MICROSOFT_APP_PASSWORD", "TEAMS_BOT_ENABLED",
-                         "teams_bot_agent_id", "teams_bot_permission_mode", "teams_bot_owner_id"]
+                        [
+                            "MICROSOFT_APP_ID",
+                            "MICROSOFT_APP_PASSWORD",
+                            "TEAMS_BOT_ENABLED",
+                            "teams_bot_agent_id",
+                            "teams_bot_permission_mode",
+                            "teams_bot_owner_id",
+                        ]
                     )
                 )
                 .all()
@@ -667,15 +705,23 @@ class TeamsBotManager:
                 elif setting.setting_key == "teams_bot_agent_id":
                     configs[company_id]["bot_agent_id"] = value
                 elif setting.setting_key == "teams_bot_permission_mode":
-                    configs[company_id]["bot_permission_mode"] = value or "recognized_users"
+                    configs[company_id]["bot_permission_mode"] = (
+                        value or "recognized_users"
+                    )
                 elif setting.setting_key == "teams_bot_owner_id":
                     configs[company_id]["bot_owner_id"] = value
 
         return configs
 
     async def start_bot_for_company(
-        self, company_id: str, company_name: str, app_id: str, app_password: str,
-        bot_agent_id: str = None, bot_permission_mode: str = "recognized_users", bot_owner_id: str = None,
+        self,
+        company_id: str,
+        company_name: str,
+        app_id: str,
+        app_password: str,
+        bot_agent_id: str = None,
+        bot_permission_mode: str = "recognized_users",
+        bot_owner_id: str = None,
     ) -> bool:
         """Start a Teams bot for a specific company."""
         if company_id in self.bots and company_id in self._tasks:
@@ -684,7 +730,10 @@ class TeamsBotManager:
 
         try:
             bot = CompanyTeamsBot(
-                company_id, company_name, app_id, app_password,
+                company_id,
+                company_name,
+                app_id,
+                app_password,
                 bot_agent_id=bot_agent_id,
                 bot_permission_mode=bot_permission_mode,
                 bot_owner_id=bot_owner_id,
@@ -761,7 +810,9 @@ class TeamsBotManager:
 
         if company_bots_configured:
             if self.SERVER_BOT_ID in self.bots:
-                logger.info("Stopping server-level Teams bot in favor of company-specific bots")
+                logger.info(
+                    "Stopping server-level Teams bot in favor of company-specific bots"
+                )
                 await self.stop_bot_for_company(self.SERVER_BOT_ID)
 
             companies_to_stop = []
@@ -788,7 +839,9 @@ class TeamsBotManager:
                         config["app_id"],
                         config["app_password"],
                         bot_agent_id=config.get("bot_agent_id"),
-                        bot_permission_mode=config.get("bot_permission_mode", "recognized_users"),
+                        bot_permission_mode=config.get(
+                            "bot_permission_mode", "recognized_users"
+                        ),
                         bot_owner_id=config.get("bot_owner_id"),
                     )
 
@@ -887,7 +940,9 @@ async def start_teams_bot_manager():
     global _manager
 
     if not TEAMS_BOT_AVAILABLE:
-        logger.warning("Teams bot manager cannot start - botbuilder-core library not installed")
+        logger.warning(
+            "Teams bot manager cannot start - botbuilder-core library not installed"
+        )
         return None
 
     if _manager is None:

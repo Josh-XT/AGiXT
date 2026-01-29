@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BotStatus:
     """Status information for a company's Twilio SMS bot."""
+
     company_id: str
     company_name: str
     started_at: Optional[datetime] = None
@@ -45,7 +46,7 @@ class CompanyTwilioSmsBot:
     """
     A Twilio SMS bot instance for a specific company.
     Handles incoming SMS messages and responds using the configured AI agent.
-    
+
     Permission modes:
     - owner_only: Only SMS from the owner's phone number are processed
     - recognized_users: Only SMS from users with linked phone numbers are processed
@@ -68,16 +69,16 @@ class CompanyTwilioSmsBot:
         self.account_sid = account_sid
         self.auth_token = auth_token
         self.phone_number = phone_number
-        
+
         # Bot configuration
         self.bot_agent_id = bot_agent_id
         self.bot_permission_mode = bot_permission_mode
         self.bot_owner_id = bot_owner_id
-        
+
         self._is_running = False
         self._started_at: Optional[datetime] = None
         self._messages_processed = 0
-        
+
         # Twilio client
         self.twilio_client = Client(account_sid, auth_token)
 
@@ -85,27 +86,30 @@ class CompanyTwilioSmsBot:
         """Normalize phone number for comparison."""
         # Remove all non-digit characters except +
         import re
-        phone = re.sub(r'[^\d+]', '', phone)
-        if not phone.startswith('+'):
-            phone = '+' + phone
+
+        phone = re.sub(r"[^\d+]", "", phone)
+        if not phone.startswith("+"):
+            phone = "+" + phone
         return phone
 
     def _get_user_by_phone(self, phone_number: str) -> Optional[User]:
         """Find a user by their phone number preference."""
         normalized = self._normalize_phone(phone_number)
-        
+
         with get_session() as db:
             # Search user preferences for matching phone number
-            pref = db.query(UserPreferences).filter(
-                UserPreferences.pref_key == "phone_number"
-            ).all()
-            
+            pref = (
+                db.query(UserPreferences)
+                .filter(UserPreferences.pref_key == "phone_number")
+                .all()
+            )
+
             for p in pref:
                 if self._normalize_phone(p.pref_value) == normalized:
                     user = db.query(User).filter(User.id == p.user_id).first()
                     if user:
                         return user
-        
+
         return None
 
     def _is_sender_allowed(self, from_phone: str) -> tuple:
@@ -114,35 +118,39 @@ class CompanyTwilioSmsBot:
         Returns (allowed: bool, user_email: str or None)
         """
         from_phone = self._normalize_phone(from_phone)
-        
+
         if self.bot_permission_mode == "owner_only":
             if not self.bot_owner_id:
                 return False, None
-            
+
             with get_session() as db:
                 owner = db.query(User).filter(User.id == self.bot_owner_id).first()
                 if not owner:
                     return False, None
-                
+
                 # Check if owner's phone matches
-                owner_phone_pref = db.query(UserPreferences).filter(
-                    UserPreferences.user_id == self.bot_owner_id,
-                    UserPreferences.pref_key == "phone_number"
-                ).first()
-                
+                owner_phone_pref = (
+                    db.query(UserPreferences)
+                    .filter(
+                        UserPreferences.user_id == self.bot_owner_id,
+                        UserPreferences.pref_key == "phone_number",
+                    )
+                    .first()
+                )
+
                 if owner_phone_pref:
                     owner_phone = self._normalize_phone(owner_phone_pref.pref_value)
                     if owner_phone == from_phone:
                         return True, owner.email
-            
+
             return False, None
-        
+
         elif self.bot_permission_mode == "recognized_users":
             user = self._get_user_by_phone(from_phone)
             if user:
                 return True, user.email
             return False, None
-        
+
         elif self.bot_permission_mode == "anyone":
             if self.bot_owner_id:
                 with get_session() as db:
@@ -150,7 +158,7 @@ class CompanyTwilioSmsBot:
                     if owner:
                         return True, owner.email
             return False, None
-        
+
         return False, None
 
     def _send_sms(self, to_phone: str, message: str):
@@ -176,50 +184,56 @@ class CompanyTwilioSmsBot:
         Returns the response message or None if not allowed.
         """
         allowed, user_email = self._is_sender_allowed(from_phone)
-        
+
         if not allowed:
             logger.debug(f"SMS from {from_phone} not allowed by permission mode")
             return None
-        
+
         try:
             # Get JWT for the user
             user_jwt = impersonate_user(user_email)
             agixt = InternalClient(api_key=user_jwt, user=user_email)
-            
+
             # Determine agent to use
             agent_name = None
             if self.bot_agent_id:
                 agents = agixt.get_agents()
                 for agent in agents:
-                    if isinstance(agent, dict) and str(agent.get("id")) == str(self.bot_agent_id):
+                    if isinstance(agent, dict) and str(agent.get("id")) == str(
+                        self.bot_agent_id
+                    ):
                         agent_name = agent.get("name")
                         break
-            
+
             if not agent_name:
                 agents = agixt.get_agents()
                 if agents:
-                    agent_name = agents[0].get("name", "XT") if isinstance(agents[0], dict) else agents[0]
+                    agent_name = (
+                        agents[0].get("name", "XT")
+                        if isinstance(agents[0], dict)
+                        else agents[0]
+                    )
                 else:
                     agent_name = "XT"
-            
+
             # Create conversation name using phone number
             conversation_name = f"SMS-{from_phone}"
-            
+
             # Get response from agent
             response = agixt.chat(
                 agent_name=agent_name,
                 user_input=body,
                 conversation_name=conversation_name,
             )
-            
+
             if response:
                 self._messages_processed += 1
                 logger.info(f"Replied to SMS from {from_phone}")
                 return response
-            
+
         except Exception as e:
             logger.error(f"Error processing SMS: {e}")
-        
+
         return None
 
     def start(self):
@@ -249,7 +263,7 @@ class TwilioSmsBotManager:
     Manages Twilio SMS bots for all companies.
     Singleton pattern ensures only one manager exists.
     """
-    
+
     _instance = None
     _lock = threading.Lock()
 
@@ -264,55 +278,62 @@ class TwilioSmsBotManager:
     def __init__(self):
         if self._initialized:
             return
-        
+
         self._initialized = True
         self._bots: Dict[str, CompanyTwilioSmsBot] = {}
         self._running = False
-        
+
         # Map from phone number to company_id for webhook routing
         self._phone_to_company: Dict[str, str] = {}
-        
+
         logger.info("Twilio SMS Bot Manager initialized")
 
     def _normalize_phone(self, phone: str) -> str:
         """Normalize phone number for comparison."""
         import re
-        phone = re.sub(r'[^\d+]', '', phone)
-        if not phone.startswith('+'):
-            phone = '+' + phone
+
+        phone = re.sub(r"[^\d+]", "", phone)
+        if not phone.startswith("+"):
+            phone = "+" + phone
         return phone
 
     def get_company_bot_config(self, company_id: str) -> Optional[dict]:
         """Get Twilio SMS bot configuration for a company."""
         with get_session() as db:
-            settings = db.query(CompanyExtensionSetting).filter(
-                CompanyExtensionSetting.company_id == company_id,
-                CompanyExtensionSetting.extension_name == "twilio_sms",
-            ).all()
-            
+            settings = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == "twilio_sms",
+                )
+                .all()
+            )
+
             if not settings:
                 return None
-            
+
             config = {}
             for setting in settings:
                 config[setting.setting_name] = setting.setting_value
-            
+
             if config.get("twilio_sms_bot_enabled", "").lower() != "true":
                 return None
-            
+
             account_sid = config.get("TWILIO_ACCOUNT_SID")
             auth_token = config.get("TWILIO_AUTH_TOKEN")
             phone_number = config.get("TWILIO_PHONE_NUMBER")
-            
+
             if not account_sid or not auth_token or not phone_number:
                 return None
-            
+
             return {
                 "account_sid": account_sid,
                 "auth_token": auth_token,
                 "phone_number": phone_number,
                 "agent_id": config.get("twilio_sms_bot_agent_id"),
-                "permission_mode": config.get("twilio_sms_bot_permission_mode", "recognized_users"),
+                "permission_mode": config.get(
+                    "twilio_sms_bot_permission_mode", "recognized_users"
+                ),
                 "owner_id": config.get("twilio_sms_bot_owner_id"),
             }
 
@@ -321,17 +342,17 @@ class TwilioSmsBotManager:
         if company_id in self._bots:
             logger.debug(f"Twilio SMS bot already running for company {company_id}")
             return
-        
+
         config = self.get_company_bot_config(company_id)
         if not config:
             logger.debug(f"No valid Twilio SMS config for company {company_id}")
             return
-        
+
         if not company_name:
             with get_session() as db:
                 company = db.query(Company).filter(Company.id == company_id).first()
                 company_name = company.name if company else "Unknown"
-        
+
         bot = CompanyTwilioSmsBot(
             company_id=company_id,
             company_name=company_name,
@@ -342,41 +363,47 @@ class TwilioSmsBotManager:
             bot_permission_mode=config.get("permission_mode", "recognized_users"),
             bot_owner_id=config.get("owner_id"),
         )
-        
+
         self._bots[company_id] = bot
-        self._phone_to_company[self._normalize_phone(config["phone_number"])] = company_id
+        self._phone_to_company[self._normalize_phone(config["phone_number"])] = (
+            company_id
+        )
         bot.start()
 
     def stop_bot_for_company(self, company_id: str):
         """Stop Twilio SMS bot for a specific company."""
         if company_id not in self._bots:
             return
-        
+
         bot = self._bots[company_id]
-        
+
         # Remove phone mapping
         for phone, cid in list(self._phone_to_company.items()):
             if cid == company_id:
                 del self._phone_to_company[phone]
-        
+
         bot.stop()
         del self._bots[company_id]
 
     def sync_bots(self):
         """Sync bots with database configuration."""
         with get_session() as db:
-            enabled_settings = db.query(CompanyExtensionSetting).filter(
-                CompanyExtensionSetting.extension_name == "twilio_sms",
-                CompanyExtensionSetting.setting_name == "twilio_sms_bot_enabled",
-                CompanyExtensionSetting.setting_value == "true",
-            ).all()
-            
+            enabled_settings = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.extension_name == "twilio_sms",
+                    CompanyExtensionSetting.setting_name == "twilio_sms_bot_enabled",
+                    CompanyExtensionSetting.setting_value == "true",
+                )
+                .all()
+            )
+
             enabled_company_ids = {s.company_id for s in enabled_settings}
-        
+
         for company_id in enabled_company_ids:
             if company_id not in self._bots:
                 self.start_bot_for_company(company_id)
-        
+
         for company_id in list(self._bots.keys()):
             if company_id not in enabled_company_ids:
                 self.stop_bot_for_company(company_id)
@@ -403,14 +430,14 @@ class TwilioSmsBotManager:
         if not bot:
             logger.warning(f"No bot configured for phone: {to_phone}")
             return None
-        
+
         return await bot.process_incoming_sms(from_phone, to_phone, body)
 
     def start(self):
         """Start the bot manager."""
         if self._running:
             return
-        
+
         self._running = True
         self.sync_bots()
         logger.info("Twilio SMS Bot Manager started")
@@ -418,10 +445,10 @@ class TwilioSmsBotManager:
     def stop(self):
         """Stop all bots and the manager."""
         self._running = False
-        
+
         for company_id in list(self._bots.keys()):
             self.stop_bot_for_company(company_id)
-        
+
         logger.info("Twilio SMS Bot Manager stopped")
 
     def get_bot_status(self, company_id: str) -> Optional[BotStatus]:
@@ -465,7 +492,9 @@ def stop_twilio_sms_bot_manager():
 
 
 # FastAPI router for Twilio SMS webhook
-twilio_sms_webhook_router = APIRouter(prefix="/webhooks/twilio", tags=["Twilio Webhooks"])
+twilio_sms_webhook_router = APIRouter(
+    prefix="/webhooks/twilio", tags=["Twilio Webhooks"]
+)
 
 
 @twilio_sms_webhook_router.post("/sms")
@@ -477,25 +506,25 @@ async def twilio_sms_webhook(
 ):
     """
     Handle incoming SMS from Twilio webhook.
-    
+
     Twilio sends POST requests with form data containing:
     - From: Sender phone number
     - To: Recipient phone number (your Twilio number)
     - Body: Message text
-    
+
     Returns TwiML response with optional reply message.
     """
     manager = get_twilio_sms_bot_manager()
-    
+
     response_text = await manager.handle_incoming_sms(
         from_phone=From,
         to_phone=To,
         body=Body,
     )
-    
+
     # Create TwiML response
     twiml = MessagingResponse()
     if response_text:
         twiml.message(response_text)
-    
+
     return Response(content=str(twiml), media_type="application/xml")

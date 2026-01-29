@@ -105,7 +105,7 @@ class CompanyDiscordBot:
     """
     A Discord bot instance for a specific company.
     Handles user impersonation based on Discord user ID mapping.
-    
+
     Permission modes:
     - owner_only: Only the user who set up the bot can interact
     - recognized_users: Only users with linked AGiXT accounts can interact (default)
@@ -124,10 +124,14 @@ class CompanyDiscordBot:
         self.company_id = company_id
         self.company_name = company_name
         self.discord_token = discord_token
-        
+
         # Bot configuration
-        self.bot_agent_id = bot_agent_id  # The specific agent to use (None = user's default)
-        self.bot_permission_mode = bot_permission_mode  # owner_only, recognized_users, anyone
+        self.bot_agent_id = (
+            bot_agent_id  # The specific agent to use (None = user's default)
+        )
+        self.bot_permission_mode = (
+            bot_permission_mode  # owner_only, recognized_users, anyone
+        )
         self.bot_owner_id = bot_owner_id  # User ID of who configured this bot
 
         # Set up Discord bot using imported modules
@@ -238,7 +242,7 @@ class CompanyDiscordBot:
 
         # Check permission mode first
         user_email = self._get_user_email_from_discord_id(message.author.id)
-        
+
         # Apply permission mode checks
         if self.bot_permission_mode == "owner_only":
             # Only the owner can interact
@@ -247,6 +251,7 @@ class CompanyDiscordBot:
             # Check if this user is the owner
             try:
                 from MagicalAuth import get_user_id
+
                 interacting_user_id = str(get_user_id(user_email))
                 if interacting_user_id != self.bot_owner_id:
                     # Not the owner - silently ignore
@@ -275,15 +280,22 @@ class CompanyDiscordBot:
             if self.bot_owner_id:
                 try:
                     from DB import User
+
                     with get_session() as db:
-                        owner = db.query(User).filter(User.id == self.bot_owner_id).first()
+                        owner = (
+                            db.query(User).filter(User.id == self.bot_owner_id).first()
+                        )
                         if owner:
                             user_email = owner.email
                 except Exception as e:
-                    logger.error(f"Error getting owner email for anonymous interaction: {e}")
+                    logger.error(
+                        f"Error getting owner email for anonymous interaction: {e}"
+                    )
                     return
             if not user_email:
-                logger.warning("Cannot handle anonymous interaction: no owner configured")
+                logger.warning(
+                    "Cannot handle anonymous interaction: no owner configured"
+                )
                 return
 
         # Get JWT for impersonation
@@ -296,7 +308,7 @@ class CompanyDiscordBot:
         # Priority: 1. Bot's configured agent, 2. User's selected agent, 3. User's primary agent
         agent_name = None
         agent_id = None
-        
+
         # If bot has a configured agent, use it
         if self.bot_agent_id:
             agent_id = self.bot_agent_id
@@ -304,14 +316,18 @@ class CompanyDiscordBot:
             try:
                 agents = agixt.get_agents()
                 for agent in agents:
-                    if isinstance(agent, dict) and str(agent.get("id")) == str(self.bot_agent_id):
+                    if isinstance(agent, dict) and str(agent.get("id")) == str(
+                        self.bot_agent_id
+                    ):
                         agent_name = agent.get("name", "XT")
                         break
                 if not agent_name:
-                    logger.warning(f"Configured bot agent ID {self.bot_agent_id} not found, using default")
+                    logger.warning(
+                        f"Configured bot agent ID {self.bot_agent_id} not found, using default"
+                    )
             except Exception as e:
                 logger.warning(f"Could not lookup configured agent: {e}")
-        
+
         # If no configured agent, use user's primary agent
         if not agent_name:
             try:
@@ -1795,7 +1811,7 @@ class DiscordBotManager:
     def get_company_bot_config(self) -> Dict[str, Dict[str, str]]:
         """
         Get Discord bot configuration for all companies from the database.
-        Returns: {company_id: {"token": "...", "enabled": "true/false", "name": "...", 
+        Returns: {company_id: {"token": "...", "enabled": "true/false", "name": "...",
                                "agent_id": "...", "permission_mode": "...", "owner_id": "..."}}
         """
         configs = {}
@@ -1998,7 +2014,9 @@ class DiscordBotManager:
                         company_name=config["name"],
                         token=config["token"],
                         agent_id=config.get("agent_id"),
-                        permission_mode=config.get("permission_mode", "recognized_users"),
+                        permission_mode=config.get(
+                            "permission_mode", "recognized_users"
+                        ),
                         owner_id=config.get("owner_id"),
                     )
 

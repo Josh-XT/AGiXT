@@ -69,7 +69,8 @@ class TeamsSSO:
         """Refreshes the Microsoft access token using the refresh token."""
         if not self.refresh_token:
             raise HTTPException(
-                status_code=400, detail="No refresh token available for Microsoft Teams."
+                status_code=400,
+                detail="No refresh token available for Microsoft Teams.",
             )
 
         payload = {
@@ -99,7 +100,8 @@ class TeamsSSO:
         except requests.exceptions.RequestException as e:
             logging.error(f"Error refreshing Microsoft Teams token: {e}")
             raise HTTPException(
-                status_code=401, detail=f"Failed to refresh Microsoft Teams token: {str(e)}"
+                status_code=401,
+                detail=f"Failed to refresh Microsoft Teams token: {str(e)}",
             )
 
     def get_user_info(self):
@@ -112,7 +114,9 @@ class TeamsSSO:
             response = requests.get(USER_INFO_URL, headers=headers)
 
             if response.status_code == 401:
-                logging.info("Microsoft Teams token likely expired, attempting refresh.")
+                logging.info(
+                    "Microsoft Teams token likely expired, attempting refresh."
+                )
                 self.access_token = self.get_new_token().get("access_token")
                 headers = {"Authorization": f"Bearer {self.access_token}"}
                 response = requests.get(USER_INFO_URL, headers=headers)

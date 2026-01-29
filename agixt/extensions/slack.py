@@ -160,7 +160,9 @@ class SlackSSO:
                         profile = user.get("profile", {})
                         return {
                             "email": profile.get("email", ""),
-                            "first_name": profile.get("first_name", user.get("name", "")),
+                            "first_name": profile.get(
+                                "first_name", user.get("name", "")
+                            ),
                             "last_name": profile.get("last_name", ""),
                             "provider_user_id": user.get("id"),
                         }
@@ -169,8 +171,14 @@ class SlackSSO:
             team = data.get("team", {})
             return {
                 "email": user.get("email", ""),
-                "first_name": user.get("name", "").split()[0] if user.get("name") else "",
-                "last_name": " ".join(user.get("name", "").split()[1:]) if user.get("name") else "",
+                "first_name": (
+                    user.get("name", "").split()[0] if user.get("name") else ""
+                ),
+                "last_name": (
+                    " ".join(user.get("name", "").split()[1:])
+                    if user.get("name")
+                    else ""
+                ),
                 "provider_user_id": user.get("id"),
             }
         except requests.exceptions.RequestException as e:
@@ -345,7 +353,9 @@ class slack(Extensions):
             logging.error(f"Error sending Slack message: {str(e)}")
             return f"Error sending message: {str(e)}"
 
-    async def get_messages(self, channel_id: str, limit: int = 50, oldest: str = None, latest: str = None):
+    async def get_messages(
+        self, channel_id: str, limit: int = 50, oldest: str = None, latest: str = None
+    ):
         """
         Get messages from a Slack channel.
 
@@ -417,7 +427,9 @@ class slack(Extensions):
             logging.error(f"Error deleting Slack message: {str(e)}")
             return f"Error deleting message: {str(e)}"
 
-    async def get_channels(self, types: str = "public_channel,private_channel", limit: int = 100):
+    async def get_channels(
+        self, types: str = "public_channel,private_channel", limit: int = 100
+    ):
         """
         Get list of channels in the workspace.
 
@@ -619,7 +631,9 @@ class slack(Extensions):
 
                 with open(file_path, "rb") as f:
                     files = {"file": (filename or os.path.basename(file_path), f)}
-                    response = requests.post(url, headers=headers, data=data, files=files)
+                    response = requests.post(
+                        url, headers=headers, data=data, files=files
+                    )
             elif content:
                 data["content"] = content
                 response = requests.post(url, headers=headers, data=data)
@@ -748,7 +762,9 @@ class slack(Extensions):
             logging.error(f"Error inviting to Slack channel: {str(e)}")
             return f"Error inviting users: {str(e)}"
 
-    async def search_messages(self, query: str, count: int = 20, sort: str = "timestamp"):
+    async def search_messages(
+        self, query: str, count: int = 20, sort: str = "timestamp"
+    ):
         """
         Search for messages in the workspace.
 
@@ -789,7 +805,9 @@ class slack(Extensions):
             logging.error(f"Error searching Slack messages: {str(e)}")
             return f"Error searching messages: {str(e)}"
 
-    async def get_thread_replies(self, channel_id: str, thread_ts: str, limit: int = 50):
+    async def get_thread_replies(
+        self, channel_id: str, thread_ts: str, limit: int = 50
+    ):
         """
         Get replies in a message thread.
 

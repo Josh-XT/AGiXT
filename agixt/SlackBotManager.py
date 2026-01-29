@@ -75,7 +75,7 @@ class CompanySlackBot:
     """
     A Slack bot instance for a specific company.
     Handles user impersonation based on Slack user ID mapping.
-    
+
     Permission modes:
     - owner_only: Only the user who set up the bot can interact
     - recognized_users: Only users with linked AGiXT accounts can interact (default)
@@ -96,10 +96,14 @@ class CompanySlackBot:
         self.company_name = company_name
         self.bot_token = bot_token
         self.app_token = app_token
-        
+
         # Bot configuration
-        self.bot_agent_id = bot_agent_id  # The specific agent to use (None = user's default)
-        self.bot_permission_mode = bot_permission_mode  # owner_only, recognized_users, anyone
+        self.bot_agent_id = (
+            bot_agent_id  # The specific agent to use (None = user's default)
+        )
+        self.bot_permission_mode = (
+            bot_permission_mode  # owner_only, recognized_users, anyone
+        )
         self.bot_owner_id = bot_owner_id  # User ID of who configured this bot
 
         # Initialize Slack clients
@@ -173,7 +177,7 @@ class CompanySlackBot:
 
         # Get user email from Slack ID mapping
         user_email = self._get_user_email_from_slack_id(user_id)
-        
+
         # Apply permission mode checks
         use_owner_context = False
         if self.bot_permission_mode == "owner_only":
@@ -182,6 +186,7 @@ class CompanySlackBot:
                 return
             try:
                 from MagicalAuth import get_user_id
+
                 interacting_user_id = str(get_user_id(user_email))
                 if interacting_user_id != self.bot_owner_id:
                     return
@@ -205,14 +210,22 @@ class CompanySlackBot:
                 if self.bot_owner_id:
                     try:
                         with get_session() as db:
-                            owner = db.query(User).filter(User.id == self.bot_owner_id).first()
+                            owner = (
+                                db.query(User)
+                                .filter(User.id == self.bot_owner_id)
+                                .first()
+                            )
                             if owner:
                                 user_email = owner.email
                     except Exception as e:
-                        logger.error(f"Error getting owner email for anonymous interaction: {e}")
+                        logger.error(
+                            f"Error getting owner email for anonymous interaction: {e}"
+                        )
                         return
                 if not user_email:
-                    logger.warning("Cannot handle anonymous interaction: no owner configured")
+                    logger.warning(
+                        "Cannot handle anonymous interaction: no owner configured"
+                    )
                     return
         else:
             if not user_email:
@@ -226,20 +239,24 @@ class CompanySlackBot:
 
         # Determine which agent to use
         agent_name = None
-        
+
         # If bot has a configured agent, use it
         if self.bot_agent_id:
             try:
                 agents = agixt.get_agents()
                 for agent in agents:
-                    if isinstance(agent, dict) and str(agent.get("id")) == str(self.bot_agent_id):
+                    if isinstance(agent, dict) and str(agent.get("id")) == str(
+                        self.bot_agent_id
+                    ):
                         agent_name = agent.get("name", "XT")
                         break
                 if not agent_name:
-                    logger.warning(f"Configured bot agent ID {self.bot_agent_id} not found, using default")
+                    logger.warning(
+                        f"Configured bot agent ID {self.bot_agent_id} not found, using default"
+                    )
             except Exception as e:
                 logger.warning(f"Could not lookup configured agent: {e}")
-        
+
         # If no configured agent, use user's primary agent
         if not agent_name:
             try:
@@ -383,7 +400,9 @@ class CompanySlackBot:
 
             # Collect response
             full_response = ""
-            async for chunk in agixt_instance.chat_completions_stream(prompt=chat_prompt):
+            async for chunk in agixt_instance.chat_completions_stream(
+                prompt=chat_prompt
+            ):
                 if chunk.startswith("data: "):
                     data = chunk[6:].strip()
                     if data == "[DONE]":
@@ -423,7 +442,9 @@ class CompanySlackBot:
                 )
 
         except Exception as e:
-            logger.error(f"Error handling Slack message for company {self.company_name}: {e}")
+            logger.error(
+                f"Error handling Slack message for company {self.company_name}: {e}"
+            )
             try:
                 self.web_client.chat_postMessage(
                     channel=channel_id,
@@ -449,7 +470,9 @@ class CompanySlackBot:
 
             agent_list = []
             for i, agent in enumerate(agents, 1):
-                name = agent.get("name", "Unknown") if isinstance(agent, dict) else agent
+                name = (
+                    agent.get("name", "Unknown") if isinstance(agent, dict) else agent
+                )
                 agent_list.append(f"{i}. *{name}*")
 
             response = "*Your Available Agents:*\n" + "\n".join(agent_list)
@@ -567,9 +590,7 @@ class CompanySlackBot:
                         user_info = self.web_client.users_info(user=user_id)
                         user = user_info.get("user", {})
                         user_cache[user_id] = (
-                            user.get("real_name")
-                            or user.get("name")
-                            or user_id
+                            user.get("real_name") or user.get("name") or user_id
                         )
                     except Exception:
                         user_cache[user_id] = user_id
@@ -927,7 +948,9 @@ class SlackBotManager:
 
         if company_bots_configured:
             if self.SERVER_BOT_ID in self.bots:
-                logger.info("Stopping server-level Slack bot in favor of company-specific bots")
+                logger.info(
+                    "Stopping server-level Slack bot in favor of company-specific bots"
+                )
                 await self.stop_bot_for_company(self.SERVER_BOT_ID)
 
             companies_to_stop = []
@@ -954,7 +977,9 @@ class SlackBotManager:
                         bot_token=config["bot_token"],
                         app_token=config["app_token"],
                         agent_id=config.get("agent_id"),
-                        permission_mode=config.get("permission_mode", "recognized_users"),
+                        permission_mode=config.get(
+                            "permission_mode", "recognized_users"
+                        ),
                         owner_id=config.get("owner_id"),
                     )
 
@@ -1051,7 +1076,9 @@ async def start_slack_bot_manager():
     global _manager
 
     if not SLACK_AVAILABLE:
-        logger.warning("Slack bot manager cannot start - slack-sdk library not installed")
+        logger.warning(
+            "Slack bot manager cannot start - slack-sdk library not installed"
+        )
         return None
 
     if _manager is None:
