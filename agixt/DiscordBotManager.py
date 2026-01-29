@@ -105,12 +105,30 @@ class CompanyDiscordBot:
     """
     A Discord bot instance for a specific company.
     Handles user impersonation based on Discord user ID mapping.
+    
+    Permission modes:
+    - owner_only: Only the user who set up the bot can interact
+    - recognized_users: Only users with linked AGiXT accounts can interact (default)
+    - anyone: Anyone can interact with the bot
     """
 
-    def __init__(self, company_id: str, company_name: str, discord_token: str):
+    def __init__(
+        self,
+        company_id: str,
+        company_name: str,
+        discord_token: str,
+        bot_agent_id: str = None,
+        bot_permission_mode: str = "recognized_users",
+        bot_owner_id: str = None,
+    ):
         self.company_id = company_id
         self.company_name = company_name
         self.discord_token = discord_token
+        
+        # Bot configuration
+        self.bot_agent_id = bot_agent_id  # The specific agent to use (None = user's default)
+        self.bot_permission_mode = bot_permission_mode  # owner_only, recognized_users, anyone
+        self.bot_owner_id = bot_owner_id  # User ID of who configured this bot
 
         # Set up Discord bot using imported modules
         intents = discord_module.Intents.default()
@@ -218,13 +236,55 @@ class CompanyDiscordBot:
         import base64
         import aiohttp
 
-        # Get user email from Discord ID mapping
+        # Check permission mode first
         user_email = self._get_user_email_from_discord_id(message.author.id)
+        
+        # Apply permission mode checks
+        if self.bot_permission_mode == "owner_only":
+            # Only the owner can interact
+            if not user_email or not self.bot_owner_id:
+                return
+            # Check if this user is the owner
+            try:
+                from MagicalAuth import get_user_id
+                interacting_user_id = str(get_user_id(user_email))
+                if interacting_user_id != self.bot_owner_id:
+                    # Not the owner - silently ignore
+                    return
+            except Exception as e:
+                logger.warning(f"Error checking owner permission: {e}")
+                return
+        elif self.bot_permission_mode == "recognized_users":
+            # Default behavior - only users with linked accounts
+            if not user_email:
+                # User hasn't connected their Discord account via OAuth
+                # Optionally send a message telling them to connect their account
+                return
+        elif self.bot_permission_mode == "anyone":
+            # Anyone can interact - we'll create anonymous/guest interactions
+            pass  # Continue even if user_email is None
+        else:
+            # Unknown permission mode, default to recognized_users behavior
+            if not user_email:
+                return
 
-        if not user_email:
-            # User hasn't connected their Discord account via OAuth
-            # Optionally send a message telling them to connect their account
-            return
+        # For "anyone" mode without a linked account, use the bot owner's context
+        use_owner_context = False
+        if not user_email and self.bot_permission_mode == "anyone":
+            use_owner_context = True
+            if self.bot_owner_id:
+                try:
+                    from DB import User
+                    with get_session() as db:
+                        owner = db.query(User).filter(User.id == self.bot_owner_id).first()
+                        if owner:
+                            user_email = owner.email
+                except Exception as e:
+                    logger.error(f"Error getting owner email for anonymous interaction: {e}")
+                    return
+            if not user_email:
+                logger.warning("Cannot handle anonymous interaction: no owner configured")
+                return
 
         # Get JWT for impersonation
         user_jwt = impersonate_user(user_email)
@@ -232,62 +292,87 @@ class CompanyDiscordBot:
         # Create internal client for this user
         agixt = InternalClient(api_key=user_jwt, user=user_email)
 
-        # Get the user's primary agent
-        try:
-            agents = agixt.get_agents()
-            if agents and len(agents) > 0:
-                # Use the first agent (primary) for this user
-                agent_name = (
-                    agents[0].get("name", "XT")
-                    if isinstance(agents[0], dict)
-                    else agents[0]
-                )
-            else:
-                agent_name = "XT"  # Fallback to default
-        except Exception as e:
-            logger.warning(f"Could not get user's agents, using default: {e}")
-            agent_name = "XT"
+        # Determine which agent to use
+        # Priority: 1. Bot's configured agent, 2. User's selected agent, 3. User's primary agent
+        agent_name = None
+        agent_id = None
+        
+        # If bot has a configured agent, use it
+        if self.bot_agent_id:
+            agent_id = self.bot_agent_id
+            # Get the agent name from the ID
+            try:
+                agents = agixt.get_agents()
+                for agent in agents:
+                    if isinstance(agent, dict) and str(agent.get("id")) == str(self.bot_agent_id):
+                        agent_name = agent.get("name", "XT")
+                        break
+                if not agent_name:
+                    logger.warning(f"Configured bot agent ID {self.bot_agent_id} not found, using default")
+            except Exception as e:
+                logger.warning(f"Could not lookup configured agent: {e}")
+        
+        # If no configured agent, use user's primary agent
+        if not agent_name:
+            try:
+                agents = agixt.get_agents()
+                if agents and len(agents) > 0:
+                    # Use the first agent (primary) for this user
+                    agent_name = (
+                        agents[0].get("name", "XT")
+                        if isinstance(agents[0], dict)
+                        else agents[0]
+                    )
+                else:
+                    agent_name = "XT"  # Fallback to default
+            except Exception as e:
+                logger.warning(f"Could not get user's agents, using default: {e}")
+                agent_name = "XT"
 
         # Handle silent admin commands (!list, !select, !clear, !team, !personal)
+        # Only allow commands if not using owner context (i.e., user has their own account)
         content_lower = message.content.strip().lower()
-        if content_lower.startswith("!list"):
-            await self._handle_list_command(
-                message, agixt, agents if "agents" in dir() else None
-            )
-            return
-        elif content_lower.startswith("!select "):
-            await self._handle_select_command(message, agixt)
-            return
-        elif content_lower.startswith("!clear"):
-            await self._handle_clear_command(message, agixt, agent_name)
-            return
-        elif content_lower.startswith("!team "):
-            await self._handle_team_command(message, agixt, user_email)
-            return
-        elif content_lower.startswith("!personal"):
-            await self._handle_personal_command(message, user_email)
-            return
+        if not use_owner_context:
+            if content_lower.startswith("!list"):
+                await self._handle_list_command(
+                    message, agixt, agents if "agents" in dir() else None
+                )
+                return
+            elif content_lower.startswith("!select "):
+                await self._handle_select_command(message, agixt)
+                return
+            elif content_lower.startswith("!clear"):
+                await self._handle_clear_command(message, agixt, agent_name)
+                return
+            elif content_lower.startswith("!team "):
+                await self._handle_team_command(message, agixt, user_email)
+                return
+            elif content_lower.startswith("!personal"):
+                await self._handle_personal_command(message, user_email)
+                return
 
-        # Check if channel is in team mode
+        # Check if channel is in team mode (only for recognized users without configured agent)
         channel_id = str(message.channel.id)
-        is_team_mode = channel_id in self.team_channel_config
+        is_team_mode = channel_id in self.team_channel_config and not use_owner_context
 
-        if is_team_mode:
-            # Team mode: use the channel's assigned agent
-            team_config = self.team_channel_config[channel_id]
-            agent_name = team_config["agent_name"]
-            # Get the admin's JWT to run as the agent owner
-            admin_email = self._get_user_email_from_discord_id(
-                int(team_config["admin_user_id"])
-            )
-            if admin_email:
-                admin_jwt = impersonate_user(admin_email)
-                agixt = InternalClient(api_key=admin_jwt, user=admin_email)
-        else:
-            # Personal mode: check if user has a selected agent for this channel
-            selection_key = (str(message.author.id), str(message.channel.id))
-            if selection_key in self.user_agent_selection:
-                agent_name = self.user_agent_selection[selection_key]
+        # Only apply team mode / personal selection if no bot-level agent is configured
+        if not self.bot_agent_id:
+            if is_team_mode:
+                # Team mode: use the channel's assigned agent
+                team_config = self.team_channel_config[channel_id]
+                agent_name = team_config["agent_name"]
+                # Get the admin's JWT to run as the agent owner
+                admin_email = self._get_user_email_from_discord_id(
+                    int(team_config["admin_user_id"])
+                )
+                if admin_email:
+                    admin_jwt = impersonate_user(admin_email)
+                    agixt = InternalClient(api_key=admin_jwt, user=admin_email)
+            elif not use_owner_context:
+                # Personal mode: check if user has a selected agent for this channel
+                selection_key = (str(message.author.id), str(message.channel.id))
+                if selection_key in self.user_agent_selection:
+                    agent_name = self.user_agent_selection[selection_key]
 
         # Check if the message is a direct message or mentions the bot
         is_dm = isinstance(message.channel, discord_module.DMChannel)
@@ -1710,7 +1795,8 @@ class DiscordBotManager:
     def get_company_bot_config(self) -> Dict[str, Dict[str, str]]:
         """
         Get Discord bot configuration for all companies from the database.
-        Returns: {company_id: {"token": "...", "enabled": "true/false", "name": "..."}}
+        Returns: {company_id: {"token": "...", "enabled": "true/false", "name": "...", 
+                               "agent_id": "...", "permission_mode": "...", "owner_id": "..."}}
         """
         configs = {}
 
@@ -1721,7 +1807,13 @@ class DiscordBotManager:
                 .filter(CompanyExtensionSetting.extension_name == "discord")
                 .filter(
                     CompanyExtensionSetting.setting_key.in_(
-                        ["DISCORD_BOT_TOKEN", "DISCORD_BOT_ENABLED"]
+                        [
+                            "DISCORD_BOT_TOKEN",
+                            "DISCORD_BOT_ENABLED",
+                            "discord_bot_agent_id",
+                            "discord_bot_permission_mode",
+                            "discord_bot_owner_id",
+                        ]
                     )
                 )
                 .all()
@@ -1741,6 +1833,9 @@ class DiscordBotManager:
                         "name": company.name if company else "Unknown",
                         "token": None,
                         "enabled": "false",
+                        "agent_id": None,
+                        "permission_mode": "recognized_users",
+                        "owner_id": None,
                     }
 
                 # Decrypt if needed
@@ -1754,11 +1849,23 @@ class DiscordBotManager:
                     configs[company_id]["token"] = value
                 elif setting.setting_key == "DISCORD_BOT_ENABLED":
                     configs[company_id]["enabled"] = value
+                elif setting.setting_key == "discord_bot_agent_id":
+                    configs[company_id]["agent_id"] = value
+                elif setting.setting_key == "discord_bot_permission_mode":
+                    configs[company_id]["permission_mode"] = value or "recognized_users"
+                elif setting.setting_key == "discord_bot_owner_id":
+                    configs[company_id]["owner_id"] = value
 
         return configs
 
     async def start_bot_for_company(
-        self, company_id: str, company_name: str, token: str
+        self,
+        company_id: str,
+        company_name: str,
+        token: str,
+        agent_id: str = None,
+        permission_mode: str = "recognized_users",
+        owner_id: str = None,
     ) -> bool:
         """Start a Discord bot for a specific company."""
         if company_id in self.bots and company_id in self._tasks:
@@ -1766,7 +1873,14 @@ class DiscordBotManager:
             return False
 
         try:
-            bot = CompanyDiscordBot(company_id, company_name, token)
+            bot = CompanyDiscordBot(
+                company_id=company_id,
+                company_name=company_name,
+                discord_token=token,
+                bot_agent_id=agent_id,
+                bot_permission_mode=permission_mode,
+                bot_owner_id=owner_id,
+            )
             self.bots[company_id] = bot
 
             # Create and store the task
@@ -1779,7 +1893,8 @@ class DiscordBotManager:
             )
 
             logger.info(
-                f"Started Discord bot for company {company_name} ({company_id})"
+                f"Started Discord bot for company {company_name} ({company_id}) "
+                f"[agent_id={agent_id}, permission_mode={permission_mode}]"
             )
             return True
 
@@ -1879,7 +1994,12 @@ class DiscordBotManager:
                     and company_id not in self.bots
                 ):
                     await self.start_bot_for_company(
-                        company_id, config["name"], config["token"]
+                        company_id=company_id,
+                        company_name=config["name"],
+                        token=config["token"],
+                        agent_id=config.get("agent_id"),
+                        permission_mode=config.get("permission_mode", "recognized_users"),
+                        owner_id=config.get("owner_id"),
                     )
 
         elif server_token:

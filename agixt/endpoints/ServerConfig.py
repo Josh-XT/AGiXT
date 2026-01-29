@@ -1501,6 +1501,813 @@ async def get_all_discord_bots(
 
 
 # ============================================================================
+# Multi-Platform Bot Management Endpoints
+# ============================================================================
+
+
+class BotStatusResponse(BaseModel):
+    """Generic response for bot status."""
+
+    company_id: str
+    company_name: str
+    platform: str
+    is_running: bool
+    started_at: Optional[str] = None
+    messages_processed: int = 0
+    error: Optional[str] = None
+    extra: Optional[Dict[str, Any]] = None
+
+
+class BotPermissionMode:
+    """Permission modes for bot interactions."""
+    OWNER_ONLY = "owner_only"  # Only the user who set up the bot can interact
+    RECOGNIZED_USERS = "recognized_users"  # Only users with AGiXT accounts can interact
+    ANYONE = "anyone"  # Anyone can interact with the bot
+
+
+class BotEnableRequest(BaseModel):
+    """Request to enable/disable a bot for a company."""
+
+    enabled: bool
+    settings: Optional[Dict[str, str]] = None  # Platform-specific settings
+    agent_id: Optional[str] = None  # The specific agent ID to use for this bot
+    permission_mode: Optional[str] = None  # owner_only, recognized_users, or anyone
+
+
+class AllBotsStatusResponse(BaseModel):
+    """Response containing status for all bot platforms."""
+
+    discord: Optional[BotStatusResponse] = None
+    slack: Optional[BotStatusResponse] = None
+    teams: Optional[BotStatusResponse] = None
+    x: Optional[BotStatusResponse] = None
+    facebook: Optional[BotStatusResponse] = None
+    telegram: Optional[BotStatusResponse] = None
+    whatsapp: Optional[BotStatusResponse] = None
+    microsoft_email: Optional[BotStatusResponse] = None
+    google_email: Optional[BotStatusResponse] = None
+    sendgrid_email: Optional[BotStatusResponse] = None
+    twilio_sms: Optional[BotStatusResponse] = None
+
+
+# Bot permission modes
+BOT_PERMISSION_MODES = [
+    {"value": "owner_only", "label": "Owner Only", "description": "Only the user who configured the bot can interact with it"},
+    {"value": "recognized_users", "label": "Recognized Users", "description": "Only users with linked AGiXT accounts can interact"},
+    {"value": "anyone", "label": "Anyone", "description": "Anyone can interact with the bot"},
+]
+
+# Platform-specific setting requirements
+BOT_PLATFORM_SETTINGS = {
+    "discord": {
+        "required": ["DISCORD_BOT_TOKEN"],
+        "optional": ["DISCORD_BOT_ENABLED", "discord_bot_agent_id", "discord_bot_permission_mode", "discord_bot_owner_id"],
+        "extension_name": "discord",
+    },
+    "slack": {
+        "required": ["slack_bot_token", "slack_signing_secret"],
+        "optional": ["slack_bot_enabled", "slack_bot_agent_id", "slack_bot_permission_mode", "slack_bot_owner_id", "slack_app_token"],
+        "extension_name": "slack",
+    },
+    "teams": {
+        "required": ["teams_app_id", "teams_app_password"],
+        "optional": ["teams_bot_enabled", "teams_bot_agent_id", "teams_bot_permission_mode", "teams_bot_owner_id"],
+        "extension_name": "teams",
+    },
+    "x": {
+        "required": ["x_bot_token", "x_api_key", "x_api_secret", "x_access_token", "x_access_secret"],
+        "optional": ["x_bot_enabled", "x_bot_agent_id", "x_bot_permission_mode", "x_bot_owner_id"],
+        "extension_name": "x",
+    },
+    "facebook": {
+        "required": ["facebook_page_id", "facebook_page_token"],
+        "optional": ["facebook_bot_enabled", "facebook_bot_agent_id", "facebook_bot_permission_mode", "facebook_bot_owner_id", "facebook_app_secret"],
+        "extension_name": "facebook",
+    },
+    "telegram": {
+        "required": ["telegram_bot_token"],
+        "optional": ["telegram_bot_enabled", "telegram_bot_agent_id", "telegram_bot_permission_mode", "telegram_bot_owner_id"],
+        "extension_name": "telegram",
+    },
+    "whatsapp": {
+        "required": ["whatsapp_phone_number_id", "whatsapp_access_token"],
+        "optional": ["whatsapp_bot_enabled", "whatsapp_bot_agent_id", "whatsapp_bot_permission_mode", "whatsapp_bot_owner_id", "whatsapp_display_phone_number"],
+        "extension_name": "whatsapp",
+    },
+    "microsoft_email": {
+        "required": ["MICROSOFT_EMAIL_ACCESS_TOKEN", "MICROSOFT_EMAIL_REFRESH_TOKEN"],
+        "optional": ["microsoft_email_bot_enabled", "microsoft_email_bot_agent_id", "microsoft_email_bot_permission_mode", "microsoft_email_bot_owner_id"],
+        "extension_name": "microsoft_email",
+    },
+    "google_email": {
+        "required": ["GOOGLE_EMAIL_ACCESS_TOKEN", "GOOGLE_EMAIL_REFRESH_TOKEN"],
+        "optional": ["google_email_bot_enabled", "google_email_bot_agent_id", "google_email_bot_permission_mode", "google_email_bot_owner_id"],
+        "extension_name": "google_email",
+    },
+    "sendgrid_email": {
+        "required": ["SENDGRID_API_KEY", "SENDGRID_EMAIL"],
+        "optional": ["sendgrid_email_bot_enabled", "sendgrid_email_bot_agent_id", "sendgrid_email_bot_permission_mode", "sendgrid_email_bot_owner_id"],
+        "extension_name": "sendgrid_email",
+    },
+    "twilio_sms": {
+        "required": ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER"],
+        "optional": ["twilio_sms_bot_enabled", "twilio_sms_bot_agent_id", "twilio_sms_bot_permission_mode", "twilio_sms_bot_owner_id"],
+        "extension_name": "twilio_sms",
+    },
+}
+
+
+def _get_bot_manager(platform: str):
+    """Get the bot manager for a specific platform."""
+    if platform == "discord":
+        from DiscordBotManager import get_discord_bot_manager
+        return get_discord_bot_manager()
+    elif platform == "slack":
+        from SlackBotManager import get_slack_bot_manager
+        return get_slack_bot_manager()
+    elif platform == "teams":
+        from TeamsBotManager import get_teams_bot_manager
+        return get_teams_bot_manager()
+    elif platform == "x":
+        from XBotManager import get_x_bot_manager
+        return get_x_bot_manager()
+    elif platform == "facebook":
+        from FacebookBotManager import get_facebook_bot_manager
+        return get_facebook_bot_manager()
+    elif platform == "telegram":
+        from TelegramBotManager import get_telegram_bot_manager
+        return get_telegram_bot_manager()
+    elif platform == "whatsapp":
+        from WhatsAppBotManager import get_whatsapp_bot_manager
+        return get_whatsapp_bot_manager()
+    elif platform == "microsoft_email":
+        from MicrosoftEmailBotManager import get_microsoft_email_bot_manager
+        return get_microsoft_email_bot_manager()
+    elif platform == "google_email":
+        from GoogleEmailBotManager import get_google_email_bot_manager
+        return get_google_email_bot_manager()
+    elif platform == "sendgrid_email":
+        from SendGridEmailBotManager import get_sendgrid_email_bot_manager
+        return get_sendgrid_email_bot_manager()
+    elif platform == "twilio_sms":
+        from TwilioSmsBotManager import get_twilio_sms_bot_manager
+        return get_twilio_sms_bot_manager()
+    return None
+
+
+def _get_bot_status_for_platform(platform: str, company_id: str, company_name: str) -> Optional[BotStatusResponse]:
+    """Get bot status for a specific platform and company."""
+    try:
+        manager = _get_bot_manager(platform)
+        if not manager:
+            return None
+        
+        status = manager.get_bot_status(company_id)
+        if not status:
+            return BotStatusResponse(
+                company_id=company_id,
+                company_name=company_name,
+                platform=platform,
+                is_running=False,
+            )
+        
+        # Build extra data based on platform
+        extra = {}
+        if platform == "discord" and hasattr(status, "guild_count"):
+            extra["guild_count"] = status.guild_count
+        
+        return BotStatusResponse(
+            company_id=company_id,
+            company_name=status.company_name if hasattr(status, "company_name") else company_name,
+            platform=platform,
+            is_running=status.is_running if hasattr(status, "is_running") else False,
+            started_at=status.started_at.isoformat() if hasattr(status, "started_at") and status.started_at else None,
+            messages_processed=status.messages_processed if hasattr(status, "messages_processed") else 0,
+            error=status.error if hasattr(status, "error") else None,
+            extra=extra if extra else None,
+        )
+    except Exception as e:
+        logging.warning(f"Error getting {platform} bot status: {e}")
+        return None
+
+
+@app.get(
+    "/v1/company/{company_id}/bots",
+    tags=["Company Bots"],
+    response_model=AllBotsStatusResponse,
+    summary="Get status of all bots for a company",
+    description="Get the status of all bot platforms (Discord, Slack, Teams, X, Facebook, Telegram, WhatsApp) for a company.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_company_all_bots_status(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """Get the status of all bots for a company."""
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins or super admins can view bot status.",
+        )
+
+    # Get company name
+    with get_session() as db:
+        company = db.query(Company).filter(Company.id == company_id).first()
+        company_name = company.name if company else "Unknown"
+
+    return AllBotsStatusResponse(
+        discord=_get_bot_status_for_platform("discord", company_id, company_name),
+        slack=_get_bot_status_for_platform("slack", company_id, company_name),
+        teams=_get_bot_status_for_platform("teams", company_id, company_name),
+        x=_get_bot_status_for_platform("x", company_id, company_name),
+        facebook=_get_bot_status_for_platform("facebook", company_id, company_name),
+        telegram=_get_bot_status_for_platform("telegram", company_id, company_name),
+        whatsapp=_get_bot_status_for_platform("whatsapp", company_id, company_name),
+        microsoft_email=_get_bot_status_for_platform("microsoft_email", company_id, company_name),
+        google_email=_get_bot_status_for_platform("google_email", company_id, company_name),
+        sendgrid_email=_get_bot_status_for_platform("sendgrid_email", company_id, company_name),
+        twilio_sms=_get_bot_status_for_platform("twilio_sms", company_id, company_name),
+    )
+
+
+@app.get(
+    "/v1/company/{company_id}/bots/{platform}/status",
+    tags=["Company Bots"],
+    response_model=BotStatusResponse,
+    summary="Get bot status for a specific platform",
+    description="Get the status of a specific bot platform for a company.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_company_bot_status(
+    company_id: str,
+    platform: str,
+    authorization: str = Header(None),
+):
+    """Get the status of a specific bot platform for a company."""
+    if platform not in BOT_PLATFORM_SETTINGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
+        )
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins or super admins can view bot status.",
+        )
+
+    # Get company name
+    with get_session() as db:
+        company = db.query(Company).filter(Company.id == company_id).first()
+        company_name = company.name if company else "Unknown"
+
+    status = _get_bot_status_for_platform(platform, company_id, company_name)
+    if not status:
+        return BotStatusResponse(
+            company_id=company_id,
+            company_name=company_name,
+            platform=platform,
+            is_running=False,
+            error=f"{platform.title()} bot manager is not running or not available",
+        )
+
+    return status
+
+
+@app.get(
+    "/v1/company/{company_id}/bots/{platform}/settings",
+    tags=["Company Bots"],
+    summary="Get bot settings for a specific platform",
+    description="Get the configured settings for a specific bot platform.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_company_bot_settings(
+    company_id: str,
+    platform: str,
+    authorization: str = Header(None),
+):
+    """Get the settings for a specific bot platform."""
+    if platform not in BOT_PLATFORM_SETTINGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
+        )
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins can view bot settings.",
+        )
+
+    platform_config = BOT_PLATFORM_SETTINGS[platform]
+    extension_name = platform_config["extension_name"]
+    all_settings = platform_config["required"] + platform_config["optional"]
+
+    settings = {}
+    with get_session() as db:
+        for setting_key in all_settings:
+            setting = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == extension_name,
+                    CompanyExtensionSetting.setting_key == setting_key,
+                )
+                .first()
+            )
+
+            if setting and setting.setting_value:
+                # Mask sensitive values
+                if setting.is_sensitive:
+                    value = setting.setting_value
+                    if len(value) > 8:
+                        settings[setting_key] = f"{value[:4]}{'•' * (len(value) - 8)}{value[-4:]}"
+                    else:
+                        settings[setting_key] = "••••••••"
+                else:
+                    settings[setting_key] = setting.setting_value
+            else:
+                settings[setting_key] = None
+
+    return {
+        "platform": platform,
+        "extension_name": extension_name,
+        "settings": settings,
+        "required_settings": platform_config["required"],
+        "optional_settings": platform_config["optional"],
+    }
+
+
+@app.post(
+    "/v1/company/{company_id}/bots/{platform}/enable",
+    tags=["Company Bots"],
+    summary="Enable or disable a bot for a company",
+    description="Enable or disable a specific bot platform for a company. When enabling, required settings must be provided.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def enable_company_bot(
+    company_id: str,
+    platform: str,
+    request: BotEnableRequest,
+    authorization: str = Header(None),
+):
+    """Enable or disable a bot platform for a company."""
+    if platform not in BOT_PLATFORM_SETTINGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
+        )
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins can manage bots.",
+        )
+
+    platform_config = BOT_PLATFORM_SETTINGS[platform]
+    extension_name = platform_config["extension_name"]
+    enabled_setting_key = f"{extension_name}_bot_enabled"
+    if platform == "discord":
+        enabled_setting_key = "DISCORD_BOT_ENABLED"
+
+    with get_session() as db:
+        # If enabling, check that required settings exist or are provided
+        if request.enabled:
+            for required_key in platform_config["required"]:
+                # Check if provided in request
+                provided = request.settings and required_key in request.settings and request.settings[required_key]
+                
+                # Check if exists in database
+                existing = (
+                    db.query(CompanyExtensionSetting)
+                    .filter(
+                        CompanyExtensionSetting.company_id == company_id,
+                        CompanyExtensionSetting.extension_name == extension_name,
+                        CompanyExtensionSetting.setting_key == required_key,
+                    )
+                    .first()
+                )
+                
+                if not provided and (not existing or not existing.setting_value):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Required setting '{required_key}' is missing. Required settings: {platform_config['required']}",
+                    )
+
+        # Save all provided settings
+        if request.settings:
+            for key, value in request.settings.items():
+                if value is None:
+                    continue
+                    
+                existing = (
+                    db.query(CompanyExtensionSetting)
+                    .filter(
+                        CompanyExtensionSetting.company_id == company_id,
+                        CompanyExtensionSetting.extension_name == extension_name,
+                        CompanyExtensionSetting.setting_key == key,
+                    )
+                    .first()
+                )
+
+                # Determine if sensitive
+                is_sensitive = any(
+                    x in key.lower()
+                    for x in ["token", "secret", "password", "key", "access"]
+                )
+
+                # Encrypt if sensitive
+                final_value = encrypt_config_value(value) if is_sensitive else value
+
+                if existing:
+                    existing.setting_value = final_value
+                    existing.is_sensitive = is_sensitive
+                else:
+                    from DB import get_new_id
+                    new_setting = CompanyExtensionSetting(
+                        id=get_new_id(),
+                        company_id=company_id,
+                        extension_name=extension_name,
+                        setting_key=key,
+                        setting_value=final_value,
+                        is_sensitive=is_sensitive,
+                    )
+                    db.add(new_setting)
+
+        # Save agent_id if provided
+        if request.agent_id:
+            agent_id_key = f"{extension_name}_bot_agent_id"
+            existing_agent = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == extension_name,
+                    CompanyExtensionSetting.setting_key == agent_id_key,
+                )
+                .first()
+            )
+            if existing_agent:
+                existing_agent.setting_value = request.agent_id
+            else:
+                from DB import get_new_id
+                db.add(CompanyExtensionSetting(
+                    id=get_new_id(),
+                    company_id=company_id,
+                    extension_name=extension_name,
+                    setting_key=agent_id_key,
+                    setting_value=request.agent_id,
+                    is_sensitive=False,
+                ))
+
+        # Save permission_mode if provided
+        if request.permission_mode:
+            # Validate permission mode
+            valid_modes = ["owner_only", "recognized_users", "anyone"]
+            if request.permission_mode not in valid_modes:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid permission_mode: {request.permission_mode}. Valid modes: {valid_modes}",
+                )
+            
+            permission_key = f"{extension_name}_bot_permission_mode"
+            existing_perm = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == extension_name,
+                    CompanyExtensionSetting.setting_key == permission_key,
+                )
+                .first()
+            )
+            if existing_perm:
+                existing_perm.setting_value = request.permission_mode
+            else:
+                from DB import get_new_id
+                db.add(CompanyExtensionSetting(
+                    id=get_new_id(),
+                    company_id=company_id,
+                    extension_name=extension_name,
+                    setting_key=permission_key,
+                    setting_value=request.permission_mode,
+                    is_sensitive=False,
+                ))
+
+        # Save owner_id (the user who is enabling this bot)
+        owner_id_key = f"{extension_name}_bot_owner_id"
+        existing_owner = (
+            db.query(CompanyExtensionSetting)
+            .filter(
+                CompanyExtensionSetting.company_id == company_id,
+                CompanyExtensionSetting.extension_name == extension_name,
+                CompanyExtensionSetting.setting_key == owner_id_key,
+            )
+            .first()
+        )
+        if not existing_owner:
+            # Only set owner on first enable, don't overwrite
+            from DB import get_new_id
+            db.add(CompanyExtensionSetting(
+                id=get_new_id(),
+                company_id=company_id,
+                extension_name=extension_name,
+                setting_key=owner_id_key,
+                setting_value=str(auth.user_id),
+                is_sensitive=False,
+            ))
+
+        # Update enabled setting
+        existing_enabled = (
+            db.query(CompanyExtensionSetting)
+            .filter(
+                CompanyExtensionSetting.company_id == company_id,
+                CompanyExtensionSetting.extension_name == extension_name,
+                CompanyExtensionSetting.setting_key == enabled_setting_key,
+            )
+            .first()
+        )
+
+        enabled_value = "true" if request.enabled else "false"
+
+        if existing_enabled:
+            existing_enabled.setting_value = enabled_value
+        else:
+            from DB import get_new_id
+            new_setting = CompanyExtensionSetting(
+                id=get_new_id(),
+                company_id=company_id,
+                extension_name=extension_name,
+                setting_key=enabled_setting_key,
+                setting_value=enabled_value,
+                is_sensitive=False,
+            )
+            db.add(new_setting)
+
+        db.commit()
+
+    # Trigger bot sync
+    try:
+        manager = _get_bot_manager(platform)
+        if manager and hasattr(manager, "sync_bots"):
+            import asyncio
+            asyncio.create_task(manager.sync_bots())
+    except Exception as e:
+        logging.error(f"Error syncing {platform} bots: {e}")
+
+    action = "enabled" if request.enabled else "disabled"
+    return {
+        "status": "success",
+        "message": f"{platform.title()} bot {action} for company. Bot will start/stop within 60 seconds.",
+    }
+
+
+@app.post(
+    "/v1/company/{company_id}/bots/{platform}/restart",
+    tags=["Company Bots"],
+    summary="Restart a bot for a company",
+    description="Restart a specific bot platform for a company.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def restart_company_bot(
+    company_id: str,
+    platform: str,
+    authorization: str = Header(None),
+):
+    """Restart a bot platform for a company."""
+    if platform not in BOT_PLATFORM_SETTINGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
+        )
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins can restart bots.",
+        )
+
+    manager = _get_bot_manager(platform)
+    if not manager:
+        raise HTTPException(
+            status_code=503,
+            detail=f"{platform.title()} bot manager is not running.",
+        )
+
+    # Stop and restart the bot
+    try:
+        if hasattr(manager, "stop_bot_for_company"):
+            await manager.stop_bot_for_company(company_id)
+        if hasattr(manager, "sync_bots"):
+            await manager.sync_bots()
+    except Exception as e:
+        logging.error(f"Error restarting {platform} bot: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error restarting bot: {str(e)}",
+        )
+
+    return {
+        "status": "success",
+        "message": f"{platform.title()} bot restart initiated. Bot will be back online shortly.",
+    }
+
+
+@app.get(
+    "/v1/admin/bots",
+    tags=["Admin Bots"],
+    summary="Get all running bots across all platforms (super admin only)",
+    description="Get status of all running bots across all companies and platforms.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_all_bots_admin(
+    authorization: str = Header(None),
+):
+    """Get status of all running bots across all platforms (super admin only)."""
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Super admin access required.",
+        )
+
+    all_bots = {}
+    for platform in BOT_PLATFORM_SETTINGS.keys():
+        try:
+            manager = _get_bot_manager(platform)
+            if not manager:
+                all_bots[platform] = {"status": "not_running", "bots": []}
+                continue
+
+            # Get all statuses
+            if hasattr(manager, "get_status"):
+                statuses = manager.get_status()
+                if isinstance(statuses, dict):
+                    all_bots[platform] = {
+                        "status": "running",
+                        "bots": [
+                            {
+                                "company_id": s.company_id if hasattr(s, "company_id") else k,
+                                "company_name": s.company_name if hasattr(s, "company_name") else "Unknown",
+                                "is_running": s.is_running if hasattr(s, "is_running") else False,
+                                "started_at": s.started_at.isoformat() if hasattr(s, "started_at") and s.started_at else None,
+                                "error": s.error if hasattr(s, "error") else None,
+                            }
+                            for k, s in statuses.items()
+                        ],
+                    }
+                else:
+                    all_bots[platform] = {"status": "running", "bots": []}
+            elif hasattr(manager, "get_all_status"):
+                statuses = manager.get_all_status()
+                all_bots[platform] = {
+                    "status": "running",
+                    "bots": [
+                        {
+                            "company_id": s.company_id if hasattr(s, "company_id") else "unknown",
+                            "company_name": s.company_name if hasattr(s, "company_name") else "Unknown",
+                            "is_running": s.is_running if hasattr(s, "is_running") else False,
+                            "started_at": s.started_at.isoformat() if hasattr(s, "started_at") and s.started_at else None,
+                            "error": s.error if hasattr(s, "error") else None,
+                        }
+                        for s in statuses
+                    ],
+                }
+            else:
+                all_bots[platform] = {"status": "running", "bots": []}
+
+        except Exception as e:
+            logging.warning(f"Error getting {platform} bot statuses: {e}")
+            all_bots[platform] = {"status": "error", "error": str(e), "bots": []}
+
+    return {
+        "status": "success",
+        "platforms": all_bots,
+    }
+
+
+@app.get(
+    "/v1/bots/platforms",
+    tags=["Company Bots"],
+    summary="Get available bot platforms and their configuration",
+    description="Get list of available bot platforms with their required and optional settings.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_bot_platforms(
+    authorization: str = Header(None),
+):
+    """Get available bot platforms and their configuration."""
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    platforms = []
+    for platform, config in BOT_PLATFORM_SETTINGS.items():
+        platforms.append({
+            "id": platform,
+            "name": _get_platform_display_name(platform),
+            "extension_name": config["extension_name"],
+            "required_settings": config["required"],
+            "optional_settings": config["optional"],
+            "description": _get_platform_description(platform),
+            "setup_url": _get_platform_setup_url(platform),
+        })
+
+    return {
+        "platforms": platforms,
+        "permission_modes": BOT_PERMISSION_MODES,
+    }
+
+
+def _get_platform_description(platform: str) -> str:
+    """Get description for a bot platform."""
+    descriptions = {
+        "discord": "Connect your AI agent to Discord servers for chat interactions.",
+        "slack": "Integrate your AI agent with Slack workspaces.",
+        "teams": "Deploy your AI agent to Microsoft Teams channels.",
+        "x": "Connect your AI agent to X (Twitter) for DM and mention-based interactions.",
+        "facebook": "Integrate your AI agent with Facebook Messenger for page conversations.",
+        "telegram": "Deploy your AI agent as a Telegram bot.",
+        "whatsapp": "Connect your AI agent to WhatsApp Business for messaging.",
+        "microsoft_email": "Connect your AI agent to Microsoft Outlook/365 email for automated email responses.",
+        "google_email": "Connect your AI agent to Gmail for automated email responses.",
+        "sendgrid_email": "Connect your AI agent to SendGrid for inbound email processing and responses.",
+        "twilio_sms": "Connect your AI agent to Twilio for SMS text message conversations.",
+    }
+    return descriptions.get(platform, "")
+
+
+def _get_platform_setup_url(platform: str) -> str:
+    """Get documentation/setup URL for a bot platform."""
+    urls = {
+        "discord": "https://discord.com/developers/applications",
+        "slack": "https://api.slack.com/apps",
+        "teams": "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+        "x": "https://developer.twitter.com/en/portal/dashboard",
+        "facebook": "https://developers.facebook.com/apps/",
+        "telegram": "https://core.telegram.org/bots#botfather",
+        "whatsapp": "https://developers.facebook.com/docs/whatsapp/cloud-api",
+        "microsoft_email": "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+        "google_email": "https://console.cloud.google.com/apis/credentials",
+        "sendgrid_email": "https://app.sendgrid.com/settings/api_keys",
+        "twilio_sms": "https://www.twilio.com/console",
+    }
+    return urls.get(platform, "")
+
+
+def _get_platform_display_name(platform: str) -> str:
+    """Get display name for a bot platform."""
+    names = {
+        "discord": "Discord",
+        "slack": "Slack",
+        "teams": "Microsoft Teams",
+        "x": "X (Twitter)",
+        "facebook": "Facebook Messenger",
+        "telegram": "Telegram",
+        "whatsapp": "WhatsApp",
+        "microsoft_email": "Microsoft Outlook/365 Email",
+        "google_email": "Gmail",
+        "sendgrid_email": "SendGrid Email",
+        "twilio_sms": "Twilio SMS",
+    }
+    return names.get(platform, platform.title())
+
+
+# ============================================================================
 # Server Extension Command Endpoints (for enabling/disabling commands)
 # ============================================================================
 

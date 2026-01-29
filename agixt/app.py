@@ -295,6 +295,19 @@ app.include_router(roles_endpoints)
 app.include_router(server_config_endpoints)
 app.include_router(apikey_endpoints)
 
+# Bot webhook routers (for inbound email/SMS processing)
+try:
+    from SendGridEmailBotManager import sendgrid_webhook_router
+    app.include_router(sendgrid_webhook_router)
+except Exception as e:
+    logging.debug(f"SendGrid webhook router not available: {e}")
+
+try:
+    from TwilioSmsBotManager import twilio_sms_webhook_router
+    app.include_router(twilio_sms_webhook_router)
+except Exception as e:
+    logging.debug(f"Twilio SMS webhook router not available: {e}")
+
 
 # Cache stats endpoint for monitoring response cache performance
 @app.get("/v1/cache/stats", tags=["Health"])
