@@ -484,9 +484,26 @@ async def sendgrid_inbound_webhook(
     # Use text body, or extract from HTML if not available
     body_text = text
     if not body_text and html:
-        import re
+        from html.parser import HTMLParser
+        from io import StringIO
 
-        body_text = re.sub(r"<[^>]+>", "", html).strip()
+        class MLStripper(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.reset()
+                self.strict = False
+                self.convert_charrefs = True
+                self.text = StringIO()
+
+            def handle_data(self, d):
+                self.text.write(d)
+
+            def get_data(self):
+                return self.text.getvalue()
+
+        stripper = MLStripper()
+        stripper.feed(html)
+        body_text = stripper.get_data().strip()
 
     await manager.handle_inbound_webhook(
         from_email=from_email,

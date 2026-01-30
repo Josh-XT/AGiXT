@@ -6538,8 +6538,10 @@ def get_server_config_encryption_key():
         api_key = "default-agixt-key-please-set-env"
 
     # Derive a Fernet-compatible key (32 bytes, base64 encoded) from the API key
-    # Using SHA256 hash to get consistent 32 bytes
-    key_hash = hashlib.sha256(api_key.encode()).digest()
+    # Using PBKDF2 with SHA256 for secure key derivation instead of plain SHA256
+    # Salt is derived from a constant to ensure deterministic key generation
+    salt = b"agixt-config-encryption-salt-v1"
+    key_hash = hashlib.pbkdf2_hmac("sha256", api_key.encode(), salt, iterations=100000)
     return base64.urlsafe_b64encode(key_hash)
 
 

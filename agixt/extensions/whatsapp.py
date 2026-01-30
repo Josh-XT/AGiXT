@@ -169,13 +169,16 @@ class whatsapp(Extensions):
 
             if "error" in result:
                 error_msg = result["error"].get("message", "Unknown error")
-                logging.error(f"WhatsApp API error: {error_msg}")
+                # Log error type only, not full message which may contain sensitive data
+                error_code = result["error"].get("code", "unknown")
+                logging.error(f"WhatsApp API error: code={error_code}")
                 return {"error": error_msg}
 
             return result
 
         except Exception as e:
-            logging.error(f"WhatsApp request failed: {str(e)}")
+            # Log only exception type, not full message which may contain sensitive data
+            logging.error(f"WhatsApp request failed: {type(e).__name__}")
             return {"error": str(e)}
 
     async def send_text_message(

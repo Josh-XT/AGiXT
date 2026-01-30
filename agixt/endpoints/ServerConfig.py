@@ -4179,8 +4179,10 @@ async def update_server_oauth_providers(
 
                 updated.append(f"{setting.provider_name}:{setting.setting_key}")
             except Exception as e:
+                # Log full error internally but don't expose exception details in response
+                logging.error(f"Error updating OAuth setting {setting.provider_name}:{setting.setting_key}: {e}")
                 errors.append(
-                    f"Error updating {setting.provider_name}:{setting.setting_key}: {str(e)}"
+                    f"Error updating {setting.provider_name}:{setting.setting_key}"
                 )
 
         db.commit()
