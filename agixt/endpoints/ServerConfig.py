@@ -6,7 +6,7 @@ through the UI instead of requiring environment variable changes.
 """
 
 import os
-from fastapi import APIRouter, Header, HTTPException, Depends
+from fastapi import APIRouter, Header, HTTPException, Depends, Request
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from MagicalAuth import MagicalAuth, verify_api_key, send_email
@@ -1501,6 +1501,2192 @@ async def get_all_discord_bots(
 
 
 # ============================================================================
+# Multi-Platform Bot Management Endpoints
+# ============================================================================
+
+
+class BotStatusResponse(BaseModel):
+    """Generic response for bot status."""
+
+    company_id: str
+    company_name: str
+    platform: str
+    is_running: bool
+    started_at: Optional[str] = None
+    messages_processed: int = 0
+    error: Optional[str] = None
+    extra: Optional[Dict[str, Any]] = None
+
+
+class BotPermissionMode:
+    """Permission modes for bot interactions."""
+
+    OWNER_ONLY = "owner_only"  # Only the user who set up the bot can interact
+    RECOGNIZED_USERS = "recognized_users"  # Only users with AGiXT accounts can interact
+    ANYONE = "anyone"  # Anyone can interact with the bot
+
+
+class BotEnableRequest(BaseModel):
+    """Request to enable/disable a bot for a company."""
+
+    enabled: bool
+    settings: Optional[Dict[str, str]] = None  # Platform-specific settings
+    agent_id: Optional[str] = None  # The specific agent ID to use for this bot
+    permission_mode: Optional[str] = None  # owner_only, recognized_users, or anyone
+
+
+class AllBotsStatusResponse(BaseModel):
+    """Response containing status for all bot platforms."""
+
+    discord: Optional[BotStatusResponse] = None
+    slack: Optional[BotStatusResponse] = None
+    teams: Optional[BotStatusResponse] = None
+    x: Optional[BotStatusResponse] = None
+    facebook: Optional[BotStatusResponse] = None
+    telegram: Optional[BotStatusResponse] = None
+    whatsapp: Optional[BotStatusResponse] = None
+    microsoft_email: Optional[BotStatusResponse] = None
+    google_email: Optional[BotStatusResponse] = None
+    sendgrid_email: Optional[BotStatusResponse] = None
+    twilio_sms: Optional[BotStatusResponse] = None
+
+
+class DeployedBotInfo(BaseModel):
+    """Information about a deployed bot."""
+
+    id: str  # Unique identifier (company_id + platform)
+    platform: str  # Platform identifier (discord, slack, etc.)
+    platform_name: str  # Display name
+    company_id: str
+    company_name: str
+    agent_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    enabled: bool  # Whether the bot is configured as enabled
+    is_running: bool  # Whether the bot is actually running
+    is_paused: bool = (
+        False  # Whether the bot is paused (enabled but not running intentionally)
+    )
+    is_server_level: bool = (
+        False  # Whether this is a server-level bot (vs company-level)
+    )
+    permission_mode: str = "recognized_users"
+    permission_mode_label: str = "Recognized Users"
+    permission_privacy: str = "private"  # "private" or "public"
+    status: str = "offline"  # running, paused, offline, error
+    status_message: Optional[str] = None
+    started_at: Optional[str] = None
+    messages_processed: int = 0
+    uses_oauth: bool = False
+    oauth_connected: bool = False
+    oauth_provider: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    error: Optional[str] = None
+
+
+class DeployedBotsResponse(BaseModel):
+    """Response containing list of deployed bots."""
+
+    bots: List[DeployedBotInfo]
+    total_count: int
+    running_count: int
+    paused_count: int
+    error_count: int
+
+
+class BotPauseRequest(BaseModel):
+    """Request to pause/unpause a bot."""
+
+    paused: bool
+
+
+# Bot permission modes with privacy levels
+# PRIVATE modes: Only specific users can interact
+# PUBLIC modes: Open to a wider audience
+BOT_PERMISSION_MODES = [
+    {
+        "value": "owner_only",
+        "label": "Owner Only",
+        "description": "Only you can interact with the bot",
+        "privacy": "private",
+    },
+    {
+        "value": "recognized_users",
+        "label": "Recognized Users",
+        "description": "Users within your company who have linked their account",
+        "privacy": "private",
+    },
+    {
+        "value": "allowlist",
+        "label": "Allowlist Only",
+        "description": "Only users you manually add to the allowlist can interact",
+        "privacy": "private",
+    },
+    {
+        "value": "app_users",
+        "label": "{app_name} Users",
+        "description": "Anyone with an account on {app_name}, regardless of company",
+        "privacy": "public",
+    },
+    {
+        "value": "anyone",
+        "label": "Anyone",
+        "description": "Anyone can interact with the bot (no account required)",
+        "privacy": "public",
+    },
+]
+
+
+def get_permission_modes_with_app_name():
+    """Get permission modes with app_name substituted."""
+    from Globals import getenv
+
+    app_name = getenv("APP_NAME") or "AGiXT"
+    modes = []
+    for mode in BOT_PERMISSION_MODES:
+        mode_copy = mode.copy()
+        mode_copy["label"] = mode_copy["label"].replace("{app_name}", app_name)
+        mode_copy["description"] = mode_copy["description"].replace(
+            "{app_name}", app_name
+        )
+        modes.append(mode_copy)
+    return modes
+
+
+# Platform-specific setting requirements
+# Platforms can use OAuth (oauth_provider set) or manual tokens (required settings)
+# When oauth_provider is set, the bot uses OAuth credentials from the selected agent's connections
+BOT_PLATFORM_SETTINGS = {
+    "discord": {
+        "required": [
+            "DISCORD_BOT_TOKEN"
+        ],  # Discord bots need their own bot token (not user OAuth)
+        "optional": [
+            "DISCORD_BOT_ENABLED",
+            "discord_bot_agent_id",
+            "discord_bot_permission_mode",
+            "discord_bot_owner_id",
+            "discord_bot_allowlist",  # Comma-separated Discord user IDs
+        ],
+        "extension_name": "discord",
+        "oauth_provider": None,  # Discord bot tokens are different from user OAuth
+        "description": "Engage gaming communities and online groups with 24/7 AI-powered chat support in Discord servers and DMs.",
+        "allowlist_type": "discord_user_ids",
+        "allowlist_placeholder": "123456789012345678, 234567890123456789",
+        "allowlist_help": "Enter Discord user IDs separated by commas. Right-click a user in Discord and select 'Copy User ID'.",
+    },
+    "slack": {
+        "required": ["slack_bot_token", "slack_signing_secret"],
+        "optional": [
+            "slack_bot_enabled",
+            "slack_bot_agent_id",
+            "slack_bot_permission_mode",
+            "slack_bot_owner_id",
+            "slack_app_token",
+            "slack_bot_allowlist",  # Comma-separated Slack user IDs
+        ],
+        "extension_name": "slack",
+        "oauth_provider": None,  # Slack bots need app tokens, not user OAuth
+        "description": "Supercharge your team's productivity with an AI assistant that answers questions and automates tasks in Slack.",
+        "allowlist_type": "slack_user_ids",
+        "allowlist_placeholder": "U01234ABCDE, U05678FGHIJ",
+        "allowlist_help": "Enter Slack user IDs (starting with 'U') separated by commas. Find user IDs in Slack user profiles.",
+    },
+    "teams": {
+        "required": [],  # No longer required - use OAuth
+        "optional": [
+            "teams_bot_enabled",
+            "teams_bot_agent_id",
+            "teams_bot_permission_mode",
+            "teams_bot_owner_id",
+            "teams_bot_allowlist",  # Comma-separated Teams user IDs/emails
+        ],
+        "extension_name": "teams",
+        "oauth_provider": "microsoft",  # Uses Microsoft OAuth
+        "oauth_provider_display": "Microsoft",
+        "description": "Bring intelligent automation to your workplace with AI chat support directly in Microsoft Teams.",
+        "allowlist_type": "teams_user_ids",
+        "allowlist_placeholder": "user@company.com, another@company.com",
+        "allowlist_help": "Enter Microsoft/Teams email addresses separated by commas.",
+    },
+    "x": {
+        "required": [],  # No longer required - use OAuth
+        "optional": [
+            "x_bot_enabled",
+            "x_bot_agent_id",
+            "x_bot_permission_mode",
+            "x_bot_owner_id",
+            "x_bot_allowlist",  # Comma-separated X/Twitter user IDs
+        ],
+        "extension_name": "x",
+        "oauth_provider": "x",  # Uses X/Twitter OAuth
+        "oauth_provider_display": "X (Twitter)",
+        "description": "Automatically engage with followers, respond to DMs, and handle mentions on X (Twitter) around the clock.",
+        "allowlist_type": "x_user_ids",
+        "allowlist_placeholder": "elonmusk, jack, 12345678",
+        "allowlist_help": "Enter X usernames (without @) or user IDs separated by commas.",
+    },
+    "facebook": {
+        "required": [],  # No longer required - use OAuth
+        "optional": [
+            "facebook_bot_enabled",
+            "facebook_bot_agent_id",
+            "facebook_bot_permission_mode",
+            "facebook_bot_owner_id",
+            "facebook_bot_allowlist",  # Comma-separated Facebook user IDs
+        ],
+        "extension_name": "facebook",
+        "oauth_provider": "facebook",  # Uses Facebook OAuth
+        "oauth_provider_display": "Facebook",
+        "description": "Provide instant customer support on your Facebook page with AI-powered Messenger responses.",
+        "allowlist_type": "facebook_user_ids",
+        "allowlist_placeholder": "123456789012345, 234567890123456",
+        "allowlist_help": "Enter Facebook user IDs (PSIDs from Messenger) separated by commas.",
+    },
+    "telegram": {
+        "required": ["telegram_bot_token"],  # Telegram bots need BotFather tokens
+        "optional": [
+            "telegram_bot_enabled",
+            "telegram_bot_agent_id",
+            "telegram_bot_permission_mode",
+            "telegram_bot_owner_id",
+            "telegram_bot_allowlist",  # Comma-separated Telegram user IDs
+        ],
+        "extension_name": "telegram",
+        "oauth_provider": None,  # Telegram bots use BotFather tokens, not OAuth
+        "description": "Reach users globally with an AI bot that handles conversations in Telegram groups and private chats.",
+        "allowlist_type": "telegram_user_ids",
+        "allowlist_placeholder": "123456789, 987654321",
+        "allowlist_help": "Enter Telegram user IDs (numbers) separated by commas. Users can get their ID from @userinfobot.",
+    },
+    "whatsapp": {
+        "required": ["whatsapp_phone_number_id", "whatsapp_access_token"],
+        "optional": [
+            "whatsapp_bot_enabled",
+            "whatsapp_bot_agent_id",
+            "whatsapp_bot_permission_mode",
+            "whatsapp_bot_owner_id",
+            "whatsapp_bot_allowlist",  # Comma-separated phone numbers
+        ],
+        "extension_name": "whatsapp",
+        "oauth_provider": None,  # WhatsApp Business API requires manual setup
+        "description": "Deliver personalized customer service at scale through WhatsApp Business conversations.",
+        "allowlist_type": "phone_numbers",
+        "allowlist_placeholder": "+1234567890, +0987654321",
+        "allowlist_help": "Enter phone numbers with country code separated by commas (e.g., +1234567890).",
+    },
+    "microsoft_email": {
+        "required": [],  # No longer required - use OAuth
+        "optional": [
+            "microsoft_email_bot_enabled",
+            "microsoft_email_bot_agent_id",
+            "microsoft_email_bot_permission_mode",
+            "microsoft_email_bot_owner_id",
+            "microsoft_email_bot_allowlist",  # Comma-separated email addresses
+        ],
+        "extension_name": "microsoft_email",
+        "oauth_provider": "microsoft",  # Uses Microsoft OAuth
+        "oauth_provider_display": "Microsoft (Outlook/365)",
+        "description": "Automatically triage and respond to Outlook/365 emails, reducing response times and workload.",
+        "allowlist_type": "email_addresses",
+        "allowlist_placeholder": "user@example.com, client@company.com",
+        "allowlist_help": "Enter email addresses separated by commas. Only emails from these senders will be processed.",
+    },
+    "google_email": {
+        "required": [],  # No longer required - use OAuth
+        "optional": [
+            "google_email_bot_enabled",
+            "google_email_bot_agent_id",
+            "google_email_bot_permission_mode",
+            "google_email_bot_owner_id",
+            "google_email_bot_allowlist",  # Comma-separated email addresses
+        ],
+        "extension_name": "google_email",
+        "oauth_provider": "google",  # Uses Google OAuth
+        "oauth_provider_display": "Google (Gmail)",
+        "description": "Let AI handle routine Gmail inquiries so you can focus on what matters most.",
+        "allowlist_type": "email_addresses",
+        "allowlist_placeholder": "user@example.com, client@company.com",
+        "allowlist_help": "Enter email addresses separated by commas. Only emails from these senders will be processed.",
+    },
+    "sendgrid_email": {
+        "required": ["SENDGRID_API_KEY", "SENDGRID_EMAIL"],
+        "optional": [
+            "sendgrid_email_bot_enabled",
+            "sendgrid_email_bot_agent_id",
+            "sendgrid_email_bot_permission_mode",
+            "sendgrid_email_bot_owner_id",
+            "sendgrid_email_bot_allowlist",  # Comma-separated email addresses
+        ],
+        "extension_name": "sendgrid_email",
+        "oauth_provider": None,  # SendGrid uses API keys
+        "description": "Process high volumes of inbound emails automatically with intelligent AI responses via SendGrid.",
+        "allowlist_type": "email_addresses",
+        "allowlist_placeholder": "user@example.com, client@company.com",
+        "allowlist_help": "Enter email addresses separated by commas. Only emails from these senders will be processed.",
+    },
+    "twilio_sms": {
+        "required": ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER"],
+        "optional": [
+            "twilio_sms_bot_enabled",
+            "twilio_sms_bot_agent_id",
+            "twilio_sms_bot_permission_mode",
+            "twilio_sms_bot_owner_id",
+            "twilio_sms_bot_allowlist",  # Comma-separated phone numbers
+        ],
+        "extension_name": "twilio_sms",
+        "oauth_provider": None,  # Twilio uses API credentials
+        "description": "Enable conversational SMS support that feels personal while scaling to thousands of customers.",
+        "allowlist_type": "phone_numbers",
+        "allowlist_placeholder": "+1234567890, +0987654321",
+        "allowlist_help": "Enter phone numbers with country code separated by commas (e.g., +1234567890).",
+    },
+    "github": {
+        "required": [],  # Can use either token or GitHub App
+        "optional": [
+            "github_bot_enabled",
+            "GITHUB_TOKEN",  # Personal access token (alternative to App)
+            "GITHUB_APP_ID",  # GitHub App ID
+            "GITHUB_APP_PRIVATE_KEY",  # GitHub App private key
+            "GITHUB_WEBHOOK_SECRET",  # For verifying webhooks
+            "github_bot_agent_id",
+            "github_bot_permission_mode",
+            "github_bot_owner_id",
+            "github_bot_allowlist",  # Comma-separated GitHub usernames, repos, or orgs
+            "github_bot_deployment_scope",  # single_repo, multi_repo, org, user
+            "github_bot_target_repos",  # Comma-separated owner/repo list
+            "github_bot_target_org",  # Organization name
+            "github_bot_target_user",  # GitHub username
+            "github_bot_auto_fix",  # Auto-fix issues
+            "github_bot_auto_review",  # Auto-review PRs
+            "github_bot_auto_tests",  # Auto-generate tests
+        ],
+        "extension_name": "github",
+        "oauth_provider": None,  # Uses GitHub token or App credentials
+        "description": "Automate code reviews, fix issues, and manage PRs with AI-powered GitHub integration.",
+        "allowlist_type": "github_identifiers",
+        "allowlist_placeholder": "octocat, my-org, owner/repo",
+        "allowlist_help": "Enter GitHub usernames, organization names, or repository names (owner/repo) separated by commas.",
+    },
+}
+
+
+def _get_bot_manager(platform: str):
+    """Get the bot manager for a specific platform."""
+    try:
+        if platform == "discord":
+            from DiscordBotManager import get_discord_bot_status_from_redis
+
+            return get_discord_bot_status_from_redis(company_id)
+        elif platform == "slack":
+            from SlackBotManager import get_slack_bot_manager
+
+            return get_slack_bot_manager()
+        elif platform == "teams":
+            from TeamsBotManager import get_teams_bot_manager
+
+            return get_teams_bot_manager()
+        elif platform == "x":
+            from XBotManager import get_x_bot_manager
+
+            return get_x_bot_manager()
+        elif platform == "facebook":
+            from FacebookBotManager import get_facebook_bot_manager
+
+            return get_facebook_bot_manager()
+        elif platform == "telegram":
+            from TelegramBotManager import get_telegram_bot_manager
+
+            return get_telegram_bot_manager()
+        elif platform == "whatsapp":
+            from WhatsAppBotManager import get_whatsapp_bot_manager
+
+            return get_whatsapp_bot_manager()
+        elif platform == "microsoft_email":
+            from MicrosoftEmailBotManager import get_microsoft_email_bot_manager
+
+            return get_microsoft_email_bot_manager()
+        elif platform == "google_email":
+            from GoogleEmailBotManager import get_google_email_bot_manager
+
+            return get_google_email_bot_manager()
+        elif platform == "sendgrid_email":
+            from SendGridEmailBotManager import get_sendgrid_email_bot_manager
+
+            return get_sendgrid_email_bot_manager()
+        elif platform == "twilio_sms":
+            from TwilioSmsBotManager import get_twilio_sms_bot_manager
+
+            return get_twilio_sms_bot_manager()
+        elif platform == "github":
+            from GitHubBotManager import get_github_bot_manager
+            import asyncio
+
+            return asyncio.get_event_loop().run_until_complete(get_github_bot_manager())
+        return None
+    except Exception as e:
+        logging.warning(f"Error getting bot manager for {platform}: {e}")
+        return None
+
+
+def _get_bot_status_for_platform(
+    platform: str, company_id: str, company_name: str
+) -> Optional[BotStatusResponse]:
+    """Get bot status for a specific platform and company."""
+    try:
+        # Special handling for Discord - it uses Redis for cross-process status
+        if platform == "discord":
+            from DiscordBotManager import get_discord_bot_status_from_redis
+
+            status = get_discord_bot_status_from_redis(company_id)
+            if not status:
+                return BotStatusResponse(
+                    company_id=company_id,
+                    company_name=company_name,
+                    platform=platform,
+                    is_running=False,
+                )
+
+            return BotStatusResponse(
+                company_id=company_id,
+                company_name=(
+                    status.company_name
+                    if hasattr(status, "company_name")
+                    else company_name
+                ),
+                platform=platform,
+                is_running=(
+                    status.is_running if hasattr(status, "is_running") else False
+                ),
+                started_at=(
+                    status.started_at.isoformat()
+                    if hasattr(status, "started_at") and status.started_at
+                    else None
+                ),
+                messages_processed=0,
+                error=status.error if hasattr(status, "error") else None,
+                extra=(
+                    {"guild_count": status.guild_count}
+                    if hasattr(status, "guild_count")
+                    else None
+                ),
+            )
+
+        # For other platforms, use the manager pattern
+        manager = _get_bot_manager(platform)
+        if not manager:
+            # Return "not running" status instead of null when manager unavailable
+            return BotStatusResponse(
+                company_id=company_id,
+                company_name=company_name,
+                platform=platform,
+                is_running=False,
+            )
+
+        status = manager.get_bot_status(company_id)
+        if not status:
+            return BotStatusResponse(
+                company_id=company_id,
+                company_name=company_name,
+                platform=platform,
+                is_running=False,
+            )
+
+        # Build extra data based on platform
+        extra = {}
+        if platform == "discord" and hasattr(status, "guild_count"):
+            extra["guild_count"] = status.guild_count
+
+        return BotStatusResponse(
+            company_id=company_id,
+            company_name=(
+                status.company_name if hasattr(status, "company_name") else company_name
+            ),
+            platform=platform,
+            is_running=status.is_running if hasattr(status, "is_running") else False,
+            started_at=(
+                status.started_at.isoformat()
+                if hasattr(status, "started_at") and status.started_at
+                else None
+            ),
+            messages_processed=(
+                status.messages_processed
+                if hasattr(status, "messages_processed")
+                else 0
+            ),
+            error=status.error if hasattr(status, "error") else None,
+            extra=extra if extra else None,
+        )
+    except Exception as e:
+        logging.warning(f"Error getting {platform} bot status: {e}")
+        return None
+
+
+@app.get(
+    "/v1/company/{company_id}/bots",
+    tags=["Company Bots"],
+    response_model=AllBotsStatusResponse,
+    summary="Get status of all bots for a company",
+    description="Get the status of all bot platforms (Discord, Slack, Teams, X, Facebook, Telegram, WhatsApp) for a company.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_company_all_bots_status(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """Get the status of all bots for a company."""
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins or super admins can view bot status.",
+        )
+
+    # Get company name
+    with get_session() as db:
+        company = db.query(Company).filter(Company.id == company_id).first()
+        company_name = company.name if company else "Unknown"
+
+    return AllBotsStatusResponse(
+        discord=_get_bot_status_for_platform("discord", company_id, company_name),
+        slack=_get_bot_status_for_platform("slack", company_id, company_name),
+        teams=_get_bot_status_for_platform("teams", company_id, company_name),
+        x=_get_bot_status_for_platform("x", company_id, company_name),
+        facebook=_get_bot_status_for_platform("facebook", company_id, company_name),
+        telegram=_get_bot_status_for_platform("telegram", company_id, company_name),
+        whatsapp=_get_bot_status_for_platform("whatsapp", company_id, company_name),
+        microsoft_email=_get_bot_status_for_platform(
+            "microsoft_email", company_id, company_name
+        ),
+        google_email=_get_bot_status_for_platform(
+            "google_email", company_id, company_name
+        ),
+        sendgrid_email=_get_bot_status_for_platform(
+            "sendgrid_email", company_id, company_name
+        ),
+        twilio_sms=_get_bot_status_for_platform("twilio_sms", company_id, company_name),
+    )
+
+
+@app.get(
+    "/v1/company/{company_id}/deployed-bots",
+    tags=["Company Bots"],
+    response_model=DeployedBotsResponse,
+    summary="Get list of deployed bots for a company",
+    description="Get a list of all deployed (enabled) bots for a company with their status, agent, and configuration.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_company_deployed_bots(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """Get all deployed bots for a company."""
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins can view deployed bots.",
+        )
+
+    deployed_bots = []
+    running_count = 0
+    paused_count = 0
+    error_count = 0
+
+    with get_session() as db:
+        company = db.query(Company).filter(Company.id == company_id).first()
+        company_name = company.name if company else "Unknown"
+
+        for platform, config in BOT_PLATFORM_SETTINGS.items():
+            extension_name = config["extension_name"]
+
+            # Check if bot is enabled for this platform
+            enabled_key = f"{platform}_bot_enabled"
+            if platform == "discord":
+                enabled_key = "DISCORD_BOT_ENABLED"
+
+            enabled_setting = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == extension_name,
+                    CompanyExtensionSetting.setting_key == enabled_key,
+                )
+                .first()
+            )
+
+            is_enabled = (
+                enabled_setting
+                and enabled_setting.setting_value
+                and enabled_setting.setting_value.lower() == "true"
+            )
+
+            if not is_enabled:
+                continue  # Skip non-deployed bots
+
+            # Get agent info
+            agent_id_key = f"{platform}_bot_agent_id"
+            if platform == "discord":
+                agent_id_key = "discord_bot_agent_id"
+
+            agent_setting = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == extension_name,
+                    CompanyExtensionSetting.setting_key == agent_id_key,
+                )
+                .first()
+            )
+            agent_id = agent_setting.setting_value if agent_setting else None
+            agent_name = None
+
+            if agent_id:
+                agent = db.query(Agent).filter(Agent.id == agent_id).first()
+                agent_name = agent.name if agent else None
+
+            # Get permission mode
+            perm_mode_key = f"{platform}_bot_permission_mode"
+            if platform == "discord":
+                perm_mode_key = "discord_bot_permission_mode"
+
+            perm_setting = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == extension_name,
+                    CompanyExtensionSetting.setting_key == perm_mode_key,
+                )
+                .first()
+            )
+            permission_mode = (
+                perm_setting.setting_value if perm_setting else "recognized_users"
+            )
+
+            # Get permission mode label and privacy using app-name substitution
+            perm_modes = get_permission_modes_with_app_name()
+            perm_mode_label = "Recognized Users"
+            perm_privacy = "private"
+            for mode in perm_modes:
+                if mode["value"] == permission_mode:
+                    perm_mode_label = mode["label"]
+                    perm_privacy = mode.get("privacy", "private")
+                    break
+
+            # Check if bot is paused
+            paused_key = f"{platform}_bot_paused"
+            paused_setting = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == extension_name,
+                    CompanyExtensionSetting.setting_key == paused_key,
+                )
+                .first()
+            )
+            is_paused = bool(
+                paused_setting
+                and paused_setting.setting_value
+                and paused_setting.setting_value.lower() == "true"
+            )
+
+            # Get runtime status
+            runtime_status = _get_bot_status_for_platform(
+                platform, company_id, company_name
+            )
+            is_running = runtime_status.is_running if runtime_status else False
+            started_at = runtime_status.started_at if runtime_status else None
+            messages_processed = (
+                runtime_status.messages_processed if runtime_status else 0
+            )
+            error = runtime_status.error if runtime_status else None
+
+            # Determine status
+            if error:
+                status = "error"
+                status_message = error
+                error_count += 1
+            elif is_paused:
+                status = "paused"
+                status_message = "Bot is paused"
+                paused_count += 1
+            elif is_running:
+                status = "running"
+                status_message = "Bot is running"
+                running_count += 1
+            else:
+                status = "offline"
+                status_message = "Bot is not running"
+
+            # Check OAuth connection for OAuth-based platforms
+            uses_oauth = bool(config.get("oauth_provider"))
+            oauth_connected = False
+            oauth_provider = config.get("oauth_provider")
+
+            if uses_oauth and agent_id:
+                from MagicalAuth import get_agent_oauth_credentials
+
+                agent_creds = get_agent_oauth_credentials(agent_id, oauth_provider)
+                oauth_connected = agent_creds is not None
+
+            # Get platform display name
+            platform_name = _get_platform_display_name(platform)
+
+            # Get timestamps from settings (use enabled setting as proxy for created_at)
+            created_at = None
+            updated_at = None
+            if enabled_setting:
+                if (
+                    hasattr(enabled_setting, "created_at")
+                    and enabled_setting.created_at
+                ):
+                    created_at = enabled_setting.created_at.isoformat()
+                if (
+                    hasattr(enabled_setting, "updated_at")
+                    and enabled_setting.updated_at
+                ):
+                    updated_at = enabled_setting.updated_at.isoformat()
+
+            deployed_bots.append(
+                DeployedBotInfo(
+                    id=f"{company_id}_{platform}",
+                    platform=platform,
+                    platform_name=platform_name,
+                    company_id=company_id,
+                    company_name=company_name,
+                    agent_id=agent_id,
+                    agent_name=agent_name,
+                    enabled=is_enabled,
+                    is_running=is_running,
+                    is_paused=is_paused,
+                    is_server_level=False,  # Company-level bot
+                    permission_mode=permission_mode,
+                    permission_mode_label=perm_mode_label,
+                    permission_privacy=perm_privacy,
+                    status=status,
+                    status_message=status_message,
+                    started_at=started_at,
+                    messages_processed=messages_processed,
+                    uses_oauth=uses_oauth,
+                    oauth_connected=oauth_connected,
+                    oauth_provider=oauth_provider,
+                    created_at=created_at,
+                    updated_at=updated_at,
+                    error=error,
+                )
+            )
+
+    return DeployedBotsResponse(
+        bots=deployed_bots,
+        total_count=len(deployed_bots),
+        running_count=running_count,
+        paused_count=paused_count,
+        error_count=error_count,
+    )
+
+
+@app.get(
+    "/v1/server/deployed-bots",
+    tags=["Server Bots"],
+    response_model=DeployedBotsResponse,
+    summary="Get list of server-level deployed bots",
+    description="Get a list of all server-level deployed bots. Super admin only.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_server_deployed_bots(
+    authorization: str = Header(None),
+):
+    """Get all server-level deployed bots. Super admin only."""
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only super admins can view server-level bots.",
+        )
+
+    deployed_bots = []
+    running_count = 0
+    paused_count = 0
+    error_count = 0
+
+    from Globals import getenv
+
+    app_name = getenv("APP_NAME") or "AGiXT"
+
+    with get_session() as db:
+        for platform, config in BOT_PLATFORM_SETTINGS.items():
+            extension_name = config["extension_name"]
+
+            # Check if server-level bot is enabled for this platform
+            enabled_key = f"{platform}_bot_enabled"
+            if platform == "discord":
+                enabled_key = "DISCORD_BOT_ENABLED"
+
+            # Check ServerExtensionSetting for server-level configuration
+            enabled_setting = (
+                db.query(ServerExtensionSetting)
+                .filter(
+                    ServerExtensionSetting.extension_name == extension_name,
+                    ServerExtensionSetting.setting_key == enabled_key,
+                )
+                .first()
+            )
+
+            is_enabled = (
+                enabled_setting
+                and enabled_setting.setting_value
+                and enabled_setting.setting_value.lower() == "true"
+            )
+
+            # Also check if token exists (for platforms that need it)
+            token_key = (
+                config.get("required", [None])[0] if config.get("required") else None
+            )
+            has_token = False
+            uses_oauth = bool(config.get("oauth_provider"))
+
+            if token_key:
+                # Platform requires a token - check if it exists
+                token_setting = (
+                    db.query(ServerExtensionSetting)
+                    .filter(
+                        ServerExtensionSetting.extension_name == extension_name,
+                        ServerExtensionSetting.setting_key == token_key,
+                    )
+                    .first()
+                )
+                has_token = bool(token_setting and token_setting.setting_value)
+            elif uses_oauth:
+                # OAuth-based platform - only considered deployed if explicitly enabled
+                # or has OAuth tokens configured at server level
+                has_token = is_enabled
+            else:
+                # No required token and no OAuth - shouldn't happen, but default to enabled check
+                has_token = is_enabled
+
+            # Server bot is deployed if either enabled=true or has a token configured
+            if not (is_enabled or has_token):
+                continue
+
+            # Get agent info (server-level)
+            agent_id_key = f"{platform}_bot_agent_id"
+            if platform == "discord":
+                agent_id_key = "discord_bot_agent_id"
+
+            agent_setting = (
+                db.query(ServerExtensionSetting)
+                .filter(
+                    ServerExtensionSetting.extension_name == extension_name,
+                    ServerExtensionSetting.setting_key == agent_id_key,
+                )
+                .first()
+            )
+            agent_id = agent_setting.setting_value if agent_setting else None
+            agent_name = None
+
+            if agent_id:
+                agent = db.query(Agent).filter(Agent.id == agent_id).first()
+                agent_name = agent.name if agent else None
+
+            # Get permission mode
+            perm_mode_key = f"{platform}_bot_permission_mode"
+            if platform == "discord":
+                perm_mode_key = "discord_bot_permission_mode"
+
+            perm_setting = (
+                db.query(ServerExtensionSetting)
+                .filter(
+                    ServerExtensionSetting.extension_name == extension_name,
+                    ServerExtensionSetting.setting_key == perm_mode_key,
+                )
+                .first()
+            )
+            # Server-level bots default to app_users permission
+            permission_mode = (
+                perm_setting.setting_value if perm_setting else "app_users"
+            )
+
+            # Get permission mode label and privacy
+            perm_modes = get_permission_modes_with_app_name()
+            perm_mode_label = f"{app_name} Users"
+            perm_privacy = "public"
+            for mode in perm_modes:
+                if mode["value"] == permission_mode:
+                    perm_mode_label = mode["label"]
+                    perm_privacy = mode.get("privacy", "public")
+                    break
+
+            # Check if bot is paused
+            paused_key = f"{platform}_bot_paused"
+            paused_setting = (
+                db.query(ServerExtensionSetting)
+                .filter(
+                    ServerExtensionSetting.extension_name == extension_name,
+                    ServerExtensionSetting.setting_key == paused_key,
+                )
+                .first()
+            )
+            is_paused = bool(
+                paused_setting
+                and paused_setting.setting_value
+                and paused_setting.setting_value.lower() == "true"
+            )
+
+            # Get runtime status - use "server" as company_id for server-level bots
+            runtime_status = _get_bot_status_for_platform(
+                platform, "server", f"{app_name} Server"
+            )
+            is_running = runtime_status.is_running if runtime_status else False
+            started_at = runtime_status.started_at if runtime_status else None
+            messages_processed = (
+                runtime_status.messages_processed if runtime_status else 0
+            )
+            error = runtime_status.error if runtime_status else None
+
+            # Determine status
+            if error:
+                status = "error"
+                status_message = error
+                error_count += 1
+            elif is_paused:
+                status = "paused"
+                status_message = "Bot is paused"
+                paused_count += 1
+            elif is_running:
+                status = "running"
+                status_message = "Bot is running"
+                running_count += 1
+            else:
+                status = "offline"
+                status_message = "Bot is not running"
+
+            # Check OAuth connection
+            uses_oauth = bool(config.get("oauth_provider"))
+            oauth_connected = False
+            oauth_provider = config.get("oauth_provider")
+
+            # Get platform display name
+            platform_name = _get_platform_display_name(platform)
+
+            # Get timestamps
+            created_at = None
+            updated_at = None
+            if enabled_setting:
+                if (
+                    hasattr(enabled_setting, "created_at")
+                    and enabled_setting.created_at
+                ):
+                    created_at = enabled_setting.created_at.isoformat()
+                if (
+                    hasattr(enabled_setting, "updated_at")
+                    and enabled_setting.updated_at
+                ):
+                    updated_at = enabled_setting.updated_at.isoformat()
+
+            deployed_bots.append(
+                DeployedBotInfo(
+                    id=f"server_{platform}",
+                    platform=platform,
+                    platform_name=platform_name,
+                    company_id="server",
+                    company_name=f"{app_name} Server",
+                    agent_id=agent_id,
+                    agent_name=agent_name,
+                    enabled=is_enabled or has_token,
+                    is_running=is_running,
+                    is_paused=is_paused,
+                    is_server_level=True,
+                    permission_mode=permission_mode,
+                    permission_mode_label=perm_mode_label,
+                    permission_privacy=perm_privacy,
+                    status=status,
+                    status_message=status_message,
+                    started_at=started_at,
+                    messages_processed=messages_processed,
+                    uses_oauth=uses_oauth,
+                    oauth_connected=oauth_connected,
+                    oauth_provider=oauth_provider,
+                    created_at=created_at,
+                    updated_at=updated_at,
+                    error=error,
+                )
+            )
+
+    return DeployedBotsResponse(
+        bots=deployed_bots,
+        total_count=len(deployed_bots),
+        running_count=running_count,
+        paused_count=paused_count,
+        error_count=error_count,
+    )
+
+
+@app.post(
+    "/v1/company/{company_id}/bots/{platform}/pause",
+    tags=["Company Bots"],
+    summary="Pause or unpause a bot",
+    description="Pause or unpause a deployed bot. Paused bots remain configured but don't process messages.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def pause_company_bot(
+    company_id: str,
+    platform: str,
+    request: BotPauseRequest,
+    authorization: str = Header(None),
+):
+    """Pause or unpause a bot."""
+    if platform not in BOT_PLATFORM_SETTINGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
+        )
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins can pause bots.",
+        )
+
+    platform_config = BOT_PLATFORM_SETTINGS[platform]
+    extension_name = platform_config["extension_name"]
+    paused_key = f"{platform}_bot_paused"
+
+    with get_session() as db:
+        # Get or create the paused setting
+        existing = (
+            db.query(CompanyExtensionSetting)
+            .filter(
+                CompanyExtensionSetting.company_id == company_id,
+                CompanyExtensionSetting.extension_name == extension_name,
+                CompanyExtensionSetting.setting_key == paused_key,
+            )
+            .first()
+        )
+
+        if existing:
+            existing.setting_value = "true" if request.paused else "false"
+        else:
+            new_setting = CompanyExtensionSetting(
+                company_id=company_id,
+                extension_name=extension_name,
+                setting_key=paused_key,
+                setting_value="true" if request.paused else "false",
+                is_sensitive=False,
+            )
+            db.add(new_setting)
+
+        db.commit()
+
+    action = "paused" if request.paused else "unpaused"
+    platform_name = _get_platform_display_name(platform)
+
+    return {
+        "status": "success",
+        "message": f"{platform_name} bot has been {action}",
+        "paused": request.paused,
+    }
+
+
+@app.delete(
+    "/v1/company/{company_id}/bots/{platform}",
+    tags=["Company Bots"],
+    summary="Remove/disconnect a deployed bot",
+    description="Remove a deployed bot by disabling it and clearing its configuration.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def remove_company_bot(
+    company_id: str,
+    platform: str,
+    authorization: str = Header(None),
+):
+    """Remove/disconnect a deployed bot."""
+    if platform not in BOT_PLATFORM_SETTINGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
+        )
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins can remove bots.",
+        )
+
+    platform_config = BOT_PLATFORM_SETTINGS[platform]
+    extension_name = platform_config["extension_name"]
+
+    # Disable the bot first (this will stop it if running)
+    enabled_key = f"{platform}_bot_enabled"
+    if platform == "discord":
+        enabled_key = "DISCORD_BOT_ENABLED"
+
+    with get_session() as db:
+        # Set enabled to false
+        enabled_setting = (
+            db.query(CompanyExtensionSetting)
+            .filter(
+                CompanyExtensionSetting.company_id == company_id,
+                CompanyExtensionSetting.extension_name == extension_name,
+                CompanyExtensionSetting.setting_key == enabled_key,
+            )
+            .first()
+        )
+
+        if enabled_setting:
+            enabled_setting.setting_value = "false"
+            db.commit()
+
+    # Stop the bot if it's running
+    try:
+        manager = _get_bot_manager(platform)
+        if manager and hasattr(manager, "stop_bot"):
+            manager.stop_bot(company_id)
+    except Exception as e:
+        logging.warning(f"Error stopping {platform} bot during removal: {e}")
+
+    platform_name = _get_platform_display_name(platform)
+
+    return {
+        "status": "success",
+        "message": f"{platform_name} bot has been removed",
+    }
+
+
+# Server-level bot management endpoints (super admin only)
+
+
+@app.post(
+    "/v1/server/bots/{platform}/enable",
+    tags=["Server Bots"],
+    summary="Enable or disable a server-level bot",
+    description="Enable or disable a server-level bot. Super admin only.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def enable_server_bot(
+    platform: str,
+    request: BotEnableRequest,
+    authorization: str = Header(None),
+):
+    """Enable or disable a server-level bot. Super admin only."""
+    if platform not in BOT_PLATFORM_SETTINGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
+        )
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only super admins can manage server-level bots.",
+        )
+
+    platform_config = BOT_PLATFORM_SETTINGS[platform]
+    extension_name = platform_config["extension_name"]
+
+    enabled_key = f"{platform}_bot_enabled"
+    if platform == "discord":
+        enabled_key = "DISCORD_BOT_ENABLED"
+
+    with get_session() as db:
+        # Update or create the enabled setting
+        enabled_setting = (
+            db.query(ServerExtensionSetting)
+            .filter(
+                ServerExtensionSetting.extension_name == extension_name,
+                ServerExtensionSetting.setting_key == enabled_key,
+            )
+            .first()
+        )
+
+        if enabled_setting:
+            enabled_setting.setting_value = "true" if request.enabled else "false"
+        else:
+            enabled_setting = ServerExtensionSetting(
+                extension_name=extension_name,
+                setting_key=enabled_key,
+                setting_value="true" if request.enabled else "false",
+            )
+            db.add(enabled_setting)
+
+        # Update agent_id if provided
+        if request.agent_id:
+            agent_id_key = f"{platform}_bot_agent_id"
+            if platform == "discord":
+                agent_id_key = "discord_bot_agent_id"
+
+            agent_setting = (
+                db.query(ServerExtensionSetting)
+                .filter(
+                    ServerExtensionSetting.extension_name == extension_name,
+                    ServerExtensionSetting.setting_key == agent_id_key,
+                )
+                .first()
+            )
+
+            if agent_setting:
+                agent_setting.setting_value = request.agent_id
+            else:
+                agent_setting = ServerExtensionSetting(
+                    extension_name=extension_name,
+                    setting_key=agent_id_key,
+                    setting_value=request.agent_id,
+                )
+                db.add(agent_setting)
+
+        # Update permission_mode if provided
+        if request.permission_mode:
+            perm_mode_key = f"{platform}_bot_permission_mode"
+            if platform == "discord":
+                perm_mode_key = "discord_bot_permission_mode"
+
+            perm_setting = (
+                db.query(ServerExtensionSetting)
+                .filter(
+                    ServerExtensionSetting.extension_name == extension_name,
+                    ServerExtensionSetting.setting_key == perm_mode_key,
+                )
+                .first()
+            )
+
+            if perm_setting:
+                perm_setting.setting_value = request.permission_mode
+            else:
+                perm_setting = ServerExtensionSetting(
+                    extension_name=extension_name,
+                    setting_key=perm_mode_key,
+                    setting_value=request.permission_mode,
+                )
+                db.add(perm_setting)
+
+        # Update any additional settings
+        if request.settings:
+            for key, value in request.settings.items():
+                setting = (
+                    db.query(ServerExtensionSetting)
+                    .filter(
+                        ServerExtensionSetting.extension_name == extension_name,
+                        ServerExtensionSetting.setting_key == key,
+                    )
+                    .first()
+                )
+
+                is_sensitive = (
+                    key.upper() in ["TOKEN", "SECRET", "KEY", "PASSWORD"]
+                    or "TOKEN" in key.upper()
+                    or "SECRET" in key.upper()
+                    or "KEY" in key.upper()
+                )
+
+                if setting:
+                    if is_sensitive and value:
+                        setting.setting_value = encrypt_config_value(value)
+                        setting.is_sensitive = True
+                    else:
+                        setting.setting_value = value
+                else:
+                    new_setting = ServerExtensionSetting(
+                        extension_name=extension_name,
+                        setting_key=key,
+                        setting_value=(
+                            encrypt_config_value(value)
+                            if is_sensitive and value
+                            else value
+                        ),
+                        is_sensitive=is_sensitive,
+                    )
+                    db.add(new_setting)
+
+        db.commit()
+
+    platform_name = _get_platform_display_name(platform)
+    action = "enabled" if request.enabled else "disabled"
+
+    return {
+        "status": "success",
+        "message": f"Server-level {platform_name} bot has been {action}",
+    }
+
+
+@app.post(
+    "/v1/server/bots/{platform}/pause",
+    tags=["Server Bots"],
+    summary="Pause or unpause a server-level bot",
+    description="Pause or unpause a server-level bot. Super admin only.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def pause_server_bot(
+    platform: str,
+    request: BotPauseRequest,
+    authorization: str = Header(None),
+):
+    """Pause or unpause a server-level bot. Super admin only."""
+    if platform not in BOT_PLATFORM_SETTINGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
+        )
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only super admins can manage server-level bots.",
+        )
+
+    platform_config = BOT_PLATFORM_SETTINGS[platform]
+    extension_name = platform_config["extension_name"]
+
+    paused_key = f"{platform}_bot_paused"
+
+    with get_session() as db:
+        paused_setting = (
+            db.query(ServerExtensionSetting)
+            .filter(
+                ServerExtensionSetting.extension_name == extension_name,
+                ServerExtensionSetting.setting_key == paused_key,
+            )
+            .first()
+        )
+
+        if paused_setting:
+            paused_setting.setting_value = "true" if request.paused else "false"
+        else:
+            paused_setting = ServerExtensionSetting(
+                extension_name=extension_name,
+                setting_key=paused_key,
+                setting_value="true" if request.paused else "false",
+            )
+            db.add(paused_setting)
+
+        db.commit()
+
+    platform_name = _get_platform_display_name(platform)
+    action = "paused" if request.paused else "resumed"
+
+    return {
+        "status": "success",
+        "message": f"Server-level {platform_name} bot has been {action}",
+        "paused": request.paused,
+    }
+
+
+@app.delete(
+    "/v1/server/bots/{platform}",
+    tags=["Server Bots"],
+    summary="Remove a server-level bot",
+    description="Remove/disconnect a server-level bot. Super admin only.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def remove_server_bot(
+    platform: str,
+    authorization: str = Header(None),
+):
+    """Remove a server-level bot. Super admin only."""
+    if platform not in BOT_PLATFORM_SETTINGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
+        )
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only super admins can manage server-level bots.",
+        )
+
+    platform_config = BOT_PLATFORM_SETTINGS[platform]
+    extension_name = platform_config["extension_name"]
+
+    enabled_key = f"{platform}_bot_enabled"
+    if platform == "discord":
+        enabled_key = "DISCORD_BOT_ENABLED"
+
+    with get_session() as db:
+        # Disable the bot
+        enabled_setting = (
+            db.query(ServerExtensionSetting)
+            .filter(
+                ServerExtensionSetting.extension_name == extension_name,
+                ServerExtensionSetting.setting_key == enabled_key,
+            )
+            .first()
+        )
+
+        if enabled_setting:
+            enabled_setting.setting_value = "false"
+            db.commit()
+
+    # Stop the bot if running
+    try:
+        manager = _get_bot_manager(platform)
+        if manager and hasattr(manager, "stop_bot"):
+            manager.stop_bot("server")
+    except Exception as e:
+        logging.warning(
+            f"Error stopping server-level {platform} bot during removal: {e}"
+        )
+
+    platform_name = _get_platform_display_name(platform)
+
+    return {
+        "status": "success",
+        "message": f"Server-level {platform_name} bot has been removed",
+    }
+
+
+@app.get(
+    "/v1/company/{company_id}/bots/{platform}/status",
+    tags=["Company Bots"],
+    response_model=BotStatusResponse,
+    summary="Get bot status for a specific platform",
+    description="Get the status of a specific bot platform for a company.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_company_bot_status(
+    company_id: str,
+    platform: str,
+    authorization: str = Header(None),
+):
+    """Get the status of a specific bot platform for a company."""
+    if platform not in BOT_PLATFORM_SETTINGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
+        )
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins or super admins can view bot status.",
+        )
+
+    # Get company name
+    with get_session() as db:
+        company = db.query(Company).filter(Company.id == company_id).first()
+        company_name = company.name if company else "Unknown"
+
+    status = _get_bot_status_for_platform(platform, company_id, company_name)
+    if not status:
+        return BotStatusResponse(
+            company_id=company_id,
+            company_name=company_name,
+            platform=platform,
+            is_running=False,
+            error=f"{platform.title()} bot manager is not running or not available",
+        )
+
+    return status
+
+
+@app.get(
+    "/v1/company/{company_id}/bots/{platform}/settings",
+    tags=["Company Bots"],
+    summary="Get bot settings for a specific platform",
+    description="Get the configured settings for a specific bot platform.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_company_bot_settings(
+    company_id: str,
+    platform: str,
+    authorization: str = Header(None),
+):
+    """Get the settings for a specific bot platform."""
+    if platform not in BOT_PLATFORM_SETTINGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
+        )
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins can view bot settings.",
+        )
+
+    platform_config = BOT_PLATFORM_SETTINGS[platform]
+    extension_name = platform_config["extension_name"]
+    all_settings = platform_config["required"] + platform_config["optional"]
+
+    settings = {}
+    agent_id = None
+    with get_session() as db:
+        for setting_key in all_settings:
+            setting = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == extension_name,
+                    CompanyExtensionSetting.setting_key == setting_key,
+                )
+                .first()
+            )
+
+            if setting and setting.setting_value:
+                # Mask sensitive values
+                if setting.is_sensitive:
+                    value = setting.setting_value
+                    if len(value) > 8:
+                        settings[setting_key] = (
+                            f"{value[:4]}{'•' * (len(value) - 8)}{value[-4:]}"
+                        )
+                    else:
+                        settings[setting_key] = "••••••••"
+                else:
+                    settings[setting_key] = setting.setting_value
+
+                # Track agent_id for OAuth lookup
+                if setting_key.endswith("_agent_id"):
+                    agent_id = setting.setting_value
+            else:
+                settings[setting_key] = None
+
+        # Check for agent_id in standard location too
+        if not agent_id:
+            agent_setting = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == extension_name,
+                    CompanyExtensionSetting.setting_key
+                    == f"{extension_name}_bot_agent_id",
+                )
+                .first()
+            )
+            if agent_setting:
+                agent_id = agent_setting.setting_value
+
+    # Build response with OAuth info if applicable
+    response = {
+        "platform": platform,
+        "extension_name": extension_name,
+        "settings": settings,
+        "required_settings": platform_config["required"],
+        "optional_settings": platform_config["optional"],
+        # Allowlist metadata for the frontend
+        "allowlist_type": platform_config.get("allowlist_type"),
+        "allowlist_placeholder": platform_config.get("allowlist_placeholder"),
+        "allowlist_help": platform_config.get("allowlist_help"),
+    }
+
+    # Add OAuth connection status for OAuth-based platforms
+    oauth_provider = platform_config.get("oauth_provider")
+    if oauth_provider:
+        response["uses_oauth"] = True
+        response["oauth_provider"] = oauth_provider
+        response["oauth_provider_display"] = platform_config.get(
+            "oauth_provider_display", oauth_provider.title()
+        )
+
+        # Check if agent has OAuth credentials
+        if agent_id:
+            from MagicalAuth import get_agent_oauth_credentials
+
+            agent_creds = get_agent_oauth_credentials(agent_id, oauth_provider)
+            if agent_creds:
+                response["oauth_connected"] = True
+                response["oauth_account_name"] = agent_creds.get(
+                    "account_name", "Connected"
+                )
+                response["oauth_is_agent_specific"] = agent_creds.get(
+                    "is_agent_specific", False
+                )
+            else:
+                response["oauth_connected"] = False
+        else:
+            response["oauth_connected"] = False
+    else:
+        response["uses_oauth"] = False
+
+    return response
+
+
+@app.post(
+    "/v1/company/{company_id}/bots/{platform}/enable",
+    tags=["Company Bots"],
+    summary="Enable or disable a bot for a company",
+    description="Enable or disable a specific bot platform for a company. When enabling, required settings must be provided (or OAuth must be connected for OAuth-based platforms).",
+    dependencies=[Depends(verify_api_key)],
+)
+async def enable_company_bot(
+    company_id: str,
+    platform: str,
+    request: BotEnableRequest,
+    authorization: str = Header(None),
+):
+    """Enable or disable a bot platform for a company."""
+    if platform not in BOT_PLATFORM_SETTINGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
+        )
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins can manage bots.",
+        )
+
+    platform_config = BOT_PLATFORM_SETTINGS[platform]
+    extension_name = platform_config["extension_name"]
+    enabled_setting_key = f"{extension_name}_bot_enabled"
+    if platform == "discord":
+        enabled_setting_key = "DISCORD_BOT_ENABLED"
+
+    with get_session() as db:
+        # If enabling, check that required settings exist or OAuth is connected
+        if request.enabled:
+            oauth_provider = platform_config.get("oauth_provider")
+
+            if oauth_provider and request.agent_id:
+                # For OAuth-based platforms, check if agent has OAuth credentials
+                from MagicalAuth import get_agent_oauth_credentials
+
+                agent_creds = get_agent_oauth_credentials(
+                    request.agent_id, oauth_provider
+                )
+
+                if not agent_creds:
+                    provider_display = platform_config.get(
+                        "oauth_provider_display", oauth_provider.title()
+                    )
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Please connect your {provider_display} account first. Go to Settings → Connections to link your account.",
+                    )
+            elif oauth_provider and not request.agent_id:
+                # OAuth platform but no agent selected - need to select agent first
+                raise HTTPException(
+                    status_code=400,
+                    detail="Please select an agent first. The bot will use the agent's connected OAuth credentials.",
+                )
+            else:
+                # Non-OAuth platform - check required settings as before
+                for required_key in platform_config["required"]:
+                    # Check if provided in request
+                    provided = (
+                        request.settings
+                        and required_key in request.settings
+                        and request.settings[required_key]
+                    )
+
+                    # Check if exists in database
+                    existing = (
+                        db.query(CompanyExtensionSetting)
+                        .filter(
+                            CompanyExtensionSetting.company_id == company_id,
+                            CompanyExtensionSetting.extension_name == extension_name,
+                            CompanyExtensionSetting.setting_key == required_key,
+                        )
+                        .first()
+                    )
+
+                    if not provided and (not existing or not existing.setting_value):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Required setting '{required_key}' is missing. Required settings: {platform_config['required']}",
+                        )
+
+        # Save all provided settings
+        if request.settings:
+            for key, value in request.settings.items():
+                if value is None:
+                    continue
+
+                existing = (
+                    db.query(CompanyExtensionSetting)
+                    .filter(
+                        CompanyExtensionSetting.company_id == company_id,
+                        CompanyExtensionSetting.extension_name == extension_name,
+                        CompanyExtensionSetting.setting_key == key,
+                    )
+                    .first()
+                )
+
+                # Determine if sensitive
+                is_sensitive = any(
+                    x in key.lower()
+                    for x in ["token", "secret", "password", "key", "access"]
+                )
+
+                # Encrypt if sensitive
+                final_value = encrypt_config_value(value) if is_sensitive else value
+
+                if existing:
+                    existing.setting_value = final_value
+                    existing.is_sensitive = is_sensitive
+                else:
+                    from DB import get_new_id
+
+                    new_setting = CompanyExtensionSetting(
+                        id=get_new_id(),
+                        company_id=company_id,
+                        extension_name=extension_name,
+                        setting_key=key,
+                        setting_value=final_value,
+                        is_sensitive=is_sensitive,
+                    )
+                    db.add(new_setting)
+
+        # Save agent_id if provided
+        if request.agent_id:
+            agent_id_key = f"{extension_name}_bot_agent_id"
+            existing_agent = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == extension_name,
+                    CompanyExtensionSetting.setting_key == agent_id_key,
+                )
+                .first()
+            )
+            if existing_agent:
+                existing_agent.setting_value = request.agent_id
+            else:
+                from DB import get_new_id
+
+                db.add(
+                    CompanyExtensionSetting(
+                        id=get_new_id(),
+                        company_id=company_id,
+                        extension_name=extension_name,
+                        setting_key=agent_id_key,
+                        setting_value=request.agent_id,
+                        is_sensitive=False,
+                    )
+                )
+
+        # Save permission_mode if provided
+        if request.permission_mode:
+            # Validate permission mode
+            valid_modes = [
+                "owner_only",
+                "recognized_users",
+                "allowlist",
+                "app_users",
+                "anyone",
+            ]
+            if request.permission_mode not in valid_modes:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid permission_mode: {request.permission_mode}. Valid modes: {valid_modes}",
+                )
+
+            permission_key = f"{extension_name}_bot_permission_mode"
+            existing_perm = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == extension_name,
+                    CompanyExtensionSetting.setting_key == permission_key,
+                )
+                .first()
+            )
+            if existing_perm:
+                existing_perm.setting_value = request.permission_mode
+            else:
+                from DB import get_new_id
+
+                db.add(
+                    CompanyExtensionSetting(
+                        id=get_new_id(),
+                        company_id=company_id,
+                        extension_name=extension_name,
+                        setting_key=permission_key,
+                        setting_value=request.permission_mode,
+                        is_sensitive=False,
+                    )
+                )
+
+        # Save owner_id (the user who is enabling this bot)
+        owner_id_key = f"{extension_name}_bot_owner_id"
+        existing_owner = (
+            db.query(CompanyExtensionSetting)
+            .filter(
+                CompanyExtensionSetting.company_id == company_id,
+                CompanyExtensionSetting.extension_name == extension_name,
+                CompanyExtensionSetting.setting_key == owner_id_key,
+            )
+            .first()
+        )
+        if not existing_owner:
+            # Only set owner on first enable, don't overwrite
+            from DB import get_new_id
+
+            db.add(
+                CompanyExtensionSetting(
+                    id=get_new_id(),
+                    company_id=company_id,
+                    extension_name=extension_name,
+                    setting_key=owner_id_key,
+                    setting_value=str(auth.user_id),
+                    is_sensitive=False,
+                )
+            )
+
+        # Update enabled setting
+        existing_enabled = (
+            db.query(CompanyExtensionSetting)
+            .filter(
+                CompanyExtensionSetting.company_id == company_id,
+                CompanyExtensionSetting.extension_name == extension_name,
+                CompanyExtensionSetting.setting_key == enabled_setting_key,
+            )
+            .first()
+        )
+
+        enabled_value = "true" if request.enabled else "false"
+
+        if existing_enabled:
+            existing_enabled.setting_value = enabled_value
+        else:
+            from DB import get_new_id
+
+            new_setting = CompanyExtensionSetting(
+                id=get_new_id(),
+                company_id=company_id,
+                extension_name=extension_name,
+                setting_key=enabled_setting_key,
+                setting_value=enabled_value,
+                is_sensitive=False,
+            )
+            db.add(new_setting)
+
+        db.commit()
+
+    # Trigger bot sync
+    try:
+        manager = _get_bot_manager(platform)
+        if manager and hasattr(manager, "sync_bots"):
+            import asyncio
+
+            asyncio.create_task(manager.sync_bots())
+    except Exception as e:
+        logging.error(f"Error syncing {platform} bots: {e}")
+
+    action = "enabled" if request.enabled else "disabled"
+    return {
+        "status": "success",
+        "message": f"{platform.title()} bot {action} for company. Bot will start/stop within 60 seconds.",
+    }
+
+
+@app.post(
+    "/v1/company/{company_id}/bots/{platform}/restart",
+    tags=["Company Bots"],
+    summary="Restart a bot for a company",
+    description="Restart a specific bot platform for a company.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def restart_company_bot(
+    company_id: str,
+    platform: str,
+    authorization: str = Header(None),
+):
+    """Restart a bot platform for a company."""
+    if platform not in BOT_PLATFORM_SETTINGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
+        )
+
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    # Check authorization
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins can restart bots.",
+        )
+
+    manager = _get_bot_manager(platform)
+    if not manager:
+        raise HTTPException(
+            status_code=503,
+            detail=f"{platform.title()} bot manager is not running.",
+        )
+
+    # Stop and restart the bot
+    try:
+        if hasattr(manager, "stop_bot_for_company"):
+            await manager.stop_bot_for_company(company_id)
+        if hasattr(manager, "sync_bots"):
+            await manager.sync_bots()
+    except Exception as e:
+        logging.error(f"Error restarting {platform} bot: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error restarting bot: {str(e)}",
+        )
+
+    return {
+        "status": "success",
+        "message": f"{platform.title()} bot restart initiated. Bot will be back online shortly.",
+    }
+
+
+@app.get(
+    "/v1/admin/bots",
+    tags=["Admin Bots"],
+    summary="Get all running bots across all platforms (super admin only)",
+    description="Get status of all running bots across all companies and platforms.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_all_bots_admin(
+    authorization: str = Header(None),
+):
+    """Get status of all running bots across all platforms (super admin only)."""
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Super admin access required.",
+        )
+
+    all_bots = {}
+    for platform in BOT_PLATFORM_SETTINGS.keys():
+        try:
+            manager = _get_bot_manager(platform)
+            if not manager:
+                all_bots[platform] = {"status": "not_running", "bots": []}
+                continue
+
+            # Get all statuses
+            if hasattr(manager, "get_status"):
+                statuses = manager.get_status()
+                if isinstance(statuses, dict):
+                    all_bots[platform] = {
+                        "status": "running",
+                        "bots": [
+                            {
+                                "company_id": (
+                                    s.company_id if hasattr(s, "company_id") else k
+                                ),
+                                "company_name": (
+                                    s.company_name
+                                    if hasattr(s, "company_name")
+                                    else "Unknown"
+                                ),
+                                "is_running": (
+                                    s.is_running if hasattr(s, "is_running") else False
+                                ),
+                                "started_at": (
+                                    s.started_at.isoformat()
+                                    if hasattr(s, "started_at") and s.started_at
+                                    else None
+                                ),
+                                "error": s.error if hasattr(s, "error") else None,
+                            }
+                            for k, s in statuses.items()
+                        ],
+                    }
+                else:
+                    all_bots[platform] = {"status": "running", "bots": []}
+            elif hasattr(manager, "get_all_status"):
+                statuses = manager.get_all_status()
+                all_bots[platform] = {
+                    "status": "running",
+                    "bots": [
+                        {
+                            "company_id": (
+                                s.company_id if hasattr(s, "company_id") else "unknown"
+                            ),
+                            "company_name": (
+                                s.company_name
+                                if hasattr(s, "company_name")
+                                else "Unknown"
+                            ),
+                            "is_running": (
+                                s.is_running if hasattr(s, "is_running") else False
+                            ),
+                            "started_at": (
+                                s.started_at.isoformat()
+                                if hasattr(s, "started_at") and s.started_at
+                                else None
+                            ),
+                            "error": s.error if hasattr(s, "error") else None,
+                        }
+                        for s in statuses
+                    ],
+                }
+            else:
+                all_bots[platform] = {"status": "running", "bots": []}
+
+        except Exception as e:
+            logging.warning(f"Error getting {platform} bot statuses: {e}")
+            all_bots[platform] = {"status": "error", "error": str(e), "bots": []}
+
+    return {
+        "status": "success",
+        "platforms": all_bots,
+    }
+
+
+@app.get(
+    "/v1/bots/platforms",
+    tags=["Company Bots"],
+    summary="Get available bot platforms and their configuration",
+    description="Get list of available bot platforms with their required and optional settings.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_bot_platforms(
+    authorization: str = Header(None),
+):
+    """Get available bot platforms and their configuration."""
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    platforms = []
+    for platform, config in BOT_PLATFORM_SETTINGS.items():
+        platform_info = {
+            "id": platform,
+            "name": _get_platform_display_name(platform),
+            "extension_name": config["extension_name"],
+            "required_settings": config["required"],
+            "optional_settings": config["optional"],
+            "description": config.get(
+                "description", _get_platform_description(platform)
+            ),
+            "setup_url": _get_platform_setup_url(platform),
+        }
+
+        # Add OAuth info if this platform supports OAuth
+        if config.get("oauth_provider"):
+            platform_info["oauth_provider"] = config["oauth_provider"]
+            platform_info["oauth_provider_display"] = config.get(
+                "oauth_provider_display", config["oauth_provider"].title()
+            )
+            platform_info["uses_oauth"] = True
+        else:
+            platform_info["uses_oauth"] = False
+
+        platforms.append(platform_info)
+
+    return {
+        "platforms": platforms,
+        "permission_modes": get_permission_modes_with_app_name(),
+    }
+
+
+def _get_platform_description(platform: str) -> str:
+    """Get description for a bot platform."""
+    descriptions = {
+        "discord": "Engage gaming communities and online groups with 24/7 AI-powered chat support in Discord servers and DMs.",
+        "slack": "Supercharge your team's productivity with an AI assistant that answers questions and automates tasks in Slack.",
+        "teams": "Bring intelligent automation to your workplace with AI chat support directly in Microsoft Teams.",
+        "x": "Automatically engage with followers, respond to DMs, and handle mentions on X (Twitter) around the clock.",
+        "facebook": "Provide instant customer support on your Facebook page with AI-powered Messenger responses.",
+        "telegram": "Reach users globally with an AI bot that handles conversations in Telegram groups and private chats.",
+        "whatsapp": "Deliver personalized customer service at scale through WhatsApp Business conversations.",
+        "microsoft_email": "Automatically triage and respond to Outlook/365 emails, reducing response times and workload.",
+        "google_email": "Let AI handle routine Gmail inquiries so you can focus on what matters most.",
+        "sendgrid_email": "Process high volumes of inbound emails automatically with intelligent AI responses via SendGrid.",
+        "twilio_sms": "Enable conversational SMS support that feels personal while scaling to thousands of customers.",
+        "github": "Automate code reviews, fix issues, and manage PRs with AI-powered GitHub integration.",
+    }
+    return descriptions.get(platform, "")
+
+
+def _get_platform_setup_url(platform: str) -> str:
+    """Get documentation/setup URL for a bot platform."""
+    urls = {
+        "discord": "https://discord.com/developers/applications",
+        "slack": "https://api.slack.com/apps",
+        "teams": "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+        "x": "https://developer.twitter.com/en/portal/dashboard",
+        "facebook": "https://developers.facebook.com/apps/",
+        "telegram": "https://core.telegram.org/bots#botfather",
+        "whatsapp": "https://developers.facebook.com/docs/whatsapp/cloud-api",
+        "microsoft_email": "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+        "google_email": "https://console.cloud.google.com/apis/credentials",
+        "sendgrid_email": "https://app.sendgrid.com/settings/api_keys",
+        "twilio_sms": "https://www.twilio.com/console",
+    }
+    return urls.get(platform, "")
+
+
+def _get_platform_display_name(platform: str) -> str:
+    """Get display name for a bot platform."""
+    names = {
+        "discord": "Discord",
+        "slack": "Slack",
+        "teams": "Microsoft Teams",
+        "x": "X (Twitter)",
+        "facebook": "Facebook Messenger",
+        "telegram": "Telegram",
+        "whatsapp": "WhatsApp",
+        "microsoft_email": "Microsoft Outlook/365 Email",
+        "google_email": "Gmail",
+        "sendgrid_email": "SendGrid Email",
+        "twilio_sms": "Twilio SMS",
+        "github": "GitHub",
+    }
+    return names.get(platform, platform.title())
+
+
+# ============================================================================
 # Server Extension Command Endpoints (for enabling/disabling commands)
 # ============================================================================
 
@@ -1993,8 +4179,12 @@ async def update_server_oauth_providers(
 
                 updated.append(f"{setting.provider_name}:{setting.setting_key}")
             except Exception as e:
+                # Log full error internally but don't expose exception details in response
+                logging.error(
+                    f"Error updating OAuth setting {setting.provider_name}:{setting.setting_key}: {e}"
+                )
                 errors.append(
-                    f"Error updating {setting.provider_name}:{setting.setting_key}: {str(e)}"
+                    f"Error updating {setting.provider_name}:{setting.setting_key}"
                 )
 
         db.commit()
@@ -2878,3 +5068,137 @@ async def get_pending_system_notifications(
         db.commit()
 
         return SystemNotificationListResponse(notifications=result, total=len(result))
+
+
+# =====================
+# GitHub Webhook Endpoint
+# =====================
+
+
+@app.post(
+    "/v1/webhooks/github/{company_id}",
+    tags=["Bot Webhooks"],
+    summary="Receive GitHub webhook events",
+    description="Endpoint for receiving webhook events from GitHub. Configure your GitHub webhook to point to this URL.",
+)
+async def github_webhook(
+    company_id: str,
+    request: Request,
+):
+    """
+    Receive and process GitHub webhook events.
+
+    This endpoint receives webhook events from GitHub (issues, pull_requests, etc.)
+    and routes them to the appropriate GitHubBotManager for processing.
+
+    The webhook signature is verified using the GITHUB_WEBHOOK_SECRET configured for
+    the company's GitHub bot.
+
+    Configure your GitHub webhook with:
+    - Payload URL: https://your-server/v1/webhooks/github/{company_id}
+    - Content type: application/json
+    - Secret: Your configured GITHUB_WEBHOOK_SECRET
+    - Events: Issues, Pull requests, Issue comments, Pull request reviews, Pull request review comments
+    """
+    import hmac
+    import hashlib
+    from DB import CompanyExtensionSetting, get_session, Company
+    from Globals import getenv
+
+    # Get the raw body for signature verification
+    body = await request.body()
+    payload = await request.json()
+
+    # Get GitHub signature from headers
+    signature_header = request.headers.get("X-Hub-Signature-256", "")
+    event_type = request.headers.get("X-GitHub-Event", "")
+    delivery_id = request.headers.get("X-GitHub-Delivery", "")
+
+    if not event_type:
+        raise HTTPException(status_code=400, detail="Missing X-GitHub-Event header")
+
+    # Get the company and its GitHub bot settings
+    with get_session() as db:
+        company = db.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        # Check if GitHub bot is enabled
+        bot_enabled_setting = (
+            db.query(CompanyExtensionSetting)
+            .filter(
+                CompanyExtensionSetting.company_id == company_id,
+                CompanyExtensionSetting.extension_name == "github",
+                CompanyExtensionSetting.setting_key == "GITHUB_BOT_ENABLED",
+            )
+            .first()
+        )
+
+        if (
+            not bot_enabled_setting
+            or bot_enabled_setting.setting_value.lower() != "true"
+        ):
+            raise HTTPException(
+                status_code=400, detail="GitHub bot is not enabled for this company"
+            )
+
+        # Get webhook secret
+        webhook_secret_setting = (
+            db.query(CompanyExtensionSetting)
+            .filter(
+                CompanyExtensionSetting.company_id == company_id,
+                CompanyExtensionSetting.extension_name == "github",
+                CompanyExtensionSetting.setting_key == "GITHUB_WEBHOOK_SECRET",
+            )
+            .first()
+        )
+
+        webhook_secret = None
+        if webhook_secret_setting and webhook_secret_setting.setting_value:
+            webhook_secret = decrypt_config_value(webhook_secret_setting.setting_value)
+
+    # Verify signature if webhook secret is configured
+    if webhook_secret and signature_header:
+        expected_signature = (
+            "sha256="
+            + hmac.new(webhook_secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+        )
+        if not hmac.compare_digest(signature_header, expected_signature):
+            logging.warning(
+                f"GitHub webhook signature verification failed for company {company_id}"
+            )
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    elif webhook_secret and not signature_header:
+        logging.warning(
+            f"GitHub webhook received without signature for company {company_id}"
+        )
+        raise HTTPException(
+            status_code=401, detail="Webhook signature required but not provided"
+        )
+
+    # Log the event
+    logging.info(
+        f"GitHub webhook received: event={event_type}, delivery={delivery_id}, company={company_id}"
+    )
+
+    # Handle ping event (sent when webhook is first configured)
+    if event_type == "ping":
+        return {"status": "ok", "message": "Webhook configured successfully"}
+
+    # Process the webhook event using GitHubBotManager
+    try:
+        from GitHubBotManager import GitHubBotManager
+
+        manager = GitHubBotManager(company_id=company_id)
+        result = await manager.handle_webhook(
+            event_type=event_type,
+            payload=payload,
+            company_id=company_id,
+            skip_signature_check=True,  # Already verified above
+        )
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        logging.error(f"Error processing GitHub webhook: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Error processing webhook: {str(e)}"
+        )

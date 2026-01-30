@@ -267,6 +267,18 @@ async def start_service(is_restart=False):
     global uvicorn_process, startup_timer
 
     try:
+        # Delete extension metadata cache to ensure fresh data on each startup
+        # This prevents stale category assignments and command definitions
+        extension_cache_file = os.path.join(
+            os.path.dirname(__file__), "models", "extension_metadata_cache.json"
+        )
+        if os.path.exists(extension_cache_file):
+            try:
+                os.remove(extension_cache_file)
+                logger.debug("Deleted extension metadata cache for fresh rebuild")
+            except Exception as e:
+                logger.warning(f"Could not delete extension cache: {e}")
+
         # Initialize database first (like DB.py does)
         section_start = startup_timer.section_start()
         await initialize_database(is_restart=is_restart)
@@ -353,6 +365,8 @@ async def start_service(is_restart=False):
             raise RuntimeError("Uvicorn failed to start")
 
         # Start Discord Bot Manager as a background task
+        # It runs in the main process and stores its status in Redis
+        # so uvicorn workers can query it
         section_start = startup_timer.section_start()
         await start_discord_bots()
         startup_timer.section_end("Discord Bot Manager startup", section_start)
@@ -418,7 +432,7 @@ async def restart_service():
     logger.warning("Attempting to restart AGiXT service...")
 
     try:
-        # Stop Discord bots first
+        # Stop Discord bots first (clears Redis status)
         await stop_discord_bots()
 
         # Kill existing uvicorn process if any

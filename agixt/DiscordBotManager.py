@@ -99,18 +99,49 @@ class BotStatus:
     is_running: bool = False
     error: Optional[str] = None
     guild_count: int = 0
+    messages_processed: int = 0
 
 
 class CompanyDiscordBot:
     """
     A Discord bot instance for a specific company.
     Handles user impersonation based on Discord user ID mapping.
+
+    Permission modes:
+    - owner_only: Only the user who set up the bot can interact
+    - recognized_users: Only users with linked AGiXT accounts can interact (default)
+    - anyone: Anyone can interact with the bot
     """
 
-    def __init__(self, company_id: str, company_name: str, discord_token: str):
+    def __init__(
+        self,
+        company_id: str,
+        company_name: str,
+        discord_token: str,
+        bot_agent_id: str = None,
+        bot_permission_mode: str = "recognized_users",
+        bot_owner_id: str = None,
+        bot_allowlist: str = None,
+    ):
         self.company_id = company_id
         self.company_name = company_name
         self.discord_token = discord_token
+
+        # Bot configuration
+        self.bot_agent_id = (
+            bot_agent_id  # The specific agent to use (None = user's default)
+        )
+        self.bot_permission_mode = (
+            bot_permission_mode  # owner_only, recognized_users, allowlist, anyone
+        )
+        self.bot_owner_id = bot_owner_id  # User ID of who configured this bot
+        # Parse allowlist - comma-separated Discord user IDs
+        self.bot_allowlist = set()
+        if bot_allowlist:
+            for item in bot_allowlist.split(","):
+                item = item.strip()
+                if item:
+                    self.bot_allowlist.add(item)
 
         # Set up Discord bot using imported modules
         intents = discord_module.Intents.default()
@@ -119,11 +150,112 @@ class CompanyDiscordBot:
 
         # Cache for Discord user ID -> email mapping
         self.discord_user_cache: Dict[str, str] = {}
+        # Cache for user's selected agent per channel (personal mode): {(user_id, channel_id): agent_name}
+        self.user_agent_selection: Dict[tuple, str] = {}
+        # Team channel configuration: {channel_id: {"agent_name": str, "admin_user_id": str}}
+        self.team_channel_config: Dict[str, Dict[str, str]] = {}
         self._is_ready = False
         self._started_at: Optional[datetime] = None
+        self._messages_processed: int = self._load_messages_processed()
+        self._unsaved_message_count: int = 0  # Track unsaved increments for batching
 
         # Register event handlers
         self._setup_events()
+
+    def _load_messages_processed(self) -> int:
+        """Load the messages_processed count from the database."""
+        try:
+            from DB import ServerExtensionSetting
+
+            with get_session() as db:
+                if self.company_id == "server":
+                    # Server-level bot
+                    setting = (
+                        db.query(ServerExtensionSetting)
+                        .filter(
+                            ServerExtensionSetting.extension_name == "discord",
+                            ServerExtensionSetting.setting_key
+                            == "DISCORD_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+                else:
+                    # Company-level bot
+                    setting = (
+                        db.query(CompanyExtensionSetting)
+                        .filter(
+                            CompanyExtensionSetting.company_id == self.company_id,
+                            CompanyExtensionSetting.extension_name == "discord",
+                            CompanyExtensionSetting.setting_key
+                            == "DISCORD_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+
+                if setting and setting.setting_value:
+                    return int(setting.setting_value)
+        except Exception as e:
+            logger.warning(
+                f"Could not load messages_processed for {self.company_id}: {e}"
+            )
+        return 0
+
+    def _save_messages_processed(self):
+        """Save the messages_processed count to the database."""
+        try:
+            from DB import ServerExtensionSetting
+
+            with get_session() as db:
+                if self.company_id == "server":
+                    # Server-level bot
+                    setting = (
+                        db.query(ServerExtensionSetting)
+                        .filter(
+                            ServerExtensionSetting.extension_name == "discord",
+                            ServerExtensionSetting.setting_key
+                            == "DISCORD_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+                    if setting:
+                        setting.setting_value = str(self._messages_processed)
+                    else:
+                        setting = ServerExtensionSetting(
+                            extension_name="discord",
+                            setting_key="DISCORD_MESSAGES_PROCESSED",
+                            setting_value=str(self._messages_processed),
+                            is_sensitive=False,
+                        )
+                        db.add(setting)
+                else:
+                    # Company-level bot
+                    setting = (
+                        db.query(CompanyExtensionSetting)
+                        .filter(
+                            CompanyExtensionSetting.company_id == self.company_id,
+                            CompanyExtensionSetting.extension_name == "discord",
+                            CompanyExtensionSetting.setting_key
+                            == "DISCORD_MESSAGES_PROCESSED",
+                        )
+                        .first()
+                    )
+                    if setting:
+                        setting.setting_value = str(self._messages_processed)
+                    else:
+                        setting = CompanyExtensionSetting(
+                            company_id=self.company_id,
+                            extension_name="discord",
+                            setting_key="DISCORD_MESSAGES_PROCESSED",
+                            setting_value=str(self._messages_processed),
+                            is_sensitive=False,
+                        )
+                        db.add(setting)
+                db.commit()
+                self._unsaved_message_count = 0
+        except Exception as e:
+            logger.warning(
+                f"Could not save messages_processed for {self.company_id}: {e}"
+            )
 
     def _setup_events(self):
         """Set up Discord event handlers."""
@@ -214,13 +346,92 @@ class CompanyDiscordBot:
         import base64
         import aiohttp
 
-        # Get user email from Discord ID mapping
+        # Check permission mode first
         user_email = self._get_user_email_from_discord_id(message.author.id)
 
-        if not user_email:
-            # User hasn't connected their Discord account via OAuth
-            # Optionally send a message telling them to connect their account
-            return
+        # Apply permission mode checks
+        if self.bot_permission_mode == "owner_only":
+            # Only the owner can interact
+            if not user_email or not self.bot_owner_id:
+                return
+            # Check if this user is the owner
+            try:
+                from MagicalAuth import get_user_id
+
+                interacting_user_id = str(get_user_id(user_email))
+                if interacting_user_id != self.bot_owner_id:
+                    # Not the owner - silently ignore
+                    return
+            except Exception as e:
+                logger.warning(f"Error checking owner permission: {e}")
+                return
+        elif self.bot_permission_mode == "allowlist":
+            # Only users in the allowlist can interact
+            discord_user_id = str(message.author.id)
+            if discord_user_id not in self.bot_allowlist:
+                # User not in allowlist - silently ignore
+                logger.debug(
+                    f"Discord user {discord_user_id} not in allowlist, ignoring"
+                )
+                return
+            # For allowlist mode, we can proceed even without a linked account
+            # Use owner context if no user_email
+            if not user_email and self.bot_owner_id:
+                try:
+                    from DB import User
+
+                    with get_session() as db:
+                        owner = (
+                            db.query(User).filter(User.id == self.bot_owner_id).first()
+                        )
+                        if owner:
+                            user_email = owner.email
+                except Exception as e:
+                    logger.error(f"Error getting owner email for allowlist user: {e}")
+                    return
+                if not user_email:
+                    logger.warning(
+                        "Cannot handle allowlist interaction: no owner configured"
+                    )
+                    return
+        elif self.bot_permission_mode == "recognized_users":
+            # Default behavior - only users with linked accounts
+            if not user_email:
+                # User hasn't connected their Discord account via OAuth
+                # Optionally send a message telling them to connect their account
+                return
+        elif self.bot_permission_mode == "anyone":
+            # Anyone can interact - we'll create anonymous/guest interactions
+            pass  # Continue even if user_email is None
+        else:
+            # Unknown permission mode, default to recognized_users behavior
+            if not user_email:
+                return
+
+        # For "anyone" mode without a linked account, use the bot owner's context
+        use_owner_context = False
+        if not user_email and self.bot_permission_mode == "anyone":
+            use_owner_context = True
+            if self.bot_owner_id:
+                try:
+                    from DB import User
+
+                    with get_session() as db:
+                        owner = (
+                            db.query(User).filter(User.id == self.bot_owner_id).first()
+                        )
+                        if owner:
+                            user_email = owner.email
+                except Exception as e:
+                    logger.error(
+                        f"Error getting owner email for anonymous interaction: {e}"
+                    )
+                    return
+            if not user_email:
+                logger.warning(
+                    "Cannot handle anonymous interaction: no owner configured"
+                )
+                return
 
         # Get JWT for impersonation
         user_jwt = impersonate_user(user_email)
@@ -228,21 +439,91 @@ class CompanyDiscordBot:
         # Create internal client for this user
         agixt = InternalClient(api_key=user_jwt, user=user_email)
 
-        # Get the user's primary agent
-        try:
-            agents = agixt.get_agents()
-            if agents and len(agents) > 0:
-                # Use the first agent (primary) for this user
-                agent_name = (
-                    agents[0].get("name", "XT")
-                    if isinstance(agents[0], dict)
-                    else agents[0]
+        # Determine which agent to use
+        # Priority: 1. Bot's configured agent, 2. User's selected agent, 3. User's primary agent
+        agent_name = None
+        agent_id = None
+
+        # If bot has a configured agent, use it
+        if self.bot_agent_id:
+            agent_id = self.bot_agent_id
+            # Get the agent name from the ID
+            try:
+                agents = agixt.get_agents()
+                for agent in agents:
+                    if isinstance(agent, dict) and str(agent.get("id")) == str(
+                        self.bot_agent_id
+                    ):
+                        agent_name = agent.get("name", "XT")
+                        break
+                if not agent_name:
+                    logger.warning(
+                        f"Configured bot agent ID {self.bot_agent_id} not found, using default"
+                    )
+            except Exception as e:
+                logger.warning(f"Could not lookup configured agent: {e}")
+
+        # If no configured agent, use user's primary agent
+        if not agent_name:
+            try:
+                agents = agixt.get_agents()
+                if agents and len(agents) > 0:
+                    # Use the first agent (primary) for this user
+                    agent_name = (
+                        agents[0].get("name", "XT")
+                        if isinstance(agents[0], dict)
+                        else agents[0]
+                    )
+                else:
+                    agent_name = "XT"  # Fallback to default
+            except Exception as e:
+                logger.warning(f"Could not get user's agents, using default: {e}")
+                agent_name = "XT"
+
+        # Handle silent admin commands (!list, !select, !clear, !team, !personal)
+        # Only allow commands if not using owner context (i.e., user has their own account)
+        content_lower = message.content.strip().lower()
+        if not use_owner_context:
+            if content_lower.startswith("!list"):
+                await self._handle_list_command(
+                    message, agixt, agents if "agents" in dir() else None
                 )
-            else:
-                agent_name = "XT"  # Fallback to default
-        except Exception as e:
-            logger.warning(f"Could not get user's agents, using default: {e}")
-            agent_name = "XT"
+                return
+            elif content_lower.startswith("!select "):
+                await self._handle_select_command(message, agixt)
+                return
+            elif content_lower.startswith("!clear"):
+                await self._handle_clear_command(message, agixt, agent_name)
+                return
+            elif content_lower.startswith("!team "):
+                await self._handle_team_command(message, agixt, user_email)
+                return
+            elif content_lower.startswith("!personal"):
+                await self._handle_personal_command(message, user_email)
+                return
+
+        # Check if channel is in team mode (only for recognized users without configured agent)
+        channel_id = str(message.channel.id)
+        is_team_mode = channel_id in self.team_channel_config and not use_owner_context
+
+        # Only apply team mode / personal selection if no bot-level agent is configured
+        if not self.bot_agent_id:
+            if is_team_mode:
+                # Team mode: use the channel's assigned agent
+                team_config = self.team_channel_config[channel_id]
+                agent_name = team_config["agent_name"]
+                # Get the admin's JWT to run as the agent owner
+                admin_email = self._get_user_email_from_discord_id(
+                    int(team_config["admin_user_id"])
+                )
+                if admin_email:
+                    admin_jwt = impersonate_user(admin_email)
+                    agixt = InternalClient(api_key=admin_jwt, user=admin_email)
+            elif not use_owner_context:
+                # Personal mode: check if user has a selected agent for this channel
+                selection_key = (str(message.author.id), str(message.channel.id))
+                if selection_key in self.user_agent_selection:
+                    agent_name = self.user_agent_selection[selection_key]
 
         # Check if the message is a direct message or mentions the bot
         is_dm = isinstance(message.channel, discord_module.DMChannel)
@@ -288,6 +569,75 @@ class CompanyDiscordBot:
                     ):
                         content = content.replace(f"<@&{role.id}>", "").strip()
 
+            # Check if this message is a reply to another message
+            # If so, include the replied-to message content for context
+            replied_to_content = None
+            if message.reference and message.reference.message_id:
+                try:
+                    # Fetch the message being replied to
+                    replied_msg = await message.channel.fetch_message(
+                        message.reference.message_id
+                    )
+                    if replied_msg:
+                        # Build the replied-to content including any attachments
+                        replied_text = replied_msg.content or ""
+                        replied_author = (
+                            replied_msg.author.display_name or replied_msg.author.name
+                        )
+
+                        # Include attachment URLs from the replied message
+                        if replied_msg.attachments:
+                            attachment_urls = [
+                                att.url for att in replied_msg.attachments
+                            ]
+                            if replied_text:
+                                replied_text += "\n\nAttachments: " + ", ".join(
+                                    attachment_urls
+                                )
+                            else:
+                                replied_text = "Attachments: " + ", ".join(
+                                    attachment_urls
+                                )
+
+                        # Include embeds (links that Discord auto-previews)
+                        if replied_msg.embeds:
+                            embed_info = []
+                            for embed in replied_msg.embeds:
+                                if embed.url:
+                                    embed_info.append(embed.url)
+                                elif embed.title:
+                                    embed_info.append(f"[{embed.title}]")
+                            if embed_info:
+                                if replied_text:
+                                    replied_text += "\nEmbedded links: " + ", ".join(
+                                        embed_info
+                                    )
+                                else:
+                                    replied_text = "Embedded links: " + ", ".join(
+                                        embed_info
+                                    )
+
+                        if replied_text:
+                            replied_to_content = (
+                                f"[Replying to {replied_author}]: {replied_text}"
+                            )
+                            logger.info(
+                                f"Message is a reply to: {replied_to_content[:200]}..."
+                            )
+                except Exception as e:
+                    logger.warning(f"Could not fetch replied-to message: {e}")
+
+            # Prepend the replied-to content to the user's message
+            if replied_to_content:
+                content = f"{replied_to_content}\n\n[User's request]: {content}"
+
+            # In team mode, add user attribution so agent knows who's speaking
+            channel_id_for_mode = str(message.channel.id)
+            is_team_mode = channel_id_for_mode in self.team_channel_config
+            if is_team_mode:
+                display_name = message.author.display_name or message.author.name
+                content = f"[{display_name}]: {content}"
+
             # If the message is empty after removing the mention and has no attachments, ignore it
             if not content and not message.attachments:
                 return
@@ -297,19 +647,30 @@ class CompanyDiscordBot:
             try:
                 # Create a background task to keep typing indicator active
                 async def keep_typing():
-                    try:
-                        while True:
+                    consecutive_errors = 0
+                    while True:
+                        try:
                             # Use the HTTP API directly to trigger typing
                             await message.channel._state.http.send_typing(
                                 message.channel.id
                             )
+                            consecutive_errors = 0  # Reset on success
                             await asyncio.sleep(
-                                5
-                            )  # Discord typing lasts ~10 seconds, refresh every 5
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as e:
-                        logger.debug(f"Typing indicator error: {e}")
+                                3
+                            )  # Discord typing lasts ~10 seconds, refresh every 3 for reliability
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as e:
+                            consecutive_errors += 1
+                            if consecutive_errors > 5:
+                                logger.warning(
+                                    f"Typing indicator stopped after {consecutive_errors} consecutive errors: {e}"
+                                )
+                                break
+                            logger.debug(
+                                f"Typing indicator error (attempt {consecutive_errors}): {e}"
+                            )
+                            await asyncio.sleep(1)  # Brief pause before retry
 
                 typing_task = asyncio.create_task(keep_typing())
 
@@ -355,7 +716,14 @@ class CompanyDiscordBot:
                             file_info.get("content_type", ""),
                             file_info.get("filename", ""),
                         )
-                        file_guidance += f"- `{file_info['local_path']}` ({file_info['filename']}) - {file_type_desc}\n"
+                        # Use relative_path for agent context (falls back to local_path for compatibility)
+                        display_path = file_info.get(
+                            "relative_path",
+                            file_info.get(
+                                "local_path", file_info.get("filename", "unknown")
+                            ),
+                        )
+                        file_guidance += f"- `{display_path}` ({file_info['filename']}) - {file_type_desc}\n"
                     file_guidance += "\nYou can access these files using file reading commands or vision analysis as appropriate.\n\n"
 
                 # Add channel info to context so agent knows where it is
@@ -365,7 +733,7 @@ class CompanyDiscordBot:
 - The agent can use 'Search Discord Channel' command to search for specific content further back in this channel's history.
 
 **IMPORTANT TOOL GUIDANCE:**
-- To get information from a specific URL or link, use 'Fetch Webpage Content' with the full URL.
+- To get information from a URL or link (especially social media like X/Twitter), use 'Interact with Webpage' with the full URL. This uses a real browser to navigate and extract content.
 - For Goodreads books, the URL format is: https://www.goodreads.com/book/show/{id}
 - For general web research without a specific URL, use 'Web Search'.
 - For images in the channel, use vision/image analysis commands with the file path.
@@ -411,8 +779,12 @@ class CompanyDiscordBot:
 
                     # Add current message file paths to content for clarity
                     if current_msg_files:
+                        # Use relative_path for agent context (falls back to local_path for compatibility)
                         file_list = ", ".join(
-                            [f"`{f['local_path']}`" for f in current_msg_files]
+                            [
+                                f"`{f.get('relative_path', f.get('local_path', f.get('filename', 'unknown')))}`"
+                                for f in current_msg_files
+                            ]
                         )
                         content = f"{content}\n\n[User attached files: {file_list}]"
 
@@ -501,13 +873,37 @@ class CompanyDiscordBot:
                     else "I couldn't generate a response."
                 )
 
-                # Split long messages if needed
+                # In team mode, prefix the reply with agent name at company name
+                if is_team_mode:
+                    reply = f"**{agent_name}** at **{self.company_name}**:\n{reply}"
+
+                # Extract workspace files from the response and prepare them as Discord attachments
+                # This handles URLs like {AGIXT_URI}/outputs/agent_{hash}/{conversation_id}/{filename}
+                reply, discord_files = await self._extract_and_prepare_workspace_files(
+                    reply, user_jwt
+                )
+
+                # Split long messages if needed and send with file attachments
                 if len(reply) > 2000:
-                    chunks = [reply[i : i + 2000] for i in range(0, len(reply), 2000)]
-                    for chunk in chunks:
-                        await message.reply(chunk)
+                    chunks = self._split_message_intelligently(reply, max_length=2000)
+                    for i, chunk in enumerate(chunks):
+                        # Attach files to the first chunk only
+                        if i == 0 and discord_files:
+                            await message.reply(chunk, files=discord_files)
+                        else:
+                            await message.reply(chunk)
                 else:
-                    await message.reply(reply)
+                    if discord_files:
+                        await message.reply(reply, files=discord_files)
+                    else:
+                        await message.reply(reply)
+
+                # Increment message counter after successful response and persist to DB
+                self._messages_processed += 1
+                self._unsaved_message_count += 1
+                # Save every 5 messages or on first message to batch DB writes
+                if self._unsaved_message_count >= 5 or self._messages_processed == 1:
+                    self._save_messages_processed()
 
             except Exception as e:
                 logger.error(
@@ -522,6 +918,412 @@ class CompanyDiscordBot:
                         await typing_task
                     except asyncio.CancelledError:
                         pass
+
+    async def _handle_list_command(self, message, agixt, agents=None):
+        """Handle the !list command to show available agents. Silently deletes command and DMs user."""
+        from datetime import datetime
+
+        try:
+            # Delete the command message silently
+            try:
+                await message.delete()
+            except discord_module.errors.Forbidden:
+                pass  # May not have permission to delete in DMs or certain channels
+            except Exception as e:
+                logger.debug(f"Could not delete command message: {e}")
+
+            # Get agents if not passed
+            if agents is None:
+                agents = agixt.get_agents()
+
+            if not agents:
+                await message.author.send("You don't have any agents configured.")
+                return
+
+            # Build the agent list
+            agent_list = []
+            channel_id = str(message.channel.id)
+            is_team_mode = channel_id in self.team_channel_config
+            team_agent = (
+                self.team_channel_config.get(channel_id, {}).get("agent_name")
+                if is_team_mode
+                else None
+            )
+
+            for i, agent in enumerate(agents, 1):
+                name = (
+                    agent.get("name", "Unknown") if isinstance(agent, dict) else agent
+                )
+                agent_id = agent.get("id", "") if isinstance(agent, dict) else ""
+                status = agent.get("status", "") if isinstance(agent, dict) else ""
+
+                markers = []
+                # Check if this is the team agent for this channel
+                if is_team_mode and name == team_agent:
+                    markers.append("🤖 team agent")
+                # Check if this agent is currently selected for personal mode
+                selection_key = (str(message.author.id), str(message.channel.id))
+                if (
+                    not is_team_mode
+                    and self.user_agent_selection.get(selection_key) == name
+                ):
+                    markers.append("✅ current")
+
+                marker_str = f" ({', '.join(markers)})" if markers else ""
+                agent_list.append(f"{i}. **{name}**{marker_str}")
+
+            # Get channel description for the tip
+            if isinstance(message.channel, discord_module.DMChannel):
+                channel_desc = "DMs"
+            elif message.guild and hasattr(message.channel, "name"):
+                channel_desc = f"**{message.guild.name}** › #{message.channel.name}"
+            elif hasattr(message.channel, "name"):
+                channel_desc = f"#{message.channel.name}"
+            else:
+                channel_desc = "this channel"
+
+            response = "**Your Available Agents:**\n" + "\n".join(agent_list)
+
+            # Add mode-specific tips
+            if is_team_mode:
+                response += f"\n\n🏢 **Team Mode Active** for {channel_desc}\n"
+                response += f"All members share conversations with **{team_agent}**.\n"
+                response += (
+                    f"*Admins: Use `!personal` to switch back to personal mode.*"
+                )
+            else:
+                response += f"\n\n*Use `!select <agent_name>` to switch agents for {channel_desc}.*\n"
+                response += f"*Admins: Use `!team <agent_name>` to enable team mode.*"
+
+            # DM the user the list
+            await message.author.send(response)
+
+        except Exception as e:
+            logger.error(f"Error handling !list command: {e}")
+            try:
+                await message.author.send(f"Error listing agents: {str(e)}")
+            except:
+                pass
+
+    async def _handle_select_command(self, message, agixt):
+        """Handle the !select command to switch agents. Silently deletes command and DMs user."""
+        try:
+            # Delete the command message silently
+            try:
+                await message.delete()
+            except discord_module.errors.Forbidden:
+                pass
+            except Exception as e:
+                logger.debug(f"Could not delete command message: {e}")
+
+            # Parse the agent name from the command
+            parts = message.content.strip().split(maxsplit=1)
+            if len(parts) < 2:
+                await message.author.send(
+                    "Usage: `!select <agent_name>`\nUse `!list` to see available agents."
+                )
+                return
+
+            requested_agent = parts[1].strip()
+
+            # Get available agents to validate
+            agents = agixt.get_agents()
+            if not agents:
+                await message.author.send("You don't have any agents configured.")
+                return
+
+            # Find matching agent (case-insensitive)
+            matched_agent = None
+            for agent in agents:
+                name = agent.get("name", "") if isinstance(agent, dict) else agent
+                if name.lower() == requested_agent.lower():
+                    matched_agent = name
+                    break
+
+            if not matched_agent:
+                # Build list of available agents for helpful error message
+                available = [
+                    agent.get("name", agent) if isinstance(agent, dict) else agent
+                    for agent in agents
+                ]
+                await message.author.send(
+                    f"Agent `{requested_agent}` not found.\n\n"
+                    f"**Available agents:** {', '.join(available)}\n"
+                    f"Use `!list` to see all your agents."
+                )
+                return
+
+            # Store the selection for this user in this channel
+            selection_key = (str(message.author.id), str(message.channel.id))
+            self.user_agent_selection[selection_key] = matched_agent
+
+            # Get channel name for confirmation (include server name)
+            if isinstance(message.channel, discord_module.DMChannel):
+                channel_desc = "DMs"
+            elif message.guild and hasattr(message.channel, "name"):
+                channel_desc = f"**{message.guild.name}** › #{message.channel.name}"
+            elif hasattr(message.channel, "name"):
+                channel_desc = f"#{message.channel.name}"
+            else:
+                channel_desc = "this channel"
+
+            await message.author.send(
+                f"✅ Switched to **{matched_agent}** for {channel_desc}.\n"
+                f"All your future messages there will go to this agent."
+            )
+
+        except Exception as e:
+            logger.error(f"Error handling !select command: {e}")
+            try:
+                await message.author.send(f"Error selecting agent: {str(e)}")
+            except:
+                pass
+
+    async def _handle_clear_command(self, message, agixt, current_agent_name):
+        """Handle the !clear command to archive conversation and start fresh. Silently deletes command and DMs user."""
+        from datetime import datetime
+
+        try:
+            # Delete the command message silently
+            try:
+                await message.delete()
+            except discord_module.errors.Forbidden:
+                pass
+            except Exception as e:
+                logger.debug(f"Could not delete command message: {e}")
+
+            # Check for user's selected agent in this channel
+            selection_key = (str(message.author.id), str(message.channel.id))
+            if selection_key in self.user_agent_selection:
+                current_agent_name = self.user_agent_selection[selection_key]
+
+            # Get the current conversation name for this channel
+            current_conversation = self._get_conversation_name(message)
+
+            # Generate timestamped archive name
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            archived_name = f"{current_conversation}-archived-{timestamp}"
+
+            # Rename the conversation to archive it
+            try:
+                agixt.rename_conversation(
+                    agent_name=current_agent_name,
+                    conversation_name=current_conversation,
+                    new_conversation_name=archived_name,
+                )
+
+                # Get channel description for confirmation message (include server name)
+                if isinstance(message.channel, discord_module.DMChannel):
+                    channel_desc = "DMs"
+                elif message.guild and hasattr(message.channel, "name"):
+                    channel_desc = f"**{message.guild.name}** › #{message.channel.name}"
+                elif hasattr(message.channel, "name"):
+                    channel_desc = f"#{message.channel.name}"
+                else:
+                    channel_desc = "this channel"
+
+                await message.author.send(
+                    f"✅ Conversation cleared for {channel_desc}.\n"
+                    f"Previous conversation archived as: `{archived_name}`\n"
+                    f"Starting fresh with **{current_agent_name}**!"
+                )
+
+            except Exception as e:
+                logger.warning(f"Could not rename conversation: {e}")
+                # Even if rename fails, the next message will start a new conversation anyway
+                await message.author.send(
+                    f"✅ Context cleared for this channel.\n"
+                    f"Starting fresh with **{current_agent_name}**!"
+                )
+
+        except Exception as e:
+            logger.error(f"Error handling !clear command: {e}")
+            try:
+                await message.author.send(f"Error clearing conversation: {str(e)}")
+            except:
+                pass
+
+    async def _is_company_admin(self, user_email: str) -> bool:
+        """Check if a user is a company admin (role_id <= 2)."""
+        try:
+            from MagicalAuth import MagicalAuth
+
+            user_jwt = impersonate_user(user_email)
+            auth = MagicalAuth(token=user_jwt)
+            if auth.user_id:
+                role_id = auth.get_user_role()
+                return role_id is not None and role_id <= 2
+        except Exception as e:
+            logger.warning(f"Could not check admin status for {user_email}: {e}")
+        return False
+
+    async def _handle_team_command(self, message, agixt, user_email: str):
+        """Handle the !team command to set a channel to team mode with a shared agent. Admin only."""
+        try:
+            # Delete the command message silently
+            try:
+                await message.delete()
+            except discord_module.errors.Forbidden:
+                pass
+            except Exception as e:
+                logger.debug(f"Could not delete command message: {e}")
+
+            # Check if user is a company admin
+            if not await self._is_company_admin(user_email):
+                await message.author.send(
+                    "❌ Only company admins can configure team channels.\n"
+                    "Contact your company administrator to set up team mode."
+                )
+                return
+
+            # Don't allow in DMs
+            if isinstance(message.channel, discord_module.DMChannel):
+                await message.author.send("❌ Team mode is not available in DMs.")
+                return
+
+            # Parse the agent name from the command
+            parts = message.content.strip().split(maxsplit=1)
+            if len(parts) < 2:
+                await message.author.send(
+                    "Usage: `!team <agent_name>`\n\n"
+                    "This sets the channel to **team mode** where all company members "
+                    "talk to the same shared agent with shared context.\n\n"
+                    "Use `!list` to see your available agents.\n"
+                    "Use `!personal` to switch back to personal mode."
+                )
+                return
+
+            requested_agent = parts[1].strip()
+
+            # Get available agents to validate
+            agents = agixt.get_agents()
+            if not agents:
+                await message.author.send("You don't have any agents configured.")
+                return
+
+            # Find matching agent (case-insensitive)
+            matched_agent = None
+            for agent in agents:
+                name = agent.get("name", "") if isinstance(agent, dict) else agent
+                if name.lower() == requested_agent.lower():
+                    matched_agent = name
+                    break
+
+            if not matched_agent:
+                available = [
+                    agent.get("name", agent) if isinstance(agent, dict) else agent
+                    for agent in agents
+                ]
+                await message.author.send(
+                    f"Agent `{requested_agent}` not found.\n\n"
+                    f"**Available agents:** {', '.join(available)}\n"
+                    f"Use `!list` to see all your agents."
+                )
+                return
+
+            # Set the channel to team mode
+            channel_id = str(message.channel.id)
+            self.team_channel_config[channel_id] = {
+                "agent_name": matched_agent,
+                "admin_user_id": str(message.author.id),
+            }
+
+            # Get channel description for confirmation
+            if message.guild and hasattr(message.channel, "name"):
+                channel_desc = f"**{message.guild.name}** › #{message.channel.name}"
+            elif hasattr(message.channel, "name"):
+                channel_desc = f"#{message.channel.name}"
+            else:
+                channel_desc = "this channel"
+
+            await message.author.send(
+                f"✅ **Team mode enabled** for {channel_desc}\n\n"
+                f"🤖 **Agent:** {matched_agent}\n"
+                f"🏢 **Company:** {self.company_name}\n\n"
+                f"All company members in this channel will now talk to **{matched_agent}** "
+                f"with shared conversation context.\n\n"
+                f"Responses will be prefixed with:\n"
+                f"> **{matched_agent}** at **{self.company_name}**:\n\n"
+                f"Use `!personal` to switch back to personal mode."
+            )
+
+            logger.info(
+                f"Team mode enabled for channel {channel_id} with agent {matched_agent} "
+                f"by admin {user_email}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error handling !team command: {e}")
+            try:
+                await message.author.send(f"Error setting team mode: {str(e)}")
+            except:
+                pass
+
+    async def _handle_personal_command(self, message, user_email: str):
+        """Handle the !personal command to switch a channel back to personal mode. Admin only."""
+        try:
+            # Delete the command message silently
+            try:
+                await message.delete()
+            except discord_module.errors.Forbidden:
+                pass
+            except Exception as e:
+                logger.debug(f"Could not delete command message: {e}")
+
+            # Check if user is a company admin
+            if not await self._is_company_admin(user_email):
+                await message.author.send(
+                    "❌ Only company admins can configure team channels.\n"
+                    "Contact your company administrator to change channel mode."
+                )
+                return
+
+            channel_id = str(message.channel.id)
+
+            # Get channel description for confirmation
+            if isinstance(message.channel, discord_module.DMChannel):
+                channel_desc = "DMs"
+            elif message.guild and hasattr(message.channel, "name"):
+                channel_desc = f"**{message.guild.name}** › #{message.channel.name}"
+            elif hasattr(message.channel, "name"):
+                channel_desc = f"#{message.channel.name}"
+            else:
+                channel_desc = "this channel"
+
+            # Check if channel is in team mode
+            if channel_id not in self.team_channel_config:
+                await message.author.send(
+                    f"ℹ️ {channel_desc} is already in personal mode.\n"
+                    f"Each user talks to their own selected agent."
+                )
+                return
+
+            # Get the previous team config for logging
+            old_config = self.team_channel_config[channel_id]
+            old_agent = old_config.get("agent_name", "Unknown")
+
+            # Remove team mode
+            del self.team_channel_config[channel_id]
+
+            await message.author.send(
+                f"✅ **Personal mode restored** for {channel_desc}\n\n"
+                f"Previously was team mode with agent **{old_agent}**.\n\n"
+                f"Now each user will talk to their own selected agent.\n"
+                f"Use `!select <agent>` to choose your personal agent.\n"
+                f"Use `!team <agent>` to re-enable team mode."
+            )
+
+            logger.info(
+                f"Personal mode restored for channel {channel_id} by admin {user_email} "
+                f"(was team mode with {old_agent})"
+            )
+
+        except Exception as e:
+            logger.error(f"Error handling !personal command: {e}")
+            try:
+                await message.author.send(f"Error switching to personal mode: {str(e)}")
+            except:
+                pass
 
     async def _get_channel_context(
         self,
@@ -704,8 +1506,16 @@ class CompanyDiscordBot:
                                     file_info.get("content_type", ""),
                                     file_info.get("filename", ""),
                                 )
+                                # Use relative_path for agent context (falls back to local_path for compatibility)
+                                display_path = file_info.get(
+                                    "relative_path",
+                                    file_info.get(
+                                        "local_path",
+                                        file_info.get("filename", "unknown"),
+                                    ),
+                                )
                                 attachment_info_parts.append(
-                                    f"{attachment.filename} -> `{file_info['local_path']}` ({file_type})"
+                                    f"{attachment.filename} -> `{display_path}` ({file_type})"
                                 )
                             else:
                                 attachment_info_parts.append(attachment.filename)
@@ -814,6 +1624,9 @@ HOW TO READ:
             safe_filename = f"{message_id}_{attachment.filename}"
             local_path = os.path.join(attachments_dir, safe_filename)
 
+            # Calculate relative path for agent context (relative to conversation workspace)
+            relative_path = os.path.join("discord_attachments", safe_filename)
+
             # Download the file
             async with aiohttp.ClientSession() as session:
                 async with session.get(attachment.url) as response:
@@ -825,6 +1638,7 @@ HOW TO READ:
                         logger.debug(f"Downloaded attachment to: {local_path}")
                         return {
                             "local_path": local_path,
+                            "relative_path": relative_path,  # Path relative to agent's working directory
                             "filename": attachment.filename,
                             "content_type": attachment.content_type
                             or "application/octet-stream",
@@ -878,6 +1692,183 @@ HOW TO READ:
 
         return "FILE - Use appropriate file reading commands"
 
+    def _split_message_intelligently(
+        self, text: str, max_length: int = 2000
+    ) -> list[str]:
+        """
+        Split a message into chunks that fit within Discord's character limit,
+        but split at natural breakpoints (newlines, sentences, words) rather than
+        mid-word or mid-sentence.
+
+        Priority for split points:
+        1. Double newlines (paragraph breaks)
+        2. Single newlines
+        3. Sentence endings (. ! ?)
+        4. Word boundaries (spaces)
+        5. Hard cut (last resort)
+
+        Args:
+            text: The text to split
+            max_length: Maximum length per chunk (Discord limit is 2000)
+
+        Returns:
+            List of text chunks, each within max_length
+        """
+        if len(text) <= max_length:
+            return [text]
+
+        chunks = []
+        remaining = text
+
+        while len(remaining) > max_length:
+            # Find the best split point within the limit
+            chunk = remaining[:max_length]
+
+            # Try to find split points in order of preference
+            split_point = None
+
+            # 1. Look for double newline (paragraph break) - best split
+            last_para = chunk.rfind("\n\n")
+            if last_para > max_length * 0.3:  # Don't split too early
+                split_point = last_para + 2  # Include the newlines in the first chunk
+
+            # 2. Look for single newline
+            if split_point is None:
+                last_newline = chunk.rfind("\n")
+                if last_newline > max_length * 0.3:
+                    split_point = last_newline + 1
+
+            # 3. Look for sentence ending (. ! ? followed by space or newline)
+            if split_point is None:
+                # Search backwards for sentence endings
+                for i in range(len(chunk) - 1, int(max_length * 0.3), -1):
+                    if chunk[i] in ".!?" and (
+                        i + 1 >= len(chunk) or chunk[i + 1] in " \n"
+                    ):
+                        split_point = i + 1
+                        break
+
+            # 4. Look for word boundary (space)
+            if split_point is None:
+                last_space = chunk.rfind(" ")
+                if last_space > max_length * 0.3:
+                    split_point = last_space + 1
+
+            # 5. Hard cut as last resort
+            if split_point is None:
+                split_point = max_length
+
+            # Extract the chunk and update remaining
+            chunks.append(remaining[:split_point].rstrip())
+            remaining = remaining[split_point:].lstrip()
+
+        # Add any remaining text
+        if remaining:
+            chunks.append(remaining)
+
+        return chunks
+
+    async def _extract_and_prepare_workspace_files(
+        self, response_text: str, user_jwt: str
+    ) -> tuple:
+        """
+        Extract workspace file URLs from the response and prepare them as Discord file attachments.
+
+        This handles URLs like:
+        - {AGIXT_URI}/outputs/agent_{hash}/{conversation_id}/{filename}
+        - Markdown links: [text]({AGIXT_URI}/outputs/...)
+        - HTML links: href="{AGIXT_URI}/outputs/..."
+        - Image tags: src="{AGIXT_URI}/outputs/..."
+
+        Returns:
+            tuple: (modified_text, list_of_discord_files)
+        """
+        import re
+        import io
+        import aiohttp
+
+        agixt_uri = getenv("AGIXT_URI", "http://localhost:7437")
+
+        # Pattern to match workspace output URLs
+        # Matches both plain URLs and URLs embedded in markdown/html
+        url_pattern = re.compile(
+            rf'(?:(?:\[([^\]]*)\]\()|(?:(?:src|href)=["\']))?'
+            rf'({re.escape(agixt_uri)}/outputs/[^\s"\'\)>]+)'
+            rf"(?:[\"\'\)])?",
+            re.IGNORECASE,
+        )
+
+        discord_files = []
+        modified_text = response_text
+        urls_processed = set()  # Track processed URLs to avoid duplicates
+
+        for match in url_pattern.finditer(response_text):
+            url = match.group(2) if match.group(2) else match.group(0)
+
+            # Skip if we've already processed this URL
+            if url in urls_processed:
+                continue
+            urls_processed.add(url)
+
+            # Extract filename from URL
+            try:
+                # URL format: .../outputs/agent_{hash}/{conversation_id}/{filename}
+                filename = url.split("/")[-1]
+                # URL decode the filename
+                import urllib.parse
+
+                filename = urllib.parse.unquote(filename)
+
+                # Remove any query parameters
+                if "?" in filename:
+                    filename = filename.split("?")[0]
+
+                if not filename:
+                    continue
+
+                # Download the file from the AGiXT server (with auth)
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        headers = {"Authorization": f"Bearer {user_jwt}"}
+                        async with session.get(url, headers=headers) as resp:
+                            if resp.status == 200:
+                                file_data = await resp.read()
+
+                                # Create Discord file object
+                                discord_file = discord_module.File(
+                                    io.BytesIO(file_data), filename=filename
+                                )
+                                discord_files.append(discord_file)
+
+                                # Replace the URL in the text with a note that the file is attached
+                                # Handle different formats
+                                full_match = match.group(0)
+                                link_text = (
+                                    match.group(1) if match.group(1) else filename
+                                )
+
+                                # Replace with attachment reference
+                                replacement = f"[📎 {link_text} (attached)]"
+                                modified_text = modified_text.replace(
+                                    full_match, replacement, 1
+                                )
+
+                                logger.info(
+                                    f"Prepared workspace file for Discord upload: {filename}"
+                                )
+                            else:
+                                logger.warning(
+                                    f"Failed to download workspace file {url}: HTTP {resp.status}"
+                                )
+                except Exception as e:
+                    logger.error(f"Error downloading workspace file {url}: {e}")
+
+            except Exception as e:
+                logger.debug(f"Could not process URL {url}: {e}")
+                continue
+
+        return modified_text, discord_files
+
     async def start(self):
         """Start the Discord bot."""
         try:
@@ -888,6 +1879,9 @@ HOW TO READ:
 
     async def stop(self):
         """Stop the Discord bot gracefully."""
+        # Save any unsaved message count before stopping
+        if self._unsaved_message_count > 0:
+            self._save_messages_processed()
         if not self.bot.is_closed():
             await self.bot.close()
         self._is_ready = False
@@ -962,7 +1956,8 @@ class DiscordBotManager:
     def get_company_bot_config(self) -> Dict[str, Dict[str, str]]:
         """
         Get Discord bot configuration for all companies from the database.
-        Returns: {company_id: {"token": "...", "enabled": "true/false", "name": "..."}}
+        Returns: {company_id: {"token": "...", "enabled": "true/false", "name": "...",
+                               "agent_id": "...", "permission_mode": "...", "owner_id": "...", "allowlist": "..."}}
         """
         configs = {}
 
@@ -973,7 +1968,14 @@ class DiscordBotManager:
                 .filter(CompanyExtensionSetting.extension_name == "discord")
                 .filter(
                     CompanyExtensionSetting.setting_key.in_(
-                        ["DISCORD_BOT_TOKEN", "DISCORD_BOT_ENABLED"]
+                        [
+                            "DISCORD_BOT_TOKEN",
+                            "DISCORD_BOT_ENABLED",
+                            "discord_bot_agent_id",
+                            "discord_bot_permission_mode",
+                            "discord_bot_owner_id",
+                            "discord_bot_allowlist",
+                        ]
                     )
                 )
                 .all()
@@ -993,6 +1995,10 @@ class DiscordBotManager:
                         "name": company.name if company else "Unknown",
                         "token": None,
                         "enabled": "false",
+                        "agent_id": None,
+                        "permission_mode": "recognized_users",
+                        "owner_id": None,
+                        "allowlist": None,
                     }
 
                 # Decrypt if needed
@@ -1006,11 +2012,26 @@ class DiscordBotManager:
                     configs[company_id]["token"] = value
                 elif setting.setting_key == "DISCORD_BOT_ENABLED":
                     configs[company_id]["enabled"] = value
+                elif setting.setting_key == "discord_bot_agent_id":
+                    configs[company_id]["agent_id"] = value
+                elif setting.setting_key == "discord_bot_permission_mode":
+                    configs[company_id]["permission_mode"] = value or "recognized_users"
+                elif setting.setting_key == "discord_bot_owner_id":
+                    configs[company_id]["owner_id"] = value
+                elif setting.setting_key == "discord_bot_allowlist":
+                    configs[company_id]["allowlist"] = value
 
         return configs
 
     async def start_bot_for_company(
-        self, company_id: str, company_name: str, token: str
+        self,
+        company_id: str,
+        company_name: str,
+        token: str,
+        agent_id: str = None,
+        permission_mode: str = "recognized_users",
+        owner_id: str = None,
+        allowlist: str = None,
     ) -> bool:
         """Start a Discord bot for a specific company."""
         if company_id in self.bots and company_id in self._tasks:
@@ -1018,7 +2039,15 @@ class DiscordBotManager:
             return False
 
         try:
-            bot = CompanyDiscordBot(company_id, company_name, token)
+            bot = CompanyDiscordBot(
+                company_id=company_id,
+                company_name=company_name,
+                discord_token=token,
+                bot_agent_id=agent_id,
+                bot_permission_mode=permission_mode,
+                bot_owner_id=owner_id,
+                bot_allowlist=allowlist,
+            )
             self.bots[company_id] = bot
 
             # Create and store the task
@@ -1031,7 +2060,8 @@ class DiscordBotManager:
             )
 
             logger.info(
-                f"Started Discord bot for company {company_name} ({company_id})"
+                f"Started Discord bot for company {company_name} ({company_id}) "
+                f"[agent_id={agent_id}, permission_mode={permission_mode}]"
             )
             return True
 
@@ -1131,7 +2161,15 @@ class DiscordBotManager:
                     and company_id not in self.bots
                 ):
                     await self.start_bot_for_company(
-                        company_id, config["name"], config["token"]
+                        company_id=company_id,
+                        company_name=config["name"],
+                        token=config["token"],
+                        agent_id=config.get("agent_id"),
+                        permission_mode=config.get(
+                            "permission_mode", "recognized_users"
+                        ),
+                        owner_id=config.get("owner_id"),
+                        allowlist=config.get("allowlist"),
                     )
 
         elif server_token:
@@ -1206,35 +2244,157 @@ class DiscordBotManager:
                 started_at=bot.started_at,
                 is_running=bot.is_ready,
                 guild_count=bot.guild_count,
+                messages_processed=bot._messages_processed,
             )
         return statuses
 
     def get_bot_status(self, company_id: str) -> Optional[BotStatus]:
-        """Get status of a specific company's bot."""
+        """Get status of a specific company's bot.
+
+        If a company doesn't have their own bot but the server-level bot is running,
+        returns the server bot status (since it handles messages for all companies).
+        """
+        # First check for company-specific bot
         bot = self.bots.get(company_id)
-        if not bot:
+        if bot:
+            return BotStatus(
+                company_id=company_id,
+                company_name=bot.company_name,
+                started_at=bot.started_at,
+                is_running=bot.is_ready,
+                guild_count=bot.guild_count,
+                messages_processed=bot._messages_processed,
+            )
+
+        # If no company-specific bot, check if server-level bot is running
+        # The server-level bot handles all companies, so report its status
+        server_bot = self.bots.get(self.SERVER_BOT_ID)
+        if server_bot:
+            return BotStatus(
+                company_id=company_id,  # Return the requested company_id
+                company_name=f"{server_bot.company_name} (shared)",
+                started_at=server_bot.started_at,
+                is_running=server_bot.is_ready,
+                guild_count=server_bot.guild_count,
+                messages_processed=server_bot._messages_processed,
+            )
+
+        return None
+
+    def _publish_status_to_redis(self):
+        """Publish bot status to Redis for cross-process access."""
+        try:
+            import redis
+            import json
+            from Globals import getenv
+
+            redis_host = getenv("REDIS_HOST")
+            if not redis_host:
+                return
+
+            redis_uri = getenv("REDIS_URI")
+            if redis_uri:
+                r = redis.from_url(redis_uri)
+            else:
+                r = redis.Redis(host=redis_host, port=6379, db=0)
+
+            # Build status for all bots
+            statuses = {}
+            for company_id, bot in self.bots.items():
+                statuses[company_id] = {
+                    "company_id": company_id,
+                    "company_name": bot.company_name,
+                    "started_at": (
+                        bot.started_at.isoformat() if bot.started_at else None
+                    ),
+                    "is_running": bot.is_ready,
+                    "guild_count": bot.guild_count,
+                }
+
+            r.set(
+                "agixt:discord_bot_status", json.dumps(statuses), ex=30
+            )  # 30 second TTL
+            r.set("agixt:discord_bot_manager_running", "1", ex=30)
+
+        except Exception as e:
+            logger.warning(f"Failed to publish Discord bot status to Redis: {e}")
+
+    async def _status_publisher_loop(self):
+        """Background task to periodically publish status to Redis."""
+        while self._running:
+            self._publish_status_to_redis()
+            await asyncio.sleep(5)  # Update every 5 seconds
+
+
+# Redis-based status retrieval for cross-process access
+def get_discord_bot_status_from_redis(company_id: str) -> Optional[BotStatus]:
+    """Get Discord bot status from Redis (for uvicorn worker processes)."""
+    try:
+        import redis
+        import json
+        from Globals import getenv
+
+        redis_host = getenv("REDIS_HOST")
+        if not redis_host:
             return None
-        return BotStatus(
-            company_id=company_id,
-            company_name=bot.company_name,
-            started_at=bot.started_at,
-            is_running=bot.is_ready,
-            guild_count=bot.guild_count,
-        )
+
+        redis_uri = getenv("REDIS_URI")
+        if redis_uri:
+            r = redis.from_url(redis_uri)
+        else:
+            r = redis.Redis(host=redis_host, port=6379, db=0)
+
+        # Check if manager is running
+        if not r.get("agixt:discord_bot_manager_running"):
+            return None
+
+        status_data = r.get("agixt:discord_bot_status")
+        if not status_data:
+            return None
+
+        statuses = json.loads(status_data)
+
+        # Check for company-specific bot
+        if company_id in statuses:
+            s = statuses[company_id]
+            return BotStatus(
+                company_id=s["company_id"],
+                company_name=s["company_name"],
+                started_at=(
+                    datetime.fromisoformat(s["started_at"]) if s["started_at"] else None
+                ),
+                is_running=s["is_running"],
+                guild_count=s.get("guild_count", 0),
+            )
+
+        # Check for server-level bot
+        if "server" in statuses:
+            s = statuses["server"]
+            return BotStatus(
+                company_id=company_id,
+                company_name=f"{s['company_name']} (shared)",
+                started_at=(
+                    datetime.fromisoformat(s["started_at"]) if s["started_at"] else None
+                ),
+                is_running=s["is_running"],
+                guild_count=s.get("guild_count", 0),
+            )
+
+        return None
+
+    except Exception as e:
+        logger.warning(f"Failed to get Discord bot status from Redis: {e}")
+        return None
 
 
-# Global instance for use in endpoints
-_manager: Optional[DiscordBotManager] = None
-
-
-def get_discord_bot_manager() -> Optional[DiscordBotManager]:
-    """Get the global Discord bot manager instance."""
-    return _manager
+# Use the registry for global manager storage - it's a simple module that doesn't
+# have complex import logic, so builtins access is consistent
+from BotManagerRegistry import set_discord_bot_manager as _registry_set
+from BotManagerRegistry import get_discord_bot_manager
 
 
 async def start_discord_bot_manager():
     """Start the global Discord bot manager."""
-    global _manager
 
     if not DISCORD_AVAILABLE:
         logger.warning(
@@ -1242,15 +2402,38 @@ async def start_discord_bot_manager():
         )
         return None
 
-    if _manager is None:
-        _manager = DiscordBotManager()
-    await _manager.start()
-    return _manager
+    manager = get_discord_bot_manager()
+    if manager is None:
+        manager = DiscordBotManager()
+        _registry_set(manager)
+    await manager.start()
+
+    # Start the status publisher background task
+    asyncio.create_task(manager._status_publisher_loop())
+
+    return manager
 
 
 async def stop_discord_bot_manager():
     """Stop the global Discord bot manager."""
-    global _manager
-    if _manager:
-        await _manager.stop()
-        _manager = None
+    manager = get_discord_bot_manager()
+    if manager:
+        await manager.stop()
+        _registry_set(None)
+
+        # Clear Redis status
+        try:
+            import redis
+            from Globals import getenv
+
+            redis_host = getenv("REDIS_HOST")
+            if redis_host:
+                redis_uri = getenv("REDIS_URI")
+                if redis_uri:
+                    r = redis.from_url(redis_uri)
+                else:
+                    r = redis.Redis(host=redis_host, port=6379, db=0)
+                r.delete("agixt:discord_bot_status")
+                r.delete("agixt:discord_bot_manager_running")
+        except Exception as e:
+            logger.warning(f"Failed to clear Discord bot status from Redis: {e}")

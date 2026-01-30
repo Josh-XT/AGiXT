@@ -83,7 +83,6 @@ pytesseract = _import_optional("pytesseract", "pytesseract")
 Image = _import_optional("PIL.Image", "Pillow")
 
 from Extensions import Extensions
-from Websearch import search_the_web
 import xml.etree.ElementTree as ET
 
 # Configure logging
@@ -117,6 +116,8 @@ class web_browsing(Extensions):
 
     def __init__(self, **kwargs):
         self.agent_name = kwargs.get("agent_name", "gpt4free")
+        self.agent_id = kwargs.get("agent_id")  # Needed for vision/inference calls
+        self.user = kwargs.get("user")  # Needed for Agent instantiation
         self.user_id = kwargs.get("user_id", "")
         self.conversation_name = kwargs.get("conversation_name", "")
         self.WORKING_DIRECTORY = kwargs.get(
@@ -189,39 +190,126 @@ class web_browsing(Extensions):
 
         Args:
             query (str): The search query.
-            websearch_depth (int): The depth of the web search.
-            websearch_timeout (int): The timeout for the web search.
+            websearch_depth (int): The depth of the web search (number of results, max 10).
+            websearch_timeout (int): The timeout for the web search (not used currently).
 
         Returns:
-            str: The results of the web search.
+            str: The results of the web search in markdown format.
         """
+        from urllib.parse import quote, unquote
+        from html.parser import HTMLParser
+        import httpx
+
         try:
-            int(websearch_depth)
+            websearch_depth = int(websearch_depth)
+            if websearch_depth < 1:
+                websearch_depth = 3
+            if websearch_depth > 10:
+                websearch_depth = 10
         except:
             websearch_depth = 3
+
+        class DDGHTMLParser(HTMLParser):
+            """Parser for DuckDuckGo HTML search results."""
+
+            def __init__(self):
+                super().__init__()
+                self.results = []
+                self.in_result_link = False
+                self.in_snippet_link = False
+                self.current_result = {}
+
+            def handle_starttag(self, tag, attrs):
+                attrs_dict = dict(attrs)
+                class_attr = attrs_dict.get("class", "")
+
+                if tag == "a" and "result__a" in class_attr:
+                    self.in_result_link = True
+                    raw_url = attrs_dict.get("href", "")
+                    # Extract actual URL from DuckDuckGo redirect
+                    if "uddg=" in raw_url:
+                        try:
+                            url_part = raw_url.split("uddg=")[1].split("&")[0]
+                            self.current_result["url"] = unquote(url_part)
+                        except:
+                            self.current_result["url"] = raw_url
+                    else:
+                        self.current_result["url"] = raw_url
+                    self.current_result["title"] = ""
+                elif tag == "a" and "result__snippet" in class_attr:
+                    self.in_snippet_link = True
+                    self.current_result["snippet"] = ""
+
+            def handle_endtag(self, tag):
+                if tag == "a" and self.in_result_link:
+                    self.in_result_link = False
+                elif tag == "a" and self.in_snippet_link:
+                    self.in_snippet_link = False
+                    # Save result when snippet ends (it comes after title)
+                    if self.current_result.get("url") and self.current_result.get(
+                        "title"
+                    ):
+                        # Filter out ads (DDG ads have tracking URLs)
+                        url = self.current_result.get("url", "")
+                        if not any(
+                            ad in url
+                            for ad in ["duckduckgo.com/y.js", "ad_provider", "ad_type"]
+                        ):
+                            self.results.append(self.current_result.copy())
+                    self.current_result = {}
+
+            def handle_data(self, data):
+                if self.in_result_link:
+                    self.current_result["title"] = (
+                        self.current_result.get("title", "") + data.strip()
+                    )
+                elif self.in_snippet_link:
+                    self.current_result["snippet"] = (
+                        self.current_result.get("snippet", "") + data.strip()
+                    )
+
         try:
-            int(websearch_timeout)
-        except:
-            websearch_timeout = 0
-        websearch_llm_timeout = getattr(self, "websearch_timeout_seconds", 60)
-        return await self._call_prompt_agent(
-            timeout=websearch_llm_timeout,
-            agent_name=self.agent_name,
-            prompt_name="User Input",
-            prompt_args={
-                "user_input": query,
-                "websearch": True,
-                "websearch_depth": websearch_depth,
-                "websearch_timeout": websearch_timeout,
-                "conversation_name": self.conversation_name,
-                "disable_commands": True,
-                "log_user_input": False,
-                "log_output": False,
-                "tts": False,
-                "analyze_user_input": False,
-                "browse_links": True,
-            },
-        )
+            # Use DuckDuckGo HTML interface with httpx (works without JavaScript)
+            search_url = f"https://html.duckduckgo.com/html/?q={quote(query)}"
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Accept-Encoding": "gzip, deflate",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+            }
+
+            async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+                response = await client.get(search_url, headers=headers)
+                response.raise_for_status()
+
+            # Parse HTML results
+            parser = DDGHTMLParser()
+            parser.feed(response.text)
+
+            results = parser.results[:websearch_depth]
+
+            if not results:
+                return f"No search results found for: {query}"
+
+            # Format results as markdown
+            output_lines = [f"## Search Results for: {query}\n"]
+            for r in results:
+                title = r.get("title", "Untitled")
+                url = r.get("url", "")
+                snippet = r.get("snippet", "")
+                output_lines.append(f"### [{title}]({url})")
+                if snippet:
+                    output_lines.append(f"{snippet}\n")
+
+            return "\n".join(output_lines)
+
+        except Exception as e:
+            logging.error(f"Web search error: {e}")
+            return f"Error performing web search: {str(e)}"
 
     async def _ensure_browser_page(self, headless: bool = True):
         """Internal helper to ensure Playwright, browser, context, and page are initialized."""
@@ -264,7 +352,7 @@ class web_browsing(Extensions):
                         "Accept-Encoding": "gzip, deflate, br",
                         "DNT": "1",  # Do Not Track
                         "Connection": "keep-alive",
-                        "Upgrade-Insecure-Requests": "1",
+                        # Note: "Upgrade-Insecure-Requests" header removed - causes sites like X.com to block requests
                         "Sec-Fetch-Dest": "document",
                         "Sec-Fetch-Mode": "navigate",
                         "Sec-Fetch-Site": "none",
@@ -362,72 +450,240 @@ class web_browsing(Extensions):
             raise
 
     async def _call_prompt_agent(self, timeout: int = None, **kwargs):
-        """Call ApiClient.prompt_agent in a background thread (with optional timeout for stuck requests)."""
-        if not self.ApiClient:
-            raise RuntimeError("ApiClient is not configured.")
+        """Call LLM via streaming chat completions endpoint for faster response.
 
-        import concurrent.futures
+        IMPORTANT: This calls ezlocalai directly to get the RAW LLM response.
+        The AGiXT /v1/chat/completions endpoint filters thinking tags and only
+        returns answer content, but for web browsing we need the full XML
+        response including <interaction> and <step> tags.
+        """
+        import httpx
+        import json as json_module
+        import asyncio
 
-        # Use ThreadPoolExecutor for better timeout control than asyncio.to_thread
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         start_time = time.time()
+        effective_timeout = timeout or 120
+
+        # Extract user_input from prompt_args - this is the actual prompt content
+        user_input = kwargs.get("prompt_args", {}).get("user_input", "")
+        if not user_input:
+            user_input = kwargs.get("user_input", "")
+
+        if not user_input:
+            raise ValueError("No user_input provided for LLM call")
+
+        # Call ezlocalai directly to get raw LLM response
+        # The AGiXT endpoint filters thinking tags - we need the full response for XML parsing
+        ezlocalai_url = os.environ.get("EZLOCALAI_URL", "http://localhost:8091")
+
+        # Build chat completions request for ezlocalai
+        messages = [{"role": "user", "content": user_input}]
+
+        payload = {
+            "model": os.environ.get(
+                "DEFAULT_MODEL", "unsloth/Qwen3-4B-Instruct-2507-GGUF"
+            ),
+            "messages": messages,
+            "stream": True,
+            "max_tokens": 4096,
+            "temperature": 0.7,
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+        }
+
+        url = f"{ezlocalai_url}/v1/chat/completions"
+
+        async def do_streaming_request():
+            response_text = ""
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(effective_timeout + 30, connect=10.0)
+            ) as client:
+                async with client.stream(
+                    "POST", url, json=payload, headers=headers
+                ) as response:
+                    if response.status_code != 200:
+                        error_body = await response.aread()
+                        raise RuntimeError(
+                            f"Chat completions failed with status {response.status_code}: {error_body.decode()}"
+                        )
+
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
+                        if line.startswith("data: "):
+                            data = line[6:]  # Remove "data: " prefix
+                            if data.strip() == "[DONE]":
+                                break
+                            try:
+                                chunk = json_module.loads(data)
+                                if "choices" in chunk and chunk["choices"]:
+                                    delta = chunk["choices"][0].get("delta", {})
+                                    content = delta.get("content", "")
+                                    if content:
+                                        response_text += content
+                            except json_module.JSONDecodeError:
+                                continue
+            return response_text
 
         try:
-            logging.debug(f"Starting prompt_agent call with timeout={timeout}s...")
+            logging.debug(
+                f"Starting streaming chat completion to ezlocalai with timeout={effective_timeout}s..."
+            )
 
-            # Submit the blocking call to the executor
-            future = executor.submit(self.ApiClient.prompt_agent, **kwargs)
-
-            # Wait for completion with timeout
-            if timeout:
-                try:
-                    # Use run_in_executor to await the future with timeout
-                    response = await asyncio.wait_for(
-                        asyncio.get_event_loop().run_in_executor(
-                            None, lambda: future.result(timeout=timeout)
-                        ),
-                        timeout=timeout
-                        + 1,  # Give slightly more time than the future's timeout
-                    )
-                except (
-                    concurrent.futures.TimeoutError,
-                    asyncio.TimeoutError,
-                ) as timeout_error:
-                    elapsed = time.time() - start_time
-                    error_msg = f"LLM call timed out after {elapsed:.1f}s (timeout was {timeout}s)"
-                    logging.error(error_msg)
-                    logging.warning(
-                        "The background thread is still running and cannot be killed. "
-                        "If ezlocalai is overloaded, consider restarting it or increasing MAX_CONCURRENT_REQUESTS."
-                    )
-                    # Cancel the future (won't stop the thread but marks it as cancelled)
-                    future.cancel()
-                    raise TimeoutError(error_msg)
-            else:
-                response = await asyncio.get_event_loop().run_in_executor(
-                    None, future.result
-                )
+            # Use asyncio.wait_for to enforce hard timeout on the entire streaming operation
+            response_text = await asyncio.wait_for(
+                do_streaming_request(), timeout=effective_timeout
+            )
 
             elapsed = time.time() - start_time
             logging.debug(
-                f"prompt_agent call completed in {elapsed:.1f}s, response length: {len(str(response)) if response else 0}"
+                f"Streaming chat completion completed in {elapsed:.1f}s, response length: {len(response_text)}"
             )
+            logging.info(
+                f"Response: {response_text[:500]}..."
+                if len(response_text) > 500
+                else f"Response: {response_text}"
+            )
+            return response_text
 
-        except TimeoutError:
-            # Re-raise timeout errors
-            raise
+        except asyncio.TimeoutError:
+            elapsed = time.time() - start_time
+            error_msg = f"LLM streaming call timed out after {elapsed:.1f}s (timeout was {effective_timeout}s)"
+            logging.error(error_msg)
+            raise TimeoutError(error_msg)
+        except httpx.TimeoutException as e:
+            elapsed = time.time() - start_time
+            error_msg = f"LLM streaming call timed out after {elapsed:.1f}s (timeout was {effective_timeout}s)"
+            logging.error(error_msg)
+            raise TimeoutError(error_msg)
         except Exception as e:
             elapsed = time.time() - start_time
             logging.error(
-                f"Error in _call_prompt_agent after {elapsed:.1f}s: {e}", exc_info=True
+                f"Error in streaming chat completion after {elapsed:.1f}s: {e}",
+                exc_info=True,
             )
             raise
-        finally:
-            # Shutdown executor (won't kill threads but prevents new submissions)
-            executor.shutdown(wait=False)
 
-        logging.info(f"Response: {response}")
-        return response
+    async def _chunk_and_evaluate_content(
+        self, content: str, url: str, max_chunk_tokens: int = 8000
+    ) -> list:
+        """
+        Chunk content into manageable pieces and have the LLM evaluate each chunk
+        to determine what's important to remember, creating subactivities for each.
+
+        Args:
+            content: The full page content to process
+            url: The URL the content came from (for references)
+            max_chunk_tokens: Maximum tokens per chunk (default 8000, ~32k chars)
+
+        Returns:
+            list: List of summaries/memories created for each chunk
+        """
+        from Globals import get_tokens
+
+        # Approximate chars per token (conservative estimate)
+        chars_per_token = 4
+        max_chunk_chars = max_chunk_tokens * chars_per_token
+
+        # Split content into chunks
+        chunks = []
+        current_pos = 0
+        content_length = len(content)
+
+        while current_pos < content_length:
+            # Find a good break point (end of sentence or paragraph)
+            end_pos = min(current_pos + max_chunk_chars, content_length)
+
+            if end_pos < content_length:
+                # Try to find a paragraph break
+                para_break = content.rfind("\n\n", current_pos, end_pos)
+                if para_break > current_pos + (max_chunk_chars // 2):
+                    end_pos = para_break + 2
+                else:
+                    # Try to find a sentence break
+                    for sep in [". ", ".\n", "! ", "!\n", "? ", "?\n"]:
+                        sent_break = content.rfind(sep, current_pos, end_pos)
+                        if sent_break > current_pos + (max_chunk_chars // 2):
+                            end_pos = sent_break + len(sep)
+                            break
+
+            chunk = content[current_pos:end_pos].strip()
+            if chunk:
+                chunks.append(chunk)
+            current_pos = end_pos
+
+        if not chunks:
+            return []
+
+        logging.info(
+            f"Split content ({content_length} chars) into {len(chunks)} chunks for evaluation"
+        )
+
+        memories = []
+
+        for i, chunk in enumerate(chunks):
+            chunk_tokens = get_tokens(chunk)
+            logging.info(
+                f"Processing chunk {i+1}/{len(chunks)} ({chunk_tokens} tokens)"
+            )
+
+            # Ask the LLM to evaluate the chunk and extract what's important
+            evaluation_prompt = f"""You are analyzing web page content from: {url}
+
+Analyze the following content chunk and extract ONLY the key information that would be valuable to remember. Focus on:
+- Main facts, data, and specific information
+- Names, dates, numbers, and concrete details
+- Key statements or quotes
+- Important relationships or connections mentioned
+
+If the content is mostly navigation, ads, or boilerplate, respond with just: "No significant content to remember."
+
+Format your response as a concise summary of what's important to remember. Include specific details and references.
+
+Content chunk {i+1}/{len(chunks)}:
+---
+{chunk[:max_chunk_chars]}
+---
+
+What key information should be remembered from this content?"""
+
+            try:
+                # Call LLM to evaluate the chunk
+                evaluation = await self._call_prompt_agent(
+                    timeout=60,
+                    prompt_args={"user_input": evaluation_prompt},
+                )
+
+                if evaluation and evaluation.strip():
+                    evaluation = evaluation.strip()
+
+                    # Skip if LLM determined no significant content
+                    if "no significant content" in evaluation.lower():
+                        logging.info(f"Chunk {i+1}: No significant content to remember")
+                        continue
+
+                    # Create subactivity with the LLM's evaluation
+                    memory_entry = (
+                        f"From {url} (chunk {i+1}/{len(chunks)}):\n{evaluation}"
+                    )
+                    memories.append(memory_entry)
+
+                    self.ApiClient.new_conversation_message(
+                        role=self.agent_name,
+                        message=f"[SUBACTIVITY][{self.activity_id}] Remembered from {url}:\n\n{evaluation}",
+                        conversation_name=self.conversation_name,
+                    )
+                    logging.info(
+                        f"Chunk {i+1}: Created memory subactivity ({len(evaluation)} chars)"
+                    )
+
+            except Exception as eval_error:
+                logging.warning(f"Failed to evaluate chunk {i+1}: {eval_error}")
+                continue
+
+        return memories
 
     def get_text_safely(self, element) -> str:
         """
@@ -446,6 +702,120 @@ class web_browsing(Extensions):
             return text if text else ""
         except (AttributeError, TypeError):
             return ""
+
+    async def _wait_for_content_stability(
+        self,
+        max_wait_seconds: float = 15,
+        check_interval: float = 0.5,
+        min_content_length: int = 300,
+    ) -> bool:
+        """
+        Wait for page content to stabilize, which is important for JavaScript-heavy SPAs
+        like Twitter/X.com, React apps, etc. that render content dynamically after initial page load.
+
+        This method polls the page content and waits until either:
+        1. The content stops changing between checks (stable) AND meets minimum threshold
+        2. Maximum wait time is reached
+
+        For JavaScript-heavy sites, this ensures that React/Vue/Angular apps have
+        actually rendered their content before we try to analyze it.
+
+        Args:
+            max_wait_seconds: Maximum time to wait for content stability (increased to 15s for SPAs)
+            check_interval: Time between content checks in seconds
+            min_content_length: Minimum content length to consider page "loaded enough" (lowered to 300)
+
+        Returns:
+            bool: True if content stabilized, False if timeout reached
+        """
+        if self.page is None or self.page.is_closed():
+            logging.warning("Cannot wait for content stability: page not available")
+            return False
+
+        logging.info(
+            f"Waiting for page content to stabilize (max {max_wait_seconds}s)..."
+        )
+
+        start_time = time.monotonic()
+        last_content_hash = None
+        last_content_length = 0
+        stable_checks = 0
+        required_stable_checks = 2  # Require 2 consecutive stable checks
+        content_growing = True  # Track if content is still growing
+        no_growth_checks = 0
+
+        while (time.monotonic() - start_time) < max_wait_seconds:
+            try:
+                # Get current page content
+                content = await self.page.evaluate(
+                    "() => document.body ? document.body.innerText : ''"
+                )
+                content_length = len(content) if content else 0
+                current_hash = (
+                    hashlib.md5(content.encode("utf-8", "ignore")).hexdigest()
+                    if content
+                    else ""
+                )
+
+                logging.debug(
+                    f"Content check: {content_length} chars, hash: {current_hash[:8]}..."
+                )
+
+                # Track if content is growing (indicates JS is still rendering)
+                if content_length > last_content_length:
+                    content_growing = True
+                    no_growth_checks = 0
+                else:
+                    no_growth_checks += 1
+                    if no_growth_checks >= 3:
+                        content_growing = False
+
+                # Check if content is sufficient AND stable
+                if content_length >= min_content_length:
+                    if current_hash == last_content_hash:
+                        stable_checks += 1
+                        if stable_checks >= required_stable_checks:
+                            elapsed = time.monotonic() - start_time
+                            logging.info(
+                                f"Content stabilized after {elapsed:.1f}s with {content_length} chars"
+                            )
+                            return True
+                    else:
+                        stable_checks = 0
+                elif (
+                    content_length < min_content_length
+                    and not content_growing
+                    and no_growth_checks >= 5
+                ):
+                    # Content is small but stable - might be a JS-disabled error page
+                    # Log this but continue waiting in case JS is still loading
+                    elapsed = time.monotonic() - start_time
+                    logging.warning(
+                        f"Content is small ({content_length} chars) and not growing after {elapsed:.1f}s - may indicate JS rendering issue"
+                    )
+
+                last_content_hash = current_hash
+                last_content_length = content_length
+                await asyncio.sleep(check_interval)
+
+            except Exception as e:
+                logging.warning(f"Error during content stability check: {e}")
+                await asyncio.sleep(check_interval)
+
+        elapsed = time.monotonic() - start_time
+        final_length = 0
+        try:
+            final_content = await self.page.evaluate(
+                "() => document.body ? document.body.innerText : ''"
+            )
+            final_length = len(final_content) if final_content else 0
+        except:
+            pass
+
+        logging.warning(
+            f"Content stability timeout after {elapsed:.1f}s. Final content length: {final_length} chars"
+        )
+        return False
 
     async def get_form_fields(self) -> str:
         """
@@ -834,9 +1204,11 @@ class web_browsing(Extensions):
 
             logging.info(f"Navigating to {url}...")
 
-            # Try different wait strategies in order of preference
-            wait_strategies = ["domcontentloaded", "load", "networkidle"]
+            # Try networkidle first (best for SPAs like Twitter/X.com that render via JavaScript)
+            # Fall back to simpler strategies if networkidle times out
+            wait_strategies = ["networkidle", "load", "domcontentloaded"]
             last_error = None
+            navigation_successful = False
 
             for wait_strategy in wait_strategies:
                 try:
@@ -851,7 +1223,8 @@ class web_browsing(Extensions):
 
                     # Additional validation - ensure we actually got to a page
                     if current_url and current_url != "about:blank":
-                        return f"Successfully navigated to {current_url}"
+                        navigation_successful = True
+                        break
                     else:
                         logging.warning(
                             f"Navigation resulted in blank page, trying next strategy..."
@@ -883,6 +1256,31 @@ class web_browsing(Extensions):
                     else:
                         # For other errors, don't try other strategies
                         raise e
+
+            # If navigation succeeded, ensure JavaScript has had time to render
+            if navigation_successful:
+                try:
+                    # For JavaScript-heavy SPAs, wait a bit for initial JS rendering
+                    # This is crucial for sites like Twitter/X.com, Facebook, etc.
+                    await self.page.wait_for_timeout(2000)  # 2 second baseline wait
+
+                    # Try to wait for network to truly settle if we didn't use networkidle
+                    if wait_strategy != "networkidle":
+                        try:
+                            await self.page.wait_for_load_state(
+                                "networkidle", timeout=5000
+                            )
+                        except PlaywrightTimeoutError:
+                            logging.debug(
+                                "Additional networkidle wait timed out, continuing..."
+                            )
+
+                    return f"Successfully navigated to {current_url}"
+                except Exception as wait_error:
+                    logging.warning(
+                        f"Post-navigation wait encountered issue: {wait_error}, continuing anyway..."
+                    )
+                    return f"Successfully navigated to {current_url}"
 
             # If all strategies failed, return a more detailed error
             timeout_seconds = timeout // 1000
@@ -2718,12 +3116,11 @@ class web_browsing(Extensions):
                         await self.page.wait_for_timeout(200)
 
                 elif operation == "scrape_to_memory":
-                    # Agent explicitly requests to scrape current page content into memory
-                    # This is used when the agent needs detailed content for analysis/reference
+                    # Agent explicitly requests to scrape current page content
+                    # This evaluates content in chunks with the LLM and creates subactivities
+                    # for what the LLM determines is important to remember
                     if not self.ApiClient:
-                        raise ValueError(
-                            "Cannot scrape to memory: ApiClient unavailable"
-                        )
+                        raise ValueError("Cannot scrape content: ApiClient unavailable")
 
                     try:
                         # Get current page content
@@ -2735,33 +3132,153 @@ class web_browsing(Extensions):
                         scrape_url = self.page.url if self.page else current_url
 
                         logging.info(
-                            f"Agent requested scraping {scrape_url} into memory ({content_length} chars)"
+                            f"Agent requested scraping {scrape_url} ({content_length} chars)"
                         )
 
-                        # Use the browse_links pattern to scrape into memory
-                        # Use _call_prompt_agent for reliable timeout handling
-                        await self._call_prompt_agent(
-                            timeout=90,  # Explicit timeout for scraping large pages
-                            agent_name=self.agent_name,
-                            prompt_name="Think About It",
-                            prompt_args={
-                                "user_input": f"{scrape_url} \n Scraping page content into memory for detailed analysis",
-                                "websearch": False,
-                                "analyze_user_input": False,
-                                "disable_commands": True,
-                                "log_user_input": False,
-                                "log_output": False,
-                                "browse_links": True,  # Triggers scrape_websites() flow
-                                "tts": False,
-                                "conversation_name": self.conversation_name,
-                            },
+                        # Store the scraped content so we can include it in the final response
+                        # This is critical for information extraction tasks like reading tweets
+                        if not hasattr(self, "_scraped_content"):
+                            self._scraped_content = []
+
+                        # Truncate content for storage if too long, but keep enough for context
+                        content_preview = (
+                            page_content_to_scrape[:15000]
+                            if len(page_content_to_scrape) > 15000
+                            else page_content_to_scrape
                         )
 
-                        op_result = f"Successfully scraped {content_length} characters from {scrape_url} into conversational memory"
-                        logging.info(op_result)
+                        # Check for images in the content and analyze them
+                        image_analysis_results = []
+                        if "=== Media Content ===" in page_content_to_scrape:
+                            # Extract image URLs from the scraped content
+                            import re as regex
+
+                            image_url_pattern = (
+                                r"\[(?:media|image|card)\]\s*(https?://[^\s\)]+)"
+                            )
+                            image_urls = regex.findall(
+                                image_url_pattern, page_content_to_scrape
+                            )
+
+                            if image_urls:
+                                logging.info(
+                                    f"Found {len(image_urls)} images to analyze"
+                                )
+
+                                # Analyze up to 3 images using vision
+                                for i, img_url in enumerate(image_urls[:3]):
+                                    try:
+                                        # Download image and analyze with vision
+                                        import httpx
+                                        import base64
+
+                                        async with httpx.AsyncClient(
+                                            timeout=30.0
+                                        ) as client:
+                                            response = await client.get(
+                                                img_url, follow_redirects=True
+                                            )
+                                            if response.status_code == 200:
+                                                image_data = response.content
+                                                # Determine image type from content-type or URL
+                                                content_type = response.headers.get(
+                                                    "content-type", "image/jpeg"
+                                                )
+                                                if (
+                                                    "png" in content_type
+                                                    or img_url.endswith(".png")
+                                                ):
+                                                    img_type = "png"
+                                                elif (
+                                                    "gif" in content_type
+                                                    or img_url.endswith(".gif")
+                                                ):
+                                                    img_type = "gif"
+                                                elif (
+                                                    "webp" in content_type
+                                                    or img_url.endswith(".webp")
+                                                ):
+                                                    img_type = "webp"
+                                                else:
+                                                    img_type = "jpeg"
+
+                                                base64_image = base64.b64encode(
+                                                    image_data
+                                                ).decode("utf-8")
+                                                base64_image_url = f"data:image/{img_type};base64,{base64_image}"
+
+                                                # Use vision to analyze the image
+                                                if self.agent_id and self.ApiClient:
+                                                    from Agent import Agent
+
+                                                    agent = Agent(
+                                                        agent_id=self.agent_id,
+                                                        ApiClient=self.ApiClient,
+                                                        user=self.user,
+                                                    )
+
+                                                    analysis_prompt = "Describe this image in detail. What does it show? If there's text, include it."
+                                                    image_description = (
+                                                        await agent.inference(
+                                                            prompt=analysis_prompt,
+                                                            images=[base64_image_url],
+                                                        )
+                                                    )
+                                                else:
+                                                    logging.warning(
+                                                        f"Cannot analyze image - agent_id: {self.agent_id}, ApiClient: {self.ApiClient}"
+                                                    )
+                                                    image_description = None
+
+                                                if image_description:
+                                                    image_analysis_results.append(
+                                                        f"\n**Image {i+1} Analysis** (from {img_url[:80]}...):\n{image_description}"
+                                                    )
+                                                    logging.info(
+                                                        f"Image {i+1} analyzed successfully"
+                                                    )
+                                    except Exception as img_error:
+                                        logging.warning(
+                                            f"Failed to analyze image {img_url}: {img_error}"
+                                        )
+                                        image_analysis_results.append(
+                                            f"\n**Image {i+1}** ({img_url[:80]}...): Could not analyze - {str(img_error)[:100]}"
+                                        )
+
+                        # Add image analysis to content
+                        if image_analysis_results:
+                            content_preview += (
+                                "\n\n=== IMAGE ANALYSIS ===\n"
+                                + "\n".join(image_analysis_results)
+                            )
+
+                        self._scraped_content.append(
+                            {
+                                "url": scrape_url,
+                                "content": content_preview,
+                                "full_length": content_length,
+                                "images_analyzed": len(image_analysis_results),
+                            }
+                        )
+
+                        # Use LLM to evaluate content in chunks and determine what to remember
+                        # Each chunk creates subactivities for important information
+                        memories = await self._chunk_and_evaluate_content(
+                            content=page_content_to_scrape,
+                            url=scrape_url,
+                            max_chunk_tokens=8000,  # ~32k chars per chunk
+                        )
+
+                        if memories:
+                            op_result = f"Scraped {content_length} characters from {scrape_url}, created {len(memories)} memory entries, analyzed {len(image_analysis_results)} images. Content preview:\n\n{content_preview[:3000]}..."
+                        else:
+                            op_result = f"Scraped {content_length} characters from {scrape_url}, analyzed {len(image_analysis_results)} images. Content preview:\n\n{content_preview[:3000]}..."
+                        logging.info(
+                            f"Scrape completed: {content_length} chars, {len(image_analysis_results)} images from {scrape_url}"
+                        )
 
                     except Exception as scrape_error:
-                        raise Exception(f"Failed to scrape to memory: {scrape_error}")
+                        raise Exception(f"Failed to scrape content: {scrape_error}")
 
                 elif operation == "handle_mfa":
                     # Agent wants to handle MFA by scanning QR code and entering TOTP
@@ -3098,7 +3615,12 @@ Current Page Content Snippet (for context):
         return element.text.strip()
 
     def extract_interaction_block(self, response: str) -> str:
-        """Extracts the <interaction>...</interaction> XML block from a response string."""
+        """Extracts the <interaction>...</interaction> XML block from a response string.
+
+        If the LLM returns an empty XML block or natural language response instead of XML,
+        this method will attempt to convert the response into a valid 'respond' operation
+        so the agent can gracefully report its findings back to the user.
+        """
         # Allow for potential variations in whitespace and attributes within the interaction tag
         match = re.search(
             r"<interaction.*?>.*?</interaction>", response, re.DOTALL | re.IGNORECASE
@@ -3112,11 +3634,71 @@ Current Page Content Snippet (for context):
                     "Found <step> block outside <interaction>, wrapping it."
                 )
                 return f'<?xml version="1.0" encoding="UTF-8"?>\n<interaction>{match.group(0)}</interaction>'
-            raise ValueError(
-                f"No valid <interaction> or <step> block found in response.\nResponse was:\n{response}"
+
+            # No XML found at all - the LLM returned natural language
+            # Convert the response to a 'respond' operation so we can gracefully exit
+            logging.warning(
+                "LLM returned natural language instead of XML. Converting to 'respond' operation."
             )
+            # Escape any XML special characters in the response
+            escaped_response = (
+                response.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace('"', "&quot;")
+                .replace("'", "&apos;")
+            )
+            # Truncate if too long
+            if len(escaped_response) > 2000:
+                escaped_response = escaped_response[:1997] + "..."
+
+            return f"""<?xml version="1.0" encoding="UTF-8"?>
+<interaction>
+<step>
+<operation>respond</operation>
+<selector></selector>
+<value>{escaped_response}</value>
+<description>LLM provided findings directly instead of XML - converting to respond operation.</description>
+</step>
+</interaction>"""
 
         xml_block = match.group(0).strip()
+
+        # Check for empty interaction block (e.g., "<interaction></interaction>" or with whitespace only)
+        empty_check = re.sub(
+            r"<interaction[^>]*>\s*</interaction>", "", xml_block, flags=re.IGNORECASE
+        )
+        if not empty_check.strip():
+            # Empty interaction block - the LLM thinks the task is complete but didn't specify how
+            logging.warning(
+                "LLM returned empty <interaction> block. Converting to 'done' operation."
+            )
+            return f"""<?xml version="1.0" encoding="UTF-8"?>
+<interaction>
+<step>
+<operation>done</operation>
+<selector></selector>
+<value></value>
+<description>Task appears to be complete based on current page state.</description>
+</step>
+</interaction>"""
+
+        # Check if the interaction block contains a step element
+        if not re.search(r"<step>.*?</step>", xml_block, re.DOTALL | re.IGNORECASE):
+            # Has interaction but no step - treat as empty
+            logging.warning(
+                "LLM returned <interaction> without <step>. Converting to 'done' operation."
+            )
+            return f"""<?xml version="1.0" encoding="UTF-8"?>
+<interaction>
+<step>
+<operation>done</operation>
+<selector></selector>
+<value></value>
+<description>Task appears to be complete based on current page state.</description>
+</step>
+</interaction>"""
+
         # Basic cleaning (less aggressive)
         xml_block = re.sub(
             r"^\s+", "", xml_block, flags=re.MULTILINE
@@ -3300,32 +3882,34 @@ Current Page Content Snippet (for context):
 
     async def interact_with_webpage(self, url: str, task: str):
         """
-        Executes a multi-step web interaction workflow based on a natural language task.
-        This command is suitable for complex actions like form filling, multi-page navigation,
-        login processes, and information extraction across pages.
+        USE THIS COMMAND TO GET INFORMATION FROM ANY URL - websites, social media posts, tweets, articles, etc.
 
-        The assistant uses Playwright to interact with the page and an LLM to plan each step.
-        It iteratively:
-        1. Analyzes the current page state (URL, content, form fields).
-        2. Prompts an LLM to determine the *single next best step* (e.g., click, fill, wait)
-           based on the overall task and current state, using only stable selectors.
-        3. Executes the planned step using Playwright actions.
-        4. Validates the step's outcome and handles errors with retries or stops if necessary.
-        5. Logs detailed sub-activities, including screenshots and page summaries.
-        6. Continues until the task is marked 'done' by the LLM plan or a maximum number
-           of iterations is reached.
+        This is the primary command for extracting content from URLs. It uses a real browser (Playwright)
+        to navigate to the URL, wait for dynamic content to load (including JavaScript-heavy sites like
+        X.com/Twitter, Facebook, Instagram, etc.), and extract the requested information.
+
+        WHEN TO USE THIS COMMAND:
+        - User shares a URL and asks what it says or contains
+        - User asks about a tweet, social media post, or article at a specific URL
+        - User wants information extracted from any webpage
+        - User wants to interact with a website (fill forms, click buttons, navigate)
+        - The task requires reading content from a dynamic/JavaScript-heavy website
+
+        DO NOT use "View Image" for URLs to webpages - that is only for image files.
+        DO NOT tell the user you cannot access URLs - use THIS command instead.
+
+        Examples:
+        - "What does this tweet say: https://x.com/user/status/123" -> Use this command with task="Extract the tweet content"
+        - "Summarize this article: https://example.com/article" -> Use this command with task="Extract and summarize the article"
+        - "What's on this page: https://example.com" -> Use this command with task="Extract the main content"
 
         Args:
-            url (str): The starting URL for the web interaction workflow.
-            task (str): A natural language description of the overall goal to be accomplished
-                      (e.g., "Log in using username 'test' and password 'pass123'",
-                      "Find the contact email address on the about page",
-                      "Add the first product to the cart").
+            url (str): The URL to navigate to (website, tweet, social media post, article, etc.)
+            task (str): What information to extract or what action to perform
+                      (e.g., "Extract the tweet content", "Get the article text", "Find the price")
 
         Returns:
-            str: A summary of the actions taken, the final status (success or failure),
-                 and potentially the result of the task (e.g., extracted information).
-                 Detailed logs are sent via ApiClient messages.
+            str: The extracted information or a summary of the actions taken.
 
         Notes: If you need to search the web, use search.brave.com as the url.
         """
@@ -3348,6 +3932,17 @@ Current Page Content Snippet (for context):
         except Exception as nav_error:
             return (
                 f"Failed to initialize browser or navigate to starting URL: {nav_error}"
+            )
+
+        # Wait for page content to stabilize (important for JavaScript-heavy SPAs like Twitter/X.com)
+        # This helps ensure dynamic content is rendered before we start analyzing
+        try:
+            await self._wait_for_content_stability(
+                max_wait_seconds=15, min_content_length=300
+            )
+        except Exception as stability_error:
+            logging.warning(
+                f"Content stability wait encountered an issue: {stability_error}. Continuing anyway."
             )
 
         # Estimate task complexity and adjust iteration limit accordingly
@@ -3606,7 +4201,20 @@ This means either:
 Do NOT press Enter again! Instead, look for clickable links in the current page content and click one, or use scrape_to_memory to save the current page information.
 """
 
-            planning_context = f"""You are an autonomous web interaction agent. Plan the *single next step* to accomplish the overall task.
+            planning_context = f"""**CRITICAL FORMAT REQUIREMENT**: You MUST respond with ONLY valid XML in this exact format - NO natural language, NO explanations outside the XML:
+<interaction><step><operation>...</operation><selector>...</selector><value>...</value><description>...</description></step></interaction>
+
+If you have already gathered the information needed to complete the task, use the 'respond' operation to report your findings:
+<interaction><step><operation>respond</operation><selector></selector><value>YOUR FINDINGS HERE</value><description>Reporting results to user.</description></step></interaction>
+
+If the task is complete, use the 'done' operation:
+<interaction><step><operation>done</operation><selector></selector><value></value><description>Task complete.</description></step></interaction>
+
+NEVER respond with plain text. ALWAYS use XML format.
+
+---
+
+You are an autonomous web interaction agent. Plan the *single next step* to accomplish the overall task.
 {last_action_reminder}
 OVERALL TASK: {task}
 
@@ -3616,7 +4224,7 @@ CURRENT STATE:
 - URL Changed Since Last Step: {url_changed}
 - Page Content: {len(current_page_content)} characters available (not in planning context for efficiency)
 
-**NOTE**: Full page content is NOT included in planning context to keep it lean. Use `scrape_to_memory` operation if you need to save detailed page content to your conversational memory for later reference.
+**NOTE**: Full page content is NOT included in planning context to keep it lean. Use `scrape_to_memory` operation if you need to capture detailed page content for analysis.
 
 AVAILABLE STABLE SELECTORS (Prefer these):
 {os.linesep.join([f'- {s}' for s in available_selectors]) if available_selectors else '- (No specific stable selectors detected, rely on standard attributes like name, type, placeholder or text content for clicks/verification)'}
@@ -3638,7 +4246,7 @@ RULES & INSTRUCTIONS FOR YOUR RESPONSE:
 5.  For `fill`, `select`, `evaluate`: Put the text/value/script to use in the `<value>` tag.
 6.  For `press`: Put the key name in `<value>` (e.g., "Enter", "Escape", "Tab", "ArrowDown"). Use this to submit forms or navigate with keyboard.
 7.  **IMPORTANT**: After filling a search box, chat input, or form field, you MUST press Enter in the next step to submit/search. Don't just fill and wait - actively press Enter to trigger the action.
-8.  For `scrape_to_memory`: Use this to save the current page's detailed content into your conversational memory for later reference. No selector/value needed. Use this when you need to deeply analyze content (articles, documentation, product details, etc.) or save information for the user. **IMPORTANT FOR SEARCH RESULTS**: If you're on a search results page:
+8.  For `scrape_to_memory`: Use this to capture the current page's detailed content as a subactivity for immediate reference. No selector/value needed. Use this when you need to deeply analyze content (articles, documentation, product details, etc.) or extract information for the user. The content will be available in your conversation context. **IMPORTANT FOR SEARCH RESULTS**: If you're on a search results page:
     - First use `get_content` or `scrape_to_memory` to see the actual search results with their titles and URLs
     - Then identify a specific result link (by looking at the titles/descriptions in the content)
     - CLICK on that result by using its visible text in the <value> field (e.g., "GitHub - devxt/agixt" or "AGiXT Documentation")
@@ -3672,9 +4280,9 @@ EXAMPLE FILL (single field):
 EXAMPLE PRESS:
 <interaction><step><operation>press</operation><selector></selector><value>Enter</value><description>Press Enter key to submit the search form.</description></step></interaction>
 
-EXAMPLE SCRAPE TO MEMORY (save detailed content):
-<interaction><step><operation>scrape_to_memory</operation><selector></selector><value></value><description>Scrape the GitHub repository README and details into memory for detailed analysis.</description></step></interaction>
-<interaction><step><operation>scrape_to_memory</operation><selector></selector><value></value><description>Save this article content to memory so I can reference it when answering questions.</description></step></interaction>
+EXAMPLE SCRAPE TO MEMORY (capture page content):
+<interaction><step><operation>scrape_to_memory</operation><selector></selector><value></value><description>Scrape the GitHub repository README and details for detailed analysis.</description></step></interaction>
+<interaction><step><operation>scrape_to_memory</operation><selector></selector><value></value><description>Capture this article content so I can reference it when answering questions.</description></step></interaction>
 
 EXAMPLE HANDLE MFA (scan QR code and enter TOTP):
 <interaction><step><operation>handle_mfa</operation><selector>input[name='mfa_token']</selector><value></value><description>Scan the QR code on the page and automatically enter the generated TOTP code into the MFA field, then submit.</description></step></interaction>
@@ -4209,6 +4817,22 @@ Previous error: {last_parse_error}
                 f"Web interaction task '{task}' finished.\nSummary of actions:\n"
                 + "\n".join(results_summary)
             )
+
+        # Include scraped content in the final output so the agent can use it to answer the user
+        if hasattr(self, "_scraped_content") and self._scraped_content:
+            final_output += "\n\n**--- SCRAPED CONTENT FROM PAGE ---**\n"
+            for scraped in self._scraped_content:
+                final_output += f"\n**URL**: {scraped['url']}\n"
+                final_output += f"**Content** ({scraped['full_length']} chars total):\n"
+                final_output += scraped["content"][
+                    :8000
+                ]  # Include up to 8k chars of content
+                if scraped["full_length"] > 8000:
+                    final_output += "\n... (content truncated)"
+                final_output += "\n"
+            # Clear for next run
+            self._scraped_content = []
+
         logging.info(f"Interaction task '{task}' finished. Final URL: {last_url}")
 
         # Optionally close browser here or let it persist
@@ -4306,6 +4930,141 @@ Previous error: {last_parse_error}
                 if len(content_texts) > 100:
                     structured_content.append("\n[... Content truncated ...]")
 
+            # Extract images - especially important for social media posts
+            images = soup.find_all("img")
+            image_urls = []
+            for img in images:
+                src = img.get("src") or img.get("data-src") or img.get("data-srcset")
+                alt = img.get("alt", "")
+                if src:
+                    # Filter out tiny icons, avatars, and tracking pixels
+                    # Social media content images are usually larger
+                    width = img.get("width", "")
+                    height = img.get("height", "")
+
+                    # Skip if explicitly small (icons, avatars typically < 100px)
+                    try:
+                        if width and int(width) < 100:
+                            continue
+                        if height and int(height) < 100:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+
+                    # Skip common non-content images
+                    skip_patterns = [
+                        "emoji",
+                        "icon",
+                        "avatar",
+                        "profile",
+                        "logo",
+                        "badge",
+                        "placeholder",
+                        "loading",
+                        "spinner",
+                        "pixel",
+                        "tracking",
+                        "/static/",
+                        "twemoji",
+                        ".svg",
+                    ]
+                    if any(pattern in src.lower() for pattern in skip_patterns):
+                        continue
+
+                    # Ensure full URL
+                    if src.startswith("//"):
+                        src = "https:" + src
+                    elif src.startswith("/"):
+                        # Get base URL from current page
+                        base_url = self.page.url.split("/")[0:3]
+                        src = "/".join(base_url) + src
+
+                    # For X.com/Twitter, look for actual media content
+                    # Use proper URL parsing to avoid substring matching vulnerabilities
+                    from urllib.parse import urlparse
+
+                    page_parsed = urlparse(self.page.url)
+                    page_host = page_parsed.netloc.lower()
+                    # Check if page is from Twitter/X domain (exact match or subdomain)
+                    is_twitter_page = (
+                        page_host == "x.com"
+                        or page_host.endswith(".x.com")
+                        or page_host == "twitter.com"
+                        or page_host.endswith(".twitter.com")
+                    )
+                    if is_twitter_page:
+                        # Twitter media images contain these patterns - parse src URL properly
+                        src_parsed = urlparse(src)
+                        src_host = src_parsed.netloc.lower()
+                        src_path = src_parsed.path.lower()
+                        # Check for Twitter CDN hosts with specific paths
+                        is_twitter_media = (
+                            (
+                                src_host == "pbs.twimg.com"
+                                and src_path.startswith("/media")
+                            )
+                            or (src_host == "video.twimg.com")
+                            or (
+                                src_host == "pbs.twimg.com"
+                                and src_path.startswith("/ext_tw_video")
+                            )
+                        )
+                        if is_twitter_media:
+                            image_urls.append({"url": src, "alt": alt, "type": "media"})
+                        elif src_host == "pbs.twimg.com" and src_path.startswith(
+                            "/card_img"
+                        ):
+                            image_urls.append({"url": src, "alt": alt, "type": "card"})
+                    else:
+                        # For other sites, include larger images
+                        image_urls.append({"url": src, "alt": alt, "type": "image"})
+
+            # Also check for video elements (common on Twitter/X)
+            videos = soup.find_all(["video", "source"])
+            video_urls = []
+            for video in videos:
+                src = video.get("src") or video.get("data-src")
+                poster = video.get("poster")  # Video thumbnail
+                if src and (
+                    "video" in src.lower()
+                    or ".mp4" in src.lower()
+                    or ".m3u8" in src.lower()
+                ):
+                    video_urls.append({"url": src, "poster": poster, "type": "video"})
+                elif poster:
+                    video_urls.append(
+                        {"url": poster, "poster": poster, "type": "video_poster"}
+                    )
+
+            # Add media section to content
+            if image_urls or video_urls:
+                structured_content.append("\n=== Media Content ===")
+
+                if image_urls:
+                    structured_content.append(
+                        f"\n**Images Found ({len(image_urls)}):**"
+                    )
+                    for i, img_info in enumerate(
+                        image_urls[:10], 1
+                    ):  # Limit to 10 images
+                        alt_text = (
+                            f" (alt: {img_info['alt']})" if img_info["alt"] else ""
+                        )
+                        structured_content.append(
+                            f"  {i}. [{img_info['type']}] {img_info['url']}{alt_text}"
+                        )
+
+                if video_urls:
+                    structured_content.append(
+                        f"\n**Videos Found ({len(video_urls)}):**"
+                    )
+                    for i, vid_info in enumerate(
+                        video_urls[:5], 1
+                    ):  # Limit to 5 videos
+                        structured_content.append(
+                            f"  {i}. [{vid_info['type']}] {vid_info['url']}"
+                        )
+
             final_content = "\n".join(filter(None, structured_content))
             # Further cleanup
             final_content = re.sub(
@@ -4313,7 +5072,7 @@ Previous error: {last_parse_error}
             )  # Consolidate multiple newlines
 
             logging.info(
-                f"Page content retrieved and structured. Length: {len(final_content)}"
+                f"Page content retrieved and structured. Length: {len(final_content)}, Images: {len(image_urls)}, Videos: {len(video_urls)}"
             )
             return (
                 final_content.strip()

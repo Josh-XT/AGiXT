@@ -594,6 +594,12 @@ class UserOAuth(Base):
         ForeignKey("oauth_provider.id"),
     )
     provider = relationship("OAuthProvider")
+    agent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("agent.id"),
+        nullable=True,
+    )  # When set, these credentials belong to a specific agent for bot use
+    agent = relationship("Agent", foreign_keys=[agent_id])
     account_name = Column(String, nullable=False)
     access_token = Column(String, default="", nullable=False)
     refresh_token = Column(String, default="", nullable=False)
@@ -3779,7 +3785,8 @@ def migrate_webhook_outgoing_table():
 
 def discover_extension_models():
     """
-    Discover and register all extension models
+    Discover and register all extension models from all extension directories
+    (including GitHub-cloned hubs in extensions/ subdirectories)
     """
     import importlib
     import glob
@@ -3787,39 +3794,50 @@ def discover_extension_models():
 
     extension_models = []
 
-    # Collect all extension directories to search
-    extensions_dirs = []
+    # Get all extension search paths from ExtensionsHub (includes GitHub-cloned hubs)
+    try:
+        from ExtensionsHub import ExtensionsHub
 
-    # Default extensions directory
+        hub = ExtensionsHub()
+        extensions_dirs = hub.get_extension_search_paths()
+    except Exception as e:
+        logging.debug(f"Could not load ExtensionsHub for model discovery: {e}")
+        # Fall back to default extensions directory
+        default_ext_dir = os.path.join(os.path.dirname(__file__), "extensions")
+        extensions_dirs = [default_ext_dir] if os.path.exists(default_ext_dir) else []
+
+    # Also ensure default extensions directory is included
     default_ext_dir = os.path.join(os.path.dirname(__file__), "extensions")
-    if os.path.exists(default_ext_dir):
-        extensions_dirs.append(default_ext_dir)
-
-    # Also check EXTENSIONS_HUB for local paths
-    hub_urls = os.environ.get("EXTENSIONS_HUB", "")
-    if hub_urls:
-        for source in hub_urls.split(","):
-            source = source.strip()
-            if source and not source.startswith("http"):
-                # It's a local path
-                abs_path = os.path.abspath(os.path.expanduser(source))
-                if os.path.exists(abs_path) and os.path.isdir(abs_path):
-                    extensions_dirs.append(abs_path)
-                    # Make sure it's in sys.path
-                    if abs_path not in sys.path:
-                        sys.path.insert(0, abs_path)
+    if os.path.exists(default_ext_dir) and default_ext_dir not in extensions_dirs:
+        extensions_dirs.insert(0, default_ext_dir)
 
     for extensions_dir in extensions_dirs:
+        if not os.path.exists(extensions_dir) or not os.path.isdir(extensions_dir):
+            continue
+
+        # Ensure the directory is in sys.path for imports
+        if extensions_dir not in sys.path:
+            sys.path.insert(0, extensions_dir)
+
         command_files = glob.glob(os.path.join(extensions_dir, "*.py"))
 
         for command_file in command_files:
             module_name = os.path.splitext(os.path.basename(command_file))[0]
+            # Skip __init__.py and private modules
+            if module_name.startswith("_"):
+                continue
             try:
                 # Try to import from the directory
                 if extensions_dir == default_ext_dir:
                     module = importlib.import_module(f"extensions.{module_name}")
                 else:
-                    module = importlib.import_module(module_name)
+                    # For hub extensions, import directly since dir is in sys.path
+                    # First check if module is already imported to avoid reimporting
+                    if module_name in sys.modules:
+                        # Reload to pick up any changes
+                        module = importlib.reload(sys.modules[module_name])
+                    else:
+                        module = importlib.import_module(module_name)
 
                 # Check if the module has any classes that inherit from ExtensionDatabaseMixin
                 for attr_name in dir(module):
@@ -3831,9 +3849,12 @@ def discover_extension_models():
                             attr, "extension_models"
                         ):
                             extension_models.extend(attr.extension_models)
+                            logging.debug(
+                                f"Discovered {len(attr.extension_models)} models from {module_name}"
+                            )
             except Exception as e:
                 logging.debug(
-                    f"Could not import extension {module_name} for model discovery: {e}"
+                    f"Could not import extension {module_name} from {extensions_dir} for model discovery: {e}"
                 )
 
     return extension_models
@@ -3890,107 +3911,55 @@ def setup_default_extension_categories():
 
 
 def migrate_extensions_to_new_categories():
-    """Migrate existing extensions to use their defined categories"""
-    import importlib
-    import sys
-    import os
+    """Migrate existing extensions to use their defined categories.
 
+    Uses the AST-parsed extension metadata cache to get categories, which includes
+    extensions from extension hubs that may not be directly importable.
+    """
     try:
+        # Load the extension metadata cache (AST-parsed, includes hub extensions)
+        from Extensions import _build_extension_metadata_cache
+
+        # Force rebuild to get fresh category info
+        metadata = _build_extension_metadata_cache()
+
         with get_db_session() as session:
+            # Build a map of category names to IDs
+            categories = session.query(ExtensionCategory).all()
+            category_map = {cat.name: cat.id for cat in categories}
+
             # Get all extensions from the database
             extensions = session.query(Extension).all()
+            updated_count = 0
+
             for extension in extensions:
                 # Special case for Custom Automation
                 if extension.name == "Custom Automation":
-                    core_abilities_category = (
-                        session.query(ExtensionCategory)
-                        .filter_by(name="Core Abilities")
-                        .first()
-                    )
-                    if core_abilities_category:
-                        extension.category_id = core_abilities_category.id
+                    if "Core Abilities" in category_map:
+                        target_id = category_map["Core Abilities"]
+                        if str(extension.category_id) != str(target_id):
+                            extension.category_id = target_id
+                            updated_count += 1
                     continue
 
-                # Try to find and load the extension module to get its category
-                category_name = None
-
-                # Convert extension name to module name
+                # Get category from metadata cache
+                # Convert extension name to module name for lookup
                 module_name = extension.name.lower().replace(" ", "_").replace("-", "_")
-                extension_path = f"extensions.{module_name}"
 
-                logging.debug(f"Trying to import: {extension_path}")
+                # Look up in metadata cache
+                ext_metadata = metadata.get("extensions", {}).get(module_name)
+                if ext_metadata:
+                    category_name = ext_metadata.get("category")
+                    if category_name and category_name in category_map:
+                        target_id = category_map[category_name]
+                        if str(extension.category_id) != str(target_id):
+                            extension.category_id = target_id
+                            updated_count += 1
 
-                try:
-                    module = importlib.import_module(extension_path)
-                    logging.debug(f"Successfully imported: {extension_path}")
-
-                    # Find the extension class - it could have various naming patterns
-                    possible_class_names = [
-                        extension.name.replace(" ", "").replace(
-                            "-", ""
-                        ),  # Remove spaces/hyphens
-                        extension.name.replace(" ", "_").replace(
-                            "-", "_"
-                        ),  # Replace with underscores
-                        module_name,  # Same as module name
-                        module_name.title().replace(
-                            "_", ""
-                        ),  # Title case without underscores
-                    ]
-
-                    for attr_name in dir(module):
-                        attr = getattr(module, attr_name)
-                        if isinstance(attr, type) and hasattr(attr, "CATEGORY"):
-                            # Check if this class name matches any of our possible patterns
-                            attr_name_lower = attr_name.lower()
-                            for possible_name in possible_class_names:
-                                if attr_name_lower == possible_name.lower():
-                                    category_name = attr.CATEGORY
-                                    break
-
-                            if category_name:
-                                break
-
-                    if not category_name:
-                        # If we didn't find a matching class, try the first class with CATEGORY
-                        for attr_name in dir(module):
-                            attr = getattr(module, attr_name)
-                            if isinstance(attr, type) and hasattr(attr, "CATEGORY"):
-                                category_name = attr.CATEGORY
-                                break
-
-                except (ImportError, AttributeError) as e:
-                    pass
-
-                # If we found a category, update the extension
-                if category_name:
-                    target_category = (
-                        session.query(ExtensionCategory)
-                        .filter_by(name=category_name)
-                        .first()
-                    )
-                    if target_category:
-                        extension.category_id = target_category.id
-                    else:
-                        # Default to Productivity if category doesn't exist
-                        default_category = (
-                            session.query(ExtensionCategory)
-                            .filter_by(name="Productivity")
-                            .first()
-                        )
-                        if default_category:
-                            extension.category_id = default_category.id
-                else:
-                    # If we couldn't determine the category, default to Productivity
-                    default_category = (
-                        session.query(ExtensionCategory)
-                        .filter_by(name="Productivity")
-                        .first()
-                    )
-                    if default_category:
-                        extension.category_id = default_category.id
-
+            session.flush()
             session.commit()
+            if updated_count > 0:
+                logging.info(f"Updated {updated_count} extension categories")
     except Exception as e:
         logging.error(f"Error migrating extensions to new categories: {e}")
         import traceback
@@ -5094,8 +5063,9 @@ def migrate_task_item_table():
 
 def migrate_user_oauth_table():
     """
-    Migration function to add provider_user_id column to user_oauth table.
-    This stores the provider's user ID (e.g., Discord numeric user ID).
+    Migration function to add provider_user_id and agent_id columns to user_oauth table.
+    - provider_user_id: stores the provider's user ID (e.g., Discord numeric user ID)
+    - agent_id: when set, these OAuth credentials belong to a specific agent for bot use
     """
     if engine is None:
         return
@@ -5104,6 +5074,7 @@ def migrate_user_oauth_table():
         with get_db_session() as session:
             columns_to_add = [
                 ("provider_user_id", "TEXT"),
+                ("agent_id", "TEXT"),  # FK to agent.id - for agent-specific OAuth creds
             ]
 
             if DATABASE_TYPE == "sqlite":
@@ -6552,18 +6523,26 @@ SERVER_CONFIG_DEFINITIONS = [
 
 def get_server_config_encryption_key():
     """
-    Get or generate a server-wide encryption key for sensitive config values.
-    This is stored in the filesystem as it's needed before the database is accessible.
+    Get the server-wide encryption key for sensitive config values.
+    Uses AGIXT_API_KEY as the base to derive a Fernet-compatible key.
+    This ensures encryption is portable between servers with the same API key.
     """
-    key_file = os.path.join(os.path.dirname(__file__), ".server_config_key")
-    if os.path.exists(key_file):
-        with open(key_file, "rb") as f:
-            return f.read()
-    else:
-        key = Fernet.generate_key()
-        with open(key_file, "wb") as f:
-            f.write(key)
-        return key
+    import base64
+    import hashlib
+
+    # Get AGIXT_API_KEY from environment
+    api_key = os.getenv("AGIXT_API_KEY", "")
+    if not api_key:
+        # Fallback to a default key if AGIXT_API_KEY not set
+        # This is less secure but allows the system to function
+        api_key = "default-agixt-key-please-set-env"
+
+    # Derive a Fernet-compatible key (32 bytes, base64 encoded) from the API key
+    # Using PBKDF2 with SHA256 for secure key derivation instead of plain SHA256
+    # Salt is derived from a constant to ensure deterministic key generation
+    salt = b"agixt-config-encryption-salt-v1"
+    key_hash = hashlib.pbkdf2_hmac("sha256", api_key.encode(), salt, iterations=100000)
+    return base64.urlsafe_b64encode(key_hash)
 
 
 def encrypt_config_value(value: str) -> str:

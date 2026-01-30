@@ -79,3 +79,4 @@ redis>=5.0.0
 spacy==3.8.7
 spacy-legacy==3.0.12
 spacy-loggers==1.0.5
+discord.py>=2.0.0

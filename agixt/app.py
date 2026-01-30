@@ -133,6 +133,10 @@ async def lifespan(app: FastAPI):
         _load_global_cache()
         logging.debug("Extensions hub cache loaded for worker")
 
+        # NOTE: The Discord Bot Manager runs in the main process (run-local.py)
+        # and stores its status in Redis for cross-process access.
+        # See DiscordBotManager.py for details.
+
         # Pre-warm extension module cache to speed up first request
         # This imports all extension modules once at startup rather than on first request
         try:
@@ -294,6 +298,21 @@ app.include_router(billing_endpoints)
 app.include_router(roles_endpoints)
 app.include_router(server_config_endpoints)
 app.include_router(apikey_endpoints)
+
+# Bot webhook routers (for inbound email/SMS processing)
+try:
+    from SendGridEmailBotManager import sendgrid_webhook_router
+
+    app.include_router(sendgrid_webhook_router)
+except Exception as e:
+    logging.debug(f"SendGrid webhook router not available: {e}")
+
+try:
+    from TwilioSmsBotManager import twilio_sms_webhook_router
+
+    app.include_router(twilio_sms_webhook_router)
+except Exception as e:
+    logging.debug(f"Twilio SMS webhook router not available: {e}")
 
 
 # Cache stats endpoint for monitoring response cache performance
