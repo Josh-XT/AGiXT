@@ -357,6 +357,51 @@ def get_agents_lightweight(
         session.close()
 
 
+def check_and_onboard_agents(user_id: str) -> bool:
+    """
+    Check if any of the user's agents need onboarding and trigger batch onboarding if needed.
+
+    This is a lightweight check designed to be called from /v1/user endpoint
+    to ensure Core Abilities commands get enabled for new agents.
+
+    Uses flag agentonboarded01292026 to track onboarding state.
+
+    Returns True if any agents were onboarded, False otherwise.
+    """
+    session = get_session()
+    try:
+        # Get all agents owned by this user
+        agents = (
+            session.query(AgentModel)
+            .options(joinedload(AgentModel.settings))
+            .filter(AgentModel.user_id == user_id)
+            .all()
+        )
+
+        if not agents:
+            return False
+
+        # Check which agents need onboarding
+        agents_needing_onboard = []
+        for agent in agents:
+            settings_dict = {s.name: s.value for s in agent.settings}
+            agentonboarded01292026 = settings_dict.get("agentonboarded01292026")
+
+            if not agentonboarded01292026 or agentonboarded01292026.lower() != "true":
+                agents_needing_onboard.append(agent.id)
+
+        if agents_needing_onboard:
+            logging.debug(
+                f"[ONBOARD] Batch onboarding {len(agents_needing_onboard)} agents for user {user_id}"
+            )
+            _batch_onboard_agents(session, agents_needing_onboard)
+            return True
+
+        return False
+    finally:
+        session.close()
+
+
 def get_agent_commands_only(agent_id: str, user_id: str) -> dict:
     """
     Get just the commands dict for an agent without loading full Agent config.
@@ -1462,7 +1507,8 @@ def get_agents(user=DEFAULT_USER, company=None):
         # Use pre-loaded settings instead of separate query
         settings_dict = {s.name: s.value for s in agent.settings}
         company_id = settings_dict.get("company_id")
-        agentonboarded11182025 = settings_dict.get("agentonboarded11182025")
+        # Check for the new onboarding flag (01292026) that handles newly moved Core Abilities extensions
+        agentonboarded01292026 = settings_dict.get("agentonboarded01292026")
 
         if company_id and company:
             if company_id != company:
@@ -1474,7 +1520,7 @@ def get_agents(user=DEFAULT_USER, company=None):
             company_id = str(auth.company_id) if auth.company_id is not None else None
 
         # Queue agents needing onboarding instead of processing inline
-        if not agentonboarded11182025 or agentonboarded11182025.lower() != "true":
+        if not agentonboarded01292026 or agentonboarded01292026.lower() != "true":
             agents_needing_onboard.append(agent.id)
 
         is_owner = agent.user_id == user_data.id
@@ -1508,6 +1554,7 @@ def get_agents(user=DEFAULT_USER, company=None):
     # Process agent onboarding asynchronously/in background if needed
     # For now, do a single batch onboard instead of per-agent
     if agents_needing_onboard:
+        logging.debug(f"Batch onboarding {len(agents_needing_onboard)} agents")
         _batch_onboard_agents(session, agents_needing_onboard)
 
     session.close()
@@ -1518,6 +1565,9 @@ def _batch_onboard_agents(session, agent_ids):
     """
     Batch onboard multiple agents - enables Core Abilities commands.
     This is more efficient than processing one at a time.
+
+    Uses flag agentonboarded01292026 to track onboarding state for the latest
+    Core Abilities extensions (including Tickets, Assets, Machines, etc.).
     """
     if not agent_ids:
         return
@@ -1534,7 +1584,7 @@ def _batch_onboard_agents(session, agent_ids):
         for agent_id in agent_ids:
             agent_setting = AgentSettingModel(
                 agent_id=agent_id,
-                name="agentonboarded11182025",
+                name="agentonboarded01292026",
                 value="true",
             )
             session.add(agent_setting)
@@ -1554,7 +1604,7 @@ def _batch_onboard_agents(session, agent_ids):
         for agent_id in agent_ids:
             agent_setting = AgentSettingModel(
                 agent_id=agent_id,
-                name="agentonboarded11182025",
+                name="agentonboarded01292026",
                 value="true",
             )
             session.add(agent_setting)
@@ -1579,10 +1629,10 @@ def _batch_onboard_agents(session, agent_ids):
                 )
                 session.add(agent_command)
 
-        # Mark agent as onboarded
+        # Mark agent as onboarded with the new flag
         agent_setting = AgentSettingModel(
             agent_id=agent_id,
-            name="agentonboarded11182025",
+            name="agentonboarded01292026",
             value="true",
         )
         session.add(agent_setting)

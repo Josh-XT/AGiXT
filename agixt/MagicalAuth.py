@@ -1243,12 +1243,12 @@ def get_agents(email, company=None):
             .all()
         )
 
-        # Check for agentonboarded11182025 setting
+        # Check for agentonboarded01292026 setting
         onboarded = False
         for setting in agent_settings:
             if setting.name == "company_id":
                 company_id = setting.value
-            elif setting.name == "agentonboarded11182025":
+            elif setting.name == "agentonboarded01292026":
                 onboarded = True
 
         if company_id and company:
@@ -1315,7 +1315,7 @@ def get_agents(email, company=None):
 
                 # Mark as onboarded
                 onboarded_setting = AgentSettingModel(
-                    agent_id=agent.id, name="agentonboarded11182025", value="true"
+                    agent_id=agent.id, name="agentonboarded01292026", value="true"
                 )
                 session.add(onboarded_setting)
                 session.commit()
@@ -1946,7 +1946,7 @@ class MagicalAuth:
         Raises HTTPException on auth failures.
         """
         import threading
-        from Agent import get_agents_lightweight
+        from Agent import get_agents_lightweight, check_and_onboard_agents
         from DB import default_role_scopes as db_default_role_scopes
 
         if self.user_id is None:
@@ -2133,7 +2133,11 @@ class MagicalAuth:
                 if key in user_preferences:
                     del user_preferences[key]
 
-            # === 7. Get agents for all companies (batch query) ===
+            # === 7. Check and trigger agent onboarding if needed ===
+            # This ensures Core Abilities commands are enabled for new agents
+            check_and_onboard_agents(user_id=str(self.user_id))
+
+            # === 8. Get agents for all companies (batch query) ===
             company_ids = [str(uc.company_id) for uc in user_companies]
             default_agent_id = user_preferences.get("agent_id")
 

@@ -88,7 +88,7 @@ def _get_extension_metadata_cache():
                     newest_mtime = _get_newest_extension_mtime()
 
                     if newest_mtime > cache_built_at:
-                        logging.info(
+                        logging.debug(
                             f"Extension metadata cache is stale (cache built at {cache_built_at}, "
                             f"newest file at {newest_mtime}). Rebuilding..."
                         )
@@ -253,14 +253,14 @@ def _build_extension_metadata_cache():
         os.makedirs(os.path.dirname(_extension_metadata_cache_file), exist_ok=True)
         with open(_extension_metadata_cache_file, "w") as f:
             json.dump(metadata, f, indent=2)
-        logging.info(
+        logging.debug(
             f"Saved extension metadata cache with {len(metadata['commands'])} commands"
         )
     except Exception as e:
         logging.debug(f"Could not save extension metadata cache: {e}")
 
     elapsed = time.time() - start
-    logging.info(f"Built extension metadata cache in {elapsed:.2f}s (AST parsing)")
+    logging.debug(f"Built extension metadata cache in {elapsed:.2f}s (AST parsing)")
 
     return metadata
 
@@ -300,7 +300,7 @@ def invalidate_extension_cache():
     try:
         if os.path.exists(_extension_metadata_cache_file):
             os.remove(_extension_metadata_cache_file)
-            logging.info("Removed extension metadata cache file")
+            logging.debug("Removed extension metadata cache file")
     except Exception as e:
         logging.debug(f"Could not remove metadata cache file: {e}")
 
@@ -310,7 +310,7 @@ def invalidate_extension_cache():
 
         hub = ExtensionsHub()
         hub._extension_paths_cache = None
-        logging.info("Extension hub path cache invalidated")
+        logging.debug("Extension hub path cache invalidated")
     except Exception as e:
         logging.debug(f"Could not invalidate hub path cache: {e}")
 

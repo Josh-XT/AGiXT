@@ -90,13 +90,13 @@ def _merge_command_duplicates(session, target_command, duplicates):
 
 
 def get_extension_category(session, extension_name):
-    """Get or create extension category based on extension class CATEGORY attribute"""
-    from ExtensionsHub import (
-        find_extension_files,
-        import_extension_module,
-        get_extension_class_name,
-    )
-    from Extensions import Extensions
+    """Get or create extension category based on extension metadata cache or class CATEGORY attribute.
+
+    Uses the AST-parsed extension metadata cache as the authoritative source for categories,
+    which includes extensions from extension hubs that may not be directly importable.
+    Falls back to importing the module if not found in cache.
+    """
+    from Extensions import _get_extension_metadata_cache
 
     # Default category if extension class doesn't define one
     default_category_name = "Productivity"
@@ -106,57 +106,75 @@ def get_extension_category(session, extension_name):
     if extension_name == "Custom Automation":
         category_name = "Core Abilities"
     else:
-        # Try to find the extension class and get its CATEGORY attribute
+        # First, check the metadata cache (authoritative source)
         try:
-            extension_files = find_extension_files()
-            best_match_file = None
-            best_match_score = 0
-
-            for extension_file in extension_files:
-                # Match extension file to extension name with better precision
-                file_base = (
-                    os.path.basename(extension_file)
-                    .replace(".py", "")
-                    .replace("_", " ")
-                    .title()
+            metadata = _get_extension_metadata_cache()
+            # Convert extension name to module name for lookup
+            module_name = extension_name.lower().replace(" ", "_").replace("-", "_")
+            ext_metadata = metadata.get("extensions", {}).get(module_name)
+            if ext_metadata and ext_metadata.get("category"):
+                category_name = ext_metadata["category"]
+            else:
+                # Fall back to trying to import the module (for extensions not in cache)
+                from ExtensionsHub import (
+                    find_extension_files,
+                    import_extension_module,
+                    get_extension_class_name,
                 )
 
-                # Also check the raw filename without transformation
-                raw_filename = os.path.basename(extension_file).replace(".py", "")
+                extension_files = find_extension_files()
+                best_match_file = None
+                best_match_score = 0
 
-                # Calculate match score - prioritize exact matches and longer matches
-                extension_lower = extension_name.lower()
-                file_base_lower = file_base.lower()
-                raw_filename_lower = raw_filename.lower()
-
-                match_score = 0
-
-                # Check for exact matches first (highest priority)
-                if extension_lower == file_base_lower:
-                    match_score = 1000
-                elif extension_lower == raw_filename_lower:
-                    match_score = 900
-                # Check for partial matches with proper scoring
-                elif extension_lower in file_base_lower and len(extension_lower) > 3:
-                    match_score = len(extension_lower) / len(file_base_lower) * 100
-                elif file_base_lower in extension_lower and len(file_base_lower) > 3:
-                    match_score = len(file_base_lower) / len(extension_lower) * 50
-
-                if match_score > best_match_score:
-                    best_match_score = match_score
-                    best_match_file = extension_file
-
-            # Use the best match if we found one
-            if best_match_file:
-                module = import_extension_module(best_match_file)
-                if module:
-                    class_name = get_extension_class_name(
-                        os.path.basename(best_match_file)
+                for extension_file in extension_files:
+                    # Match extension file to extension name with better precision
+                    file_base = (
+                        os.path.basename(extension_file)
+                        .replace(".py", "")
+                        .replace("_", " ")
+                        .title()
                     )
-                    if hasattr(module, class_name):
-                        extension_class = getattr(module, class_name)
-                        if hasattr(extension_class, "CATEGORY"):
-                            category_name = extension_class.CATEGORY
+
+                    # Also check the raw filename without transformation
+                    raw_filename = os.path.basename(extension_file).replace(".py", "")
+
+                    # Calculate match score - prioritize exact matches and longer matches
+                    extension_lower = extension_name.lower()
+                    file_base_lower = file_base.lower()
+                    raw_filename_lower = raw_filename.lower()
+
+                    match_score = 0
+
+                    # Check for exact matches first (highest priority)
+                    if extension_lower == file_base_lower:
+                        match_score = 1000
+                    elif extension_lower == raw_filename_lower:
+                        match_score = 900
+                    # Check for partial matches with proper scoring
+                    elif (
+                        extension_lower in file_base_lower and len(extension_lower) > 3
+                    ):
+                        match_score = len(extension_lower) / len(file_base_lower) * 100
+                    elif (
+                        file_base_lower in extension_lower and len(file_base_lower) > 3
+                    ):
+                        match_score = len(file_base_lower) / len(extension_lower) * 50
+
+                    if match_score > best_match_score:
+                        best_match_score = match_score
+                        best_match_file = extension_file
+
+                # Use the best match if we found one
+                if best_match_file:
+                    module = import_extension_module(best_match_file)
+                    if module:
+                        class_name = get_extension_class_name(
+                            os.path.basename(best_match_file)
+                        )
+                        if hasattr(module, class_name):
+                            extension_class = getattr(module, class_name)
+                            if hasattr(extension_class, "CATEGORY"):
+                                category_name = extension_class.CATEGORY
 
         except Exception as e:
             logging.warning(
@@ -1026,10 +1044,18 @@ def import_all_data():
             # This ensures GitHub-cloned extension models get their tables created
             # (the initial initialize_extension_tables runs before hubs are cloned)
             try:
-                from DB import initialize_extension_tables
+                from DB import (
+                    initialize_extension_tables,
+                    migrate_extensions_to_new_categories,
+                )
 
                 initialize_extension_tables()
                 logging.info("Re-initialized extension tables after hub cloning")
+
+                # Re-run category migration now that hub extensions are available
+                # The initial migration in initialize_database runs before hubs are cloned
+                migrate_extensions_to_new_categories()
+                logging.info("Re-ran category migration with hub extensions")
             except Exception as table_err:
                 logging.warning(
                     f"Failed to re-initialize extension tables: {table_err}"

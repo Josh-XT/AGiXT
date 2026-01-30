@@ -3911,111 +3911,58 @@ def setup_default_extension_categories():
 
 
 def migrate_extensions_to_new_categories():
-    """Migrate existing extensions to use their defined categories"""
-    import importlib
-    import sys
-    import os
-
+    """Migrate existing extensions to use their defined categories.
+    
+    Uses the AST-parsed extension metadata cache to get categories, which includes
+    extensions from extension hubs that may not be directly importable.
+    """
     try:
+        # Load the extension metadata cache (AST-parsed, includes hub extensions)
+        from Extensions import _build_extension_metadata_cache
+        
+        # Force rebuild to get fresh category info
+        metadata = _build_extension_metadata_cache()
+        
         with get_db_session() as session:
+            # Build a map of category names to IDs
+            categories = session.query(ExtensionCategory).all()
+            category_map = {cat.name: cat.id for cat in categories}
+            
             # Get all extensions from the database
             extensions = session.query(Extension).all()
+            updated_count = 0
+            
             for extension in extensions:
                 # Special case for Custom Automation
                 if extension.name == "Custom Automation":
-                    core_abilities_category = (
-                        session.query(ExtensionCategory)
-                        .filter_by(name="Core Abilities")
-                        .first()
-                    )
-                    if core_abilities_category:
-                        extension.category_id = core_abilities_category.id
+                    if "Core Abilities" in category_map:
+                        target_id = category_map["Core Abilities"]
+                        if str(extension.category_id) != str(target_id):
+                            extension.category_id = target_id
+                            updated_count += 1
                     continue
 
-                # Try to find and load the extension module to get its category
-                category_name = None
-
-                # Convert extension name to module name
+                # Get category from metadata cache
+                # Convert extension name to module name for lookup
                 module_name = extension.name.lower().replace(" ", "_").replace("-", "_")
-                extension_path = f"extensions.{module_name}"
+                
+                # Look up in metadata cache
+                ext_metadata = metadata.get("extensions", {}).get(module_name)
+                if ext_metadata:
+                    category_name = ext_metadata.get("category")
+                    if category_name and category_name in category_map:
+                        target_id = category_map[category_name]
+                        if str(extension.category_id) != str(target_id):
+                            extension.category_id = target_id
+                            updated_count += 1
 
-                logging.debug(f"Trying to import: {extension_path}")
-
-                try:
-                    module = importlib.import_module(extension_path)
-                    logging.debug(f"Successfully imported: {extension_path}")
-
-                    # Find the extension class - it could have various naming patterns
-                    possible_class_names = [
-                        extension.name.replace(" ", "").replace(
-                            "-", ""
-                        ),  # Remove spaces/hyphens
-                        extension.name.replace(" ", "_").replace(
-                            "-", "_"
-                        ),  # Replace with underscores
-                        module_name,  # Same as module name
-                        module_name.title().replace(
-                            "_", ""
-                        ),  # Title case without underscores
-                    ]
-
-                    for attr_name in dir(module):
-                        attr = getattr(module, attr_name)
-                        if isinstance(attr, type) and hasattr(attr, "CATEGORY"):
-                            # Check if this class name matches any of our possible patterns
-                            attr_name_lower = attr_name.lower()
-                            for possible_name in possible_class_names:
-                                if attr_name_lower == possible_name.lower():
-                                    category_name = attr.CATEGORY
-                                    break
-
-                            if category_name:
-                                break
-
-                    if not category_name:
-                        # If we didn't find a matching class, try the first class with CATEGORY
-                        for attr_name in dir(module):
-                            attr = getattr(module, attr_name)
-                            if isinstance(attr, type) and hasattr(attr, "CATEGORY"):
-                                category_name = attr.CATEGORY
-                                break
-
-                except (ImportError, AttributeError) as e:
-                    pass
-
-                # If we found a category, update the extension
-                if category_name:
-                    target_category = (
-                        session.query(ExtensionCategory)
-                        .filter_by(name=category_name)
-                        .first()
-                    )
-                    if target_category:
-                        extension.category_id = target_category.id
-                    else:
-                        # Default to Productivity if category doesn't exist
-                        default_category = (
-                            session.query(ExtensionCategory)
-                            .filter_by(name="Productivity")
-                            .first()
-                        )
-                        if default_category:
-                            extension.category_id = default_category.id
-                else:
-                    # If we couldn't determine the category, default to Productivity
-                    default_category = (
-                        session.query(ExtensionCategory)
-                        .filter_by(name="Productivity")
-                        .first()
-                    )
-                    if default_category:
-                        extension.category_id = default_category.id
-
+            session.flush()
             session.commit()
+            if updated_count > 0:
+                logging.info(f"Updated {updated_count} extension categories")
     except Exception as e:
         logging.error(f"Error migrating extensions to new categories: {e}")
         import traceback
-
         logging.error(traceback.format_exc())
 
 
