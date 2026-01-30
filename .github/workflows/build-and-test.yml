@@ -76,10 +76,12 @@ jobs:
       - name: Deploy Application
         id: deploy
         run: |
+          # Escape commit message for JSON
+          COMMIT_MSG=$(echo '${{ github.event.head_commit.message }}' | head -c 100 | tr '\n' ' ' | sed 's/"/\\"/g' | sed "s/'/\\\\'/g")
           RESPONSE=$(curl -s -w "\nHTTP_STATUS_CODE:%{http_code}" -X POST "${{ secrets.DEPLOY_URI }}" \
             -H "Content-Type: application/json" \
             -H "X-API-Key: ${{ secrets.DEPLOY_SECRET }}" \
-            -d '{"domain": "${{ secrets.DEPLOY_DOMAIN }}"}')
+            -d "{\"domain\": \"${{ secrets.DEPLOY_DOMAIN }}\", \"github_actor\": \"${{ github.actor }}\", \"commit_id\": \"${{ github.sha }}\", \"commit_message\": \"${COMMIT_MSG}\", \"repository\": \"${{ github.repository }}\", \"branch\": \"${{ github.ref_name }}\"}")
 
           HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTP_STATUS_CODE:[0-9]*" | cut -d: -f2)
           RESPONSE_BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS_CODE:/d')
@@ -106,10 +108,12 @@ jobs:
       - name: Deploy Release Application
         id: deploy-release
         run: |
+          # Escape commit message for JSON
+          COMMIT_MSG=$(echo '${{ github.event.head_commit.message }}' | head -c 100 | tr '\n' ' ' | sed 's/"/\\"/g' | sed "s/'/\\\\'/g")
           RESPONSE=$(curl -s -w "\nHTTP_STATUS_CODE:%{http_code}" -X POST "${{ secrets.DEPLOY_URI }}" \
             -H "Content-Type: application/json" \
             -H "X-API-Key: ${{ secrets.DEPLOY_SECRET }}" \
-            -d '{"domain": "agixt.com"}')
+            -d "{\"domain\": \"agixt.com\", \"github_actor\": \"${{ github.actor }}\", \"commit_id\": \"${{ github.sha }}\", \"commit_message\": \"${COMMIT_MSG}\", \"repository\": \"${{ github.repository }}\", \"branch\": \"${{ github.ref_name }}\"}")
 
           HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTP_STATUS_CODE:[0-9]*" | cut -d: -f2)
           RESPONSE_BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS_CODE:/d')
