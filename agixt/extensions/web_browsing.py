@@ -4982,10 +4982,16 @@ Previous error: {last_parse_error}
                     # For X.com/Twitter, look for actual media content
                     # Use proper URL parsing to avoid substring matching vulnerabilities
                     from urllib.parse import urlparse
+
                     page_parsed = urlparse(self.page.url)
                     page_host = page_parsed.netloc.lower()
                     # Check if page is from Twitter/X domain (exact match or subdomain)
-                    is_twitter_page = page_host == "x.com" or page_host.endswith(".x.com") or page_host == "twitter.com" or page_host.endswith(".twitter.com")
+                    is_twitter_page = (
+                        page_host == "x.com"
+                        or page_host.endswith(".x.com")
+                        or page_host == "twitter.com"
+                        or page_host.endswith(".twitter.com")
+                    )
                     if is_twitter_page:
                         # Twitter media images contain these patterns - parse src URL properly
                         src_parsed = urlparse(src)
@@ -4993,13 +4999,21 @@ Previous error: {last_parse_error}
                         src_path = src_parsed.path.lower()
                         # Check for Twitter CDN hosts with specific paths
                         is_twitter_media = (
-                            (src_host == "pbs.twimg.com" and src_path.startswith("/media")) or
-                            (src_host == "video.twimg.com") or
-                            (src_host == "pbs.twimg.com" and src_path.startswith("/ext_tw_video"))
+                            (
+                                src_host == "pbs.twimg.com"
+                                and src_path.startswith("/media")
+                            )
+                            or (src_host == "video.twimg.com")
+                            or (
+                                src_host == "pbs.twimg.com"
+                                and src_path.startswith("/ext_tw_video")
+                            )
                         )
                         if is_twitter_media:
                             image_urls.append({"url": src, "alt": alt, "type": "media"})
-                        elif src_host == "pbs.twimg.com" and src_path.startswith("/card_img"):
+                        elif src_host == "pbs.twimg.com" and src_path.startswith(
+                            "/card_img"
+                        ):
                             image_urls.append({"url": src, "alt": alt, "type": "card"})
                     else:
                         # For other sites, include larger images
