@@ -3912,26 +3912,26 @@ def setup_default_extension_categories():
 
 def migrate_extensions_to_new_categories():
     """Migrate existing extensions to use their defined categories.
-    
+
     Uses the AST-parsed extension metadata cache to get categories, which includes
     extensions from extension hubs that may not be directly importable.
     """
     try:
         # Load the extension metadata cache (AST-parsed, includes hub extensions)
         from Extensions import _build_extension_metadata_cache
-        
+
         # Force rebuild to get fresh category info
         metadata = _build_extension_metadata_cache()
-        
+
         with get_db_session() as session:
             # Build a map of category names to IDs
             categories = session.query(ExtensionCategory).all()
             category_map = {cat.name: cat.id for cat in categories}
-            
+
             # Get all extensions from the database
             extensions = session.query(Extension).all()
             updated_count = 0
-            
+
             for extension in extensions:
                 # Special case for Custom Automation
                 if extension.name == "Custom Automation":
@@ -3945,7 +3945,7 @@ def migrate_extensions_to_new_categories():
                 # Get category from metadata cache
                 # Convert extension name to module name for lookup
                 module_name = extension.name.lower().replace(" ", "_").replace("-", "_")
-                
+
                 # Look up in metadata cache
                 ext_metadata = metadata.get("extensions", {}).get(module_name)
                 if ext_metadata:
@@ -3963,6 +3963,7 @@ def migrate_extensions_to_new_categories():
     except Exception as e:
         logging.error(f"Error migrating extensions to new categories: {e}")
         import traceback
+
         logging.error(traceback.format_exc())
 
 
