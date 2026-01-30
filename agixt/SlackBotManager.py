@@ -684,7 +684,9 @@ Total messages: {len(messages)}
 
         return chunks
 
-    def _handle_socket_message(self, client: SocketModeClient, req: SocketModeRequest):
+    def _handle_socket_message(
+        self, client: "SocketModeClient", req: "SocketModeRequest"
+    ):
         """Handle incoming socket mode messages."""
         if req.type == "events_api":
             # Acknowledge the event

@@ -153,7 +153,7 @@ class CompanyTeamsBot:
             return f"Teams-{self.company_name}-{channel_name}"
         return f"Teams-{self.company_id}-{conversation_id[:20]}"
 
-    async def handle_message(self, turn_context: TurnContext):
+    async def handle_message(self, turn_context: "TurnContext"):
         """Handle incoming Teams messages."""
         import base64
 
@@ -616,7 +616,7 @@ class CompanyTeamsBot:
             activity = Activity.deserialize(activity_json)
             auth_header = activity_json.get("authorization", "")
 
-            async def callback(turn_context: TurnContext):
+            async def callback(turn_context: "TurnContext"):
                 await self.handle_message(turn_context)
 
             await self.adapter.process_activity(activity, auth_header, callback)
