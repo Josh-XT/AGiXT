@@ -671,7 +671,13 @@ def get_oauth_providers():
                 elif module_name.startswith("google_"):
                     client_id = getenv("GOOGLE_CLIENT_ID")
 
-            if client_id:
+            # Only add as OAuth provider if it has the required OAuth attributes
+            if (
+                client_id
+                and hasattr(module, "SCOPES")
+                and hasattr(module, "AUTHORIZE")
+                and hasattr(module, "PKCE_REQUIRED")
+            ):
                 # Check if this provider has SSO_ONLY flag (only for login, no extension commands)
                 sso_only = getattr(module, "SSO_ONLY", False)
                 # Check if this provider can be used for login (either SSO_ONLY or LOGIN_CAPABLE)
