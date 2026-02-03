@@ -7136,8 +7136,17 @@ class MagicalAuth:
     def get_training_data(self, company_id: str = None) -> str:
         if not company_id:
             company_id = self.company_id
-        # Use get_accessible_company_ids to include inherited access (e.g., admin of parent company)
-        if str(company_id) not in self.get_accessible_company_ids():
+        # Training data is read-only and can be accessed by:
+        # 1. Users who have the company in their accessible companies
+        # 2. When the company_id matches the auth context's company_id (agent interactions)
+        # This allows agents to access their company's training data during prompt formatting
+        is_own_company = (
+            str(company_id) == str(self.company_id) if self.company_id else False
+        )
+        has_access = (
+            is_own_company or str(company_id) in self.get_accessible_company_ids()
+        )
+        if not has_access:
             raise HTTPException(
                 status_code=403,
                 detail="Unauthorized. Insufficient permissions.",
