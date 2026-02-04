@@ -832,6 +832,16 @@ class AIProviderManager:
             get_extension_class_name,
         )
 
+        # Log env vars directly for diagnostics - helps debug Docker issues
+        ezlocalai_env = os.getenv(
+            "EZLOCALAI_URI", os.getenv("EZLOCALAI_API_URI", "NOT_SET")
+        )
+        openai_env = "SET" if os.getenv("OPENAI_API_KEY") else "NOT_SET"
+        logging.info(
+            f"[AIProviderManager] Provider discovery starting. "
+            f"EZLOCALAI_URI env={ezlocalai_env}, OPENAI_API_KEY env={openai_env}"
+        )
+
         # Get merged settings from all configuration levels
         merged_settings = self._get_merged_provider_settings()
 
@@ -886,17 +896,19 @@ class AIProviderManager:
                             else ["llm"]
                         ),
                     }
-                    logging.debug(
+                    logging.info(
                         f"[AIProviderManager] Added provider {provider_name} with {raw_max_tokens} tokens"
                     )
                 else:
                     # Log more details for ezlocalai specifically since it's the most common
                     if provider_name == "ezlocalai":
                         uri = getattr(provider_instance, "API_URI", "N/A")
+                        raw_env_uri = os.getenv("EZLOCALAI_URI", "NOT_SET")
+                        raw_env_api_uri = os.getenv("EZLOCALAI_API_URI", "NOT_SET")
                         logging.warning(
                             f"[AIProviderManager] ezlocalai not configured. "
-                            f"API_URI='{uri}', configured={getattr(provider_instance, 'configured', 'N/A')}. "
-                            f"Check EZLOCALAI_URI or EZLOCALAI_API_URI env vars."
+                            f"instance.API_URI='{uri}', configured={getattr(provider_instance, 'configured', 'N/A')}. "
+                            f"os.getenv: EZLOCALAI_URI='{raw_env_uri}', EZLOCALAI_API_URI='{raw_env_api_uri}'"
                         )
                     else:
                         logging.debug(
