@@ -774,8 +774,19 @@ class AIProviderManager:
 
         # Log what we found for debugging
         provider_keys_found = [
-            k for k in merged_settings.keys() if any(
-                p in k.upper() for p in ["OPENAI", "ANTHROPIC", "EZLOCALAI", "GOOGLE", "XAI", "AZURE", "DEEPSEEK"]
+            k
+            for k in merged_settings.keys()
+            if any(
+                p in k.upper()
+                for p in [
+                    "OPENAI",
+                    "ANTHROPIC",
+                    "EZLOCALAI",
+                    "GOOGLE",
+                    "XAI",
+                    "AZURE",
+                    "DEEPSEEK",
+                ]
             )
         ]
         logging.debug(
