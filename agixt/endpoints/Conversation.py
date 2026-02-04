@@ -470,9 +470,11 @@ user_notification_manager = UserNotificationManager()
 
 
 def make_json_serializable(obj):
-    """Convert datetime objects and other non-serializable objects to JSON-serializable formats"""
+    """Convert datetime objects, UUIDs, and other non-serializable objects to JSON-serializable formats"""
     if isinstance(obj, datetime):
         return obj.isoformat()
+    elif isinstance(obj, uuid.UUID):
+        return str(obj)
     elif isinstance(obj, dict):
         return {key: make_json_serializable(value) for key, value in obj.items()}
     elif isinstance(obj, list):

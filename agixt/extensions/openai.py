@@ -146,8 +146,9 @@ class openai(Extensions):
         # Check if configured
         self.configured = bool(
             self.OPENAI_API_KEY
-            and self.OPENAI_API_KEY != ""
-            and self.OPENAI_API_KEY != "YOUR_OPENAI_API_KEY"
+            and self.OPENAI_API_KEY.strip() != ""
+            and self.OPENAI_API_KEY.lower()
+            not in ["your_openai_api_key", "none", "null", "false", "0"]
         )
 
         if self.configured:

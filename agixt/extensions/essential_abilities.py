@@ -205,37 +205,51 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
     def __init__(self, **kwargs):
         self.commands = {
+            # Core File Operations (workspace-safe)
             "Write to File": self.write_to_file,
             "Read File": self.read_file,
+            "Modify File": self.modify_file,
+            "Delete File": self.delete_file,
             "List Directory": self.list_directory,
             "Search Files": self.search_files,
             "Search File Content": self.search_file_content,
             "Glob File Search": self.glob_file_search,
             "Grep Search": self.grep_search,
-            "Modify File": self.modify_file,
-            "Execute Python File": self.execute_python_file,
-            "Delete File": self.delete_file,
-            "Execute Shell": self.execute_shell,
-            "Run Data Analysis": self.run_data_analysis,
+            "Multi-File Replace": self.multi_file_replace,
+            "Search and Replace Regex": self.search_and_replace_regex,
+            "Insert in File": self.insert_in_file,
+            "Download File from URL": self.download_file_from_url,
+            "View Image": self.view_image,
+            # Code Execution
+            "Use Terminal in Workspace": self.execute_shell,
             "Execute Python Code": self.execute_python_code_internal,
-            "Explain Chain": self.chain_to_mermaid,
+            "Execute Python File": self.execute_python_file,
+            "Run Data Analysis": self.run_data_analysis,
+            "Run Tests": self.run_tests,
+            # AGiXT-Specific Features (can't be done via terminal)
             "Get Datetime": self.get_datetime,
+            "Explain Chain": self.chain_to_mermaid,
             "Get Chain Details": self.get_chain_details,
             "Get Chain List": self.get_chain_list,
             "Create Automation Chain": self.create_agixt_chain,
             "Modify Automation Chain": self.modify_chain,
             "Custom API Endpoint": self.custom_api,
             "Get Mindmap for task to break it down": self.get_mindmap,
-            "Convert Markdown to PDF": self.convert_to_pdf,
-            "Convert Markdown to DOCX": self.convert_to_docx,
-            "Convert Markdown to XLSX": self.convert_to_xlsx,
-            "Convert Markdown to PPTX": self.convert_to_pptx,
             "Schedule Follow-Up Message": self.schedule_task,
             "Schedule Recurring Follow-Up": self.schedule_reoccurring_task,
             "Get Scheduled Follow-Ups": self.get_scheduled_tasks,
             "Modify Scheduled Follow-Up": self.modify_task,
             "Generate Image": self.generate_image,
             "Convert Text to Speech": self.text_to_speech,
+            "Create AGiXT Agent": self.create_new_agixt_agent,
+            "Optimize Command Selection": self.optimize_command_selection,
+            "Get Web UI Tips": self.get_webui_tips,
+            # Document Conversion (uses AGiXT infrastructure)
+            "Convert Markdown to PDF": self.convert_to_pdf,
+            "Convert Markdown to DOCX": self.convert_to_docx,
+            "Convert Markdown to XLSX": self.convert_to_xlsx,
+            "Convert Markdown to PPTX": self.convert_to_pptx,
+            # Todo Management (database-backed)
             "Create Todo Item": self.create_todo_item,
             "Create Sub-Todo Item": self.create_sub_todo_item,
             "Create Todo Items in Bulk": self.create_todo_items_bulk,
@@ -247,82 +261,27 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Mark Todo Item Incomplete": self.mark_todo_incomplete,
             "Update Todo Item": self.update_todo_item,
             "Delete Todo Item": self.delete_todo_item,
-            "Gather information from website URLs": self.browse_links,
-            "Fetch Webpage Content": self.fetch_webpage_content,
-            "Download File from URL": self.download_file_from_url,
-            "View Image": self.view_image,
-            "Get Web UI Tips": self.get_webui_tips,
-            "Create AGiXT Agent": self.create_new_agixt_agent,
-            "Optimize Command Selection": self.optimize_command_selection,
-            # New Code Intelligence & Development Tools
+            # Code Intelligence (semantic/AST-based, not simple grep)
             "Find Symbol Usages": self.find_symbol_usages,
             "Semantic Code Search": self.semantic_code_search,
-            "Multi-File Replace": self.multi_file_replace,
             "Get File Errors": self.get_file_errors,
-            "Run Tests": self.run_tests,
-            "Get Code Symbols": self.get_code_symbols,
-            "Git Status": self.git_status,
-            "Git Commit": self.git_commit,
-            "Git Diff": self.git_diff,
-            "Git Blame": self.git_blame,
-            "Create Directory": self.create_directory,
-            "Rename File": self.rename_file,
-            "Copy File": self.copy_file,
-            "Get File Metadata": self.get_file_metadata,
-            "Diff Files": self.diff_files,
-            "Format Code": self.format_code,
-            "Insert in File": self.insert_in_file,
-            "Delete Lines": self.delete_lines,
-            "Get File Line Count": self.get_file_line_count,
-            "Search and Replace Regex": self.search_and_replace_regex,
-            "Extract Function": self.extract_function,
-            "Get Imports": self.get_imports,
-            "Append to File": self.append_to_file,
-            "Prepend to File": self.prepend_to_file,
-            "Git Log": self.git_log,
-            "Git Branch": self.git_branch,
-            "Git Stash": self.git_stash,
-            "Find Duplicate Code": self.find_duplicate_code,
-            "Get Function Signature": self.get_function_signature,
-            "Validate JSON": self.validate_json,
-            "Validate YAML": self.validate_yaml,
-            "Minify JSON": self.minify_json,
-            "Prettify JSON": self.prettify_json,
-            "Count Lines of Code": self.count_lines_of_code,
-            "Find TODO Comments": self.find_todo_comments,
-            "Generate Docstring": self.generate_docstring,
-            "Get File Tree": self.get_file_tree,
-            "Move File": self.move_file,
             "Find References": self.find_references,
-            "Get Class Definition": self.get_class_definition,
-            "Get Method List": self.get_method_list,
-            "Analyze Dependencies": self.analyze_dependencies,
-            "Get Code Outline": self.get_code_outline,
-            "Git Fetch": self.git_fetch,
-            "Git Pull": self.git_pull,
-            "Git Merge": self.git_merge,
-            "Git Revert": self.git_revert,
-            "Git Cherry Pick": self.git_cherry_pick,
-            "Find Test File": self.find_test_file,
-            "Lint File": self.lint_file,
-            "Sort Lines": self.sort_lines,
-            "Remove Duplicate Lines": self.remove_duplicate_lines,
-            "Extract Comments": self.extract_comments,
-            "Generate Changelog": self.generate_changelog,
-            "Head File": self.head_file,
-            "Tail File": self.tail_file,
-            "Check Path Exists": self.check_path_exists,
-            "Get File Hash": self.get_file_hash,
-            "Truncate File": self.truncate_file,
-            "Find Large Files": self.find_large_files,
-            # Context Management Commands
+            "Generate Docstring": self.generate_docstring,
+            # Context Management
             "Discard Context": self.discard_context,
             "Retrieve Context": self.retrieve_context,
             "List Discarded Context": self.list_discarded_context,
-            # Feedback Commands
+            # Feedback
             "Send Feedback to Development Team": self.send_feedback_to_dev_team,
             # Codebase Mapping
             "Create or Update Codebase Map": self.create_or_update_codebase_map,
+            # Academic Paper Research
+            "Search arXiv": self.search_arxiv,
+            "Search Semantic Scholar": self.search_semantic_scholar,
+            "Search OpenAlex": self.search_openalex,
+            "Search PubMed Central": self.search_pubmed_central,
+            "Download Paper PDF": self.download_paper_pdf,
+            "Convert PDF to Markdown": self.convert_pdf_to_markdown,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -356,36 +315,6 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
         # Register models with ExtensionDatabaseMixin
         self.register_models()
-
-    async def browse_links(self, urls: str, query: str) -> str:
-        """
-        Browse links to gather information from websites. This will scrape data from the websites provided into the agent's memory.
-
-        Args:
-            urls (str): Space-separated list of URLs to browse. Prefix each url with "https://" with the full url. When browsing multiple URLs, separate them with spaces.
-            query (str): The query to search for on the pages
-
-        Returns:
-            str: The gathered information
-
-        Notes: This ability will browse the provided URLs and extract relevant information based on the query as well as extract learned information from the website into the assistant's memory.
-        """
-        response = self.ApiClient.prompt_agent(
-            agent_id=self.agent_id,
-            prompt_name="Think About It",
-            prompt_args={
-                "user_input": f"{urls} \n {query}",
-                "websearch": False,
-                "analyze_user_input": False,
-                "disable_commands": True,
-                "log_user_input": False,
-                "log_output": False,
-                "browse_links": True,
-                "tts": False,
-                "conversation_name": self.conversation_id,
-            },
-        )
-        return response
 
     async def download_file_from_url(
         self, url: str, filename: str = "", headers: str = ""
@@ -510,10 +439,15 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         self, image_path: str, query: str = "What is in this image?"
     ) -> str:
         """
-        View and analyze an image file in the agent's workspace
+        View and analyze an IMAGE FILE (png, jpg, gif, etc.) in the agent's workspace.
+
+        THIS IS ONLY FOR IMAGE FILES - NOT FOR WEBPAGES OR URLS TO WEBSITES/TWEETS/ARTICLES.
+
+        For URLs to webpages, tweets, articles, or any website content, use "Interact with Webpage" instead.
+        This command is specifically for analyzing the visual content of image files.
 
         Args:
-        image_path (str): The path to the image file in the agent's workspace, or a URL to an image to download to the agent's workspace and view.
+        image_path (str): The path to an image file in the agent's workspace, or a direct URL to an image file (e.g., ending in .png, .jpg, .gif)
         query (str): The question or analysis to perform on the image
 
         Returns:
@@ -1194,110 +1128,6 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         except Exception as e:
             return f"Error in grep search: {str(e)}"
 
-    async def fetch_webpage_content(self, url: str, query: str = "") -> str:
-        """
-        Fetch and extract the main content from a webpage using a full browser.
-        Useful for retrieving information from websites, including JavaScript-rendered pages (SPAs).
-
-        Args:
-        url (str): The URL of the webpage to fetch
-        query (str): Optional query to focus the extraction on relevant content
-
-        Returns:
-        str: The extracted content from the webpage
-
-        Note: This extracts readable text content, not raw HTML. Good for documentation, articles,
-        reference pages, and JavaScript-rendered single-page applications.
-        """
-        from playwright.async_api import async_playwright
-        from bs4 import BeautifulSoup
-
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch()
-                context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                )
-                page = await context.new_page()
-
-                try:
-                    await page.goto(url, wait_until="networkidle", timeout=30000)
-                except Exception:
-                    # Fallback if networkidle times out - try domcontentloaded
-                    try:
-                        await page.goto(
-                            url, wait_until="domcontentloaded", timeout=15000
-                        )
-                        # Give JS a moment to render
-                        await page.wait_for_timeout(2000)
-                    except Exception as nav_error:
-                        await browser.close()
-                        return f"Error navigating to URL: {str(nav_error)}"
-
-                # Get the rendered HTML after JavaScript execution
-                html = await page.content()
-                await browser.close()
-
-            soup = BeautifulSoup(html, "html.parser")
-
-            # Remove script and style elements
-            for script in soup(["script", "style", "nav", "footer", "header", "aside"]):
-                script.decompose()
-
-            # Try to find main content area
-            main_content = None
-            for selector in [
-                "main",
-                "article",
-                '[role="main"]',
-                ".content",
-                "#content",
-                ".post",
-                ".article",
-            ]:
-                main_content = soup.select_one(selector)
-                if main_content:
-                    break
-
-            if not main_content:
-                main_content = soup.body if soup.body else soup
-
-            # Get text content
-            text = main_content.get_text(separator="\n", strip=True)
-
-            # Clean up whitespace
-            lines = [line.strip() for line in text.split("\n") if line.strip()]
-            text = "\n".join(lines)
-
-            # Truncate if too long
-            max_length = 10000
-            if len(text) > max_length:
-                text = text[:max_length] + "\n\n... [Content truncated]"
-
-            # If query provided, try to extract most relevant sections
-            if query:
-                query_lower = query.lower()
-                relevant_lines = []
-                for i, line in enumerate(lines):
-                    if query_lower in line.lower():
-                        # Include some context around matches
-                        start = max(0, i - 2)
-                        end = min(len(lines), i + 3)
-                        for j in range(start, end):
-                            if lines[j] not in relevant_lines:
-                                relevant_lines.append(lines[j])
-                        relevant_lines.append("---")
-
-                if relevant_lines:
-                    text = f"Relevant content for '{query}':\n\n" + "\n".join(
-                        relevant_lines
-                    )
-
-            return f"Content from {url}:\n\n{text}"
-
-        except Exception as e:
-            return f"Error processing webpage: {str(e)}"
-
     async def modify_file(self, filename: str, old_text: str, new_text: str) -> str:
         """
         Modify a file by replacing old text with new text
@@ -1389,15 +1219,66 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
     async def execute_shell(self, command_line: str) -> str:
         """
-        Execute a shell command in a sandboxed environment
+        Execute a shell command in the agent's workspace environment. This is a versatile command that can handle
+        many common development and file management tasks
 
         Args:
-        command_line (str): The shell command to execute
+            command_line (str): The shell command to execute
 
         Returns:
-        str: The output of the shell command
+            str: The output of the shell command
 
-        Note: This command will only work in the agent's designated workspace. The agent's workspace may contain files uploaded by the user or files saved by the agent that will be available to the user to download and access.
+        Note: The assistant has its own Ubuntu docker container with the agent's workspace mounted at /workspace.
+        The assistant can use this command to run shell commands to manipulate files, check system status,
+        and perform various tasks.
+
+        Common Use Cases:
+            **File Operations:**
+            - `cp source dest` - Copy files or directories
+            - `mv source dest` - Move or rename files
+            - `mkdir -p path` - Create directories
+            - `rm file` - Delete files (use -r for directories)
+            - `head -n 20 file` - View first N lines of a file
+            - `tail -n 20 file` - View last N lines of a file
+            - `cat file` - View entire file contents
+            - `ls -la` - List directory contents with details
+            - `find . -name "*.py"` - Find files by pattern
+            - `wc -l file` - Count lines in a file
+            - `diff file1 file2` - Compare two files
+            - `sort file` - Sort file contents
+            - `uniq file` - Remove duplicate lines
+
+            **Git Operations:**
+            - `git status` - Check repository status
+            - `git diff` - View changes
+            - `git log --oneline -10` - View recent commits
+            - `git branch -a` - List branches
+            - `git checkout branch` - Switch branches
+            - `git add .` && `git commit -m "message"` - Stage and commit
+            - `git stash` / `git stash pop` - Stash changes
+            - `git pull` / `git push` - Sync with remote
+
+            **Text Processing:**
+            - `grep -r "pattern" .` - Search for text in files
+            - `sed 's/old/new/g' file` - Find and replace
+            - `awk '{print $1}' file` - Extract columns
+            - `jq '.' file.json` - Format/query JSON
+            - `python -m json.tool file.json` - Validate JSON
+
+            **Code Quality:**
+            - `python -m py_compile file.py` - Check Python syntax
+            - `black file.py` - Format Python code
+            - `pylint file.py` - Lint Python code
+            - `npm run lint` - Run project linters
+
+            **System Info:**
+            - `pwd` - Current directory
+            - `which command` - Find command location
+            - `du -sh *` - Directory sizes
+            - `file filename` - Detect file type
+
+        Note: Commands execute in the agent's workspace directory. Use full paths or relative
+        paths from the workspace root. Long-running commands have a timeout for safety.
         """
         try:
             # Try to use the new shell execution capability from safeexecute
@@ -1543,6 +1424,9 @@ print(output)
 
         **Workspace File System Access:**
         - Full read/write access to all files in your dedicated workspace directory
+        - The workspace is mounted at `/workspace` - use this path or just relative filenames
+        - IMPORTANT: When referencing files, use JUST THE FILENAME (e.g., 'data.csv') or '/workspace/data.csv'
+        - Do NOT use absolute paths from context - they will be automatically translated
         - Automatically discovers and works with uploaded files, downloaded content, and previously created files
         - Can process multiple files simultaneously (CSV, Excel, images, PDFs, text files, etc.)
         - Files you create are immediately accessible to users via download links
@@ -1806,6 +1690,115 @@ print(output)
             return f"Status: {response.status_code}\\nResponse: {response.text}"
         except Exception as e:
             return f"Error making API call: {str(e)}"
+
+    async def check_domain_availability(self, domain: str) -> bool:
+        """
+        Check if a domain name is available for registration.
+
+        Uses WHOIS lookup to determine if a domain is already registered.
+        A domain is considered available if no WHOIS record is found.
+
+        Args:
+            domain (str): The domain name to check (e.g., "example.com").
+                          Can include or exclude the protocol (http/https).
+
+        Returns:
+            bool: True if the domain is available for registration,
+                  False if the domain is already registered or an error occurred.
+
+        Raises:
+            No exceptions are raised; errors are handled internally and logged.
+
+        Example:
+            >>> await check_domain_availability("example.com")
+            False  # Domain is registered
+            >>> await check_domain_availability("some-random-unregistered-domain-12345.com")
+            True   # Domain is available
+        """
+        import re
+        import socket
+
+        try:
+            # Clean and validate the domain input
+            if not domain or not isinstance(domain, str):
+                logging.error(
+                    "[check_domain_availability] Invalid domain: domain must be a non-empty string"
+                )
+                return False
+
+            # Remove protocol if present (http://, https://, etc.)
+            cleaned_domain = re.sub(r"^https?://", "", domain.strip().lower())
+
+            # Remove trailing slashes and paths
+            cleaned_domain = cleaned_domain.split("/")[0]
+
+            # Remove www. prefix if present
+            if cleaned_domain.startswith("www."):
+                cleaned_domain = cleaned_domain[4:]
+
+            # Validate domain format using regex
+            # Domain must have at least one dot, valid characters, and proper TLD
+            domain_pattern = r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$"
+            if not re.match(domain_pattern, cleaned_domain):
+                logging.error(
+                    f"[check_domain_availability] Invalid domain format: {domain}"
+                )
+                return False
+
+            # Try WHOIS lookup using python-whois library
+            try:
+                import whois
+
+                whois_info = whois.whois(cleaned_domain)
+
+                # Check if the domain has registration information
+                # If domain_name is None or empty, domain is likely available
+                if whois_info.domain_name is None:
+                    logging.info(
+                        f"[check_domain_availability] Domain {cleaned_domain} appears to be available (no WHOIS record)"
+                    )
+                    return True
+
+                # Domain is registered
+                logging.info(
+                    f"[check_domain_availability] Domain {cleaned_domain} is registered"
+                )
+                return False
+
+            except whois.parser.PywhoisError:
+                # WHOIS lookup failed - domain might be available
+                logging.info(
+                    f"[check_domain_availability] Domain {cleaned_domain} appears to be available (WHOIS lookup failed)"
+                )
+                return True
+
+            except ImportError:
+                # python-whois not installed, fall back to DNS lookup
+                logging.warning(
+                    "[check_domain_availability] python-whois not installed, falling back to DNS lookup"
+                )
+
+                # Fallback: Use DNS lookup to check if domain resolves
+                try:
+                    socket.gethostbyname(cleaned_domain)
+                    # Domain resolves, likely registered
+                    logging.info(
+                        f"[check_domain_availability] Domain {cleaned_domain} resolves via DNS (likely registered)"
+                    )
+                    return False
+                except socket.gaierror:
+                    # Domain doesn't resolve - might be available
+                    # Note: This is not 100% accurate as registered domains may not have DNS records
+                    logging.info(
+                        f"[check_domain_availability] Domain {cleaned_domain} does not resolve via DNS (might be available)"
+                    )
+                    return True
+
+        except Exception as e:
+            logging.error(
+                f"[check_domain_availability] Error checking domain {domain}: {str(e)}"
+            )
+            return False
 
     async def get_mindmap(self, task: str, additional_context: str = ""):
         """
@@ -10201,3 +10194,787 @@ The map includes:
         except Exception as e:
             logging.error(f"[create_or_update_codebase_map] Error: {str(e)}")
             return f"Error creating codebase map: {str(e)}"
+
+    # ========== Academic Paper Research Commands ==========
+
+    async def search_arxiv(
+        self,
+        query: str,
+        max_results: int = 10,
+        save_to_workspace: bool = True,
+    ) -> str:
+        """
+        Search arXiv for academic papers and optionally save results to workspace.
+
+        Args:
+            query (str): Search query for finding papers on arXiv
+            max_results (int): Maximum number of papers to return (default 10)
+            save_to_workspace (bool): If True, saves paper metadata as markdown files
+
+        Returns:
+            str: Formatted list of papers found with titles, authors, abstracts and links
+
+        Notes:
+            - arXiv is a free distribution service for scholarly articles
+            - Covers physics, mathematics, computer science, quantitative biology, and more
+            - Papers are preprints and may not be peer-reviewed
+            - Use specific terms and arXiv categories for better results
+            - Example queries: "machine learning", "cat:cs.AI AND neural networks"
+        """
+        try:
+            import arxiv
+
+            client = arxiv.Client()
+            search = arxiv.Search(
+                query=query,
+                max_results=max_results,
+                sort_by=arxiv.SortCriterion.Relevance,
+            )
+
+            results = list(client.results(search))
+
+            if not results:
+                return f"No papers found on arXiv for query: {query}"
+
+            papers_info = []
+
+            for i, paper in enumerate(results, 1):
+                arxiv_id = paper.entry_id.split("/")[-1]
+                authors = ", ".join(author.name for author in paper.authors[:5])
+                if len(paper.authors) > 5:
+                    authors += f" and {len(paper.authors) - 5} more"
+
+                paper_md = f"""# {paper.title}
+
+**arXiv ID:** {arxiv_id}
+**Authors:** {authors}
+**Published:** {paper.published.strftime('%Y-%m-%d')}
+**Categories:** {', '.join(paper.categories)}
+
+## Abstract
+{paper.summary}
+
+## Links
+- [arXiv Abstract]({paper.entry_id})
+- [PDF Download]({paper.pdf_url})
+- [HTML Version (ar5iv)]({paper.entry_id.replace('arxiv.org', 'ar5iv.org')})
+"""
+
+                if save_to_workspace:
+                    # Save paper info to workspace
+                    safe_title = "".join(
+                        c if c.isalnum() or c in " -_" else "_"
+                        for c in paper.title[:50]
+                    )
+                    filename = f"arxiv_{arxiv_id}_{safe_title}.md"
+                    file_path = self.safe_join(f"papers/{filename}")
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(paper_md)
+
+                papers_info.append(
+                    f"""
+### {i}. {paper.title}
+- **arXiv ID:** [{arxiv_id}]({paper.entry_id})
+- **Authors:** {authors}
+- **Date:** {paper.published.strftime('%Y-%m-%d')}
+- **PDF:** [Download]({paper.pdf_url})
+- **Abstract:** {paper.summary[:300]}..."""
+                )
+
+            result = (
+                f"## arXiv Search Results for: {query}\n\nFound {len(results)} papers:\n"
+                + "\n".join(papers_info)
+            )
+
+            if save_to_workspace:
+                result += f"\n\n---\n*Paper metadata files saved to `{self.output_url}papers/`*"
+
+            return result
+
+        except Exception as e:
+            logging.error(f"[search_arxiv] Error: {str(e)}")
+            return f"Error searching arXiv: {str(e)}"
+
+    async def search_semantic_scholar(
+        self,
+        query: str,
+        max_results: int = 10,
+        save_to_workspace: bool = True,
+        fields: str = "title,authors,abstract,year,citationCount,openAccessPdf,url,externalIds",
+    ) -> str:
+        """
+        Search Semantic Scholar for academic papers.
+
+        Args:
+            query (str): Search query for finding papers
+            max_results (int): Maximum number of papers to return (default 10, max 100)
+            save_to_workspace (bool): If True, saves paper metadata as markdown files
+            fields (str): Comma-separated fields to retrieve
+
+        Returns:
+            str: Formatted list of papers found with metadata and links
+
+        Notes:
+            - Semantic Scholar is an AI-powered academic search engine
+            - Includes citation counts and influential citations
+            - Often has open access PDF links
+            - Covers computer science, biology, medicine extensively
+            - API is free with rate limits (100 requests/5 minutes)
+        """
+        import requests
+
+        try:
+            api_url = "https://api.semanticscholar.org/graph/v1/paper/search"
+            params = {
+                "query": query,
+                "limit": min(max_results, 100),
+                "fields": fields,
+            }
+
+            response = requests.get(api_url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+
+            papers = data.get("data", [])
+
+            if not papers:
+                return f"No papers found on Semantic Scholar for query: {query}"
+
+            papers_info = []
+
+            for i, paper in enumerate(papers, 1):
+                paper_id = paper.get("paperId", "")
+                title = paper.get("title", "Unknown Title")
+                authors_list = paper.get("authors", [])
+                authors = ", ".join(a.get("name", "") for a in authors_list[:5])
+                if len(authors_list) > 5:
+                    authors += f" and {len(authors_list) - 5} more"
+                abstract = paper.get("abstract", "No abstract available")
+                year = paper.get("year", "N/A")
+                citations = paper.get("citationCount", 0)
+                url = paper.get("url", "")
+                open_access = paper.get("openAccessPdf", {})
+                pdf_url = open_access.get("url", "") if open_access else ""
+                external_ids = paper.get("externalIds", {})
+                arxiv_id = external_ids.get("ArXiv", "")
+                doi = external_ids.get("DOI", "")
+
+                paper_md = f"""# {title}
+
+**Semantic Scholar ID:** {paper_id}
+**Authors:** {authors}
+**Year:** {year}
+**Citations:** {citations}
+{"**arXiv ID:** " + arxiv_id if arxiv_id else ""}
+{"**DOI:** " + doi if doi else ""}
+
+## Abstract
+{abstract or 'No abstract available'}
+
+## Links
+- [Semantic Scholar Page]({url})
+{"- [Open Access PDF](" + pdf_url + ")" if pdf_url else "- No open access PDF available"}
+{"- [arXiv](https://arxiv.org/abs/" + arxiv_id + ")" if arxiv_id else ""}
+{"- [DOI](https://doi.org/" + doi + ")" if doi else ""}
+"""
+
+                if save_to_workspace:
+                    safe_title = "".join(
+                        c if c.isalnum() or c in " -_" else "_" for c in title[:50]
+                    )
+                    filename = f"semantic_scholar_{paper_id[:20]}_{safe_title}.md"
+                    file_path = self.safe_join(f"papers/{filename}")
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(paper_md)
+
+                papers_info.append(
+                    f"""
+### {i}. {title}
+- **Authors:** {authors}
+- **Year:** {year} | **Citations:** {citations}
+- **Links:** [Semantic Scholar]({url}){" | [PDF](" + pdf_url + ")" if pdf_url else ""}
+- **Abstract:** {(abstract or 'N/A')[:300]}..."""
+                )
+
+            result = (
+                f"## Semantic Scholar Search Results for: {query}\n\nFound {len(papers)} papers:\n"
+                + "\n".join(papers_info)
+            )
+
+            if save_to_workspace:
+                result += f"\n\n---\n*Paper metadata files saved to `{self.output_url}papers/`*"
+
+            return result
+
+        except requests.exceptions.RequestException as e:
+            logging.error(f"[search_semantic_scholar] Error: {str(e)}")
+            return f"Error searching Semantic Scholar: {str(e)}"
+        except Exception as e:
+            logging.error(f"[search_semantic_scholar] Error: {str(e)}")
+            return f"Error searching Semantic Scholar: {str(e)}"
+
+    async def search_openalex(
+        self,
+        query: str,
+        max_results: int = 10,
+        save_to_workspace: bool = True,
+        filter_open_access: bool = False,
+    ) -> str:
+        """
+        Search OpenAlex for academic papers and scholarly works.
+
+        Args:
+            query (str): Search query for finding papers
+            max_results (int): Maximum number of papers to return (default 10)
+            save_to_workspace (bool): If True, saves paper metadata as markdown files
+            filter_open_access (bool): If True, only returns open access papers
+
+        Returns:
+            str: Formatted list of papers found with metadata and links
+
+        Notes:
+            - OpenAlex is a free, open catalog of scholarly works
+            - Contains 250M+ works, 100M+ authors, 15M+ venues
+            - Good coverage across all academic disciplines
+            - API is free with optional polite pool (add email to get higher rate limits)
+            - Includes citation data and linked concepts
+        """
+        import requests
+
+        try:
+            api_url = "https://api.openalex.org/works"
+            params = {
+                "search": query,
+                "per_page": min(max_results, 200),
+                "mailto": "agixt@devxt.com",  # Polite pool for better rate limits
+            }
+
+            if filter_open_access:
+                params["filter"] = "is_oa:true"
+
+            response = requests.get(api_url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+
+            works = data.get("results", [])
+
+            if not works:
+                return f"No papers found on OpenAlex for query: {query}"
+
+            papers_info = []
+
+            for i, work in enumerate(works, 1):
+                work_id = work.get("id", "").split("/")[-1]
+                title = work.get("title", "Unknown Title")
+
+                # Get authors
+                authorships = work.get("authorships", [])
+                authors = ", ".join(
+                    a.get("author", {}).get("display_name", "") for a in authorships[:5]
+                )
+                if len(authorships) > 5:
+                    authors += f" and {len(authorships) - 5} more"
+
+                # Get abstract (OpenAlex uses inverted index format)
+                abstract_inverted = work.get("abstract_inverted_index", {})
+                if abstract_inverted:
+                    # Reconstruct abstract from inverted index
+                    words = []
+                    for word, positions in abstract_inverted.items():
+                        for pos in positions:
+                            while len(words) <= pos:
+                                words.append("")
+                            words[pos] = word
+                    abstract = " ".join(words)
+                else:
+                    abstract = "No abstract available"
+
+                year = work.get("publication_year", "N/A")
+                citations = work.get("cited_by_count", 0)
+                doi = work.get("doi", "")
+                is_oa = work.get("open_access", {}).get("is_oa", False)
+                oa_url = work.get("open_access", {}).get("oa_url", "")
+
+                # Get concepts/topics
+                concepts = work.get("concepts", [])
+                concept_names = ", ".join(
+                    c.get("display_name", "") for c in concepts[:5]
+                )
+
+                paper_md = f"""# {title}
+
+**OpenAlex ID:** {work_id}
+**Authors:** {authors}
+**Year:** {year}
+**Citations:** {citations}
+**Open Access:** {"Yes" if is_oa else "No"}
+{"**DOI:** " + doi if doi else ""}
+
+## Concepts/Topics
+{concept_names}
+
+## Abstract
+{abstract}
+
+## Links
+- [OpenAlex Page](https://openalex.org/works/{work_id})
+{"- [Open Access PDF](" + oa_url + ")" if oa_url else ""}
+{"- [DOI](" + doi + ")" if doi else ""}
+"""
+
+                if save_to_workspace:
+                    safe_title = "".join(
+                        c if c.isalnum() or c in " -_" else "_" for c in title[:50]
+                    )
+                    filename = f"openalex_{work_id}_{safe_title}.md"
+                    file_path = self.safe_join(f"papers/{filename}")
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(paper_md)
+
+                oa_badge = "🔓" if is_oa else "🔒"
+                papers_info.append(
+                    f"""
+### {i}. {oa_badge} {title}
+- **Authors:** {authors}
+- **Year:** {year} | **Citations:** {citations}
+- **Concepts:** {concept_names[:100]}...
+- **Links:** [OpenAlex](https://openalex.org/works/{work_id}){" | [PDF](" + oa_url + ")" if oa_url else ""}
+- **Abstract:** {abstract[:300]}..."""
+                )
+
+            result = (
+                f"## OpenAlex Search Results for: {query}\n\n🔓 = Open Access | 🔒 = Restricted\n\nFound {len(works)} papers:\n"
+                + "\n".join(papers_info)
+            )
+
+            if save_to_workspace:
+                result += f"\n\n---\n*Paper metadata files saved to `{self.output_url}papers/`*"
+
+            return result
+
+        except requests.exceptions.RequestException as e:
+            logging.error(f"[search_openalex] Error: {str(e)}")
+            return f"Error searching OpenAlex: {str(e)}"
+        except Exception as e:
+            logging.error(f"[search_openalex] Error: {str(e)}")
+            return f"Error searching OpenAlex: {str(e)}"
+
+    async def search_pubmed_central(
+        self,
+        query: str,
+        max_results: int = 10,
+        save_to_workspace: bool = True,
+    ) -> str:
+        """
+        Search PubMed Central (PMC) for open access biomedical and life sciences literature.
+
+        Args:
+            query (str): Search query for finding papers
+            max_results (int): Maximum number of papers to return (default 10)
+            save_to_workspace (bool): If True, saves paper metadata as markdown files
+
+        Returns:
+            str: Formatted list of papers found with metadata and links
+
+        Notes:
+            - PubMed Central is a free archive of biomedical and life sciences journal literature
+            - All articles are full-text and open access
+            - Part of the National Library of Medicine (NLM)
+            - Excellent for medical, biological, and health sciences research
+            - Uses NCBI E-utilities API
+        """
+        import requests
+        import xml.etree.ElementTree as ET
+
+        try:
+            # First, search for IDs
+            search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+            search_params = {
+                "db": "pmc",
+                "term": query,
+                "retmax": max_results,
+                "retmode": "json",
+                "sort": "relevance",
+            }
+
+            search_response = requests.get(search_url, params=search_params, timeout=30)
+            search_response.raise_for_status()
+            search_data = search_response.json()
+
+            id_list = search_data.get("esearchresult", {}).get("idlist", [])
+
+            if not id_list:
+                return f"No papers found on PubMed Central for query: {query}"
+
+            # Fetch details for each paper
+            fetch_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+            fetch_params = {
+                "db": "pmc",
+                "id": ",".join(id_list),
+                "rettype": "xml",
+            }
+
+            fetch_response = requests.get(fetch_url, params=fetch_params, timeout=60)
+            fetch_response.raise_for_status()
+
+            # Parse XML response
+            root = ET.fromstring(fetch_response.text)
+
+            papers_info = []
+
+            for i, article in enumerate(root.findall(".//article"), 1):
+                # Extract metadata
+                pmcid = ""
+                # Try pmcid first (newer format), then pmc (older format)
+                pmcid_elem = article.find(".//article-id[@pub-id-type='pmcid']")
+                if pmcid_elem is None:
+                    pmcid_elem = article.find(".//article-id[@pub-id-type='pmc']")
+                if pmcid_elem is not None:
+                    pmcid = pmcid_elem.text
+                    # Remove 'PMC' prefix if present (we'll add it ourselves)
+                    if pmcid.upper().startswith("PMC"):
+                        pmcid = pmcid[3:]
+
+                title_elem = article.find(".//article-title")
+                title = (
+                    "".join(title_elem.itertext())
+                    if title_elem is not None
+                    else "Unknown Title"
+                )
+
+                # Get authors
+                authors_list = []
+                for contrib in article.findall(".//contrib[@contrib-type='author']"):
+                    surname = contrib.find(".//surname")
+                    given = contrib.find(".//given-names")
+                    if surname is not None:
+                        name = surname.text or ""
+                        if given is not None and given.text:
+                            name = f"{given.text} {name}"
+                        authors_list.append(name)
+
+                authors = ", ".join(authors_list[:5])
+                if len(authors_list) > 5:
+                    authors += f" and {len(authors_list) - 5} more"
+
+                # Get abstract
+                abstract_elem = article.find(".//abstract")
+                if abstract_elem is not None:
+                    abstract = " ".join(abstract_elem.itertext()).strip()
+                else:
+                    abstract = "No abstract available"
+
+                # Get publication date
+                pub_date = article.find(".//pub-date")
+                year = "N/A"
+                if pub_date is not None:
+                    year_elem = pub_date.find(".//year")
+                    if year_elem is not None:
+                        year = year_elem.text
+
+                # Get DOI
+                doi = ""
+                doi_elem = article.find(".//article-id[@pub-id-type='doi']")
+                if doi_elem is not None:
+                    doi = doi_elem.text
+
+                # Get journal
+                journal_elem = article.find(".//journal-title")
+                journal = (
+                    journal_elem.text if journal_elem is not None else "Unknown Journal"
+                )
+
+                pmc_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC{pmcid}/"
+                pdf_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC{pmcid}/pdf/"
+
+                paper_md = f"""# {title}
+
+**PMC ID:** PMC{pmcid}
+**Authors:** {authors}
+**Year:** {year}
+**Journal:** {journal}
+{"**DOI:** " + doi if doi else ""}
+
+## Abstract
+{abstract}
+
+## Links
+- [PubMed Central Full Text]({pmc_url})
+- [PDF Download]({pdf_url})
+{"- [DOI](https://doi.org/" + doi + ")" if doi else ""}
+"""
+
+                if save_to_workspace:
+                    safe_title = "".join(
+                        c if c.isalnum() or c in " -_" else "_" for c in title[:50]
+                    )
+                    filename = f"pmc_{pmcid}_{safe_title}.md"
+                    file_path = self.safe_join(f"papers/{filename}")
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(paper_md)
+
+                papers_info.append(
+                    f"""
+### {i}. {title}
+- **PMC ID:** [PMC{pmcid}]({pmc_url})
+- **Authors:** {authors}
+- **Year:** {year} | **Journal:** {journal}
+- **PDF:** [Download]({pdf_url})
+- **Abstract:** {abstract[:300]}..."""
+                )
+
+            result = (
+                f"## PubMed Central Search Results for: {query}\n\nFound {len(papers_info)} papers:\n"
+                + "\n".join(papers_info)
+            )
+
+            if save_to_workspace:
+                result += f"\n\n---\n*Paper metadata files saved to `{self.output_url}papers/`*"
+
+            return result
+
+        except requests.exceptions.RequestException as e:
+            logging.error(f"[search_pubmed_central] Error: {str(e)}")
+            return f"Error searching PubMed Central: {str(e)}"
+        except ET.ParseError as e:
+            logging.error(f"[search_pubmed_central] XML Parse Error: {str(e)}")
+            return f"Error parsing PubMed Central response: {str(e)}"
+        except Exception as e:
+            logging.error(f"[search_pubmed_central] Error: {str(e)}")
+            return f"Error searching PubMed Central: {str(e)}"
+
+    async def download_paper_pdf(
+        self,
+        pdf_url: str,
+        filename: str = "",
+        convert_to_markdown: bool = True,
+    ) -> str:
+        """
+        Download a paper PDF from a URL and optionally convert it to markdown.
+
+        Args:
+            pdf_url (str): Direct URL to the PDF file (must be HTTPS)
+            filename (str): Optional custom filename (without extension). Auto-generated if not provided.
+            convert_to_markdown (bool): If True, also converts the PDF to markdown after download
+
+        Returns:
+            str: Success message with download location and markdown conversion status
+
+        Notes:
+            - Works with arXiv, Semantic Scholar, OpenAlex, PMC, and other PDF sources
+            - For arXiv, use the direct PDF link (e.g., https://arxiv.org/pdf/2301.00001.pdf)
+            - Large PDFs may take time to download and convert
+            - Markdown conversion uses pdfplumber for text extraction
+        """
+        import requests
+
+        # Validate URL
+        if not pdf_url.startswith("https://"):
+            return "Error: Only HTTPS URLs are allowed for security. Please provide a URL starting with 'https://'"
+
+        try:
+            # Generate filename if not provided
+            if not filename:
+                from urllib.parse import urlparse, unquote
+
+                parsed = urlparse(pdf_url)
+                path_filename = unquote(parsed.path.split("/")[-1])
+                if path_filename and path_filename.endswith(".pdf"):
+                    filename = path_filename[:-4]  # Remove .pdf extension
+                else:
+                    filename = (
+                        f"paper_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    )
+
+            # Sanitize filename
+            filename = "".join(
+                c if c.isalnum() or c in " -_" else "_" for c in filename
+            )
+
+            # Download PDF
+            logging.info(f"Downloading PDF from: {pdf_url}")
+            response = requests.get(pdf_url, stream=True, timeout=60)
+            response.raise_for_status()
+
+            # Verify it's actually a PDF
+            content_type = response.headers.get("Content-Type", "")
+            if "pdf" not in content_type.lower() and not pdf_url.endswith(".pdf"):
+                # Try to check first bytes
+                first_bytes = response.content[:5]
+                if not first_bytes.startswith(b"%PDF"):
+                    return f"Error: URL does not appear to be a PDF file (Content-Type: {content_type})"
+
+            # Save PDF
+            pdf_path = self.safe_join(f"papers/{filename}.pdf")
+            os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+
+            with open(pdf_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+
+            file_size = os.path.getsize(pdf_path)
+            file_size_mb = file_size / (1024 * 1024)
+
+            result = f"Successfully downloaded PDF: `{filename}.pdf` ({file_size_mb:.2f} MB)\nLocation: {self.output_url}papers/{filename}.pdf"
+
+            # Convert to markdown if requested
+            if convert_to_markdown:
+                md_result = await self.convert_pdf_to_markdown(
+                    pdf_path=f"papers/{filename}.pdf",
+                    output_filename=filename,
+                )
+                result += f"\n\n{md_result}"
+
+            return result
+
+        except requests.exceptions.Timeout:
+            return f"Error: Request timed out while downloading PDF from {pdf_url}"
+        except requests.exceptions.HTTPError as e:
+            return f"Error: HTTP error {e.response.status_code}: {e.response.reason}"
+        except Exception as e:
+            logging.error(f"[download_paper_pdf] Error: {str(e)}")
+            return f"Error downloading PDF: {str(e)}"
+
+    async def convert_pdf_to_markdown(
+        self,
+        pdf_path: str,
+        output_filename: str = "",
+        include_images: bool = False,
+    ) -> str:
+        """
+        Convert a PDF file in the workspace to markdown format.
+
+        Args:
+            pdf_path (str): Path to the PDF file in the workspace (relative to workspace root)
+            output_filename (str): Optional output filename (without extension). Defaults to PDF filename.
+            include_images (bool): If True, attempts to extract and save images from the PDF
+
+        Returns:
+            str: Success message with markdown file location, or error message
+
+        Notes:
+            - Uses pdfplumber for text extraction
+            - Preserves basic structure like paragraphs
+            - May not perfectly preserve complex layouts, tables, or mathematical formulas
+            - For academic papers, abstract and sections are usually well-preserved
+            - Images extraction is experimental and may not work for all PDFs
+        """
+        import pdfplumber
+
+        try:
+            # Resolve full path
+            full_pdf_path = self.safe_join(pdf_path)
+
+            if not os.path.exists(full_pdf_path):
+                return f"Error: PDF file not found at {pdf_path}"
+
+            if not full_pdf_path.lower().endswith(".pdf"):
+                return f"Error: File does not appear to be a PDF: {pdf_path}"
+
+            # Generate output filename
+            if not output_filename:
+                output_filename = os.path.splitext(os.path.basename(pdf_path))[0]
+
+            output_filename = "".join(
+                c if c.isalnum() or c in " -_" else "_" for c in output_filename
+            )
+
+            # Extract text from PDF
+            logging.info(f"Converting PDF to markdown: {pdf_path}")
+
+            markdown_content = []
+            page_count = 0
+
+            with pdfplumber.open(full_pdf_path) as pdf:
+                page_count = len(pdf.pages)
+
+                for i, page in enumerate(pdf.pages, 1):
+                    text = page.extract_text()
+                    if text:
+                        # Add page marker for long documents
+                        if page_count > 5:
+                            markdown_content.append(f"\n\n<!-- Page {i} -->\n")
+
+                        # Clean up text
+                        # Remove excessive whitespace but preserve paragraph breaks
+                        lines = text.split("\n")
+                        cleaned_lines = []
+                        for line in lines:
+                            line = line.strip()
+                            if line:
+                                cleaned_lines.append(line)
+                            elif cleaned_lines and cleaned_lines[-1] != "":
+                                cleaned_lines.append("")  # Preserve paragraph break
+
+                        markdown_content.append("\n".join(cleaned_lines))
+
+                    # Extract images if requested
+                    if include_images:
+                        try:
+                            images = page.images
+                            for j, img in enumerate(images):
+                                # This is experimental - image extraction from PDFs is complex
+                                pass  # Image extraction would go here
+                        except Exception:
+                            pass  # Silently skip image extraction errors
+
+            # Combine all content
+            full_content = "\n\n".join(markdown_content)
+
+            # Try to detect and format paper structure
+            # Common patterns in academic papers
+            section_patterns = [
+                (r"^(Abstract|ABSTRACT)\s*$", "## Abstract"),
+                (r"^(Introduction|INTRODUCTION)\s*$", "## Introduction"),
+                (
+                    r"^(Methods|METHODS|Materials and Methods|MATERIALS AND METHODS)\s*$",
+                    "## Methods",
+                ),
+                (r"^(Results|RESULTS)\s*$", "## Results"),
+                (r"^(Discussion|DISCUSSION)\s*$", "## Discussion"),
+                (
+                    r"^(Conclusion|CONCLUSION|Conclusions|CONCLUSIONS)\s*$",
+                    "## Conclusion",
+                ),
+                (r"^(References|REFERENCES)\s*$", "## References"),
+                (
+                    r"^(Acknowledgements|ACKNOWLEDGEMENTS|Acknowledgments|ACKNOWLEDGMENTS)\s*$",
+                    "## Acknowledgements",
+                ),
+            ]
+
+            for pattern, replacement in section_patterns:
+                full_content = re.sub(
+                    pattern, replacement, full_content, flags=re.MULTILINE
+                )
+
+            # Save markdown file
+            md_path = self.safe_join(f"papers/{output_filename}.md")
+            os.makedirs(os.path.dirname(md_path), exist_ok=True)
+
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(f"# {output_filename}\n\n")
+                f.write(f"*Converted from PDF - {page_count} pages*\n\n")
+                f.write("---\n\n")
+                f.write(full_content)
+
+            char_count = len(full_content)
+            word_count = len(full_content.split())
+
+            return f"""Successfully converted PDF to markdown!
+- **Output:** `{output_filename}.md`
+- **Pages:** {page_count}
+- **Words:** ~{word_count:,}
+- **Characters:** ~{char_count:,}
+- **Location:** {self.output_url}papers/{output_filename}.md
+
+The markdown file is now available in your workspace for reading and analysis."""
+
+        except Exception as e:
+            logging.error(f"[convert_pdf_to_markdown] Error: {str(e)}")
+            return f"Error converting PDF to markdown: {str(e)}"

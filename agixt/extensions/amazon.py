@@ -21,7 +21,7 @@ Required environment variables:
 - AWS_USER_POOL_ID: AWS Cognito User Pool ID
 - AWS_REGION: AWS Cognito Region
 
-Required scopes for AWS OAuth
+Required scopes for AWS OAuth (minimal identity scopes)
 
 - openid
 - email
@@ -30,6 +30,7 @@ Required scopes for AWS OAuth
 SCOPES = ["openid", "email", "profile"]
 AUTHORIZE = "https://www.amazon.com/ap/oa"
 PKCE_REQUIRED = False
+SSO_ONLY = True  # This provider can be used for login/registration
 
 
 class AmazonSSO:

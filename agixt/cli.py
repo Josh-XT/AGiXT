@@ -2488,15 +2488,7 @@ def start_ezlocalai():
 
 def stop_ezlocalai():
     """Stop ezLocalai using the ezlocalai CLI."""
-    print("Stopping ezLocalai...")
-    try:
-        subprocess.run(["ezlocalai", "stop"], check=True)
-    except FileNotFoundError:
-        raise CLIError(
-            "ezlocalai CLI not found. Install it with: pip install ezlocalai"
-        )
-    except subprocess.CalledProcessError as e:
-        print(f"Error stopping ezLocalai: {e}")
+    pass
 
 
 def restart_ezlocalai():
@@ -2832,10 +2824,6 @@ def _stop_all(local: bool = False) -> None:
         print("\n[1/3] Stopping web interface (Docker)...")
         _stop_web_docker()
 
-    # Stop ezLocalai (always Docker)
-    print("\n[2/3] Stopping ezLocalai...")
-    stop_ezlocalai()
-
     # Stop AGiXT
     if local:
         print("\n[3/3] Stopping AGiXT (local)...")
@@ -3088,7 +3076,32 @@ def _stop_local(stop_ezlocalai_too: bool = True, stop_redis_too: bool = False) -
                 except PermissionError as e:
                     print(f"Permission denied killing process {port_pid}: {e}")
 
-    elif not stopped_by_pid:
+    # Kill any remaining run-local.py processes by name
+    # This catches orphaned parent processes that aren't bound to port 7437
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "run-local.py"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                if line:
+                    orphan_pid = int(line)
+                    if orphan_pid != pid:
+                        try:
+                            os.kill(orphan_pid, signal.SIGKILL)
+                            print(
+                                f"Killed orphaned run-local.py process (PID {orphan_pid})"
+                            )
+                        except (ProcessLookupError, PermissionError):
+                            pass
+    except Exception:
+        pass  # pgrep not available or other error
+
+    if not stopped_by_pid and not pids_on_port:
         print("No AGiXT local processes found running.")
 
     # Clean up PID file

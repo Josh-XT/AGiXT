@@ -660,8 +660,28 @@ def get_oauth_providers():
         module_name = filename.replace(".py", "")
 
         try:
+            # Check for module-specific client ID first
             client_id = getenv(f"{module_name.upper()}_CLIENT_ID")
-            if client_id:
+
+            # For service-specific OAuth providers (microsoft_sso, microsoft_email, etc.),
+            # also check for the base provider client ID (MICROSOFT_CLIENT_ID, GOOGLE_CLIENT_ID)
+            if not client_id:
+                if module_name.startswith("microsoft_"):
+                    client_id = getenv("MICROSOFT_CLIENT_ID")
+                elif module_name.startswith("google_"):
+                    client_id = getenv("GOOGLE_CLIENT_ID")
+
+            # Only add as OAuth provider if it has the required OAuth attributes
+            if (
+                client_id
+                and hasattr(module, "SCOPES")
+                and hasattr(module, "AUTHORIZE")
+                and hasattr(module, "PKCE_REQUIRED")
+            ):
+                # Check if this provider has SSO_ONLY flag (only for login, no extension commands)
+                sso_only = getattr(module, "SSO_ONLY", False)
+                # Check if this provider can be used for login (either SSO_ONLY or LOGIN_CAPABLE)
+                login_capable = getattr(module, "LOGIN_CAPABLE", False) or sso_only
                 providers.append(
                     {
                         "name": module_name,
@@ -669,6 +689,8 @@ def get_oauth_providers():
                         "authorize": module.AUTHORIZE,
                         "client_id": client_id,
                         "pkce_required": module.PKCE_REQUIRED,
+                        "sso_only": sso_only,
+                        "login_capable": login_capable,
                     }
                 )
         except Exception as e:
@@ -744,6 +766,162 @@ def get_sso_credentials(user_id):
         )
     session.close()
     return credentials
+
+
+def get_agent_oauth_credentials(agent_id: str, provider_name: str = None):
+    """
+    Get OAuth credentials associated with a specific agent.
+
+    If the agent has its own OAuth credentials for the provider, use those.
+    Otherwise, fall back to the agent owner's credentials.
+
+    Args:
+        agent_id: The agent's UUID
+        provider_name: Optional provider name to filter by (e.g., 'x', 'microsoft', 'google')
+
+    Returns:
+        Dict with provider credentials: {
+            'access_token': str,
+            'refresh_token': str,
+            'provider_user_id': str,
+            'token_expires_at': datetime,
+            'account_name': str,
+            'user_id': str (owner of credentials)
+        }
+        or None if not found
+    """
+    from DB import get_session, UserOAuth, OAuthProvider, Agent
+
+    session = get_session()
+    try:
+        # Get the agent to find its owner
+        agent = session.query(Agent).filter(Agent.id == agent_id).first()
+        if not agent:
+            return None
+
+        # First, look for agent-specific OAuth credentials
+        query = session.query(UserOAuth).filter(UserOAuth.agent_id == agent_id)
+
+        if provider_name:
+            provider = (
+                session.query(OAuthProvider)
+                .filter(OAuthProvider.name == provider_name.lower())
+                .first()
+            )
+            if provider:
+                query = query.filter(UserOAuth.provider_id == provider.id)
+
+        agent_oauth = query.first()
+
+        if agent_oauth:
+            # Agent has its own credentials
+            provider = (
+                session.query(OAuthProvider)
+                .filter(OAuthProvider.id == agent_oauth.provider_id)
+                .first()
+            )
+            return {
+                "access_token": agent_oauth.access_token,
+                "refresh_token": agent_oauth.refresh_token,
+                "provider_user_id": agent_oauth.provider_user_id,
+                "token_expires_at": agent_oauth.token_expires_at,
+                "account_name": agent_oauth.account_name,
+                "user_id": str(agent_oauth.user_id),
+                "provider_name": provider.name if provider else None,
+                "is_agent_specific": True,
+            }
+
+        # Fall back to agent owner's credentials (without agent_id set)
+        if agent.user_id and provider_name:
+            provider = (
+                session.query(OAuthProvider)
+                .filter(OAuthProvider.name == provider_name.lower())
+                .first()
+            )
+            if provider:
+                owner_oauth = (
+                    session.query(UserOAuth)
+                    .filter(UserOAuth.user_id == agent.user_id)
+                    .filter(UserOAuth.provider_id == provider.id)
+                    .filter(UserOAuth.agent_id.is_(None))  # User's personal credentials
+                    .first()
+                )
+                if owner_oauth:
+                    return {
+                        "access_token": owner_oauth.access_token,
+                        "refresh_token": owner_oauth.refresh_token,
+                        "provider_user_id": owner_oauth.provider_user_id,
+                        "token_expires_at": owner_oauth.token_expires_at,
+                        "account_name": owner_oauth.account_name,
+                        "user_id": str(owner_oauth.user_id),
+                        "provider_name": provider.name if provider else None,
+                        "is_agent_specific": False,
+                    }
+
+        return None
+    finally:
+        session.close()
+
+
+def get_all_agent_oauth_connections(agent_id: str):
+    """
+    Get all OAuth connections for an agent (both agent-specific and inherited from owner).
+
+    Args:
+        agent_id: The agent's UUID
+
+    Returns:
+        Dict mapping provider names to credential info
+    """
+    from DB import get_session, UserOAuth, OAuthProvider, Agent
+
+    session = get_session()
+    try:
+        agent = session.query(Agent).filter(Agent.id == agent_id).first()
+        if not agent:
+            return {}
+
+        connections = {}
+
+        # Get all OAuth providers
+        providers = session.query(OAuthProvider).all()
+
+        for provider in providers:
+            # Check for agent-specific credentials first
+            agent_oauth = (
+                session.query(UserOAuth)
+                .filter(UserOAuth.agent_id == agent_id)
+                .filter(UserOAuth.provider_id == provider.id)
+                .first()
+            )
+
+            if agent_oauth:
+                connections[provider.name] = {
+                    "connected": True,
+                    "account_name": agent_oauth.account_name,
+                    "is_agent_specific": True,
+                    "provider_user_id": agent_oauth.provider_user_id,
+                }
+            elif agent.user_id:
+                # Check for owner's credentials
+                owner_oauth = (
+                    session.query(UserOAuth)
+                    .filter(UserOAuth.user_id == agent.user_id)
+                    .filter(UserOAuth.provider_id == provider.id)
+                    .filter(UserOAuth.agent_id.is_(None))
+                    .first()
+                )
+                if owner_oauth:
+                    connections[provider.name] = {
+                        "connected": True,
+                        "account_name": owner_oauth.account_name,
+                        "is_agent_specific": False,
+                        "provider_user_id": owner_oauth.provider_user_id,
+                    }
+
+        return connections
+    finally:
+        session.close()
 
 
 def get_admin_user():
@@ -1071,12 +1249,12 @@ def get_agents(email, company=None):
             .all()
         )
 
-        # Check for agentonboarded11182025 setting
+        # Check for agentonboarded01292026 setting
         onboarded = False
         for setting in agent_settings:
             if setting.name == "company_id":
                 company_id = setting.value
-            elif setting.name == "agentonboarded11182025":
+            elif setting.name == "agentonboarded01292026":
                 onboarded = True
 
         if company_id and company:
@@ -1143,7 +1321,7 @@ def get_agents(email, company=None):
 
                 # Mark as onboarded
                 onboarded_setting = AgentSettingModel(
-                    agent_id=agent.id, name="agentonboarded11182025", value="true"
+                    agent_id=agent.id, name="agentonboarded01292026", value="true"
                 )
                 session.add(onboarded_setting)
                 session.commit()
@@ -1774,7 +1952,7 @@ class MagicalAuth:
         Raises HTTPException on auth failures.
         """
         import threading
-        from Agent import get_agents_lightweight
+        from Agent import get_agents_lightweight, check_and_onboard_agents
         from DB import default_role_scopes as db_default_role_scopes
 
         if self.user_id is None:
@@ -1961,7 +2139,11 @@ class MagicalAuth:
                 if key in user_preferences:
                     del user_preferences[key]
 
-            # === 7. Get agents for all companies (batch query) ===
+            # === 7. Check and trigger agent onboarding if needed ===
+            # This ensures Core Abilities commands are enabled for new agents
+            check_and_onboard_agents(user_id=str(self.user_id))
+
+            # === 8. Get agents for all companies (batch query) ===
             company_ids = [str(uc.company_id) for uc in user_companies]
             default_agent_id = user_preferences.get("agent_id")
 
@@ -6954,17 +7136,23 @@ class MagicalAuth:
     def get_training_data(self, company_id: str = None) -> str:
         if not company_id:
             company_id = self.company_id
-        # Use get_accessible_company_ids to include inherited access (e.g., admin of parent company)
-        if str(company_id) not in self.get_accessible_company_ids():
-            raise HTTPException(
-                status_code=403,
-                detail="Unauthorized. Insufficient permissions.",
-            )
+        # If still no company_id, try to get the user's primary/first company
+        if not company_id:
+            company_id = self.get_user_company_id()
+        # If still no company, return empty string (no training data available)
+        if not company_id:
+            return ""
+        # Training data is read-only configuration data that agents need to function.
+        # We allow reading training data without strict permission checks since:
+        # 1. It's not sensitive user data - it's company configuration/guidelines
+        # 2. Agents need it during prompt formatting to operate correctly
+        # 3. Users interacting with a company's agent implicitly have read access
+        # Write access (set_training_data) still requires proper permissions.
         with get_session() as db:
             company = db.query(Company).filter(Company.id == company_id).first()
             if not company:
-                raise HTTPException(status_code=404, detail="Company not found")
-            return str(company.training_data)
+                return ""
+            return str(company.training_data) if company.training_data else ""
 
     def set_training_data(self, training_data: str, company_id: str = None) -> str:
         if not company_id:

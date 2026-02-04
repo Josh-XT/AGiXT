@@ -624,14 +624,6 @@ class Interactions:
                 context += conversation_context
         if "context" in kwargs:
             context.append(kwargs["context"])
-            logging.info(
-                f"[format_prompt] Discord/external context added. Context items: {len(context)}, last item length: {len(kwargs['context'])} chars"
-            )
-            # Log a sample of the context to verify it contains the right data
-            if "MOST RECENT MESSAGE" in kwargs["context"]:
-                logging.info(
-                    f"[format_prompt] Discord context contains MOST RECENT MESSAGE section ✓"
-                )
         include_sources = (
             str(kwargs["include_sources"]).lower() == "true"
             if "include_sources" in kwargs
@@ -893,14 +885,7 @@ class Interactions:
             f"{prompt}{user_input}{context_str}{conversation_history}{agent_commands}{file_contents}"
         )
 
-        logging.info(
-            f"[format_prompt] Context check - estimated_tokens: {estimated_context_tokens}, max_context_tokens: {max_context_tokens}, context_str length: {len(context_str)} chars"
-        )
-
         if estimated_context_tokens > max_context_tokens:
-            logging.info(
-                f"[format_prompt] Context EXCEEDS max - reducing context from {estimated_context_tokens} to target {max_context_tokens}"
-            )
             # Build context sections dict for reduce_context
             context_sections = {
                 "memories": context_str,  # Already retrieved memories as string
@@ -921,9 +906,6 @@ class Interactions:
                 old_context_len = len(context_str)
                 context = [reduced["memories"]] if reduced["memories"] else []
                 new_context_len = len(reduced["memories"]) if reduced["memories"] else 0
-                logging.info(
-                    f"[format_prompt] Context reduced: {old_context_len} chars -> {new_context_len} chars"
-                )
             if "conversation_history" in reduced:
                 conversation_history = reduced["conversation_history"]
             if "file_contents" in reduced:
@@ -986,20 +968,6 @@ You have access to context management commands to reduce token usage:
         tts_filler = args.get("tts_filler_instructions", "")
         if tts_filler:
             formatted_prompt = formatted_prompt + "\n" + tts_filler
-
-        # Log whether the Discord context made it into the final prompt
-        if "MOST RECENT MESSAGE" in formatted_prompt:
-            logging.info(
-                f"[format_prompt] Final prompt contains MOST RECENT MESSAGE section ✓ ({tokens} tokens)"
-            )
-        else:
-            logging.warning(
-                f"[format_prompt] Final prompt MISSING MOST RECENT MESSAGE section! ({tokens} tokens)"
-            )
-            if "context" in kwargs:
-                logging.warning(
-                    f"[format_prompt] Original context was {len(kwargs['context'])} chars"
-                )
 
         return formatted_prompt, prompt, tokens
 
@@ -1757,6 +1725,7 @@ Example: memories, persona, files"""
 
             # Method 4: Check command DESCRIPTION for semantic matches
             # This is critical for matching user intent to command capabilities
+            # But we need to be STRICT to avoid over-selection
             if cmd_name in command_descriptions:
                 desc_lower = command_descriptions[cmd_name].lower()
                 desc_words = set(
@@ -1766,12 +1735,32 @@ Example: memories, persona, files"""
                     .replace(")", " ")
                     .split()
                 )
-                # Look for significant overlapping words (4+ chars to avoid noise)
-                significant_desc_words = {w for w in desc_words if len(w) >= 4}
-                significant_user_words = {w for w in user_input_words if len(w) >= 4}
-                # If there are multiple matching significant words, include the command
+                # Look for significant overlapping words (5+ chars to avoid noise)
+                significant_desc_words = {w for w in desc_words if len(w) >= 5}
+                significant_user_words = {w for w in user_input_words if len(w) >= 5}
+                # Exclude very common words that match too broadly
+                common_desc_words = {
+                    "using",
+                    "based",
+                    "files",
+                    "given",
+                    "input",
+                    "output",
+                    "returns",
+                    "creates",
+                    "provides",
+                    "allows",
+                    "enables",
+                    "information",
+                    "content",
+                    "system",
+                    "current",
+                    "specified",
+                }
+                significant_desc_words = significant_desc_words - common_desc_words
+                # Require 3+ matching significant words for description-based inclusion
                 matching_words = significant_desc_words & significant_user_words
-                if len(matching_words) >= 2:
+                if len(matching_words) >= 3:
                     explicitly_requested_commands.append(cmd_name)
 
         # Build context about files
@@ -1840,7 +1829,7 @@ Example: memories, persona, files"""
         MAX_BATCH_TOKENS = 30000
 
         # Calculate base prompt template tokens (without the batch content)
-        base_selection_prompt = f"""You are an intelligent assistant that helps select the most relevant commands/tools for a given user request.
+        base_selection_prompt = f"""You are a precise assistant that selects ONLY the most relevant commands/tools for a user request.
 
 ## User's Request
 {user_input}
@@ -1851,33 +1840,31 @@ Example: memories, persona, files"""
 {{BATCH_COMMANDS}}
 
 ## Your Task
-Based on the user's request and context above, select which commands would be most helpful for the assistant to have available when responding to this request.
+Select ONLY the commands that are DIRECTLY needed to fulfill this specific request. Be SELECTIVE, not inclusive.
 
-**CRITICAL - Semantic Matching Guidelines:**
-- **Match user INTENT to command capabilities** - don't require exact word matches
-- Read each command's DESCRIPTION carefully - the description explains what the command can do
-- If the user's request could be fulfilled by a command based on its description, SELECT IT
-- Example: "Tell copilot to..." or "Have copilot..." should match "Ask GitHub Copilot" (it's about delegating to Copilot)
-- Example: "merge to main" or "push the changes" should match terminal/git commands
-- Example: "look this up" or "find information about" should match web search commands
-- Example: "remember this" or "save this for later" should match note-taking commands
+**CRITICAL Selection Rules:**
+1. **Maximum 10-15 commands** - Only select what's truly needed. Most tasks need 1-5 commands.
+2. **Match user INTENT precisely** - If the user wants to search the web, select web search. If they want to read a file, select file read.
+3. **Don't select "just in case"** - Only select commands you're confident will be used.
+4. **Group related operations sparingly** - If reading a file, you might need write, but don't include all file operations.
 
-**Selection Principles:**
-- Be INCLUSIVE - it's much better to include a potentially useful command than to miss one
-- Select commands that are directly relevant to what the user is asking for
-- Select commands that might be needed for related tasks (e.g., if reading a file, include file writing commands too)
-- **Include commands whose descriptions mention relevant capabilities** even if the command name doesn't match
-- Consider synonyms and related concepts (e.g., "website" relates to web commands, "code" relates to execution commands)
-- If the user wants to communicate with or delegate to any external service/tool/assistant, include commands that interface with those
-- If the user uploaded files or there are files in context, always include file-related commands
-- If no commands seem relevant for a simple greeting or conversational message, respond with "None"
+**When to select commands:**
+- The command DIRECTLY accomplishes what the user is asking
+- The command is explicitly mentioned by name
+- The command is a necessary prerequisite for the task
+
+**When NOT to select:**
+- The command "might be useful" but isn't clearly needed
+- The description has vaguely related words
+- You're being "safe" by including extra options
+
+**If no commands seem clearly relevant**, respond with "None" - this is fine for greetings or simple questions.
 
 ## Response Format
-Respond with ONLY a comma-separated list of the exact command names that should be available, or "None" if no commands are needed.
-Do not include any other text, explanation, or formatting.
+Respond with ONLY a comma-separated list of exact command names, or "None".
+No explanations. Maximum 15 commands from this batch.
 
-Example response format:
-Web Search, Read File, Write to File, Execute Python Code"""
+Example: Web Search, Read File"""
 
         # Calculate the base prompt overhead (tokens used by template, user input, context)
         base_overhead_tokens = get_tokens(
@@ -2011,6 +1998,50 @@ Web Search, Read File, Write to File, Execute Python Code"""
                 seen.add(cmd)
                 unique_commands.append(cmd)
         valid_commands = unique_commands
+
+        # ENFORCE HARD CAP: Maximum 20 commands to prevent overwhelming the LLM
+        MAX_COMMANDS = 20
+        if len(valid_commands) > MAX_COMMANDS:
+            # Prioritize: 1) Explicitly requested, 2) always_include, 3) file/web commands if relevant, 4) LLM selected
+            prioritized = []
+            remaining = []
+
+            # Tier 1: Explicitly requested commands (user mentioned by name)
+            for cmd in valid_commands:
+                if cmd in explicitly_requested_commands:
+                    prioritized.append(cmd)
+                else:
+                    remaining.append(cmd)
+
+            # Tier 2: Always include commands
+            for cmd in remaining[:]:
+                if cmd in always_include:
+                    prioritized.append(cmd)
+                    remaining.remove(cmd)
+
+            # Tier 3: File/web commands if relevant context
+            if has_uploaded_files or file_context:
+                for cmd in remaining[:]:
+                    if cmd in file_commands and len(prioritized) < MAX_COMMANDS:
+                        prioritized.append(cmd)
+                        remaining.remove(cmd)
+
+            if has_url_reference:
+                for cmd in remaining[:]:
+                    if cmd in web_commands and len(prioritized) < MAX_COMMANDS:
+                        prioritized.append(cmd)
+                        remaining.remove(cmd)
+
+            # Fill remaining slots with LLM-selected commands (preserve order = relevance)
+            for cmd in remaining:
+                if len(prioritized) >= MAX_COMMANDS:
+                    break
+                prioritized.append(cmd)
+
+            valid_commands = prioritized
+            logging.info(
+                f"[select_commands_for_task] Capped commands from {len(unique_commands)} to {len(valid_commands)}"
+            )
 
         # Log the selection
         if log_output and thinking_id and valid_commands:

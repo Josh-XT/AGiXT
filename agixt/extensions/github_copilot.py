@@ -2,10 +2,6 @@ import os
 import logging
 from Extensions import Extensions
 from InternalClient import InternalClient
-from Globals import install_package_if_missing
-
-install_package_if_missing("safeexecute")
-
 from safeexecute import execute_github_copilot
 
 """
@@ -104,11 +100,6 @@ class github_copilot(Extensions):
         )
         self.activity_id = kwargs["activity_id"] if "activity_id" in kwargs else None
         self.conversation_id = kwargs.get("conversation_id", None)
-        # Only log when actually being used (not during metadata caching)
-        if self.conversation_id:
-            logging.info(
-                f"GitHub Copilot extension ready: conversation_id={self.conversation_id}, activity_id={self.activity_id}"
-            )
 
     async def ask_github_copilot(
         self,
@@ -119,9 +110,26 @@ class github_copilot(Extensions):
         """
         Send a request to GitHub Copilot CLI, which is an agentic coding assistant.
 
+        Args:
+            prompt (str): The detailed request or task to send to GitHub Copilot
+            branch (str): Optional branch name to work in. If specified, Copilot will checkout
+                          or create this branch before making changes. If not specified,
+                          Copilot will create a new feature branch based on the task.
+            session_id (str): Optional session ID to resume a previous conversation. If provided,
+                              Copilot will continue from where the previous session left off.
+                              Leave empty or set to None to start a new session.
+
+        Returns:
+            str: The response from GitHub Copilot including any actions taken and their results.
+                 The response also includes the session_id which can be used to continue
+                 the conversation in future requests.
+
+        Note: If the users request might require coding, use "Ask GitHub Copilot" with a detailed request including links to which repositories to work in if applicable.
+        The agent's workspace will be shared with GitHub Copilot. Any data manipulation or coding tasks should use GitHub Copilot.
+
         **IMPORTANT: If this command is available and the user asks to do ANYTHING related to GitHub
         (repositories, code, PRs, issues, branches, commits, merging, cloning, pushing, etc.),
-        you should delegate that request to GitHub Copilot using this command.**
+        the assistant should delegate that request to GitHub Copilot using this command.**
 
         GitHub Copilot CLI can read, modify, create, and delete files in the working directory.
         It runs in an isolated Docker container (SafeExecute) with the agent's workspace mounted,
@@ -148,23 +156,6 @@ class github_copilot(Extensions):
         2. Under "Repository access", select repos Copilot can access
         3. Under "Account permissions", enable "Copilot" with Read and write access
         4. Use the generated token (starts with 'github_pat_') as your GITHUB_COPILOT_TOKEN
-
-        Args:
-            prompt (str): The detailed request or task to send to GitHub Copilot
-            branch (str): Optional branch name to work in. If specified, Copilot will checkout
-                          or create this branch before making changes. If not specified,
-                          Copilot will create a new feature branch based on the task.
-            session_id (str): Optional session ID to resume a previous conversation. If provided,
-                              Copilot will continue from where the previous session left off.
-                              Leave empty or set to None to start a new session.
-
-        Returns:
-            str: The response from GitHub Copilot including any actions taken and their results.
-                 The response also includes the session_id which can be used to continue
-                 the conversation in future requests.
-
-        Note: If the users request might require coding, use "Ask GitHub Copilot" with a detailed request including links to which repositories to work in if applicable.
-        The agent's workspace will be shared with GitHub Copilot. Any data manipulation or coding tasks should use GitHub Copilot.
         """
         model = self.GITHUB_COPILOT_MODEL
         if not self.GITHUB_COPILOT_TOKEN:
@@ -273,18 +264,11 @@ If no changes are made to the repository, there is no need to go through this wo
             def send_streaming_update():
                 """Send or update the streaming subactivity message."""
                 if not self.activity_id or not streaming_content:
-                    logging.debug(
-                        f"send_streaming_update: skipping (activity_id={self.activity_id}, content_count={len(streaming_content)})"
-                    )
                     return
 
                 # Build the accumulated message
                 content_str = "\n".join(streaming_content)
                 full_message = f"[SUBACTIVITY][{self.activity_id}] **Copilot Activity:**\n{content_str}"
-
-                logging.debug(
-                    f"send_streaming_update: conversation_id={self.conversation_id}, message_id={message_id[0]}"
-                )
 
                 try:
                     if message_id[0] is None:
@@ -294,14 +278,8 @@ If no changes are made to the repository, there is no need to go through this wo
                             message=full_message,
                             conversation_name=self.conversation_name,
                         )
-                        logging.info(
-                            f"Created streaming message with ID: {message_id[0]}"
-                        )
                         # Also broadcast directly to WebSocket for real-time updates
                         if self.conversation_id:
-                            logging.info(
-                                f"Broadcasting message_added for {message_id[0]} to conversation {self.conversation_id}"
-                            )
                             from Conversations import broadcast_message_sync
 
                             broadcast_message_sync(
@@ -326,9 +304,6 @@ If no changes are made to the repository, there is no need to go through this wo
                         )
                         # Also broadcast directly to WebSocket for real-time updates
                         if self.conversation_id:
-                            logging.debug(
-                                f"Broadcasting message_updated for {message_id[0]}"
-                            )
                             from Conversations import broadcast_message_sync
 
                             broadcast_message_sync(
@@ -356,10 +331,6 @@ If no changes are made to the repository, there is no need to go through this wo
 
                 if not content:
                     return
-
-                logging.debug(
-                    f"Stream callback #{callback_count[0]}: type={event_type}, content={content[:50]}..."
-                )
 
                 # Format based on event type
                 if event_type == "tool_start":

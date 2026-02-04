@@ -774,6 +774,8 @@ class Extension(BaseModel):
     description: str
     settings: List[str]
     commands: List[Dict[str, Any]]
+    category: Optional[str] = None
+    category_description: Optional[str] = None
 
 
 class ExtensionsModel(BaseModel):

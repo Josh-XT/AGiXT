@@ -31,6 +31,7 @@ SCOPES = [
 ]
 AUTHORIZE = "https://twitter.com/i/oauth2/authorize"
 PKCE_REQUIRED = True
+SSO_ONLY = True  # This provider can be used for login/registration
 
 
 class XSSO:

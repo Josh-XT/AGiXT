@@ -185,7 +185,7 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
     these parameters in the agent's extension settings.
     """
 
-    CATEGORY = "Communication"
+    CATEGORY = "Social & Communication"
     friendly_name = "Twilio SMS"
 
     # Register extension models for automatic table creation

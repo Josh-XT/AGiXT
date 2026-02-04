@@ -99,6 +99,9 @@ class ezlocalai(Extensions):
         EZLOCALAI_TRANSCRIPTION_MODEL: str = "base",
         **kwargs,
     ):
+        import os as _os
+        import logging as _logging
+
         # Extension base initialization
         self.agent_name = kwargs.get("agent_name", "AGiXT")
         self.ApiClient = kwargs.get("ApiClient", None)
@@ -106,10 +109,26 @@ class ezlocalai(Extensions):
         # Get URI from parameter or environment
         if not EZLOCALAI_API_URI:
             EZLOCALAI_API_URI = getenv("EZLOCALAI_API_URI", getenv("EZLOCALAI_URI", ""))
+            # Only log when there's an issue (empty after fallback)
+            if not EZLOCALAI_API_URI:
+                _logging.warning(
+                    f"[ezlocalai] No EZLOCALAI_API_URI configured. "
+                    f"os.getenv('EZLOCALAI_API_URI')='{_os.getenv('EZLOCALAI_API_URI', 'NOT_SET')}', "
+                    f"os.getenv('EZLOCALAI_URI')='{_os.getenv('EZLOCALAI_URI', 'NOT_SET')}'"
+                )
 
         # Get API key from parameter or environment
         if not EZLOCALAI_API_KEY:
             EZLOCALAI_API_KEY = getenv("EZLOCALAI_API_KEY", "")
+
+        # Get MAX_TOKENS from parameter or environment
+        if not EZLOCALAI_MAX_TOKENS or EZLOCALAI_MAX_TOKENS == 32000:
+            env_max_tokens = getenv("EZLOCALAI_MAX_TOKENS", "")
+            if env_max_tokens:
+                try:
+                    EZLOCALAI_MAX_TOKENS = int(env_max_tokens)
+                except (ValueError, TypeError):
+                    EZLOCALAI_MAX_TOKENS = 32000
 
         # Normalize URI
         if EZLOCALAI_API_URI and not EZLOCALAI_API_URI.endswith("/"):
@@ -120,8 +139,12 @@ class ezlocalai(Extensions):
         self.API_URI = EZLOCALAI_API_URI
         self.EZLOCALAI_API_KEY = EZLOCALAI_API_KEY
 
-        # Check if this provider is configured (has a URI set)
-        self.configured = bool(self.API_URI)
+        # Check if this provider is configured (has a valid URI set)
+        self.configured = bool(
+            self.API_URI
+            and self.API_URI.strip() != ""
+            and self.API_URI.lower() not in ["none", "null", "false", "0"]
+        )
 
         # Model configuration
         self.AI_MODEL = EZLOCALAI_AI_MODEL if EZLOCALAI_AI_MODEL else "default"
@@ -130,11 +153,25 @@ class ezlocalai(Extensions):
             if EZLOCALAI_CODING_MODEL
             else "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF"
         )
-        self.MAX_TOKENS = int(EZLOCALAI_MAX_TOKENS) if EZLOCALAI_MAX_TOKENS else 32000
-        self.AI_TEMPERATURE = (
-            float(EZLOCALAI_TEMPERATURE) if EZLOCALAI_TEMPERATURE else 1.33
-        )
-        self.AI_TOP_P = float(EZLOCALAI_TOP_P) if EZLOCALAI_TOP_P else 0.95
+        # Handle MAX_TOKENS safely - might receive encrypted/invalid values from database
+        try:
+            self.MAX_TOKENS = (
+                int(EZLOCALAI_MAX_TOKENS) if EZLOCALAI_MAX_TOKENS else 32000
+            )
+        except (ValueError, TypeError):
+            self.MAX_TOKENS = 32000
+        # Handle TEMPERATURE safely
+        try:
+            self.AI_TEMPERATURE = (
+                float(EZLOCALAI_TEMPERATURE) if EZLOCALAI_TEMPERATURE else 1.33
+            )
+        except (ValueError, TypeError):
+            self.AI_TEMPERATURE = 1.33
+        # Handle TOP_P safely
+        try:
+            self.AI_TOP_P = float(EZLOCALAI_TOP_P) if EZLOCALAI_TOP_P else 0.95
+        except (ValueError, TypeError):
+            self.AI_TOP_P = 0.95
 
         # TTS configuration
         self.VOICE = EZLOCALAI_VOICE if EZLOCALAI_VOICE else "HAL9000"

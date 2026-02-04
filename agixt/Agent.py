@@ -357,6 +357,51 @@ def get_agents_lightweight(
         session.close()
 
 
+def check_and_onboard_agents(user_id: str) -> bool:
+    """
+    Check if any of the user's agents need onboarding and trigger batch onboarding if needed.
+
+    This is a lightweight check designed to be called from /v1/user endpoint
+    to ensure Core Abilities commands get enabled for new agents.
+
+    Uses flag agentonboarded01292026 to track onboarding state.
+
+    Returns True if any agents were onboarded, False otherwise.
+    """
+    session = get_session()
+    try:
+        # Get all agents owned by this user
+        agents = (
+            session.query(AgentModel)
+            .options(joinedload(AgentModel.settings))
+            .filter(AgentModel.user_id == user_id)
+            .all()
+        )
+
+        if not agents:
+            return False
+
+        # Check which agents need onboarding
+        agents_needing_onboard = []
+        for agent in agents:
+            settings_dict = {s.name: s.value for s in agent.settings}
+            agentonboarded01292026 = settings_dict.get("agentonboarded01292026")
+
+            if not agentonboarded01292026 or agentonboarded01292026.lower() != "true":
+                agents_needing_onboard.append(agent.id)
+
+        if agents_needing_onboard:
+            logging.debug(
+                f"[ONBOARD] Batch onboarding {len(agents_needing_onboard)} agents for user {user_id}"
+            )
+            _batch_onboard_agents(session, agents_needing_onboard)
+            return True
+
+        return False
+    finally:
+        session.close()
+
+
 def get_agent_commands_only(agent_id: str, user_id: str) -> dict:
     """
     Get just the commands dict for an agent without loading full Agent config.
@@ -595,8 +640,9 @@ class AIProviderManager:
         1. Agent settings (user-level) - but only if meaningfully different from defaults
         2. Company extension settings (CompanyExtensionSetting table)
         3. Server extension settings (ServerExtensionSetting table)
-        4. Environment variables (getenv fallback)
-        5. Extension default values (from __init__ signatures)
+        4. Server config (ServerConfig table - for AI provider settings)
+        5. Environment variables (getenv fallback)
+        6. Extension default values (from __init__ signatures)
 
         The key insight: Extensions already handle fallback to getenv() when passed empty values.
         So we should only pass non-empty values from higher priority sources, letting the
@@ -605,6 +651,7 @@ class AIProviderManager:
         from DB import (
             ServerExtensionSetting,
             CompanyExtensionSetting,
+            ServerConfig,
             get_session,
             decrypt_config_value,
         )
@@ -629,8 +676,25 @@ class AIProviderManager:
 
         merged_settings = {}
 
-        # Step 1: Start with server extension settings (from database)
+        # Step 1: Start with ServerConfig (primary source for AI provider settings from admin UI)
         with get_session() as session:
+            # Query ServerConfig for AI provider settings (category = 'ai_providers')
+            server_configs = (
+                session.query(ServerConfig)
+                .filter(ServerConfig.category == "ai_providers")
+                .all()
+            )
+            logging.debug(
+                f"[AIProviderManager] Found {len(server_configs)} ServerConfig ai_providers settings"
+            )
+            for config in server_configs:
+                value = config.value
+                if config.is_sensitive and value:
+                    value = decrypt_config_value(value)
+                if value:  # Only add non-empty values
+                    merged_settings[config.name] = value
+
+            # Step 2: Apply server extension settings (can override ServerConfig)
             server_ext_settings = (
                 session.query(ServerExtensionSetting)
                 .filter(ServerExtensionSetting.setting_key.in_(provider_setting_keys))
@@ -643,7 +707,7 @@ class AIProviderManager:
                 if value:  # Only add non-empty values
                     merged_settings[setting.setting_key] = value
 
-            # Step 2: Apply company extension settings (overrides server)
+            # Step 3: Apply company extension settings (overrides server)
             if self.company_id:
                 company_ext_settings = (
                     session.query(CompanyExtensionSetting)
@@ -663,7 +727,7 @@ class AIProviderManager:
                     elif value:
                         merged_settings[setting.setting_key] = value
 
-        # Step 3: Apply agent settings (highest priority)
+        # Step 4: Apply agent settings (highest priority)
         # Only apply if the value is meaningful (not empty, not a known localhost default)
         LOCALHOST_DEFAULTS = {
             "http://localhost:8091/v1/",
@@ -689,14 +753,53 @@ class AIProviderManager:
                 elif value:
                     merged_settings[key] = value
 
-        # Map alternative key names to canonical names
+        # Map ServerConfig key names to canonical extension setting names
+        # ServerConfig uses shorter names (e.g., OPENAI_MODEL) while extensions use
+        # longer names (e.g., OPENAI_AI_MODEL) to be more explicit
         key_mappings = {
+            # URI mappings
             "EZLOCALAI_URI": "EZLOCALAI_API_URI",
             "OPENAI_BASE_URI": "OPENAI_API_URI",
+            # Model name mappings (ServerConfig uses *_MODEL, extensions use *_AI_MODEL)
+            "OPENAI_MODEL": "OPENAI_AI_MODEL",
+            "ANTHROPIC_MODEL": "ANTHROPIC_AI_MODEL",
+            "GOOGLE_MODEL": "GOOGLE_AI_MODEL",
+            "XAI_MODEL": "XAI_AI_MODEL",
+            "OPENROUTER_MODEL": "OPENROUTER_AI_MODEL",
+            "AZURE_MODEL": "AZURE_DEPLOYMENT_NAME",
         }
         for alt_key, canonical_key in key_mappings.items():
             if alt_key in merged_settings and canonical_key not in merged_settings:
                 merged_settings[canonical_key] = merged_settings[alt_key]
+
+        # Log what we found for debugging
+        provider_keys_found = [
+            k
+            for k in merged_settings.keys()
+            if any(
+                p in k.upper()
+                for p in [
+                    "OPENAI",
+                    "ANTHROPIC",
+                    "EZLOCALAI",
+                    "GOOGLE",
+                    "XAI",
+                    "AZURE",
+                    "DEEPSEEK",
+                ]
+            )
+        ]
+        if provider_keys_found:
+            logging.debug(
+                f"[AIProviderManager] Merged settings contain {len(provider_keys_found)} provider keys: {provider_keys_found[:10]}"
+            )
+        else:
+            # Log more info when no provider keys found - this helps diagnose the issue
+            logging.warning(
+                f"[AIProviderManager] No provider keys in merged_settings. "
+                f"Agent settings keys: {list(self.agent_settings.keys())[:5] if self.agent_settings else 'empty'}. "
+                f"Extensions will fall back to getenv()."
+            )
 
         # Add non-provider agent settings that should always pass through
         non_provider_keys = [
@@ -729,10 +832,30 @@ class AIProviderManager:
             get_extension_class_name,
         )
 
+        # Log env vars directly for diagnostics - helps debug Docker issues
+        ezlocalai_env = os.getenv(
+            "EZLOCALAI_URI", os.getenv("EZLOCALAI_API_URI", "NOT_SET")
+        )
+        openai_env = "SET" if os.getenv("OPENAI_API_KEY") else "NOT_SET"
+        logging.info(
+            f"[AIProviderManager] Provider discovery starting. "
+            f"EZLOCALAI_URI env={ezlocalai_env}, OPENAI_API_KEY env={openai_env}"
+        )
+
         # Get merged settings from all configuration levels
         merged_settings = self._get_merged_provider_settings()
 
         extension_files = find_extension_files()
+
+        # Log which extension files are found
+        ai_provider_files = [
+            os.path.basename(f)
+            for f in extension_files
+            if "ezlocalai" in f.lower() or "openai" in f.lower()
+        ]
+        logging.info(
+            f"[AIProviderManager] Found extension files matching AI providers: {ai_provider_files}"
+        )
 
         for ext_file in extension_files:
             filename = os.path.basename(ext_file)
@@ -783,10 +906,33 @@ class AIProviderManager:
                             else ["llm"]
                         ),
                     }
+                    logging.info(
+                        f"[AIProviderManager] Added provider {provider_name} with {raw_max_tokens} tokens"
+                    )
+                else:
+                    # Log more details for ezlocalai specifically since it's the most common
+                    if provider_name == "ezlocalai":
+                        uri = getattr(provider_instance, "API_URI", "N/A")
+                        raw_env_uri = os.getenv("EZLOCALAI_URI", "NOT_SET")
+                        raw_env_api_uri = os.getenv("EZLOCALAI_API_URI", "NOT_SET")
+                        logging.warning(
+                            f"[AIProviderManager] ezlocalai not configured. "
+                            f"instance.API_URI='{uri}', configured={getattr(provider_instance, 'configured', 'N/A')}. "
+                            f"os.getenv: EZLOCALAI_URI='{raw_env_uri}', EZLOCALAI_API_URI='{raw_env_api_uri}'"
+                        )
+                    else:
+                        logging.debug(
+                            f"[AIProviderManager] Provider {provider_name} not configured (configured={getattr(provider_instance, 'configured', 'N/A')})"
+                        )
 
             except Exception as e:
-                logging.debug(
+                logging.warning(
                     f"[AIProviderManager] Could not load provider from {filename}: {e}"
+                )
+                import traceback
+
+                logging.warning(
+                    f"[AIProviderManager] Traceback: {traceback.format_exc()}"
                 )
 
         if not self.providers:
@@ -1462,7 +1608,8 @@ def get_agents(user=DEFAULT_USER, company=None):
         # Use pre-loaded settings instead of separate query
         settings_dict = {s.name: s.value for s in agent.settings}
         company_id = settings_dict.get("company_id")
-        agentonboarded11182025 = settings_dict.get("agentonboarded11182025")
+        # Check for the new onboarding flag (01292026) that handles newly moved Core Abilities extensions
+        agentonboarded01292026 = settings_dict.get("agentonboarded01292026")
 
         if company_id and company:
             if company_id != company:
@@ -1474,7 +1621,7 @@ def get_agents(user=DEFAULT_USER, company=None):
             company_id = str(auth.company_id) if auth.company_id is not None else None
 
         # Queue agents needing onboarding instead of processing inline
-        if not agentonboarded11182025 or agentonboarded11182025.lower() != "true":
+        if not agentonboarded01292026 or agentonboarded01292026.lower() != "true":
             agents_needing_onboard.append(agent.id)
 
         is_owner = agent.user_id == user_data.id
@@ -1508,6 +1655,7 @@ def get_agents(user=DEFAULT_USER, company=None):
     # Process agent onboarding asynchronously/in background if needed
     # For now, do a single batch onboard instead of per-agent
     if agents_needing_onboard:
+        logging.debug(f"Batch onboarding {len(agents_needing_onboard)} agents")
         _batch_onboard_agents(session, agents_needing_onboard)
 
     session.close()
@@ -1518,6 +1666,9 @@ def _batch_onboard_agents(session, agent_ids):
     """
     Batch onboard multiple agents - enables Core Abilities commands.
     This is more efficient than processing one at a time.
+
+    Uses flag agentonboarded01292026 to track onboarding state for the latest
+    Core Abilities extensions (including Tickets, Assets, Machines, etc.).
     """
     if not agent_ids:
         return
@@ -1534,7 +1685,7 @@ def _batch_onboard_agents(session, agent_ids):
         for agent_id in agent_ids:
             agent_setting = AgentSettingModel(
                 agent_id=agent_id,
-                name="agentonboarded11182025",
+                name="agentonboarded01292026",
                 value="true",
             )
             session.add(agent_setting)
@@ -1554,7 +1705,7 @@ def _batch_onboard_agents(session, agent_ids):
         for agent_id in agent_ids:
             agent_setting = AgentSettingModel(
                 agent_id=agent_id,
-                name="agentonboarded11182025",
+                name="agentonboarded01292026",
                 value="true",
             )
             session.add(agent_setting)
@@ -1579,10 +1730,10 @@ def _batch_onboard_agents(session, agent_ids):
                 )
                 session.add(agent_command)
 
-        # Mark agent as onboarded
+        # Mark agent as onboarded with the new flag
         agent_setting = AgentSettingModel(
             agent_id=agent_id,
-            name="agentonboarded11182025",
+            name="agentonboarded01292026",
             value="true",
         )
         session.add(agent_setting)
@@ -2808,9 +2959,20 @@ class Agent:
             settings_with_values = []
             has_configured_setting = False
             for key in required_keys:
+                # Determine if sensitive - use specific patterns to avoid false positives like MAX_TOKENS
+                upper_key = key.upper()
                 is_sensitive = any(
-                    kw in key.upper()
-                    for kw in ["API_KEY", "SECRET", "PASSWORD", "TOKEN", "PRIVATE"]
+                    kw in upper_key
+                    for kw in [
+                        "API_KEY",
+                        "SECRET",
+                        "PASSWORD",
+                        "PRIVATE_KEY",
+                        "ACCESS_TOKEN",
+                        "REFRESH_TOKEN",
+                        "AUTH_TOKEN",
+                        "BEARER_TOKEN",
+                    ]
                 )
 
                 if key not in self.AGENT_CONFIG["settings"]:

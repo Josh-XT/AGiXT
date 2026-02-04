@@ -32,7 +32,9 @@ The CSV preview includes the first 2 lines of the CSV file to help you understan
 
 **Make sure the output contains visualizations! It must end with a print for the output to show!**
 
-You are working the with file at {import_file} . Use this exact file path in any code that will analyze it. CSV file preview:
+You are working with the file at `{import_file}`. **IMPORTANT: When writing code, use only the FILENAME (e.g., 'data.csv') or prefix with '/workspace/' (e.g., '/workspace/data.csv'). Do NOT use the full absolute path shown above - paths are automatically translated to the container environment.**
+
+CSV file preview:
 ```csv
 {file_preview}
 ```
