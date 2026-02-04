@@ -640,8 +640,9 @@ class AIProviderManager:
         1. Agent settings (user-level) - but only if meaningfully different from defaults
         2. Company extension settings (CompanyExtensionSetting table)
         3. Server extension settings (ServerExtensionSetting table)
-        4. Environment variables (getenv fallback)
-        5. Extension default values (from __init__ signatures)
+        4. Server config (ServerConfig table - for AI provider settings)
+        5. Environment variables (getenv fallback)
+        6. Extension default values (from __init__ signatures)
 
         The key insight: Extensions already handle fallback to getenv() when passed empty values.
         So we should only pass non-empty values from higher priority sources, letting the
@@ -650,6 +651,7 @@ class AIProviderManager:
         from DB import (
             ServerExtensionSetting,
             CompanyExtensionSetting,
+            ServerConfig,
             get_session,
             decrypt_config_value,
         )
@@ -674,8 +676,22 @@ class AIProviderManager:
 
         merged_settings = {}
 
-        # Step 1: Start with server extension settings (from database)
+        # Step 1: Start with ServerConfig (primary source for AI provider settings from admin UI)
         with get_session() as session:
+            # Query ServerConfig for AI provider settings (category = 'ai_providers')
+            server_configs = (
+                session.query(ServerConfig)
+                .filter(ServerConfig.category == "ai_providers")
+                .all()
+            )
+            for config in server_configs:
+                value = config.value
+                if config.is_sensitive and value:
+                    value = decrypt_config_value(value)
+                if value:  # Only add non-empty values
+                    merged_settings[config.name] = value
+
+            # Step 2: Apply server extension settings (can override ServerConfig)
             server_ext_settings = (
                 session.query(ServerExtensionSetting)
                 .filter(ServerExtensionSetting.setting_key.in_(provider_setting_keys))
@@ -688,7 +704,7 @@ class AIProviderManager:
                 if value:  # Only add non-empty values
                     merged_settings[setting.setting_key] = value
 
-            # Step 2: Apply company extension settings (overrides server)
+            # Step 3: Apply company extension settings (overrides server)
             if self.company_id:
                 company_ext_settings = (
                     session.query(CompanyExtensionSetting)
@@ -708,7 +724,7 @@ class AIProviderManager:
                     elif value:
                         merged_settings[setting.setting_key] = value
 
-        # Step 3: Apply agent settings (highest priority)
+        # Step 4: Apply agent settings (highest priority)
         # Only apply if the value is meaningful (not empty, not a known localhost default)
         LOCALHOST_DEFAULTS = {
             "http://localhost:8091/v1/",
@@ -734,10 +750,20 @@ class AIProviderManager:
                 elif value:
                     merged_settings[key] = value
 
-        # Map alternative key names to canonical names
+        # Map ServerConfig key names to canonical extension setting names
+        # ServerConfig uses shorter names (e.g., OPENAI_MODEL) while extensions use
+        # longer names (e.g., OPENAI_AI_MODEL) to be more explicit
         key_mappings = {
+            # URI mappings
             "EZLOCALAI_URI": "EZLOCALAI_API_URI",
             "OPENAI_BASE_URI": "OPENAI_API_URI",
+            # Model name mappings (ServerConfig uses *_MODEL, extensions use *_AI_MODEL)
+            "OPENAI_MODEL": "OPENAI_AI_MODEL",
+            "ANTHROPIC_MODEL": "ANTHROPIC_AI_MODEL",
+            "GOOGLE_MODEL": "GOOGLE_AI_MODEL",
+            "XAI_MODEL": "XAI_AI_MODEL",
+            "OPENROUTER_MODEL": "OPENROUTER_AI_MODEL",
+            "AZURE_MODEL": "AZURE_DEPLOYMENT_NAME",
         }
         for alt_key, canonical_key in key_mappings.items():
             if alt_key in merged_settings and canonical_key not in merged_settings:
