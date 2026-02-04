@@ -1,6 +1,8 @@
 The date today is {date} .
 
-You are working the with file at {import_file} . Use this exact file path in any code that will analyze it. CSV file preview:
+You are working with the file at `{import_file}`. **IMPORTANT: When writing code, use only the FILENAME (e.g., 'data.csv') or prefix with '/workspace/' (e.g., '/workspace/data.csv'). Do NOT use the full absolute path shown above - paths are automatically translated to the container environment.**
+
+CSV file preview:
 ```csv
 {file_preview}
 ```
@@ -9,9 +11,9 @@ We built python code to build a visualization for the user's input.
 
 User's input: {user_input} 
 
-**Ensure the code does not modify the file system outside of the working directory at {working_directory} , if it does, remove the portion of the code that does.**
+**Ensure the code does not modify the file system outside of the working directory at /workspace , if it does, remove the portion of the code that does.**
 
-**Any files saved to {working_directory} will be immediately available at {output_url} with the file name you used at the end. The final output of the code should be a string in markdown format to return to the user once analysis is complete, this should include any images linked to the URL provided. Make sure the output references any visualizations generated.**
+**Any files saved to /workspace will be immediately available at {output_url} with the file name you used at the end. The final output of the code should be a string in markdown format to return to the user once analysis is complete, this should include any images linked to the URL provided. Make sure the output references any visualizations generated.**
 
 **Make sure the output contains visualizations! It must end with a print for the output to show! Only print what should output to the user.**
 

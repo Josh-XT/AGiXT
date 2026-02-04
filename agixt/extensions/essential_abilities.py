@@ -1424,6 +1424,9 @@ print(output)
 
         **Workspace File System Access:**
         - Full read/write access to all files in your dedicated workspace directory
+        - The workspace is mounted at `/workspace` - use this path or just relative filenames
+        - IMPORTANT: When referencing files, use JUST THE FILENAME (e.g., 'data.csv') or '/workspace/data.csv'
+        - Do NOT use absolute paths from context - they will be automatically translated
         - Automatically discovers and works with uploaded files, downloaded content, and previously created files
         - Can process multiple files simultaneously (CSV, Excel, images, PDFs, text files, etc.)
         - Files you create are immediately accessible to users via download links
