@@ -2959,9 +2959,20 @@ class Agent:
             settings_with_values = []
             has_configured_setting = False
             for key in required_keys:
+                # Determine if sensitive - use specific patterns to avoid false positives like MAX_TOKENS
+                upper_key = key.upper()
                 is_sensitive = any(
-                    kw in key.upper()
-                    for kw in ["API_KEY", "SECRET", "PASSWORD", "TOKEN", "PRIVATE"]
+                    kw in upper_key
+                    for kw in [
+                        "API_KEY",
+                        "SECRET",
+                        "PASSWORD",
+                        "PRIVATE_KEY",
+                        "ACCESS_TOKEN",
+                        "REFRESH_TOKEN",
+                        "AUTH_TOKEN",
+                        "BEARER_TOKEN",
+                    ]
                 )
 
                 if key not in self.AGENT_CONFIG["settings"]:

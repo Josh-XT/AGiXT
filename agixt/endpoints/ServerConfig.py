@@ -798,10 +798,20 @@ async def update_server_extension_settings(
                     .first()
                 )
 
-                # Determine if sensitive
+                # Determine if sensitive - use specific patterns to avoid false positives like MAX_TOKENS
+                upper_key = update.setting_key.upper()
                 is_sensitive = any(
-                    kw in update.setting_key.upper()
-                    for kw in ["API_KEY", "SECRET", "PASSWORD", "TOKEN", "PRIVATE"]
+                    kw in upper_key
+                    for kw in [
+                        "API_KEY",
+                        "SECRET",
+                        "PASSWORD",
+                        "PRIVATE_KEY",
+                        "ACCESS_TOKEN",
+                        "REFRESH_TOKEN",
+                        "AUTH_TOKEN",
+                        "BEARER_TOKEN",
+                    ]
                 )
 
                 # Encrypt if sensitive
@@ -1104,10 +1114,20 @@ async def update_company_extension_settings(
                     .first()
                 )
 
-                # Determine if sensitive
+                # Determine if sensitive - use specific patterns to avoid false positives like MAX_TOKENS
+                upper_key = update.setting_key.upper()
                 is_sensitive = any(
-                    kw in update.setting_key.upper()
-                    for kw in ["API_KEY", "SECRET", "PASSWORD", "TOKEN", "PRIVATE"]
+                    kw in upper_key
+                    for kw in [
+                        "API_KEY",
+                        "SECRET",
+                        "PASSWORD",
+                        "PRIVATE_KEY",
+                        "ACCESS_TOKEN",
+                        "REFRESH_TOKEN",
+                        "AUTH_TOKEN",
+                        "BEARER_TOKEN",
+                    ]
                 )
 
                 # Encrypt if sensitive
@@ -2801,11 +2821,20 @@ async def enable_server_bot(
                     .first()
                 )
 
-                is_sensitive = (
-                    key.upper() in ["TOKEN", "SECRET", "KEY", "PASSWORD"]
-                    or "TOKEN" in key.upper()
-                    or "SECRET" in key.upper()
-                    or "KEY" in key.upper()
+                # Determine if sensitive - use specific patterns to avoid false positives like MAX_TOKENS
+                upper_key = key.upper()
+                is_sensitive = any(
+                    kw in upper_key
+                    for kw in [
+                        "API_KEY",
+                        "SECRET",
+                        "PASSWORD",
+                        "PRIVATE_KEY",
+                        "ACCESS_TOKEN",
+                        "REFRESH_TOKEN",
+                        "AUTH_TOKEN",
+                        "BEARER_TOKEN",
+                    ]
                 )
 
                 if setting:
@@ -3259,10 +3288,20 @@ async def enable_company_bot(
                     .first()
                 )
 
-                # Determine if sensitive
+                # Determine if sensitive - use specific patterns to avoid false positives like MAX_TOKENS
+                upper_key = key.upper()
                 is_sensitive = any(
-                    x in key.lower()
-                    for x in ["token", "secret", "password", "key", "access"]
+                    kw in upper_key
+                    for kw in [
+                        "API_KEY",
+                        "SECRET",
+                        "PASSWORD",
+                        "PRIVATE_KEY",
+                        "ACCESS_TOKEN",
+                        "REFRESH_TOKEN",
+                        "AUTH_TOKEN",
+                        "BEARER_TOKEN",
+                    ]
                 )
 
                 # Encrypt if sensitive

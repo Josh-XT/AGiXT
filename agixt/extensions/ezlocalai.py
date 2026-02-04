@@ -140,11 +140,25 @@ class ezlocalai(Extensions):
             if EZLOCALAI_CODING_MODEL
             else "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF"
         )
-        self.MAX_TOKENS = int(EZLOCALAI_MAX_TOKENS) if EZLOCALAI_MAX_TOKENS else 32000
-        self.AI_TEMPERATURE = (
-            float(EZLOCALAI_TEMPERATURE) if EZLOCALAI_TEMPERATURE else 1.33
-        )
-        self.AI_TOP_P = float(EZLOCALAI_TOP_P) if EZLOCALAI_TOP_P else 0.95
+        # Handle MAX_TOKENS safely - might receive encrypted/invalid values from database
+        try:
+            self.MAX_TOKENS = (
+                int(EZLOCALAI_MAX_TOKENS) if EZLOCALAI_MAX_TOKENS else 32000
+            )
+        except (ValueError, TypeError):
+            self.MAX_TOKENS = 32000
+        # Handle TEMPERATURE safely
+        try:
+            self.AI_TEMPERATURE = (
+                float(EZLOCALAI_TEMPERATURE) if EZLOCALAI_TEMPERATURE else 1.33
+            )
+        except (ValueError, TypeError):
+            self.AI_TEMPERATURE = 1.33
+        # Handle TOP_P safely
+        try:
+            self.AI_TOP_P = float(EZLOCALAI_TOP_P) if EZLOCALAI_TOP_P else 0.95
+        except (ValueError, TypeError):
+            self.AI_TOP_P = 0.95
 
         # TTS configuration
         self.VOICE = EZLOCALAI_VOICE if EZLOCALAI_VOICE else "HAL9000"
