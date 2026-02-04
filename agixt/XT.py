@@ -1875,8 +1875,7 @@ Your response (true or false):"""
             )
             return file_content
 
-        # Chat completions - return metadata and instructions instead of full file content
-        # This keeps context manageable and the agent can use commands to access files
+        # Chat completions - check if file content is small enough to include directly
         if file_content:
             file_tokens = get_tokens(file_content)
             logging.info(f"learn_from_file: file={file_name}, tokens={file_tokens}")
@@ -1892,29 +1891,85 @@ Your response (true or false):"""
             if file_type in ["xlsx", "xls"]:
                 base_name = file_name.rsplit(".", 1)[0]
                 try:
-                    # Securely determine the directory for file_path
-                    dir_path = os.path.normpath(os.path.dirname(file_path))
-                    if not dir_path.startswith(self.agent_workspace):
-                        raise Exception(
-                            "Access to directory outside agent workspace is not allowed."
-                        )
-                    csv_files = [
-                        f
-                        for f in os.listdir(dir_path)
-                        if f.startswith(base_name) and f.endswith(".csv")
-                    ]
-                    if csv_files:
-                        converted_file = (
-                            csv_files[0]
-                            if len(csv_files) == 1
-                            else f"{base_name}_*.csv (multiple sheets)"
-                        )
+                    # Get the directory where the file is located
+                    dir_path = os.path.dirname(file_path)
+                    
+                    # Normalize both paths to absolute paths for proper comparison
+                    abs_dir_path = os.path.abspath(os.path.normpath(dir_path))
+                    abs_workspace = os.path.abspath(os.path.normpath(self.agent_workspace))
+                    
+                    # If dir_path is outside workspace, try to find it within workspace
+                    if not abs_dir_path.startswith(abs_workspace):
+                        # The file might be referenced with a relative path or different base
+                        # Try using the conversation workspace instead
+                        if hasattr(self, 'conversation_workspace') and self.conversation_workspace:
+                            abs_conv_workspace = os.path.abspath(os.path.normpath(self.conversation_workspace))
+                            if abs_dir_path.startswith(abs_conv_workspace):
+                                # Path is valid within conversation workspace
+                                pass
+                            else:
+                                # Try to locate the file within the conversation workspace
+                                potential_path = os.path.join(self.conversation_workspace, file_name)
+                                if os.path.exists(potential_path):
+                                    dir_path = self.conversation_workspace
+                                    abs_dir_path = abs_conv_workspace
+                                else:
+                                    # Can't find the file in expected locations, skip CSV listing
+                                    logging.warning(
+                                        f"Could not locate directory for {file_name} within workspace, skipping CSV file listing"
+                                    )
+                                    dir_path = None
+                        else:
+                            # No conversation workspace, try the agent workspace directly
+                            potential_path = os.path.join(self.agent_workspace, file_name)
+                            if os.path.exists(potential_path):
+                                dir_path = self.agent_workspace
+                                abs_dir_path = abs_workspace
+                            else:
+                                logging.warning(
+                                    f"Could not locate directory for {file_name} within agent workspace, skipping CSV file listing"
+                                )
+                                dir_path = None
+                    
+                    # List CSV files if we have a valid directory
+                    if dir_path and os.path.isdir(dir_path):
+                        csv_files = [
+                            f
+                            for f in os.listdir(dir_path)
+                            if f.startswith(base_name) and f.endswith(".csv")
+                        ]
+                        if csv_files:
+                            converted_file = (
+                                csv_files[0]
+                                if len(csv_files) == 1
+                                else f"{base_name}_*.csv (multiple sheets)"
+                            )
                 except Exception as e:
                     log_silenced_exception(
                         e, f"_process_file: listing CSV files for {file_name}"
                     )
 
-            # Return only metadata and instructions - not the actual content
+            # For spreadsheet files (CSV, XLSX, XLS) that are reasonably sized, return the actual content
+            # so the AI can see the data immediately without needing to run commands.
+            # This allows the AI to answer questions about the data directly on first inference.
+            # Use a threshold of 50k tokens - large enough to fit most spreadsheets but not overwhelm context
+            SPREADSHEET_CONTENT_THRESHOLD = 50000
+            spreadsheet_types = ["csv", "xlsx", "xls"]
+            
+            if file_type.lower() in spreadsheet_types and file_tokens < SPREADSHEET_CONTENT_THRESHOLD:
+                logging.info(
+                    f"Spreadsheet {file_name} - returning actual content ({file_tokens} tokens) for direct AI access"
+                )
+                # Add metadata about the converted file to help the AI reference it correctly
+                if converted_file and converted_file != file_name:
+                    content_with_meta = f"## Uploaded Spreadsheet: `{file_name}` (converted to `{converted_file}`)\n"
+                    content_with_meta += f"**Use `{converted_file}` for all Read File and pandas operations.**\n\n"
+                    content_with_meta += file_content
+                    return content_with_meta
+                return file_content
+
+            # For large files or non-spreadsheet files, return metadata and instructions
+            # This keeps context manageable and the agent can use commands to access files
             instructions = self._get_file_access_instructions(
                 file_name=file_name,
                 file_url=file_url,
