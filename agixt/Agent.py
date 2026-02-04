@@ -789,9 +789,17 @@ class AIProviderManager:
                 ]
             )
         ]
-        logging.debug(
-            f"[AIProviderManager] Merged settings contain {len(provider_keys_found)} provider keys: {provider_keys_found[:10]}"
-        )
+        if provider_keys_found:
+            logging.debug(
+                f"[AIProviderManager] Merged settings contain {len(provider_keys_found)} provider keys: {provider_keys_found[:10]}"
+            )
+        else:
+            # Log more info when no provider keys found - this helps diagnose the issue
+            logging.warning(
+                f"[AIProviderManager] No provider keys in merged_settings. "
+                f"Agent settings keys: {list(self.agent_settings.keys())[:5] if self.agent_settings else 'empty'}. "
+                f"Extensions will fall back to getenv()."
+            )
 
         # Add non-provider agent settings that should always pass through
         non_provider_keys = [
@@ -878,6 +886,22 @@ class AIProviderManager:
                             else ["llm"]
                         ),
                     }
+                    logging.debug(
+                        f"[AIProviderManager] Added provider {provider_name} with {raw_max_tokens} tokens"
+                    )
+                else:
+                    # Log more details for ezlocalai specifically since it's the most common
+                    if provider_name == "ezlocalai":
+                        uri = getattr(provider_instance, "API_URI", "N/A")
+                        logging.warning(
+                            f"[AIProviderManager] ezlocalai not configured. "
+                            f"API_URI='{uri}', configured={getattr(provider_instance, 'configured', 'N/A')}. "
+                            f"Check EZLOCALAI_URI or EZLOCALAI_API_URI env vars."
+                        )
+                    else:
+                        logging.debug(
+                            f"[AIProviderManager] Provider {provider_name} not configured (configured={getattr(provider_instance, 'configured', 'N/A')})"
+                        )
 
             except Exception as e:
                 logging.debug(

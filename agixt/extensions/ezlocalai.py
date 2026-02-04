@@ -99,6 +99,9 @@ class ezlocalai(Extensions):
         EZLOCALAI_TRANSCRIPTION_MODEL: str = "base",
         **kwargs,
     ):
+        import os as _os
+        import logging as _logging
+
         # Extension base initialization
         self.agent_name = kwargs.get("agent_name", "AGiXT")
         self.ApiClient = kwargs.get("ApiClient", None)
@@ -106,6 +109,13 @@ class ezlocalai(Extensions):
         # Get URI from parameter or environment
         if not EZLOCALAI_API_URI:
             EZLOCALAI_API_URI = getenv("EZLOCALAI_API_URI", getenv("EZLOCALAI_URI", ""))
+            # Only log when there's an issue (empty after fallback)
+            if not EZLOCALAI_API_URI:
+                _logging.warning(
+                    f"[ezlocalai] No EZLOCALAI_API_URI configured. "
+                    f"os.getenv('EZLOCALAI_API_URI')='{_os.getenv('EZLOCALAI_API_URI', 'NOT_SET')}', "
+                    f"os.getenv('EZLOCALAI_URI')='{_os.getenv('EZLOCALAI_URI', 'NOT_SET')}'"
+                )
 
         # Get API key from parameter or environment
         if not EZLOCALAI_API_KEY:
