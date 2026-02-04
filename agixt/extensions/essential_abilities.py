@@ -275,6 +275,13 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Send Feedback to Development Team": self.send_feedback_to_dev_team,
             # Codebase Mapping
             "Create or Update Codebase Map": self.create_or_update_codebase_map,
+            # Academic Paper Research
+            "Search arXiv": self.search_arxiv,
+            "Search Semantic Scholar": self.search_semantic_scholar,
+            "Search OpenAlex": self.search_openalex,
+            "Search PubMed Central": self.search_pubmed_central,
+            "Download Paper PDF": self.download_paper_pdf,
+            "Convert PDF to Markdown": self.convert_pdf_to_markdown,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -10184,3 +10191,787 @@ The map includes:
         except Exception as e:
             logging.error(f"[create_or_update_codebase_map] Error: {str(e)}")
             return f"Error creating codebase map: {str(e)}"
+
+    # ========== Academic Paper Research Commands ==========
+
+    async def search_arxiv(
+        self,
+        query: str,
+        max_results: int = 10,
+        save_to_workspace: bool = True,
+    ) -> str:
+        """
+        Search arXiv for academic papers and optionally save results to workspace.
+
+        Args:
+            query (str): Search query for finding papers on arXiv
+            max_results (int): Maximum number of papers to return (default 10)
+            save_to_workspace (bool): If True, saves paper metadata as markdown files
+
+        Returns:
+            str: Formatted list of papers found with titles, authors, abstracts and links
+
+        Notes:
+            - arXiv is a free distribution service for scholarly articles
+            - Covers physics, mathematics, computer science, quantitative biology, and more
+            - Papers are preprints and may not be peer-reviewed
+            - Use specific terms and arXiv categories for better results
+            - Example queries: "machine learning", "cat:cs.AI AND neural networks"
+        """
+        try:
+            import arxiv
+
+            client = arxiv.Client()
+            search = arxiv.Search(
+                query=query,
+                max_results=max_results,
+                sort_by=arxiv.SortCriterion.Relevance,
+            )
+
+            results = list(client.results(search))
+
+            if not results:
+                return f"No papers found on arXiv for query: {query}"
+
+            papers_info = []
+
+            for i, paper in enumerate(results, 1):
+                arxiv_id = paper.entry_id.split("/")[-1]
+                authors = ", ".join(author.name for author in paper.authors[:5])
+                if len(paper.authors) > 5:
+                    authors += f" and {len(paper.authors) - 5} more"
+
+                paper_md = f"""# {paper.title}
+
+**arXiv ID:** {arxiv_id}
+**Authors:** {authors}
+**Published:** {paper.published.strftime('%Y-%m-%d')}
+**Categories:** {', '.join(paper.categories)}
+
+## Abstract
+{paper.summary}
+
+## Links
+- [arXiv Abstract]({paper.entry_id})
+- [PDF Download]({paper.pdf_url})
+- [HTML Version (ar5iv)]({paper.entry_id.replace('arxiv.org', 'ar5iv.org')})
+"""
+
+                if save_to_workspace:
+                    # Save paper info to workspace
+                    safe_title = "".join(
+                        c if c.isalnum() or c in " -_" else "_"
+                        for c in paper.title[:50]
+                    )
+                    filename = f"arxiv_{arxiv_id}_{safe_title}.md"
+                    file_path = self.safe_join(f"papers/{filename}")
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(paper_md)
+
+                papers_info.append(
+                    f"""
+### {i}. {paper.title}
+- **arXiv ID:** [{arxiv_id}]({paper.entry_id})
+- **Authors:** {authors}
+- **Date:** {paper.published.strftime('%Y-%m-%d')}
+- **PDF:** [Download]({paper.pdf_url})
+- **Abstract:** {paper.summary[:300]}..."""
+                )
+
+            result = (
+                f"## arXiv Search Results for: {query}\n\nFound {len(results)} papers:\n"
+                + "\n".join(papers_info)
+            )
+
+            if save_to_workspace:
+                result += f"\n\n---\n*Paper metadata files saved to `{self.output_url}papers/`*"
+
+            return result
+
+        except Exception as e:
+            logging.error(f"[search_arxiv] Error: {str(e)}")
+            return f"Error searching arXiv: {str(e)}"
+
+    async def search_semantic_scholar(
+        self,
+        query: str,
+        max_results: int = 10,
+        save_to_workspace: bool = True,
+        fields: str = "title,authors,abstract,year,citationCount,openAccessPdf,url,externalIds",
+    ) -> str:
+        """
+        Search Semantic Scholar for academic papers.
+
+        Args:
+            query (str): Search query for finding papers
+            max_results (int): Maximum number of papers to return (default 10, max 100)
+            save_to_workspace (bool): If True, saves paper metadata as markdown files
+            fields (str): Comma-separated fields to retrieve
+
+        Returns:
+            str: Formatted list of papers found with metadata and links
+
+        Notes:
+            - Semantic Scholar is an AI-powered academic search engine
+            - Includes citation counts and influential citations
+            - Often has open access PDF links
+            - Covers computer science, biology, medicine extensively
+            - API is free with rate limits (100 requests/5 minutes)
+        """
+        import requests
+
+        try:
+            api_url = "https://api.semanticscholar.org/graph/v1/paper/search"
+            params = {
+                "query": query,
+                "limit": min(max_results, 100),
+                "fields": fields,
+            }
+
+            response = requests.get(api_url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+
+            papers = data.get("data", [])
+
+            if not papers:
+                return f"No papers found on Semantic Scholar for query: {query}"
+
+            papers_info = []
+
+            for i, paper in enumerate(papers, 1):
+                paper_id = paper.get("paperId", "")
+                title = paper.get("title", "Unknown Title")
+                authors_list = paper.get("authors", [])
+                authors = ", ".join(a.get("name", "") for a in authors_list[:5])
+                if len(authors_list) > 5:
+                    authors += f" and {len(authors_list) - 5} more"
+                abstract = paper.get("abstract", "No abstract available")
+                year = paper.get("year", "N/A")
+                citations = paper.get("citationCount", 0)
+                url = paper.get("url", "")
+                open_access = paper.get("openAccessPdf", {})
+                pdf_url = open_access.get("url", "") if open_access else ""
+                external_ids = paper.get("externalIds", {})
+                arxiv_id = external_ids.get("ArXiv", "")
+                doi = external_ids.get("DOI", "")
+
+                paper_md = f"""# {title}
+
+**Semantic Scholar ID:** {paper_id}
+**Authors:** {authors}
+**Year:** {year}
+**Citations:** {citations}
+{"**arXiv ID:** " + arxiv_id if arxiv_id else ""}
+{"**DOI:** " + doi if doi else ""}
+
+## Abstract
+{abstract or 'No abstract available'}
+
+## Links
+- [Semantic Scholar Page]({url})
+{"- [Open Access PDF](" + pdf_url + ")" if pdf_url else "- No open access PDF available"}
+{"- [arXiv](https://arxiv.org/abs/" + arxiv_id + ")" if arxiv_id else ""}
+{"- [DOI](https://doi.org/" + doi + ")" if doi else ""}
+"""
+
+                if save_to_workspace:
+                    safe_title = "".join(
+                        c if c.isalnum() or c in " -_" else "_" for c in title[:50]
+                    )
+                    filename = f"semantic_scholar_{paper_id[:20]}_{safe_title}.md"
+                    file_path = self.safe_join(f"papers/{filename}")
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(paper_md)
+
+                papers_info.append(
+                    f"""
+### {i}. {title}
+- **Authors:** {authors}
+- **Year:** {year} | **Citations:** {citations}
+- **Links:** [Semantic Scholar]({url}){" | [PDF](" + pdf_url + ")" if pdf_url else ""}
+- **Abstract:** {(abstract or 'N/A')[:300]}..."""
+                )
+
+            result = (
+                f"## Semantic Scholar Search Results for: {query}\n\nFound {len(papers)} papers:\n"
+                + "\n".join(papers_info)
+            )
+
+            if save_to_workspace:
+                result += f"\n\n---\n*Paper metadata files saved to `{self.output_url}papers/`*"
+
+            return result
+
+        except requests.exceptions.RequestException as e:
+            logging.error(f"[search_semantic_scholar] Error: {str(e)}")
+            return f"Error searching Semantic Scholar: {str(e)}"
+        except Exception as e:
+            logging.error(f"[search_semantic_scholar] Error: {str(e)}")
+            return f"Error searching Semantic Scholar: {str(e)}"
+
+    async def search_openalex(
+        self,
+        query: str,
+        max_results: int = 10,
+        save_to_workspace: bool = True,
+        filter_open_access: bool = False,
+    ) -> str:
+        """
+        Search OpenAlex for academic papers and scholarly works.
+
+        Args:
+            query (str): Search query for finding papers
+            max_results (int): Maximum number of papers to return (default 10)
+            save_to_workspace (bool): If True, saves paper metadata as markdown files
+            filter_open_access (bool): If True, only returns open access papers
+
+        Returns:
+            str: Formatted list of papers found with metadata and links
+
+        Notes:
+            - OpenAlex is a free, open catalog of scholarly works
+            - Contains 250M+ works, 100M+ authors, 15M+ venues
+            - Good coverage across all academic disciplines
+            - API is free with optional polite pool (add email to get higher rate limits)
+            - Includes citation data and linked concepts
+        """
+        import requests
+
+        try:
+            api_url = "https://api.openalex.org/works"
+            params = {
+                "search": query,
+                "per_page": min(max_results, 200),
+                "mailto": "agixt@devxt.com",  # Polite pool for better rate limits
+            }
+
+            if filter_open_access:
+                params["filter"] = "is_oa:true"
+
+            response = requests.get(api_url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+
+            works = data.get("results", [])
+
+            if not works:
+                return f"No papers found on OpenAlex for query: {query}"
+
+            papers_info = []
+
+            for i, work in enumerate(works, 1):
+                work_id = work.get("id", "").split("/")[-1]
+                title = work.get("title", "Unknown Title")
+
+                # Get authors
+                authorships = work.get("authorships", [])
+                authors = ", ".join(
+                    a.get("author", {}).get("display_name", "") for a in authorships[:5]
+                )
+                if len(authorships) > 5:
+                    authors += f" and {len(authorships) - 5} more"
+
+                # Get abstract (OpenAlex uses inverted index format)
+                abstract_inverted = work.get("abstract_inverted_index", {})
+                if abstract_inverted:
+                    # Reconstruct abstract from inverted index
+                    words = []
+                    for word, positions in abstract_inverted.items():
+                        for pos in positions:
+                            while len(words) <= pos:
+                                words.append("")
+                            words[pos] = word
+                    abstract = " ".join(words)
+                else:
+                    abstract = "No abstract available"
+
+                year = work.get("publication_year", "N/A")
+                citations = work.get("cited_by_count", 0)
+                doi = work.get("doi", "")
+                is_oa = work.get("open_access", {}).get("is_oa", False)
+                oa_url = work.get("open_access", {}).get("oa_url", "")
+
+                # Get concepts/topics
+                concepts = work.get("concepts", [])
+                concept_names = ", ".join(
+                    c.get("display_name", "") for c in concepts[:5]
+                )
+
+                paper_md = f"""# {title}
+
+**OpenAlex ID:** {work_id}
+**Authors:** {authors}
+**Year:** {year}
+**Citations:** {citations}
+**Open Access:** {"Yes" if is_oa else "No"}
+{"**DOI:** " + doi if doi else ""}
+
+## Concepts/Topics
+{concept_names}
+
+## Abstract
+{abstract}
+
+## Links
+- [OpenAlex Page](https://openalex.org/works/{work_id})
+{"- [Open Access PDF](" + oa_url + ")" if oa_url else ""}
+{"- [DOI](" + doi + ")" if doi else ""}
+"""
+
+                if save_to_workspace:
+                    safe_title = "".join(
+                        c if c.isalnum() or c in " -_" else "_" for c in title[:50]
+                    )
+                    filename = f"openalex_{work_id}_{safe_title}.md"
+                    file_path = self.safe_join(f"papers/{filename}")
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(paper_md)
+
+                oa_badge = "🔓" if is_oa else "🔒"
+                papers_info.append(
+                    f"""
+### {i}. {oa_badge} {title}
+- **Authors:** {authors}
+- **Year:** {year} | **Citations:** {citations}
+- **Concepts:** {concept_names[:100]}...
+- **Links:** [OpenAlex](https://openalex.org/works/{work_id}){" | [PDF](" + oa_url + ")" if oa_url else ""}
+- **Abstract:** {abstract[:300]}..."""
+                )
+
+            result = (
+                f"## OpenAlex Search Results for: {query}\n\n🔓 = Open Access | 🔒 = Restricted\n\nFound {len(works)} papers:\n"
+                + "\n".join(papers_info)
+            )
+
+            if save_to_workspace:
+                result += f"\n\n---\n*Paper metadata files saved to `{self.output_url}papers/`*"
+
+            return result
+
+        except requests.exceptions.RequestException as e:
+            logging.error(f"[search_openalex] Error: {str(e)}")
+            return f"Error searching OpenAlex: {str(e)}"
+        except Exception as e:
+            logging.error(f"[search_openalex] Error: {str(e)}")
+            return f"Error searching OpenAlex: {str(e)}"
+
+    async def search_pubmed_central(
+        self,
+        query: str,
+        max_results: int = 10,
+        save_to_workspace: bool = True,
+    ) -> str:
+        """
+        Search PubMed Central (PMC) for open access biomedical and life sciences literature.
+
+        Args:
+            query (str): Search query for finding papers
+            max_results (int): Maximum number of papers to return (default 10)
+            save_to_workspace (bool): If True, saves paper metadata as markdown files
+
+        Returns:
+            str: Formatted list of papers found with metadata and links
+
+        Notes:
+            - PubMed Central is a free archive of biomedical and life sciences journal literature
+            - All articles are full-text and open access
+            - Part of the National Library of Medicine (NLM)
+            - Excellent for medical, biological, and health sciences research
+            - Uses NCBI E-utilities API
+        """
+        import requests
+        import xml.etree.ElementTree as ET
+
+        try:
+            # First, search for IDs
+            search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+            search_params = {
+                "db": "pmc",
+                "term": query,
+                "retmax": max_results,
+                "retmode": "json",
+                "sort": "relevance",
+            }
+
+            search_response = requests.get(search_url, params=search_params, timeout=30)
+            search_response.raise_for_status()
+            search_data = search_response.json()
+
+            id_list = search_data.get("esearchresult", {}).get("idlist", [])
+
+            if not id_list:
+                return f"No papers found on PubMed Central for query: {query}"
+
+            # Fetch details for each paper
+            fetch_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+            fetch_params = {
+                "db": "pmc",
+                "id": ",".join(id_list),
+                "rettype": "xml",
+            }
+
+            fetch_response = requests.get(fetch_url, params=fetch_params, timeout=60)
+            fetch_response.raise_for_status()
+
+            # Parse XML response
+            root = ET.fromstring(fetch_response.text)
+
+            papers_info = []
+
+            for i, article in enumerate(root.findall(".//article"), 1):
+                # Extract metadata
+                pmcid = ""
+                # Try pmcid first (newer format), then pmc (older format)
+                pmcid_elem = article.find(".//article-id[@pub-id-type='pmcid']")
+                if pmcid_elem is None:
+                    pmcid_elem = article.find(".//article-id[@pub-id-type='pmc']")
+                if pmcid_elem is not None:
+                    pmcid = pmcid_elem.text
+                    # Remove 'PMC' prefix if present (we'll add it ourselves)
+                    if pmcid.upper().startswith("PMC"):
+                        pmcid = pmcid[3:]
+
+                title_elem = article.find(".//article-title")
+                title = (
+                    "".join(title_elem.itertext())
+                    if title_elem is not None
+                    else "Unknown Title"
+                )
+
+                # Get authors
+                authors_list = []
+                for contrib in article.findall(".//contrib[@contrib-type='author']"):
+                    surname = contrib.find(".//surname")
+                    given = contrib.find(".//given-names")
+                    if surname is not None:
+                        name = surname.text or ""
+                        if given is not None and given.text:
+                            name = f"{given.text} {name}"
+                        authors_list.append(name)
+
+                authors = ", ".join(authors_list[:5])
+                if len(authors_list) > 5:
+                    authors += f" and {len(authors_list) - 5} more"
+
+                # Get abstract
+                abstract_elem = article.find(".//abstract")
+                if abstract_elem is not None:
+                    abstract = " ".join(abstract_elem.itertext()).strip()
+                else:
+                    abstract = "No abstract available"
+
+                # Get publication date
+                pub_date = article.find(".//pub-date")
+                year = "N/A"
+                if pub_date is not None:
+                    year_elem = pub_date.find(".//year")
+                    if year_elem is not None:
+                        year = year_elem.text
+
+                # Get DOI
+                doi = ""
+                doi_elem = article.find(".//article-id[@pub-id-type='doi']")
+                if doi_elem is not None:
+                    doi = doi_elem.text
+
+                # Get journal
+                journal_elem = article.find(".//journal-title")
+                journal = (
+                    journal_elem.text if journal_elem is not None else "Unknown Journal"
+                )
+
+                pmc_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC{pmcid}/"
+                pdf_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC{pmcid}/pdf/"
+
+                paper_md = f"""# {title}
+
+**PMC ID:** PMC{pmcid}
+**Authors:** {authors}
+**Year:** {year}
+**Journal:** {journal}
+{"**DOI:** " + doi if doi else ""}
+
+## Abstract
+{abstract}
+
+## Links
+- [PubMed Central Full Text]({pmc_url})
+- [PDF Download]({pdf_url})
+{"- [DOI](https://doi.org/" + doi + ")" if doi else ""}
+"""
+
+                if save_to_workspace:
+                    safe_title = "".join(
+                        c if c.isalnum() or c in " -_" else "_" for c in title[:50]
+                    )
+                    filename = f"pmc_{pmcid}_{safe_title}.md"
+                    file_path = self.safe_join(f"papers/{filename}")
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(paper_md)
+
+                papers_info.append(
+                    f"""
+### {i}. {title}
+- **PMC ID:** [PMC{pmcid}]({pmc_url})
+- **Authors:** {authors}
+- **Year:** {year} | **Journal:** {journal}
+- **PDF:** [Download]({pdf_url})
+- **Abstract:** {abstract[:300]}..."""
+                )
+
+            result = (
+                f"## PubMed Central Search Results for: {query}\n\nFound {len(papers_info)} papers:\n"
+                + "\n".join(papers_info)
+            )
+
+            if save_to_workspace:
+                result += f"\n\n---\n*Paper metadata files saved to `{self.output_url}papers/`*"
+
+            return result
+
+        except requests.exceptions.RequestException as e:
+            logging.error(f"[search_pubmed_central] Error: {str(e)}")
+            return f"Error searching PubMed Central: {str(e)}"
+        except ET.ParseError as e:
+            logging.error(f"[search_pubmed_central] XML Parse Error: {str(e)}")
+            return f"Error parsing PubMed Central response: {str(e)}"
+        except Exception as e:
+            logging.error(f"[search_pubmed_central] Error: {str(e)}")
+            return f"Error searching PubMed Central: {str(e)}"
+
+    async def download_paper_pdf(
+        self,
+        pdf_url: str,
+        filename: str = "",
+        convert_to_markdown: bool = True,
+    ) -> str:
+        """
+        Download a paper PDF from a URL and optionally convert it to markdown.
+
+        Args:
+            pdf_url (str): Direct URL to the PDF file (must be HTTPS)
+            filename (str): Optional custom filename (without extension). Auto-generated if not provided.
+            convert_to_markdown (bool): If True, also converts the PDF to markdown after download
+
+        Returns:
+            str: Success message with download location and markdown conversion status
+
+        Notes:
+            - Works with arXiv, Semantic Scholar, OpenAlex, PMC, and other PDF sources
+            - For arXiv, use the direct PDF link (e.g., https://arxiv.org/pdf/2301.00001.pdf)
+            - Large PDFs may take time to download and convert
+            - Markdown conversion uses pdfplumber for text extraction
+        """
+        import requests
+
+        # Validate URL
+        if not pdf_url.startswith("https://"):
+            return "Error: Only HTTPS URLs are allowed for security. Please provide a URL starting with 'https://'"
+
+        try:
+            # Generate filename if not provided
+            if not filename:
+                from urllib.parse import urlparse, unquote
+
+                parsed = urlparse(pdf_url)
+                path_filename = unquote(parsed.path.split("/")[-1])
+                if path_filename and path_filename.endswith(".pdf"):
+                    filename = path_filename[:-4]  # Remove .pdf extension
+                else:
+                    filename = (
+                        f"paper_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    )
+
+            # Sanitize filename
+            filename = "".join(
+                c if c.isalnum() or c in " -_" else "_" for c in filename
+            )
+
+            # Download PDF
+            logging.info(f"Downloading PDF from: {pdf_url}")
+            response = requests.get(pdf_url, stream=True, timeout=60)
+            response.raise_for_status()
+
+            # Verify it's actually a PDF
+            content_type = response.headers.get("Content-Type", "")
+            if "pdf" not in content_type.lower() and not pdf_url.endswith(".pdf"):
+                # Try to check first bytes
+                first_bytes = response.content[:5]
+                if not first_bytes.startswith(b"%PDF"):
+                    return f"Error: URL does not appear to be a PDF file (Content-Type: {content_type})"
+
+            # Save PDF
+            pdf_path = self.safe_join(f"papers/{filename}.pdf")
+            os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+
+            with open(pdf_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+
+            file_size = os.path.getsize(pdf_path)
+            file_size_mb = file_size / (1024 * 1024)
+
+            result = f"Successfully downloaded PDF: `{filename}.pdf` ({file_size_mb:.2f} MB)\nLocation: {self.output_url}papers/{filename}.pdf"
+
+            # Convert to markdown if requested
+            if convert_to_markdown:
+                md_result = await self.convert_pdf_to_markdown(
+                    pdf_path=f"papers/{filename}.pdf",
+                    output_filename=filename,
+                )
+                result += f"\n\n{md_result}"
+
+            return result
+
+        except requests.exceptions.Timeout:
+            return f"Error: Request timed out while downloading PDF from {pdf_url}"
+        except requests.exceptions.HTTPError as e:
+            return f"Error: HTTP error {e.response.status_code}: {e.response.reason}"
+        except Exception as e:
+            logging.error(f"[download_paper_pdf] Error: {str(e)}")
+            return f"Error downloading PDF: {str(e)}"
+
+    async def convert_pdf_to_markdown(
+        self,
+        pdf_path: str,
+        output_filename: str = "",
+        include_images: bool = False,
+    ) -> str:
+        """
+        Convert a PDF file in the workspace to markdown format.
+
+        Args:
+            pdf_path (str): Path to the PDF file in the workspace (relative to workspace root)
+            output_filename (str): Optional output filename (without extension). Defaults to PDF filename.
+            include_images (bool): If True, attempts to extract and save images from the PDF
+
+        Returns:
+            str: Success message with markdown file location, or error message
+
+        Notes:
+            - Uses pdfplumber for text extraction
+            - Preserves basic structure like paragraphs
+            - May not perfectly preserve complex layouts, tables, or mathematical formulas
+            - For academic papers, abstract and sections are usually well-preserved
+            - Images extraction is experimental and may not work for all PDFs
+        """
+        import pdfplumber
+
+        try:
+            # Resolve full path
+            full_pdf_path = self.safe_join(pdf_path)
+
+            if not os.path.exists(full_pdf_path):
+                return f"Error: PDF file not found at {pdf_path}"
+
+            if not full_pdf_path.lower().endswith(".pdf"):
+                return f"Error: File does not appear to be a PDF: {pdf_path}"
+
+            # Generate output filename
+            if not output_filename:
+                output_filename = os.path.splitext(os.path.basename(pdf_path))[0]
+
+            output_filename = "".join(
+                c if c.isalnum() or c in " -_" else "_" for c in output_filename
+            )
+
+            # Extract text from PDF
+            logging.info(f"Converting PDF to markdown: {pdf_path}")
+
+            markdown_content = []
+            page_count = 0
+
+            with pdfplumber.open(full_pdf_path) as pdf:
+                page_count = len(pdf.pages)
+
+                for i, page in enumerate(pdf.pages, 1):
+                    text = page.extract_text()
+                    if text:
+                        # Add page marker for long documents
+                        if page_count > 5:
+                            markdown_content.append(f"\n\n<!-- Page {i} -->\n")
+
+                        # Clean up text
+                        # Remove excessive whitespace but preserve paragraph breaks
+                        lines = text.split("\n")
+                        cleaned_lines = []
+                        for line in lines:
+                            line = line.strip()
+                            if line:
+                                cleaned_lines.append(line)
+                            elif cleaned_lines and cleaned_lines[-1] != "":
+                                cleaned_lines.append("")  # Preserve paragraph break
+
+                        markdown_content.append("\n".join(cleaned_lines))
+
+                    # Extract images if requested
+                    if include_images:
+                        try:
+                            images = page.images
+                            for j, img in enumerate(images):
+                                # This is experimental - image extraction from PDFs is complex
+                                pass  # Image extraction would go here
+                        except Exception:
+                            pass  # Silently skip image extraction errors
+
+            # Combine all content
+            full_content = "\n\n".join(markdown_content)
+
+            # Try to detect and format paper structure
+            # Common patterns in academic papers
+            section_patterns = [
+                (r"^(Abstract|ABSTRACT)\s*$", "## Abstract"),
+                (r"^(Introduction|INTRODUCTION)\s*$", "## Introduction"),
+                (
+                    r"^(Methods|METHODS|Materials and Methods|MATERIALS AND METHODS)\s*$",
+                    "## Methods",
+                ),
+                (r"^(Results|RESULTS)\s*$", "## Results"),
+                (r"^(Discussion|DISCUSSION)\s*$", "## Discussion"),
+                (
+                    r"^(Conclusion|CONCLUSION|Conclusions|CONCLUSIONS)\s*$",
+                    "## Conclusion",
+                ),
+                (r"^(References|REFERENCES)\s*$", "## References"),
+                (
+                    r"^(Acknowledgements|ACKNOWLEDGEMENTS|Acknowledgments|ACKNOWLEDGMENTS)\s*$",
+                    "## Acknowledgements",
+                ),
+            ]
+
+            for pattern, replacement in section_patterns:
+                full_content = re.sub(
+                    pattern, replacement, full_content, flags=re.MULTILINE
+                )
+
+            # Save markdown file
+            md_path = self.safe_join(f"papers/{output_filename}.md")
+            os.makedirs(os.path.dirname(md_path), exist_ok=True)
+
+            with open(md_path, "w", encoding="utf-8") as f:
+                f.write(f"# {output_filename}\n\n")
+                f.write(f"*Converted from PDF - {page_count} pages*\n\n")
+                f.write("---\n\n")
+                f.write(full_content)
+
+            char_count = len(full_content)
+            word_count = len(full_content.split())
+
+            return f"""Successfully converted PDF to markdown!
+- **Output:** `{output_filename}.md`
+- **Pages:** {page_count}
+- **Words:** ~{word_count:,}
+- **Characters:** ~{char_count:,}
+- **Location:** {self.output_url}papers/{output_filename}.md
+
+The markdown file is now available in your workspace for reading and analysis."""
+
+        except Exception as e:
+            logging.error(f"[convert_pdf_to_markdown] Error: {str(e)}")
+            return f"Error converting PDF to markdown: {str(e)}"

@@ -30,7 +30,7 @@ agixtsdk==0.0.82
 safeexecute==0.0.22
 google-generativeai==0.7.2
 anthropic==0.34.2
-arxiv==1.4.8
+arxiv>=2.0.0
 PyGithub==2.4.0
 openai==1.44.0
 azure-ai-inference

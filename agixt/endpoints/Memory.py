@@ -259,6 +259,133 @@ async def learn_url_v1(
     return ResponseMessage(message=response)
 
 
+@app.post(
+    "/v1/agent/{agent_id}/learn/arxiv",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    response_model=ResponseMessage,
+    summary="Learn from arXiv papers by ID",
+    description="Search and learn from arXiv papers. Provide either a search query or specific arXiv IDs.",
+)
+async def learn_arxiv_v1(
+    agent_id: str,
+    query: str = None,
+    arxiv_ids: str = None,
+    max_results: int = 5,
+    collection_number: str = "0",
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    """
+    Learn from arXiv papers by searching or by specific paper IDs.
+
+    Args:
+        agent_id: The agent ID
+        query: Search query for finding papers (optional if arxiv_ids provided)
+        arxiv_ids: Comma-separated arXiv paper IDs to fetch directly (optional if query provided)
+        max_results: Maximum number of papers to fetch (default 5)
+        collection_number: Memory collection to store the papers
+    """
+    import arxiv
+
+    timestamp = datetime.now().strftime("%Y-%m-%d")
+    ApiClient = get_api_client(authorization=authorization)
+    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+
+    papers_learned = []
+
+    try:
+        client = arxiv.Client()
+
+        if arxiv_ids:
+            # Fetch specific papers by ID
+            id_list = [id.strip() for id in arxiv_ids.split(",")]
+            search = arxiv.Search(id_list=id_list)
+        elif query:
+            # Search for papers
+            search = arxiv.Search(
+                query=query,
+                max_results=max_results,
+                sort_by=arxiv.SortCriterion.Relevance,
+            )
+        else:
+            return ResponseMessage(
+                message="Error: Either query or arxiv_ids must be provided"
+            )
+
+        results = list(client.results(search))
+
+        if not results:
+            return ResponseMessage(message="No papers found matching your criteria")
+
+        websearch = Websearch(
+            collection_number=collection_number,
+            agent=agent,
+            user=user,
+            ApiClient=ApiClient,
+        )
+
+        for paper in results:
+            try:
+                # Convert arxiv.org URLs to ar5iv.org for better HTML rendering
+                abstract_url = paper.entry_id.replace("arxiv.org", "ar5iv.org")
+
+                # Create structured content about the paper
+                paper_content = f"""# {paper.title}
+
+**Authors:** {', '.join(author.name for author in paper.authors)}
+**Published:** {paper.published.strftime('%Y-%m-%d')}
+**arXiv ID:** {paper.entry_id.split('/')[-1]}
+**Categories:** {', '.join(paper.categories)}
+
+## Abstract
+{paper.summary}
+
+## Links
+- [arXiv Abstract]({paper.entry_id})
+- [PDF]({paper.pdf_url})
+- [HTML Version (ar5iv)]({abstract_url})
+
+"""
+                # Learn the paper content
+                await websearch.scrape_websites(
+                    user_input=f"Learning arXiv paper: {paper.title}",
+                    conversation_name=f"{agent.agent_name} Training on {timestamp}",
+                )
+
+                # Also store the structured content directly
+                memory = Memories(
+                    agent_name=agent.agent_name,
+                    agent_config=agent.AGENT_CONFIG,
+                    collection_number=collection_number,
+                    ApiClient=ApiClient,
+                    user=user,
+                )
+                await memory.write_text_to_memory(
+                    user_input=f"arXiv paper: {paper.title}",
+                    text=paper_content,
+                    external_source=paper.entry_id,
+                )
+
+                papers_learned.append(f"[{paper.title}]({paper.entry_id})")
+
+            except Exception as e:
+                logging.error(f"Error learning paper {paper.entry_id}: {e}")
+                continue
+
+        if papers_learned:
+            paper_list = "\n- ".join(papers_learned)
+            message = f"Successfully learned {len(papers_learned)} arXiv paper(s):\n- {paper_list}"
+        else:
+            message = "Failed to learn any papers"
+
+        return ResponseMessage(message=message)
+
+    except Exception as e:
+        logging.error(f"Error in learn_arxiv: {e}")
+        return ResponseMessage(message=f"Error searching arXiv: {str(e)}")
+
+
 @app.delete(
     "/v1/agent/{agent_id}/memory",
     tags=["Agent"],
