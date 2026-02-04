@@ -847,6 +847,16 @@ class AIProviderManager:
 
         extension_files = find_extension_files()
 
+        # Log which extension files are found
+        ai_provider_files = [
+            os.path.basename(f)
+            for f in extension_files
+            if "ezlocalai" in f.lower() or "openai" in f.lower()
+        ]
+        logging.info(
+            f"[AIProviderManager] Found extension files matching AI providers: {ai_provider_files}"
+        )
+
         for ext_file in extension_files:
             filename = os.path.basename(ext_file)
 
@@ -916,8 +926,13 @@ class AIProviderManager:
                         )
 
             except Exception as e:
-                logging.debug(
+                logging.warning(
                     f"[AIProviderManager] Could not load provider from {filename}: {e}"
+                )
+                import traceback
+
+                logging.warning(
+                    f"[AIProviderManager] Traceback: {traceback.format_exc()}"
                 )
 
         if not self.providers:
