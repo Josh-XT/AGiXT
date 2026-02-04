@@ -1916,10 +1916,21 @@ Your response (true or false):"""
                                 pass
                             else:
                                 # Try to locate the file within the conversation workspace
+                                # Use basename to prevent path traversal attacks
+                                safe_file_name = os.path.basename(file_name)
                                 potential_path = os.path.join(
-                                    self.conversation_workspace, file_name
+                                    self.conversation_workspace, safe_file_name
                                 )
-                                if os.path.exists(potential_path):
+                                # Verify the resolved path is still within the workspace
+                                resolved_path = os.path.abspath(
+                                    os.path.normpath(potential_path)
+                                )
+                                if not resolved_path.startswith(abs_conv_workspace):
+                                    logging.warning(
+                                        f"Path traversal attempt detected for {file_name}, skipping CSV file listing"
+                                    )
+                                    dir_path = None
+                                elif os.path.exists(resolved_path):
                                     dir_path = self.conversation_workspace
                                     abs_dir_path = abs_conv_workspace
                                 else:
@@ -1930,10 +1941,21 @@ Your response (true or false):"""
                                     dir_path = None
                         else:
                             # No conversation workspace, try the agent workspace directly
+                            # Use basename to prevent path traversal attacks
+                            safe_file_name = os.path.basename(file_name)
                             potential_path = os.path.join(
-                                self.agent_workspace, file_name
+                                self.agent_workspace, safe_file_name
                             )
-                            if os.path.exists(potential_path):
+                            # Verify the resolved path is still within the workspace
+                            resolved_path = os.path.abspath(
+                                os.path.normpath(potential_path)
+                            )
+                            if not resolved_path.startswith(abs_workspace):
+                                logging.warning(
+                                    f"Path traversal attempt detected for {file_name}, skipping CSV file listing"
+                                )
+                                dir_path = None
+                            elif os.path.exists(resolved_path):
                                 dir_path = self.agent_workspace
                                 abs_dir_path = abs_workspace
                             else:
