@@ -121,6 +121,15 @@ class ezlocalai(Extensions):
         if not EZLOCALAI_API_KEY:
             EZLOCALAI_API_KEY = getenv("EZLOCALAI_API_KEY", "")
 
+        # Get MAX_TOKENS from parameter or environment
+        if not EZLOCALAI_MAX_TOKENS or EZLOCALAI_MAX_TOKENS == 32000:
+            env_max_tokens = getenv("EZLOCALAI_MAX_TOKENS", "")
+            if env_max_tokens:
+                try:
+                    EZLOCALAI_MAX_TOKENS = int(env_max_tokens)
+                except (ValueError, TypeError):
+                    EZLOCALAI_MAX_TOKENS = 32000
+
         # Normalize URI
         if EZLOCALAI_API_URI and not EZLOCALAI_API_URI.endswith("/"):
             EZLOCALAI_API_URI += "/"
@@ -130,8 +139,12 @@ class ezlocalai(Extensions):
         self.API_URI = EZLOCALAI_API_URI
         self.EZLOCALAI_API_KEY = EZLOCALAI_API_KEY
 
-        # Check if this provider is configured (has a URI set)
-        self.configured = bool(self.API_URI)
+        # Check if this provider is configured (has a valid URI set)
+        self.configured = bool(
+            self.API_URI
+            and self.API_URI.strip() != ""
+            and self.API_URI.lower() not in ["none", "null", "false", "0"]
+        )
 
         # Model configuration
         self.AI_MODEL = EZLOCALAI_AI_MODEL if EZLOCALAI_AI_MODEL else "default"
