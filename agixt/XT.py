@@ -1893,23 +1893,32 @@ Your response (true or false):"""
                 try:
                     # Get the directory where the file is located
                     dir_path = os.path.dirname(file_path)
-                    
+
                     # Normalize both paths to absolute paths for proper comparison
                     abs_dir_path = os.path.abspath(os.path.normpath(dir_path))
-                    abs_workspace = os.path.abspath(os.path.normpath(self.agent_workspace))
-                    
+                    abs_workspace = os.path.abspath(
+                        os.path.normpath(self.agent_workspace)
+                    )
+
                     # If dir_path is outside workspace, try to find it within workspace
                     if not abs_dir_path.startswith(abs_workspace):
                         # The file might be referenced with a relative path or different base
                         # Try using the conversation workspace instead
-                        if hasattr(self, 'conversation_workspace') and self.conversation_workspace:
-                            abs_conv_workspace = os.path.abspath(os.path.normpath(self.conversation_workspace))
+                        if (
+                            hasattr(self, "conversation_workspace")
+                            and self.conversation_workspace
+                        ):
+                            abs_conv_workspace = os.path.abspath(
+                                os.path.normpath(self.conversation_workspace)
+                            )
                             if abs_dir_path.startswith(abs_conv_workspace):
                                 # Path is valid within conversation workspace
                                 pass
                             else:
                                 # Try to locate the file within the conversation workspace
-                                potential_path = os.path.join(self.conversation_workspace, file_name)
+                                potential_path = os.path.join(
+                                    self.conversation_workspace, file_name
+                                )
                                 if os.path.exists(potential_path):
                                     dir_path = self.conversation_workspace
                                     abs_dir_path = abs_conv_workspace
@@ -1921,7 +1930,9 @@ Your response (true or false):"""
                                     dir_path = None
                         else:
                             # No conversation workspace, try the agent workspace directly
-                            potential_path = os.path.join(self.agent_workspace, file_name)
+                            potential_path = os.path.join(
+                                self.agent_workspace, file_name
+                            )
                             if os.path.exists(potential_path):
                                 dir_path = self.agent_workspace
                                 abs_dir_path = abs_workspace
@@ -1930,7 +1941,7 @@ Your response (true or false):"""
                                     f"Could not locate directory for {file_name} within agent workspace, skipping CSV file listing"
                                 )
                                 dir_path = None
-                    
+
                     # List CSV files if we have a valid directory
                     if dir_path and os.path.isdir(dir_path):
                         csv_files = [
@@ -1955,8 +1966,11 @@ Your response (true or false):"""
             # Use a threshold of 50k tokens - large enough to fit most spreadsheets but not overwhelm context
             SPREADSHEET_CONTENT_THRESHOLD = 50000
             spreadsheet_types = ["csv", "xlsx", "xls"]
-            
-            if file_type.lower() in spreadsheet_types and file_tokens < SPREADSHEET_CONTENT_THRESHOLD:
+
+            if (
+                file_type.lower() in spreadsheet_types
+                and file_tokens < SPREADSHEET_CONTENT_THRESHOLD
+            ):
                 logging.info(
                     f"Spreadsheet {file_name} - returning actual content ({file_tokens} tokens) for direct AI access"
                 )

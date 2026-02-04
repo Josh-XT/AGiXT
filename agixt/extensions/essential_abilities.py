@@ -10625,9 +10625,15 @@ The map includes:
             for i, article in enumerate(root.findall(".//article"), 1):
                 # Extract metadata
                 pmcid = ""
-                pmcid_elem = article.find(".//article-id[@pub-id-type='pmc']")
+                # Try pmcid first (newer format), then pmc (older format)
+                pmcid_elem = article.find(".//article-id[@pub-id-type='pmcid']")
+                if pmcid_elem is None:
+                    pmcid_elem = article.find(".//article-id[@pub-id-type='pmc']")
                 if pmcid_elem is not None:
                     pmcid = pmcid_elem.text
+                    # Remove 'PMC' prefix if present (we'll add it ourselves)
+                    if pmcid.upper().startswith("PMC"):
+                        pmcid = pmcid[3:]
 
                 title_elem = article.find(".//article-title")
                 title = (
