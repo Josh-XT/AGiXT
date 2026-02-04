@@ -684,6 +684,9 @@ class AIProviderManager:
                 .filter(ServerConfig.category == "ai_providers")
                 .all()
             )
+            logging.debug(
+                f"[AIProviderManager] Found {len(server_configs)} ServerConfig ai_providers settings"
+            )
             for config in server_configs:
                 value = config.value
                 if config.is_sensitive and value:
@@ -768,6 +771,16 @@ class AIProviderManager:
         for alt_key, canonical_key in key_mappings.items():
             if alt_key in merged_settings and canonical_key not in merged_settings:
                 merged_settings[canonical_key] = merged_settings[alt_key]
+
+        # Log what we found for debugging
+        provider_keys_found = [
+            k for k in merged_settings.keys() if any(
+                p in k.upper() for p in ["OPENAI", "ANTHROPIC", "EZLOCALAI", "GOOGLE", "XAI", "AZURE", "DEEPSEEK"]
+            )
+        ]
+        logging.debug(
+            f"[AIProviderManager] Merged settings contain {len(provider_keys_found)} provider keys: {provider_keys_found[:10]}"
+        )
 
         # Add non-provider agent settings that should always pass through
         non_provider_keys = [
