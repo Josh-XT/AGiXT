@@ -44,6 +44,7 @@ class anthropic(Extensions):
         ANTHROPIC_GOOGLE_VERTEX_REGION: str = "europe-west1",
         ANTHROPIC_GOOGLE_VERTEX_PROJECT_ID: str = "",
         ANTHROPIC_WAIT_BETWEEN_REQUESTS: int = 1,
+        ANTHROPIC_SPEED: str = "",
         **kwargs,
     ):
         # Get from parameter or environment
@@ -67,6 +68,7 @@ class anthropic(Extensions):
             if ANTHROPIC_WAIT_BETWEEN_REQUESTS
             else 1
         )
+        self.SPEED = ANTHROPIC_SPEED if ANTHROPIC_SPEED else ""
 
         self.failure_count = 0
 
@@ -174,21 +176,64 @@ class anthropic(Extensions):
             time.sleep(self.WAIT_BETWEEN_REQUESTS)
 
         try:
-            if stream:
-                # Use streaming API - return stream object directly
-                stream_response = client.messages.stream(
-                    messages=messages,
-                    model=self.AI_MODEL,
-                    max_tokens=4096,
-                )
-                return stream_response
+            if self.SPEED == "fast":
+                try:
+                    if stream:
+                        stream_response = client.beta.messages.stream(
+                            messages=messages,
+                            model=self.AI_MODEL,
+                            max_tokens=4096,
+                            betas=["fast-mode-2026-02-01"],
+                            speed="fast",
+                        )
+                        return stream_response
+                    else:
+                        response = client.beta.messages.create(
+                            messages=messages,
+                            model=self.AI_MODEL,
+                            max_tokens=4096,
+                            betas=["fast-mode-2026-02-01"],
+                            speed="fast",
+                        )
+                        return response.content[0].text
+                except Exception as e:
+                    # Fall back to normal mode on rate limit errors
+                    if "ratelimit" in type(e).__name__.lower() or "rate" in str(e).lower():
+                        logging.info(
+                            "Fast mode rate limited, falling back to normal mode"
+                        )
+                        if stream:
+                            stream_response = client.messages.stream(
+                                messages=messages,
+                                model=self.AI_MODEL,
+                                max_tokens=4096,
+                            )
+                            return stream_response
+                        else:
+                            response = client.messages.create(
+                                messages=messages,
+                                model=self.AI_MODEL,
+                                max_tokens=4096,
+                            )
+                            return response.content[0].text
+                    else:
+                        raise
             else:
-                response = client.messages.create(
-                    messages=messages,
-                    model=self.AI_MODEL,
-                    max_tokens=4096,
-                )
-                return response.content[0].text
+                if stream:
+                    # Use streaming API - return stream object directly
+                    stream_response = client.messages.stream(
+                        messages=messages,
+                        model=self.AI_MODEL,
+                        max_tokens=4096,
+                    )
+                    return stream_response
+                else:
+                    response = client.messages.create(
+                        messages=messages,
+                        model=self.AI_MODEL,
+                        max_tokens=4096,
+                    )
+                    return response.content[0].text
 
         except Exception as e:
             logging.error(f"Anthropic API Error: {e}")
