@@ -2688,7 +2688,7 @@ class Conversations:
     # =========================================================================
 
     def create_group_conversation(
-        self, company_id, conversation_type="group", agents=None, parent_id=None, parent_message_id=None, category=None
+        self, company_id, conversation_type="group", agents=None, parent_id=None, parent_message_id=None, category=None, invite_only=False
     ):
         """
         Create a new group conversation (channel) or thread within a company/group.
@@ -2700,6 +2700,7 @@ class Conversations:
             parent_id: For threads - the parent conversation ID
             parent_message_id: For threads - the message that spawned this thread
             category: Optional category for grouping channels (e.g., "Text Channels")
+            invite_only: If True, only explicitly invited users can join
 
         Returns:
             dict with conversation info including id
@@ -2715,6 +2716,7 @@ class Conversations:
                 parent_id=parent_id,
                 parent_message_id=parent_message_id,
                 category=category,
+                invite_only=invite_only,
             )
             session.add(conversation)
             session.commit()
@@ -2751,6 +2753,26 @@ class Conversations:
                         )
                         session.add(agent_participant)
 
+            # Auto-add all company members when not invite-only
+            if not invite_only and company_id and conversation_type == "group":
+                company_users = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.company_id == company_id)
+                    .all()
+                )
+                for uc in company_users:
+                    uc_user_id = str(uc.user_id)
+                    if uc_user_id == user_id:
+                        continue  # Already added as owner
+                    member_participant = ConversationParticipant(
+                        conversation_id=conversation_id,
+                        user_id=uc_user_id,
+                        participant_type="user",
+                        role="member",
+                        status="active",
+                    )
+                    session.add(member_participant)
+
             session.commit()
             return {
                 "id": conversation_id,
@@ -2764,6 +2786,41 @@ class Conversations:
             session.rollback()
             logging.error(f"Error creating group conversation: {e}")
             raise
+        finally:
+            session.close()
+
+    def can_speak(self, user_id: str) -> bool:
+        """
+        Check if a user can speak (send messages) in this conversation.
+        Users with 'observer' participant role cannot speak.
+        Returns True if the user can speak, False if they are muted/observer.
+        Non-group conversations always allow speaking.
+        If user has no participant record, allow speaking (they may be the owner).
+        """
+        conversation_id = self.get_conversation_id()
+        if not conversation_id:
+            return True
+        session = get_session()
+        try:
+            conversation = (
+                session.query(Conversation)
+                .filter(Conversation.id == conversation_id)
+                .first()
+            )
+            if not conversation or conversation.conversation_type != "group":
+                return True
+            participant = (
+                session.query(ConversationParticipant)
+                .filter(
+                    ConversationParticipant.conversation_id == conversation_id,
+                    ConversationParticipant.user_id == user_id,
+                    ConversationParticipant.status == "active",
+                )
+                .first()
+            )
+            if not participant:
+                return True  # No participant record = allow (owner fallback)
+            return participant.role != "observer"
         finally:
             session.close()
 

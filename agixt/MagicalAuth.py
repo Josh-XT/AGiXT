@@ -2288,6 +2288,7 @@ class MagicalAuth:
                     "primary": cid == str(self.company_id),
                     "agents": agents_by_company.get(cid, []),
                     "scopes": list(company_scopes) if company_scopes else [],
+                    "icon_url": getattr(company, "icon_url", None),
                 }
                 companies.append(company_dict)
 
@@ -5854,6 +5855,7 @@ class MagicalAuth:
                     "role_id": uc.role_id,
                     "primary": str(company.id) == str(self.company_id),
                     "agents": agents_by_company.get(str(company.id), []),
+                    "icon_url": getattr(company, "icon_url", None),
                 }
                 response.append(company_dict)
             return response

@@ -1228,6 +1228,62 @@ async def delete_user_from_company(
 
 
 @app.get(
+    "/v1/companies/{company_id}/members",
+    summary="List all members of a company",
+    description="Returns all users who belong to a given company, with their basic info and role.",
+    tags=["Companies"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_company_members(
+    company_id: str,
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    try:
+        auth = MagicalAuth(token=authorization)
+        # Verify the requesting user belongs to this company
+        user_companies = auth.get_user_companies()
+        if str(company_id) not in [str(c) for c in user_companies]:
+            raise HTTPException(
+                status_code=403,
+                detail="You are not a member of this company.",
+            )
+        session = get_session()
+        try:
+            from DB import UserCompany, User
+
+            members = (
+                session.query(UserCompany, User)
+                .join(User, UserCompany.user_id == User.id)
+                .filter(UserCompany.company_id == company_id)
+                .all()
+            )
+            result = []
+            for uc, user_obj in members:
+                result.append(
+                    {
+                        "id": str(user_obj.id),
+                        "email": user_obj.email,
+                        "first_name": user_obj.first_name,
+                        "last_name": user_obj.last_name,
+                        "role_id": uc.role_id,
+                        "avatar_url": getattr(user_obj, "avatar_url", None),
+                    }
+                )
+            return {"members": result}
+        finally:
+            session.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error in get_company_members endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while listing company members: {str(e)}",
+        )
+
+
+@app.get(
     "/v1/companies/{company_id}/extensions",
     tags=["Extensions"],
     dependencies=[Depends(verify_api_key)],

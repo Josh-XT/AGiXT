@@ -1610,6 +1610,9 @@ class Conversation(Base):
     category = Column(
         String, nullable=True, default=None
     )  # Channel category for grouping (e.g., "TEXT CHANNELS", "VOICE CHANNELS")
+    invite_only = Column(
+        Boolean, nullable=False, default=False
+    )  # If True, only explicitly invited users can join; if False, all company members auto-join
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     user_id = Column(
@@ -5800,6 +5803,38 @@ def migrate_group_chat_tables():
                     )
                 session.commit()
                 logging.info("Added column parent_message_id to conversation table")
+
+            if "category" not in existing_columns:
+                if DATABASE_TYPE == "sqlite":
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN category VARCHAR"
+                        )
+                    )
+                else:
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN category VARCHAR"
+                        )
+                    )
+                session.commit()
+                logging.info("Added column category to conversation table")
+
+            if "invite_only" not in existing_columns:
+                if DATABASE_TYPE == "sqlite":
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN invite_only BOOLEAN DEFAULT 0 NOT NULL"
+                        )
+                    )
+                else:
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN invite_only BOOLEAN DEFAULT FALSE NOT NULL"
+                        )
+                    )
+                session.commit()
+                logging.info("Added column invite_only to conversation table")
 
             logging.info("Group chat tables migration complete")
 

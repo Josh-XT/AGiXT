@@ -779,6 +779,14 @@ async def add_message_v1(
     )
     if not conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    # Check speaking permissions for USER messages in group channels
+    if log_interaction.role.upper() == "USER":
+        c = Conversations(conversation_name=conversation_name, user=user)
+        if not c.can_speak(str(auth.user_id)):
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to speak in this channel",
+            )
     interaction_id = Conversations(
         conversation_name=conversation_name, user=user
     ).log_interaction(
@@ -3172,6 +3180,7 @@ async def create_group_conversation(
         parent_id=body.parent_id,
         parent_message_id=body.parent_message_id,
         category=body.category,
+        invite_only=body.invite_only,
     )
     return result
 
