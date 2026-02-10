@@ -2648,7 +2648,7 @@ class Conversations:
     # =========================================================================
 
     def create_group_conversation(
-        self, company_id, conversation_type="group", agents=None, parent_id=None, parent_message_id=None
+        self, company_id, conversation_type="group", agents=None, parent_id=None, parent_message_id=None, category=None
     ):
         """
         Create a new group conversation (channel) or thread within a company/group.
@@ -2659,6 +2659,7 @@ class Conversations:
             agents: Optional list of agent names to add as participants
             parent_id: For threads - the parent conversation ID
             parent_message_id: For threads - the message that spawned this thread
+            category: Optional category for grouping channels (e.g., "Text Channels")
 
         Returns:
             dict with conversation info including id
@@ -2673,6 +2674,7 @@ class Conversations:
                 company_id=company_id,
                 parent_id=parent_id,
                 parent_message_id=parent_message_id,
+                category=category,
             )
             session.add(conversation)
             session.commit()
@@ -3034,6 +3036,7 @@ class Conversations:
                     "pin_order": conversation.pin_order,
                     "participant_count": participant_count,
                     "thread_count": thread_count,
+                    "category": getattr(conversation, "category", None),
                 }
 
             return result

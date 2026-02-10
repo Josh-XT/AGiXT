@@ -50,6 +50,7 @@ from Models import (
     CreateGroupConversationModel,
     AddParticipantModel,
     UpdateParticipantRoleModel,
+    UpdateChannelModel,
     GroupConversationListResponse,
     ThreadListResponse,
 )
@@ -3028,6 +3029,7 @@ async def create_group_conversation(
         agents=body.agent_names,
         parent_id=body.parent_id,
         parent_message_id=body.parent_message_id,
+        category=body.category,
     )
     return result
 
@@ -3302,3 +3304,55 @@ async def create_thread(
         parent_message_id=body.parent_message_id,
     )
     return result
+
+
+@app.patch(
+    "/v1/conversation/{conversation_id}/channel",
+    summary="Update Channel Properties",
+    description="Updates a channel's properties such as category or name.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_channel(
+    conversation_id: str,
+    body: UpdateChannelModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    session = get_session()
+    try:
+        conversation = (
+            session.query(Conversation)
+            .filter(Conversation.id == conversation_id)
+            .first()
+        )
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        if body.category is not None:
+            conversation.category = body.category
+        if body.name is not None:
+            conversation.name = body.name
+
+        session.commit()
+        return {
+            "id": str(conversation.id),
+            "name": conversation.name,
+            "category": getattr(conversation, "category", None),
+            "message": "Channel updated successfully",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error updating channel: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update channel")
+    finally:
+        session.close()

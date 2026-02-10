@@ -1141,6 +1141,7 @@ class CreateGroupConversationModel(BaseModel):
     agent_names: Optional[List[str]] = []
     parent_id: Optional[str] = None  # For threads: the parent channel conversation ID
     parent_message_id: Optional[str] = None  # For threads: the message that spawned this thread
+    category: Optional[str] = None  # Channel category for grouping (e.g., "Text Channels")
 
 
 class AddParticipantModel(BaseModel):
@@ -1156,6 +1157,13 @@ class UpdateParticipantRoleModel(BaseModel):
     """Request model for updating a participant's role"""
 
     role: str  # 'owner', 'admin', 'member', 'observer'
+
+
+class UpdateChannelModel(BaseModel):
+    """Request model for updating a channel's properties"""
+
+    category: Optional[str] = None  # Channel category for grouping
+    name: Optional[str] = None  # Channel name
 
 
 class ParticipantResponse(BaseModel):

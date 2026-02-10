@@ -1607,6 +1607,9 @@ class Conversation(Base):
         ForeignKey("message.id"),
         nullable=True,
     )  # For threads: the message that spawned this thread
+    category = Column(
+        String, nullable=True, default=None
+    )  # Channel category for grouping (e.g., "TEXT CHANNELS", "VOICE CHANNELS")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     user_id = Column(
@@ -4108,6 +4111,7 @@ def migrate_conversation_table():
         with get_db_session() as session:
             columns_to_add = [
                 ("pin_order", "INTEGER"),
+                ("category", "VARCHAR"),
             ]
 
             if DATABASE_TYPE == "sqlite":
