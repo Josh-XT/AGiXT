@@ -47,7 +47,7 @@ from typing import List, Optional
 from fastapi import Header, HTTPException
 from Globals import getenv, get_default_agent
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from InternalClient import InternalClient
 from middleware import log_silenced_exception
@@ -4061,6 +4061,44 @@ class MagicalAuth:
         session.commit()
         session.close()
         return "User updated successfully."
+
+    def update_presence(self, status_text: str = None):
+        """Update user's last_seen timestamp and optionally set a status text."""
+        self.validate_user()
+        session = get_session()
+        try:
+            user = session.query(User).filter(User.id == self.user_id).first()
+            if user:
+                user.last_seen = datetime.now(timezone.utc)
+                if status_text is not None:
+                    user.status_text = status_text if status_text.strip() else None
+                session.commit()
+                return {
+                    "last_seen": user.last_seen.isoformat() if user.last_seen else None,
+                    "status_text": getattr(user, "status_text", None),
+                }
+            return {"last_seen": None, "status_text": None}
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error updating presence: {e}")
+            return {"last_seen": None, "status_text": None}
+        finally:
+            session.close()
+
+    def get_user_status(self):
+        """Get current user's status info."""
+        self.validate_user()
+        session = get_session()
+        try:
+            user = session.query(User).filter(User.id == self.user_id).first()
+            if user:
+                return {
+                    "last_seen": user.last_seen.isoformat() if getattr(user, "last_seen", None) else None,
+                    "status_text": getattr(user, "status_text", None),
+                }
+            return {"last_seen": None, "status_text": None}
+        finally:
+            session.close()
 
     def delete_company(self, company_id):
         """

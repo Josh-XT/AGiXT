@@ -9,6 +9,8 @@ from DB import (
     Agent,
     Message,
     MessageReaction,
+    DiscardedContext,
+    Memory,
     User,
     UserCompany,
     get_session,
@@ -249,7 +251,13 @@ def get_conversation_name_by_message_id(message_id, user_id):
 
 
 class Conversations:
-    def __init__(self, conversation_name=None, user=DEFAULT_USER, conversation_id=None, create_if_missing=True):
+    def __init__(
+        self,
+        conversation_name=None,
+        user=DEFAULT_USER,
+        conversation_id=None,
+        create_if_missing=True,
+    ):
         self.user = user
         self.conversation_id = conversation_id
         self.conversation_name = conversation_name
@@ -262,7 +270,9 @@ class Conversations:
         user_id = self._user_id
         if not self.conversation_id and self.conversation_name:
             self.conversation_id = get_conversation_id_by_name(
-                conversation_name=conversation_name, user_id=user_id, create_if_missing=create_if_missing
+                conversation_name=conversation_name,
+                user_id=user_id,
+                create_if_missing=create_if_missing,
             )
         elif not self.conversation_name and self.conversation_id:
             self.conversation_name = get_conversation_name_by_id(
@@ -606,15 +616,15 @@ class Conversations:
                     "feedback_received": message.feedback_received,
                     "timestamp_utc": message.timestamp,
                     "updated_at_utc": message.updated_at,
-                    "sender_user_id": str(message.sender_user_id) if message.sender_user_id else None,
+                    "sender_user_id": (
+                        str(message.sender_user_id) if message.sender_user_id else None
+                    ),
                 }
                 new_messages.append(msg)
 
             # Pre-fetch sender user info for all new messages
             all_new_sender_ids = {
-                str(m.sender_user_id)
-                for m in new_query
-                if m.sender_user_id
+                str(m.sender_user_id) for m in new_query if m.sender_user_id
             }
 
             # Query for updated messages - messages that have been edited since last check
@@ -662,24 +672,20 @@ class Conversations:
                     "feedback_received": message.feedback_received,
                     "timestamp_utc": message.timestamp,
                     "updated_at_utc": message.updated_at,
-                    "sender_user_id": str(message.sender_user_id) if message.sender_user_id else None,
+                    "sender_user_id": (
+                        str(message.sender_user_id) if message.sender_user_id else None
+                    ),
                 }
                 updated_messages.append(msg)
 
             # Build sender lookup for all messages that have sender_user_id
             all_updated_sender_ids = {
-                str(m.sender_user_id)
-                for m in updated_query
-                if m.sender_user_id
+                str(m.sender_user_id) for m in updated_query if m.sender_user_id
             }
             all_sender_ids = all_new_sender_ids | all_updated_sender_ids
             sender_users = {}
             if all_sender_ids:
-                users = (
-                    session.query(User)
-                    .filter(User.id.in_(all_sender_ids))
-                    .all()
-                )
+                users = session.query(User).filter(User.id.in_(all_sender_ids)).all()
                 sender_users = {
                     str(u.id): {
                         "id": str(u.id),
@@ -740,7 +746,9 @@ class Conversations:
                         .filter(
                             Conversation.id == self.conversation_id,
                             Conversation.company_id.in_(company_ids),
-                            Conversation.conversation_type.in_(["group", "dm", "thread"]),
+                            Conversation.conversation_type.in_(
+                                ["group", "dm", "thread"]
+                            ),
                         )
                         .first()
                     )
@@ -813,11 +821,7 @@ class Conversations:
         }
         sender_users = {}
         if sender_user_ids:
-            users = (
-                session.query(User)
-                .filter(User.id.in_(sender_user_ids))
-                .all()
-            )
+            users = session.query(User).filter(User.id.in_(sender_user_ids)).all()
             sender_users = {
                 str(u.id): {
                     "id": str(u.id),
@@ -841,7 +845,9 @@ class Conversations:
             reaction_user_ids = {str(r.user_id) for r in all_reactions}
             reaction_users = {}
             if reaction_user_ids:
-                r_users = session.query(User).filter(User.id.in_(reaction_user_ids)).all()
+                r_users = (
+                    session.query(User).filter(User.id.in_(reaction_user_ids)).all()
+                )
                 reaction_users = {
                     str(u.id): {
                         "email": u.email,
@@ -885,8 +891,14 @@ class Conversations:
                 "timestamp_utc": raw_timestamp_utc,
                 "updated_at_utc": raw_updated_at_utc,
                 # Group chat: sender user info
-                "sender_user_id": str(message.sender_user_id) if message.sender_user_id else None,
-                "sender": sender_users.get(str(message.sender_user_id)) if message.sender_user_id else None,
+                "sender_user_id": (
+                    str(message.sender_user_id) if message.sender_user_id else None
+                ),
+                "sender": (
+                    sender_users.get(str(message.sender_user_id))
+                    if message.sender_user_id
+                    else None
+                ),
                 "reactions": reactions_map.get(str(message.id), []),
             }
             return_messages.append(msg)
@@ -1522,7 +1534,11 @@ class Conversations:
                 content=message,
                 conversation_id=conversation_id,
                 notify=notify,
-                sender_user_id=effective_sender_user_id if 'effective_sender_user_id' in dir() else sender_user_id,
+                sender_user_id=(
+                    effective_sender_user_id
+                    if "effective_sender_user_id" in dir()
+                    else sender_user_id
+                ),
             )
 
         session.add(new_message)
@@ -1556,14 +1572,88 @@ class Conversations:
             session.close()
             return
 
-        session.query(Message).filter(
-            Message.conversation_id == conversation.id
-        ).delete()
-        session.query(Conversation).filter(
-            Conversation.id == conversation.id, Conversation.user_id == user_id
-        ).delete()
-        session.commit()
-        session.close()
+        try:
+            conv_id = conversation.id
+            # Delete all FK-dependent records before deleting the conversation
+            # 1. DiscardedContext (references conversation_id and message_id)
+            session.query(DiscardedContext).filter(
+                DiscardedContext.conversation_id == conv_id
+            ).delete()
+            # 2. Memory (references conversation_id)
+            session.query(Memory).filter(
+                Memory.conversation_id == conv_id
+            ).delete()
+            # 3. MessageReaction (references message_id)
+            message_ids = [
+                m.id
+                for m in session.query(Message.id)
+                .filter(Message.conversation_id == conv_id)
+                .all()
+            ]
+            if message_ids:
+                session.query(MessageReaction).filter(
+                    MessageReaction.message_id.in_(message_ids)
+                ).delete(synchronize_session="fetch")
+            # 4. Messages
+            session.query(Message).filter(
+                Message.conversation_id == conv_id
+            ).delete()
+            # 5. ConversationParticipant (references conversation_id)
+            session.query(ConversationParticipant).filter(
+                ConversationParticipant.conversation_id == conv_id
+            ).delete()
+            # 6. ConversationShare (references source or shared conversation_id)
+            session.query(ConversationShare).filter(
+                (ConversationShare.source_conversation_id == conv_id)
+                | (ConversationShare.shared_conversation_id == conv_id)
+            ).delete(synchronize_session="fetch")
+            # 7. Child conversations (parent_id references this conversation)
+            child_convos = (
+                session.query(Conversation)
+                .filter(Conversation.parent_id == conv_id)
+                .all()
+            )
+            for child in child_convos:
+                # Recursively clean up child conversations
+                child_conv_id = child.id
+                session.query(DiscardedContext).filter(
+                    DiscardedContext.conversation_id == child_conv_id
+                ).delete()
+                session.query(Memory).filter(
+                    Memory.conversation_id == child_conv_id
+                ).delete()
+                child_message_ids = [
+                    m.id
+                    for m in session.query(Message.id)
+                    .filter(Message.conversation_id == child_conv_id)
+                    .all()
+                ]
+                if child_message_ids:
+                    session.query(MessageReaction).filter(
+                        MessageReaction.message_id.in_(child_message_ids)
+                    ).delete(synchronize_session="fetch")
+                session.query(Message).filter(
+                    Message.conversation_id == child_conv_id
+                ).delete()
+                session.query(ConversationParticipant).filter(
+                    ConversationParticipant.conversation_id == child_conv_id
+                ).delete()
+                session.query(ConversationShare).filter(
+                    (ConversationShare.source_conversation_id == child_conv_id)
+                    | (ConversationShare.shared_conversation_id == child_conv_id)
+                ).delete(synchronize_session="fetch")
+                session.delete(child)
+            # 8. Finally delete the conversation itself
+            session.query(Conversation).filter(
+                Conversation.id == conv_id, Conversation.user_id == user_id
+            ).delete()
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error deleting conversation: {e}")
+            raise
+        finally:
+            session.close()
         # Invalidate cache for this conversation
         invalidate_conversation_cache(
             user_id=str(user_id), conversation_name=self.conversation_name
@@ -2688,7 +2778,14 @@ class Conversations:
     # =========================================================================
 
     def create_group_conversation(
-        self, company_id, conversation_type="group", agents=None, parent_id=None, parent_message_id=None, category=None, invite_only=False
+        self,
+        company_id,
+        conversation_type="group",
+        agents=None,
+        parent_id=None,
+        parent_message_id=None,
+        category=None,
+        invite_only=False,
     ):
         """
         Create a new group conversation (channel) or thread within a company/group.
@@ -2739,9 +2836,7 @@ class Conversations:
             if agents:
                 for agent_name in agents:
                     agent = (
-                        session.query(Agent)
-                        .filter(Agent.name == agent_name)
-                        .first()
+                        session.query(Agent).filter(Agent.name == agent_name).first()
                     )
                     if agent:
                         agent_participant = ConversationParticipant(
@@ -2844,12 +2939,9 @@ class Conversations:
             conversation_id = self.get_conversation_id()
 
             # Check if already a participant
-            existing = (
-                session.query(ConversationParticipant)
-                .filter(
-                    ConversationParticipant.conversation_id == conversation_id,
-                    ConversationParticipant.status == "active",
-                )
+            existing = session.query(ConversationParticipant).filter(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.status == "active",
             )
             if participant_type == "user" and user_id:
                 existing = existing.filter(
@@ -2952,11 +3044,11 @@ class Conversations:
                             "first_name": user.first_name or "",
                             "last_name": user.last_name or "",
                             "avatar_url": getattr(user, "avatar_url", None),
+                            "last_seen": user.last_seen.isoformat() if getattr(user, "last_seen", None) else None,
+                            "status_text": getattr(user, "status_text", None),
                         }
                 elif p.participant_type == "agent" and p.agent_id:
-                    agent = (
-                        session.query(Agent).filter(Agent.id == p.agent_id).first()
-                    )
+                    agent = session.query(Agent).filter(Agent.id == p.agent_id).first()
                     if agent:
                         participant_data["agent"] = {
                             "id": str(agent.id),
@@ -3124,9 +3216,17 @@ class Conversations:
                 result[conv_id] = {
                     "name": conversation.name,
                     "conversation_type": conversation.conversation_type,
-                    "company_id": str(conversation.company_id) if conversation.company_id else None,
-                    "created_at": convert_time(conversation.created_at, user_id=user_id),
-                    "updated_at": convert_time(conversation.updated_at, user_id=user_id),
+                    "company_id": (
+                        str(conversation.company_id)
+                        if conversation.company_id
+                        else None
+                    ),
+                    "created_at": convert_time(
+                        conversation.created_at, user_id=user_id
+                    ),
+                    "updated_at": convert_time(
+                        conversation.updated_at, user_id=user_id
+                    ),
                     "has_notifications": has_notifications,
                     "summary": conversation.summary or "None available",
                     "attachment_count": conversation.attachment_count or 0,
@@ -3171,6 +3271,7 @@ class Conversations:
             for thread in threads:
                 # Count messages in thread
                 from DB import Message as MessageModel
+
                 message_count = (
                     session.query(MessageModel)
                     .filter(MessageModel.conversation_id == str(thread.id))
@@ -3187,19 +3288,43 @@ class Conversations:
 
                 created = convert_time(thread.created_at, user_id=user_id)
                 updated = convert_time(thread.updated_at, user_id=user_id)
-                last_msg_time = convert_time(last_message.timestamp, user_id=user_id) if last_message else None
+                last_msg_time = (
+                    convert_time(last_message.timestamp, user_id=user_id)
+                    if last_message
+                    else None
+                )
 
-                result.append({
-                    "id": str(thread.id),
-                    "name": thread.name,
-                    "parent_id": str(thread.parent_id) if thread.parent_id else None,
-                    "parent_message_id": str(thread.parent_message_id) if thread.parent_message_id else None,
-                    "conversation_type": thread.conversation_type,
-                    "created_at": created.isoformat() if hasattr(created, 'isoformat') else str(created),
-                    "updated_at": updated.isoformat() if hasattr(updated, 'isoformat') else str(updated),
-                    "message_count": message_count,
-                    "last_message_at": last_msg_time.isoformat() if last_msg_time and hasattr(last_msg_time, 'isoformat') else str(last_msg_time) if last_msg_time else None,
-                })
+                result.append(
+                    {
+                        "id": str(thread.id),
+                        "name": thread.name,
+                        "parent_id": (
+                            str(thread.parent_id) if thread.parent_id else None
+                        ),
+                        "parent_message_id": (
+                            str(thread.parent_message_id)
+                            if thread.parent_message_id
+                            else None
+                        ),
+                        "conversation_type": thread.conversation_type,
+                        "created_at": (
+                            created.isoformat()
+                            if hasattr(created, "isoformat")
+                            else str(created)
+                        ),
+                        "updated_at": (
+                            updated.isoformat()
+                            if hasattr(updated, "isoformat")
+                            else str(updated)
+                        ),
+                        "message_count": message_count,
+                        "last_message_at": (
+                            last_msg_time.isoformat()
+                            if last_msg_time and hasattr(last_msg_time, "isoformat")
+                            else str(last_msg_time) if last_msg_time else None
+                        ),
+                    }
+                )
 
             return result
         finally:

@@ -302,6 +302,13 @@ async def get_user(
         "email": user_data.email,
         "first_name": user_data.first_name,
         "last_name": user_data.last_name,
+        "avatar_url": getattr(user_data, "avatar_url", None),
+        "last_seen": (
+            user_data.last_seen.isoformat()
+            if getattr(user_data, "last_seen", None)
+            else None
+        ),
+        "status_text": getattr(user_data, "status_text", None),
         "companies": companies,
         "tos_accepted_at": (
             user_data.tos_accepted_at.isoformat() if user_data.tos_accepted_at else None
@@ -644,6 +651,40 @@ async def update_user(
     client_ip = request.headers.get("X-Forwarded-For") or request.client.host
     user = MagicalAuth(token=authorization).update_user(ip_address=client_ip, **data)
     return Detail(detail=user)
+
+
+@app.post(
+    "/v1/user/presence",
+    dependencies=[Depends(verify_api_key)],
+    summary="Update user presence (heartbeat)",
+    description="Updates the user's last_seen timestamp and optionally sets a status text. Call periodically as a heartbeat.",
+    tags=["Auth"],
+)
+async def update_user_presence(
+    request: Request,
+    authorization: str = Header(None),
+    user=Depends(verify_api_key),
+):
+    data = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+    status_text = data.get("status_text", None)
+    auth = MagicalAuth(token=authorization)
+    result = auth.update_presence(status_text=status_text)
+    return result
+
+
+@app.get(
+    "/v1/user/status",
+    dependencies=[Depends(verify_api_key)],
+    summary="Get user status",
+    description="Get the current user's presence status and status text.",
+    tags=["Auth"],
+)
+async def get_user_status(
+    authorization: str = Header(None),
+    user=Depends(verify_api_key),
+):
+    auth = MagicalAuth(token=authorization)
+    return auth.get_user_status()
 
 
 # Delete user
@@ -1268,6 +1309,12 @@ async def get_company_members(
                         "last_name": user_obj.last_name,
                         "role_id": uc.role_id,
                         "avatar_url": getattr(user_obj, "avatar_url", None),
+                        "last_seen": (
+                            user_obj.last_seen.isoformat()
+                            if getattr(user_obj, "last_seen", None)
+                            else None
+                        ),
+                        "status_text": getattr(user_obj, "status_text", None),
                     }
                 )
             return {"members": result}

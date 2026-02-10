@@ -567,6 +567,12 @@ class User(Base):
     avatar_url = Column(
         String, nullable=True, default=None
     )  # User avatar/profile image URL
+    last_seen = Column(
+        DateTime, nullable=True, default=None
+    )  # Last time the user was seen online
+    status_text = Column(
+        String(255), nullable=True, default=None
+    )  # Custom user status message (e.g., "In a meeting", "Busy")
     user_companys = relationship("UserCompany", back_populates="user")
 
 
@@ -1622,9 +1628,13 @@ class Conversation(Base):
     )
     user = relationship("User", backref="conversation")
     company = relationship("Company", backref="conversations")
-    participants = relationship("ConversationParticipant", back_populates="conversation")
+    participants = relationship(
+        "ConversationParticipant", back_populates="conversation"
+    )
     # Thread relationships
-    parent = relationship("Conversation", remote_side=[id], backref="threads", foreign_keys=[parent_id])
+    parent = relationship(
+        "Conversation", remote_side=[id], backref="threads", foreign_keys=[parent_id]
+    )
 
 
 class ConversationShare(Base):
@@ -1700,7 +1710,9 @@ class Message(Base):
         nullable=True,
     )  # The actual user who sent this message (null for legacy/agent messages)
     sender_user = relationship("User", foreign_keys=[sender_user_id])
-    reactions = relationship("MessageReaction", back_populates="message", cascade="all, delete-orphan")
+    reactions = relationship(
+        "MessageReaction", back_populates="message", cascade="all, delete-orphan"
+    )
 
 
 class MessageReaction(Base):
@@ -5524,9 +5536,7 @@ def migrate_group_chat_tables():
 
                 if "icon_url" not in existing_columns:
                     session.execute(
-                        text(
-                            "ALTER TABLE Company ADD COLUMN icon_url VARCHAR"
-                        )
+                        text("ALTER TABLE Company ADD COLUMN icon_url VARCHAR")
                     )
                     session.commit()
                     logging.info("Added column icon_url to Company table")
@@ -5541,9 +5551,7 @@ def migrate_group_chat_tables():
                 )
                 if not result.fetchone():
                     session.execute(
-                        text(
-                            'ALTER TABLE "Company" ADD COLUMN icon_url VARCHAR'
-                        )
+                        text('ALTER TABLE "Company" ADD COLUMN icon_url VARCHAR')
                     )
                     session.commit()
                     logging.info("Added column icon_url to Company table")
@@ -5557,9 +5565,7 @@ def migrate_group_chat_tables():
 
                 if "avatar_url" not in existing_columns:
                     session.execute(
-                        text(
-                            "ALTER TABLE user ADD COLUMN avatar_url VARCHAR"
-                        )
+                        text("ALTER TABLE user ADD COLUMN avatar_url VARCHAR")
                     )
                     session.commit()
                     logging.info("Added column avatar_url to user table")
@@ -5574,12 +5580,68 @@ def migrate_group_chat_tables():
                 )
                 if not result.fetchone():
                     session.execute(
-                        text(
-                            'ALTER TABLE "user" ADD COLUMN avatar_url VARCHAR'
-                        )
+                        text('ALTER TABLE "user" ADD COLUMN avatar_url VARCHAR')
                     )
                     session.commit()
                     logging.info("Added column avatar_url to user table")
+
+            # ============================================
+            # User table: add last_seen
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(user)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "last_seen" not in existing_columns:
+                    session.execute(
+                        text("ALTER TABLE user ADD COLUMN last_seen DATETIME")
+                    )
+                    session.commit()
+                    logging.info("Added column last_seen to user table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'user' AND column_name = 'last_seen'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text('ALTER TABLE "user" ADD COLUMN last_seen TIMESTAMP')
+                    )
+                    session.commit()
+                    logging.info("Added column last_seen to user table")
+
+            # ============================================
+            # User table: add status_text
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(user)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "status_text" not in existing_columns:
+                    session.execute(
+                        text("ALTER TABLE user ADD COLUMN status_text VARCHAR(255)")
+                    )
+                    session.commit()
+                    logging.info("Added column status_text to user table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'user' AND column_name = 'status_text'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text('ALTER TABLE "user" ADD COLUMN status_text VARCHAR(255)')
+                    )
+                    session.commit()
+                    logging.info("Added column status_text to user table")
 
             # ============================================
             # Message table: add sender_user_id
@@ -5628,9 +5690,7 @@ def migrate_group_chat_tables():
                         )
                     )
                     session.commit()
-                    logging.info(
-                        "Added column conversation_type to conversation table"
-                    )
+                    logging.info("Added column conversation_type to conversation table")
 
                 if "company_id" not in existing_columns:
                     session.execute(
@@ -5656,9 +5716,7 @@ def migrate_group_chat_tables():
                         )
                     )
                     session.commit()
-                    logging.info(
-                        "Added column conversation_type to conversation table"
-                    )
+                    logging.info("Added column conversation_type to conversation table")
 
                 result = session.execute(
                     text(
@@ -5775,9 +5833,7 @@ def migrate_group_chat_tables():
             if "parent_id" not in existing_columns:
                 if DATABASE_TYPE == "sqlite":
                     session.execute(
-                        text(
-                            "ALTER TABLE conversation ADD COLUMN parent_id VARCHAR"
-                        )
+                        text("ALTER TABLE conversation ADD COLUMN parent_id VARCHAR")
                     )
                 else:
                     session.execute(
@@ -5807,15 +5863,11 @@ def migrate_group_chat_tables():
             if "category" not in existing_columns:
                 if DATABASE_TYPE == "sqlite":
                     session.execute(
-                        text(
-                            "ALTER TABLE conversation ADD COLUMN category VARCHAR"
-                        )
+                        text("ALTER TABLE conversation ADD COLUMN category VARCHAR")
                     )
                 else:
                     session.execute(
-                        text(
-                            "ALTER TABLE conversation ADD COLUMN category VARCHAR"
-                        )
+                        text("ALTER TABLE conversation ADD COLUMN category VARCHAR")
                     )
                 session.commit()
                 logging.info("Added column category to conversation table")

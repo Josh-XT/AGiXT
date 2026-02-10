@@ -1157,8 +1157,12 @@ class CreateGroupConversationModel(BaseModel):
     conversation_type: str = "group"  # 'group', 'dm', or 'thread'
     agent_names: Optional[List[str]] = []
     parent_id: Optional[str] = None  # For threads: the parent channel conversation ID
-    parent_message_id: Optional[str] = None  # For threads: the message that spawned this thread
-    category: Optional[str] = None  # Channel category for grouping (e.g., "Text Channels")
+    parent_message_id: Optional[str] = (
+        None  # For threads: the message that spawned this thread
+    )
+    category: Optional[str] = (
+        None  # Channel category for grouping (e.g., "Text Channels")
+    )
     invite_only: bool = False  # If True, only explicitly invited users can join
 
 

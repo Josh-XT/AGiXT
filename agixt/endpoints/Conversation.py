@@ -792,7 +792,9 @@ async def add_message_v1(
     ).log_interaction(
         message=log_interaction.message,
         role=log_interaction.role,
-        sender_user_id=str(auth.user_id) if log_interaction.role.upper() == "USER" else None,
+        sender_user_id=(
+            str(auth.user_id) if log_interaction.role.upper() == "USER" else None
+        ),
     )
 
     # Notify user of new message via websocket
@@ -3172,7 +3174,9 @@ async def create_group_conversation(
     authorization: str = Header(None),
 ):
     auth = MagicalAuth(token=authorization)
-    c = Conversations(conversation_name=body.conversation_name, user=user, create_if_missing=False)
+    c = Conversations(
+        conversation_name=body.conversation_name, user=user, create_if_missing=False
+    )
     result = c.create_group_conversation(
         company_id=body.company_id,
         conversation_type=body.conversation_type,
@@ -3289,9 +3293,7 @@ async def update_conversation_participant_role(
         user=user,
         conversation_id=conversation_id,
     )
-    c.update_participant_role(
-        participant_id=participant_id, new_role=body.role
-    )
+    c.update_participant_role(participant_id=participant_id, new_role=body.role)
     return ResponseMessage(message="Participant role updated successfully.")
 
 
@@ -3446,7 +3448,9 @@ async def create_thread(
     if not conversation_name:
         raise HTTPException(status_code=404, detail="Parent conversation not found")
 
-    c = Conversations(conversation_name=body.conversation_name, user=user, create_if_missing=False)
+    c = Conversations(
+        conversation_name=body.conversation_name, user=user, create_if_missing=False
+    )
     result = c.create_group_conversation(
         company_id=body.company_id,
         conversation_type="thread",
