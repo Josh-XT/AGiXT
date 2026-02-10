@@ -665,7 +665,11 @@ async def update_user_presence(
     authorization: str = Header(None),
     user=Depends(verify_api_key),
 ):
-    data = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+    data = (
+        await request.json()
+        if request.headers.get("content-length", "0") != "0"
+        else {}
+    )
     status_text = data.get("status_text", None)
     auth = MagicalAuth(token=authorization)
     result = auth.update_presence(status_text=status_text)

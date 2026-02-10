@@ -1580,9 +1580,7 @@ class Conversations:
                 DiscardedContext.conversation_id == conv_id
             ).delete()
             # 2. Memory (references conversation_id)
-            session.query(Memory).filter(
-                Memory.conversation_id == conv_id
-            ).delete()
+            session.query(Memory).filter(Memory.conversation_id == conv_id).delete()
             # 3. MessageReaction (references message_id)
             message_ids = [
                 m.id
@@ -1595,9 +1593,7 @@ class Conversations:
                     MessageReaction.message_id.in_(message_ids)
                 ).delete(synchronize_session="fetch")
             # 4. Messages
-            session.query(Message).filter(
-                Message.conversation_id == conv_id
-            ).delete()
+            session.query(Message).filter(Message.conversation_id == conv_id).delete()
             # 5. ConversationParticipant (references conversation_id)
             session.query(ConversationParticipant).filter(
                 ConversationParticipant.conversation_id == conv_id
@@ -3044,7 +3040,11 @@ class Conversations:
                             "first_name": user.first_name or "",
                             "last_name": user.last_name or "",
                             "avatar_url": getattr(user, "avatar_url", None),
-                            "last_seen": user.last_seen.isoformat() if getattr(user, "last_seen", None) else None,
+                            "last_seen": (
+                                user.last_seen.isoformat()
+                                if getattr(user, "last_seen", None)
+                                else None
+                            ),
                             "status_text": getattr(user, "status_text", None),
                         }
                 elif p.participant_type == "agent" and p.agent_id:

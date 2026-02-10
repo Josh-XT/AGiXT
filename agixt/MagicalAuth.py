@@ -4093,7 +4093,11 @@ class MagicalAuth:
             user = session.query(User).filter(User.id == self.user_id).first()
             if user:
                 return {
-                    "last_seen": user.last_seen.isoformat() if getattr(user, "last_seen", None) else None,
+                    "last_seen": (
+                        user.last_seen.isoformat()
+                        if getattr(user, "last_seen", None)
+                        else None
+                    ),
                     "status_text": getattr(user, "status_text", None),
                 }
             return {"last_seen": None, "status_text": None}
