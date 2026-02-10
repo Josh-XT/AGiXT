@@ -1697,6 +1697,34 @@ class Message(Base):
         nullable=True,
     )  # The actual user who sent this message (null for legacy/agent messages)
     sender_user = relationship("User", foreign_keys=[sender_user_id])
+    reactions = relationship("MessageReaction", back_populates="message", cascade="all, delete-orphan")
+
+
+class MessageReaction(Base):
+    """Stores emoji reactions on messages."""
+
+    __tablename__ = "message_reaction"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    message_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("message.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=False,
+    )
+    emoji = Column(String, nullable=False)  # The emoji character or shortcode
+    created_at = Column(DateTime, server_default=func.now())
+
+    message = relationship("Message", back_populates="reactions")
+    user = relationship("User", foreign_keys=[user_id])
 
 
 class ConversationParticipant(Base):
@@ -5777,6 +5805,83 @@ def migrate_group_chat_tables():
 
     except Exception as e:
         logging.error(f"Error migrating group chat tables: {e}")
+
+
+def migrate_message_reaction_table():
+    """Migration function to create the message_reaction table if it doesn't exist."""
+    if engine is None:
+        return
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='message_reaction'"
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE message_reaction (
+                                id VARCHAR PRIMARY KEY,
+                                message_id VARCHAR NOT NULL REFERENCES message(id) ON DELETE CASCADE,
+                                user_id VARCHAR NOT NULL REFERENCES user(id),
+                                emoji VARCHAR NOT NULL,
+                                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_message_reaction_message_id ON message_reaction(message_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE UNIQUE INDEX IF NOT EXISTS ix_message_reaction_unique ON message_reaction(message_id, user_id, emoji)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created message_reaction table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables
+                        WHERE table_name = 'message_reaction'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE message_reaction (
+                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                message_id UUID NOT NULL REFERENCES message(id) ON DELETE CASCADE,
+                                user_id UUID NOT NULL REFERENCES "user"(id),
+                                emoji VARCHAR NOT NULL,
+                                created_at TIMESTAMP DEFAULT NOW()
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX ix_message_reaction_message_id ON message_reaction(message_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE UNIQUE INDEX ix_message_reaction_unique ON message_reaction(message_id, user_id, emoji)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created message_reaction table")
+    except Exception as e:
+        logging.debug(f"message_reaction table migration completed or not needed: {e}")
 
 
 # Server configuration definitions

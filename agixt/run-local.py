@@ -112,6 +112,10 @@ async def initialize_database(is_restart=False):
         startup_timer.section_end("migrate_group_chat_tables", section_start)
 
         section_start = startup_timer.section_start()
+        DB.migrate_message_reaction_table()
+        startup_timer.section_end("migrate_message_reaction_table", section_start)
+
+        section_start = startup_timer.section_start()
         DB.migrate_conversation_table()
         startup_timer.section_end("migrate_conversation_table", section_start)
 

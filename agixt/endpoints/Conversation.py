@@ -19,7 +19,7 @@ from Conversations import (
     get_conversation_id_by_name,
     get_conversation_name_by_message_id,
 )
-from DB import Message, Agent as DBAgent, User
+from DB import Message, MessageReaction, Agent as DBAgent, User
 from XT import AGiXT
 from middleware import log_silenced_exception
 from Models import (
@@ -53,6 +53,8 @@ from Models import (
     UpdateChannelModel,
     GroupConversationListResponse,
     ThreadListResponse,
+    AddReactionModel,
+    MessageReactionsResponse,
 )
 import json
 import uuid
@@ -860,6 +862,146 @@ async def delete_message_v1(
         message_id=message_id,
     )
     return ResponseMessage(message="Message deleted.")
+
+
+# ============================================
+# Message Reactions
+# ============================================
+
+
+@app.post(
+    "/v1/conversation/{conversation_id}/message/{message_id}/reactions",
+    response_model=ResponseMessage,
+    summary="Add Reaction to Message",
+    description="Adds an emoji reaction to a message. If the user already reacted with the same emoji, it toggles (removes) it.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def add_reaction(
+    conversation_id: str,
+    message_id: str,
+    body: AddReactionModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    from DB import get_session
+
+    auth = MagicalAuth(token=authorization)
+    session = get_session()
+    try:
+        # Check if user already reacted with same emoji — toggle off
+        existing = (
+            session.query(MessageReaction)
+            .filter(
+                MessageReaction.message_id == message_id,
+                MessageReaction.user_id == str(auth.user_id),
+                MessageReaction.emoji == body.emoji,
+            )
+            .first()
+        )
+        if existing:
+            session.delete(existing)
+            session.commit()
+            return ResponseMessage(message="Reaction removed.")
+
+        reaction = MessageReaction(
+            message_id=message_id,
+            user_id=str(auth.user_id),
+            emoji=body.emoji,
+        )
+        session.add(reaction)
+        session.commit()
+        return ResponseMessage(message="Reaction added.")
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@app.get(
+    "/v1/conversation/{conversation_id}/message/{message_id}/reactions",
+    response_model=MessageReactionsResponse,
+    summary="Get Reactions for Message",
+    description="Gets all emoji reactions for a specific message.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_reactions(
+    conversation_id: str,
+    message_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> MessageReactionsResponse:
+    from DB import get_session
+
+    auth = MagicalAuth(token=authorization)
+    session = get_session()
+    try:
+        reactions = (
+            session.query(MessageReaction)
+            .filter(MessageReaction.message_id == message_id)
+            .all()
+        )
+        result = []
+        for r in reactions:
+            u = session.query(User).filter(User.id == r.user_id).first()
+            result.append(
+                {
+                    "id": str(r.id),
+                    "emoji": r.emoji,
+                    "user_id": str(r.user_id),
+                    "user_email": u.email if u else None,
+                    "user_first_name": u.first_name if u else None,
+                    "created_at": str(r.created_at) if r.created_at else None,
+                }
+            )
+        return MessageReactionsResponse(reactions=result)
+    finally:
+        session.close()
+
+
+@app.delete(
+    "/v1/conversation/{conversation_id}/message/{message_id}/reactions/{emoji}",
+    response_model=ResponseMessage,
+    summary="Remove Reaction from Message",
+    description="Removes a specific emoji reaction from a message for the current user.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def remove_reaction(
+    conversation_id: str,
+    message_id: str,
+    emoji: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    from DB import get_session
+
+    auth = MagicalAuth(token=authorization)
+    session = get_session()
+    try:
+        reaction = (
+            session.query(MessageReaction)
+            .filter(
+                MessageReaction.message_id == message_id,
+                MessageReaction.user_id == str(auth.user_id),
+                MessageReaction.emoji == emoji,
+            )
+            .first()
+        )
+        if not reaction:
+            raise HTTPException(status_code=404, detail="Reaction not found")
+        session.delete(reaction)
+        session.commit()
+        return ResponseMessage(message="Reaction removed.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
 
 
 @app.get(

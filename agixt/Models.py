@@ -815,6 +815,23 @@ class MessageIdResponse(BaseModel):
     message: str  # Contains the message ID
 
 
+class AddReactionModel(BaseModel):
+    emoji: str
+
+
+class ReactionResponse(BaseModel):
+    id: str
+    emoji: str
+    user_id: str
+    user_email: Optional[str] = None
+    user_first_name: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class MessageReactionsResponse(BaseModel):
+    reactions: List[ReactionResponse]
+
+
 class ChatCompletionResponse(BaseModel):
     id: str
     object: str = "chat.completion"

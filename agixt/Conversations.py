@@ -8,6 +8,7 @@ from DB import (
     ConversationParticipant,
     Agent,
     Message,
+    MessageReaction,
     User,
     UserCompany,
     get_session,
@@ -827,6 +828,44 @@ class Conversations:
                 }
                 for u in users
             }
+        # Pre-fetch all reactions for these messages
+        message_ids = [str(m.id) for m in messages]
+        reactions_map = {}
+        try:
+            all_reactions = (
+                session.query(MessageReaction)
+                .filter(MessageReaction.message_id.in_(message_ids))
+                .all()
+            )
+            # Fetch user info for reaction users
+            reaction_user_ids = {str(r.user_id) for r in all_reactions}
+            reaction_users = {}
+            if reaction_user_ids:
+                r_users = session.query(User).filter(User.id.in_(reaction_user_ids)).all()
+                reaction_users = {
+                    str(u.id): {
+                        "email": u.email,
+                        "first_name": u.first_name or "",
+                    }
+                    for u in r_users
+                }
+            for r in all_reactions:
+                mid = str(r.message_id)
+                if mid not in reactions_map:
+                    reactions_map[mid] = []
+                ru = reaction_users.get(str(r.user_id), {})
+                reactions_map[mid].append(
+                    {
+                        "id": str(r.id),
+                        "emoji": r.emoji,
+                        "user_id": str(r.user_id),
+                        "user_email": ru.get("email"),
+                        "user_first_name": ru.get("first_name"),
+                        "created_at": str(r.created_at) if r.created_at else None,
+                    }
+                )
+        except Exception as e:
+            logging.debug(f"Failed to fetch reactions: {e}")
         for message in messages:
             # Store raw UTC timestamps for WebSocket comparison (no timezone conversion)
             raw_timestamp_utc = message.timestamp
@@ -848,6 +887,7 @@ class Conversations:
                 # Group chat: sender user info
                 "sender_user_id": str(message.sender_user_id) if message.sender_user_id else None,
                 "sender": sender_users.get(str(message.sender_user_id)) if message.sender_user_id else None,
+                "reactions": reactions_map.get(str(message.id), []),
             }
             return_messages.append(msg)
         session.close()

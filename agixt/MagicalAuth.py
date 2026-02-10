@@ -7079,63 +7079,6 @@ class MagicalAuth:
                 raise HTTPException(status_code=404, detail="Company not found")
             return company.agent_name if company.agent_name else getenv("AGENT_NAME")
 
-    def update_company(self, company_id: str, name: str) -> CompanyResponse:
-        # Check if user has permission to write to this company
-        if not self.has_scope("company:write", company_id):
-            raise HTTPException(
-                status_code=403,
-                detail="Unauthorized. Insufficient permissions.",
-            )
-
-        with get_session() as db:
-            try:
-                company = db.query(Company).filter(Company.id == company_id).first()
-                if not company:
-                    raise HTTPException(status_code=404, detail="Company not found")
-
-                company.name = name
-                db.commit()
-                user_role = self.get_user_role(company_id)
-                role_name = None
-                for role in default_roles:
-                    if role["id"] == user_role:
-                        role_name = role["name"]
-                        break
-                if role_name is None:
-                    role_name = "user"
-
-                return CompanyResponse(
-                    id=str(company.id),
-                    name=company.name,
-                    company_id=str(company.company_id) if company.company_id else None,
-                    status=getattr(company, "status", True),
-                    address=getattr(company, "address", None),
-                    phone_number=getattr(company, "phone_number", None),
-                    email=getattr(company, "email", None),
-                    website=getattr(company, "website", None),
-                    city=getattr(company, "city", None),
-                    state=getattr(company, "state", None),
-                    zip_code=getattr(company, "zip_code", None),
-                    country=getattr(company, "country", None),
-                    notes=getattr(company, "notes", None),
-                    icon_url=getattr(company, "icon_url", None),
-                    users=[
-                        UserResponse(
-                            id=str(uc.user.id),
-                            email=uc.user.email,
-                            first_name=uc.user.first_name,
-                            last_name=uc.user.last_name,
-                            role=role_name,
-                            role_id=uc.role_id,
-                        )
-                        for uc in company.users
-                    ],
-                    children=[],
-                )
-            except SQLAlchemyError as e:
-                db.rollback()
-                raise HTTPException(status_code=500, detail=str(e))
-
     def get_training_data(self, company_id: str = None) -> str:
         if not company_id:
             company_id = self.company_id
