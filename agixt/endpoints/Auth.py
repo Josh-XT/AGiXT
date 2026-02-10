@@ -671,8 +671,9 @@ async def update_user_presence(
         else {}
     )
     status_text = data.get("status_text", None)
+    status_mode = data.get("status_mode", None)
     auth = MagicalAuth(token=authorization)
-    result = auth.update_presence(status_text=status_text)
+    result = auth.update_presence(status_text=status_text, status_mode=status_mode)
     return result
 
 

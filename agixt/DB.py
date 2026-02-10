@@ -573,6 +573,9 @@ class User(Base):
     status_text = Column(
         String(255), nullable=True, default=None
     )  # Custom user status message (e.g., "In a meeting", "Busy")
+    status_mode = Column(
+        String(20), nullable=True, default="online"
+    )  # Presence mode: online, away, dnd, invisible
     user_companys = relationship("UserCompany", back_populates="user")
 
 
@@ -5642,6 +5645,39 @@ def migrate_group_chat_tables():
                     )
                     session.commit()
                     logging.info("Added column status_text to user table")
+
+            # ============================================
+            # User table: add status_mode
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(user)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "status_mode" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE user ADD COLUMN status_mode VARCHAR(20) DEFAULT 'online'"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column status_mode to user table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'user' AND column_name = 'status_mode'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            'ALTER TABLE "user" ADD COLUMN status_mode VARCHAR(20) DEFAULT \'online\''
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column status_mode to user table")
 
             # ============================================
             # Message table: add sender_user_id

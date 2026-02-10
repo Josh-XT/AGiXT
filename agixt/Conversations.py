@@ -451,6 +451,13 @@ class Conversations:
             )
             .filter(Conversation.user_id == user_id)
             .filter(Message.id != None)
+            # Exclude group channels and threads from DM/conversation list
+            .filter(
+                or_(
+                    Conversation.conversation_type.is_(None),
+                    Conversation.conversation_type.notin_(["group", "thread"]),
+                )
+            )
             .group_by(Conversation.id, last_message_subq.c.last_message_time)
             .all()
         )
@@ -463,6 +470,7 @@ class Conversations:
             result[str(conversation.id)] = {
                 "name": conversation.name,
                 "agent_id": default_agent_id,
+                "conversation_type": conversation.conversation_type,
                 "created_at": convert_time(conversation.created_at, user_id=user_id),
                 "updated_at": convert_time(effective_updated_at, user_id=user_id),
                 "has_notifications": notification_count > 0,

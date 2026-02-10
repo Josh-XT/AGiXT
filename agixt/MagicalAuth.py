@@ -4062,8 +4062,8 @@ class MagicalAuth:
         session.close()
         return "User updated successfully."
 
-    def update_presence(self, status_text: str = None):
-        """Update user's last_seen timestamp and optionally set a status text."""
+    def update_presence(self, status_text: str = None, status_mode: str = None):
+        """Update user's last_seen timestamp and optionally set a status text or mode."""
         self.validate_user()
         session = get_session()
         try:
@@ -4072,16 +4072,21 @@ class MagicalAuth:
                 user.last_seen = datetime.now(timezone.utc)
                 if status_text is not None:
                     user.status_text = status_text if status_text.strip() else None
+                if status_mode is not None:
+                    valid_modes = {"online", "away", "dnd", "invisible"}
+                    if status_mode in valid_modes:
+                        user.status_mode = status_mode
                 session.commit()
                 return {
                     "last_seen": user.last_seen.isoformat() if user.last_seen else None,
                     "status_text": getattr(user, "status_text", None),
+                    "status_mode": getattr(user, "status_mode", "online"),
                 }
-            return {"last_seen": None, "status_text": None}
+            return {"last_seen": None, "status_text": None, "status_mode": "online"}
         except Exception as e:
             session.rollback()
             logging.error(f"Error updating presence: {e}")
-            return {"last_seen": None, "status_text": None}
+            return {"last_seen": None, "status_text": None, "status_mode": "online"}
         finally:
             session.close()
 
@@ -4099,8 +4104,9 @@ class MagicalAuth:
                         else None
                     ),
                     "status_text": getattr(user, "status_text", None),
+                    "status_mode": getattr(user, "status_mode", "online"),
                 }
-            return {"last_seen": None, "status_text": None}
+            return {"last_seen": None, "status_text": None, "status_mode": "online"}
         finally:
             session.close()
 
