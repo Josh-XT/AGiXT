@@ -455,6 +455,10 @@ class Company(Base):
     mfa_required = Column(
         Boolean, nullable=False, default=False
     )  # Whether MFA is required for all users in this company
+    # Group chat / Discord-like features
+    icon_url = Column(
+        String, nullable=True, default=None
+    )  # Group icon/avatar image URL (like Discord server icon)
     users = relationship("UserCompany", back_populates="company")
 
     @classmethod
@@ -559,6 +563,10 @@ class User(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     is_active = Column(Boolean, default=True)
     tos_accepted_at = Column(DateTime, nullable=True)
+    # Group chat / Discord-like features
+    avatar_url = Column(
+        String, nullable=True, default=None
+    )  # User avatar/profile image URL
     user_companys = relationship("UserCompany", back_populates="user")
 
 
@@ -1579,6 +1587,26 @@ class Conversation(Base):
     pin_order = Column(
         Integer, nullable=True
     )  # NULL = unpinned, integer = pin position
+    # Group chat fields
+    conversation_type = Column(
+        String, nullable=False, default="private"
+    )  # 'private' (1:1 with agent), 'group' (multi-user channel), 'dm' (direct message), 'thread' (thread within a channel)
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=True,
+    )  # The group/company this channel belongs to (null for DMs/private)
+    # Thread support: parent_id links a thread to its parent channel/conversation
+    parent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("conversation.id"),
+        nullable=True,
+    )  # For threads: the parent channel conversation
+    parent_message_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("message.id"),
+        nullable=True,
+    )  # For threads: the message that spawned this thread
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     user_id = Column(
@@ -1587,6 +1615,10 @@ class Conversation(Base):
         nullable=True,
     )
     user = relationship("User", backref="conversation")
+    company = relationship("Company", backref="conversations")
+    participants = relationship("ConversationParticipant", back_populates="conversation")
+    # Thread relationships
+    parent = relationship("Conversation", remote_side=[id], backref="threads", foreign_keys=[parent_id])
 
 
 class ConversationShare(Base):
@@ -1655,6 +1687,55 @@ class Message(Base):
     )
     feedback_received = Column(Boolean, default=False)
     notify = Column(Boolean, default=False, nullable=False)
+    # Group chat: identify which user sent this message
+    sender_user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=True,
+    )  # The actual user who sent this message (null for legacy/agent messages)
+    sender_user = relationship("User", foreign_keys=[sender_user_id])
+
+
+class ConversationParticipant(Base):
+    """Tracks users and agents participating in group conversations."""
+
+    __tablename__ = "conversation_participant"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    conversation_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("conversation.id"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=True,
+    )  # For user participants
+    agent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("agent.id"),
+        nullable=True,
+    )  # For agent participants
+    participant_type = Column(
+        String, nullable=False, default="user"
+    )  # 'user' or 'agent'
+    role = Column(
+        String, nullable=False, default="member"
+    )  # 'owner', 'admin', 'member', 'observer'
+    joined_at = Column(DateTime, server_default=func.now())
+    last_read_at = Column(DateTime, nullable=True)  # Last time user read messages
+    status = Column(
+        String, nullable=False, default="active"
+    )  # 'active', 'left', 'removed'
+
+    conversation = relationship("Conversation", back_populates="participants")
+    user = relationship("User", foreign_keys=[user_id])
+    agent = relationship("Agent", foreign_keys=[agent_id])
 
 
 class DiscardedContext(Base):
@@ -5380,6 +5461,318 @@ def migrate_auth_username_password():
 
     except Exception as e:
         logging.error(f"Error migrating auth username/password: {e}")
+
+
+def migrate_group_chat_tables():
+    """
+    Migration for group chat / Discord-like functionality.
+
+    Adds:
+    - Company.icon_url: Group icon/avatar image URL
+    - User.avatar_url: User avatar/profile image URL
+    - Message.sender_user_id: FK to user who sent the message (for multi-user chats)
+    - Conversation.conversation_type: 'private', 'group', or 'dm'
+    - Conversation.company_id: FK to Company for group channels
+    - conversation_participant table: Tracks users/agents in group conversations
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            # ============================================
+            # Company table: add icon_url
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(Company)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "icon_url" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE Company ADD COLUMN icon_url VARCHAR"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column icon_url to Company table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'Company' AND column_name = 'icon_url'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            'ALTER TABLE "Company" ADD COLUMN icon_url VARCHAR'
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column icon_url to Company table")
+
+            # ============================================
+            # User table: add avatar_url
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(user)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "avatar_url" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE user ADD COLUMN avatar_url VARCHAR"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column avatar_url to user table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'user' AND column_name = 'avatar_url'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            'ALTER TABLE "user" ADD COLUMN avatar_url VARCHAR'
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column avatar_url to user table")
+
+            # ============================================
+            # Message table: add sender_user_id
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(message)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "sender_user_id" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE message ADD COLUMN sender_user_id VARCHAR REFERENCES user(id)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column sender_user_id to message table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'message' AND column_name = 'sender_user_id'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            'ALTER TABLE "message" ADD COLUMN sender_user_id UUID REFERENCES "user"(id)'
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column sender_user_id to message table")
+
+            # ============================================
+            # Conversation table: add conversation_type and company_id
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(conversation)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "conversation_type" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN conversation_type VARCHAR DEFAULT 'private'"
+                        )
+                    )
+                    session.commit()
+                    logging.info(
+                        "Added column conversation_type to conversation table"
+                    )
+
+                if "company_id" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN company_id VARCHAR REFERENCES Company(id)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column company_id to conversation table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'conversation' AND column_name = 'conversation_type'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN conversation_type VARCHAR DEFAULT 'private'"
+                        )
+                    )
+                    session.commit()
+                    logging.info(
+                        "Added column conversation_type to conversation table"
+                    )
+
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'conversation' AND column_name = 'company_id'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            'ALTER TABLE conversation ADD COLUMN company_id UUID REFERENCES "Company"(id)'
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column company_id to conversation table")
+
+            # ============================================
+            # Create conversation_participant table
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                session.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS conversation_participant (
+                            id VARCHAR PRIMARY KEY,
+                            conversation_id VARCHAR NOT NULL REFERENCES conversation(id),
+                            user_id VARCHAR REFERENCES user(id),
+                            agent_id VARCHAR REFERENCES agent(id),
+                            participant_type VARCHAR NOT NULL DEFAULT 'user',
+                            role VARCHAR NOT NULL DEFAULT 'member',
+                            joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            last_read_at DATETIME,
+                            status VARCHAR NOT NULL DEFAULT 'active'
+                        )
+                        """
+                    )
+                )
+                session.commit()
+
+                # Create index on conversation_id if it doesn't exist
+                try:
+                    session.execute(
+                        text(
+                            """
+                            CREATE INDEX IF NOT EXISTS ix_conversation_participant_conversation_id
+                            ON conversation_participant(conversation_id)
+                            """
+                        )
+                    )
+                    session.commit()
+                except Exception:
+                    pass
+            else:
+                # PostgreSQL
+                result = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables
+                        WHERE table_name = 'conversation_participant'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE conversation_participant (
+                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                conversation_id UUID NOT NULL REFERENCES conversation(id),
+                                user_id UUID REFERENCES "user"(id),
+                                agent_id UUID REFERENCES agent(id),
+                                participant_type VARCHAR NOT NULL DEFAULT 'user',
+                                role VARCHAR NOT NULL DEFAULT 'member',
+                                joined_at TIMESTAMP DEFAULT NOW(),
+                                last_read_at TIMESTAMP,
+                                status VARCHAR NOT NULL DEFAULT 'active'
+                            )
+                            """
+                        )
+                    )
+                    session.commit()
+
+                    # Create index
+                    try:
+                        session.execute(
+                            text(
+                                """
+                                CREATE INDEX ix_conversation_participant_conversation_id
+                                ON conversation_participant(conversation_id)
+                                """
+                            )
+                        )
+                        session.commit()
+                    except Exception:
+                        pass
+
+            # Add thread support columns to conversation table
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(conversation)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'conversation'
+                        """
+                    )
+                )
+                existing_columns = [row[0] for row in result.fetchall()]
+
+            if "parent_id" not in existing_columns:
+                if DATABASE_TYPE == "sqlite":
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN parent_id VARCHAR"
+                        )
+                    )
+                else:
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN parent_id UUID REFERENCES conversation(id)"
+                        )
+                    )
+                session.commit()
+                logging.info("Added column parent_id to conversation table")
+
+            if "parent_message_id" not in existing_columns:
+                if DATABASE_TYPE == "sqlite":
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN parent_message_id VARCHAR"
+                        )
+                    )
+                else:
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN parent_message_id UUID REFERENCES message(id)"
+                        )
+                    )
+                session.commit()
+                logging.info("Added column parent_message_id to conversation table")
+
+            logging.info("Group chat tables migration complete")
+
+    except Exception as e:
+        logging.error(f"Error migrating group chat tables: {e}")
 
 
 # Server configuration definitions

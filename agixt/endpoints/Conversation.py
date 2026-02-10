@@ -47,6 +47,11 @@ from Models import (
     ConversationShareResponse,
     SharedConversationListResponse,
     SharedConversationResponse,
+    CreateGroupConversationModel,
+    AddParticipantModel,
+    UpdateParticipantRoleModel,
+    GroupConversationListResponse,
+    ThreadListResponse,
 )
 import json
 import uuid
@@ -776,6 +781,7 @@ async def add_message_v1(
     ).log_interaction(
         message=log_interaction.message,
         role=log_interaction.role,
+        sender_user_id=str(auth.user_id) if log_interaction.role.upper() == "USER" else None,
     )
 
     # Notify user of new message via websocket
@@ -2995,3 +3001,304 @@ async def download_shared_workspace_file(
         raise HTTPException(status_code=500, detail="Failed to download file")
     finally:
         session.close()
+
+
+# =========================================================================
+# Group Chat / Discord-like Endpoints
+# =========================================================================
+
+
+@app.post(
+    "/v1/conversation/group",
+    summary="Create Group Conversation or Thread",
+    description="Creates a new group conversation (channel) or thread within a company/group. For threads, provide parent_id (the channel conversation) and optionally parent_message_id (the message that spawned the thread). Adds the creator as owner and optionally adds agents as participants.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def create_group_conversation(
+    body: CreateGroupConversationModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    c = Conversations(conversation_name=body.conversation_name, user=user, create_if_missing=False)
+    result = c.create_group_conversation(
+        company_id=body.company_id,
+        conversation_type=body.conversation_type,
+        agents=body.agent_names,
+        parent_id=body.parent_id,
+        parent_message_id=body.parent_message_id,
+    )
+    return result
+
+
+@app.get(
+    "/v1/company/{company_id}/conversations",
+    response_model=GroupConversationListResponse,
+    summary="Get Group Conversations for Company",
+    description="Gets all group conversations (channels) for a company/group that the current user is a participant of.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_group_conversations(
+    company_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    c = Conversations(user=user)
+    conversations = c.get_group_conversations_for_company(company_id=company_id)
+    return {"conversations": conversations}
+
+
+@app.get(
+    "/v1/conversation/{conversation_id}/participants",
+    summary="Get Conversation Participants",
+    description="Gets all active participants (users and agents) in a conversation.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_conversation_participants(
+    conversation_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
+    participants = c.get_participants()
+    return {"participants": participants}
+
+
+@app.post(
+    "/v1/conversation/{conversation_id}/participants",
+    summary="Add Participant to Conversation",
+    description="Adds a user or agent as a participant to a group conversation.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def add_conversation_participant(
+    conversation_id: str,
+    body: AddParticipantModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
+    participant_id = c.add_participant(
+        user_id=body.user_id,
+        agent_id=body.agent_id,
+        participant_type=body.participant_type,
+        role=body.role,
+    )
+    return {"participant_id": participant_id}
+
+
+@app.patch(
+    "/v1/conversation/{conversation_id}/participants/{participant_id}",
+    summary="Update Participant Role",
+    description="Updates a participant's role in the conversation.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_conversation_participant_role(
+    conversation_id: str,
+    participant_id: str,
+    body: UpdateParticipantRoleModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
+    c.update_participant_role(
+        participant_id=participant_id, new_role=body.role
+    )
+    return ResponseMessage(message="Participant role updated successfully.")
+
+
+@app.delete(
+    "/v1/conversation/{conversation_id}/participants/{participant_id}",
+    summary="Remove Participant from Conversation",
+    description="Removes a participant from the conversation.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def remove_conversation_participant(
+    conversation_id: str,
+    participant_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
+    c.remove_participant(participant_id=participant_id)
+    return ResponseMessage(message="Participant removed successfully.")
+
+
+@app.post(
+    "/v1/conversation/{conversation_id}/leave",
+    summary="Leave Conversation",
+    description="Current user leaves a group conversation.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def leave_conversation(
+    conversation_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    from DB import get_session, ConversationParticipant
+
+    session = get_session()
+    try:
+        participant = (
+            session.query(ConversationParticipant)
+            .filter(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.user_id == auth.user_id,
+                ConversationParticipant.status == "active",
+            )
+            .first()
+        )
+        if not participant:
+            raise HTTPException(
+                status_code=404, detail="You are not a participant in this conversation"
+            )
+        participant.status = "left"
+        session.commit()
+        return ResponseMessage(message="Left conversation successfully.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"Error leaving conversation: {e}")
+    finally:
+        session.close()
+
+
+@app.post(
+    "/v1/conversation/{conversation_id}/read",
+    summary="Mark Conversation as Read",
+    description="Updates the last_read_at timestamp for the current user in a group conversation.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def mark_conversation_read(
+    conversation_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
+    c.update_last_read(user_id=str(auth.user_id))
+    return ResponseMessage(message="Conversation marked as read.")
+
+
+@app.get(
+    "/v1/conversation/{conversation_id}/threads",
+    response_model=ThreadListResponse,
+    summary="Get Threads for Channel",
+    description="Gets all threads spawned from messages in a given channel conversation. Returns thread metadata including message count and last activity.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_threads(
+    conversation_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
+    threads = c.get_threads(conversation_id=conversation_id)
+    return {"threads": threads}
+
+
+@app.post(
+    "/v1/conversation/{conversation_id}/threads",
+    summary="Create Thread from Message",
+    description="Creates a new thread conversation from a specific message in a channel. The thread inherits the channel's company_id and adds the creator as owner.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def create_thread(
+    conversation_id: str,
+    body: CreateGroupConversationModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Parent conversation not found")
+
+    c = Conversations(conversation_name=body.conversation_name, user=user, create_if_missing=False)
+    result = c.create_group_conversation(
+        company_id=body.company_id,
+        conversation_type="thread",
+        agents=body.agent_names,
+        parent_id=conversation_id,
+        parent_message_id=body.parent_message_id,
+    )
+    return result

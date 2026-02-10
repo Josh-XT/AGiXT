@@ -1379,6 +1379,7 @@ async def update_company(
             zip_code=company_details.zip_code,
             country=company_details.country,
             notes=company_details.notes,
+            icon_url=company_details.icon_url,
         )
     except Exception as e:
         logging.error(f"Error in update_company endpoint: {str(e)}")

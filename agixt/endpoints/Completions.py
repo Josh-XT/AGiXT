@@ -1,5 +1,6 @@
 import time
 import uuid
+import re
 import logging
 import traceback
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -27,6 +28,70 @@ from Models import (
 from XT import AGiXT
 import json
 import asyncio
+
+
+def parse_agent_mentions(messages, available_agents):
+    """
+    Parse @AgentName mentions from the last user message.
+    Returns (mentioned_agent_name, cleaned_messages) or (None, messages) if no valid mention.
+
+    Matching is case-insensitive and supports multi-word agent names.
+    The longest matching agent name wins to avoid partial matches.
+    """
+    if not messages or not available_agents:
+        return None, messages
+
+    # Find the last user message
+    last_user_idx = None
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], dict) and messages[i].get("role", "").lower() == "user":
+            last_user_idx = i
+            break
+
+    if last_user_idx is None:
+        return None, messages
+
+    msg = messages[last_user_idx]
+    content = msg.get("content", "")
+    if not isinstance(content, str):
+        return None, messages
+
+    # Build agent name lookup (case-insensitive), sorted longest first
+    agent_names = sorted(
+        [a.name for a in available_agents if hasattr(a, "name") and a.name],
+        key=lambda n: len(n),
+        reverse=True,
+    )
+
+    # Match @AgentName pattern - supports quoted names like @"My Agent" and unquoted
+    for agent_name in agent_names:
+        # Try quoted pattern first: @"Agent Name"
+        quoted_pattern = re.compile(
+            r'@["\u201c]' + re.escape(agent_name) + r'["\u201d]',
+            re.IGNORECASE,
+        )
+        match = quoted_pattern.search(content)
+        if match:
+            cleaned_content = content[:match.start()] + content[match.end():]
+            cleaned_content = cleaned_content.strip()
+            new_messages = list(messages)
+            new_messages[last_user_idx] = {**msg, "content": cleaned_content}
+            return agent_name, new_messages
+
+        # Try unquoted pattern: @AgentName (word boundary after)
+        unquoted_pattern = re.compile(
+            r'@' + re.escape(agent_name) + r'(?:\b|(?=\s|$|[,.:;!?]))',
+            re.IGNORECASE,
+        )
+        match = unquoted_pattern.search(content)
+        if match:
+            cleaned_content = content[:match.start()] + content[match.end():]
+            cleaned_content = cleaned_content.strip()
+            new_messages = list(messages)
+            new_messages[last_user_idx] = {**msg, "content": cleaned_content}
+            return agent_name, new_messages
+
+    return None, messages
 
 app = APIRouter()
 
@@ -108,6 +173,24 @@ async def chat_completion(
                 logging.error("Error getting agent name: using default")
                 prompt.model = "AGiXT"
         prompt.model = prompt.model.replace('"', "")
+
+        # @mention agent routing: if the user's message contains @AgentName,
+        # override the target agent and strip the mention from the message.
+        if prompt.messages:
+            try:
+                all_agents = get_agents(user=user)
+                mentioned_agent, cleaned_messages = parse_agent_mentions(
+                    prompt.messages, all_agents
+                )
+                if mentioned_agent:
+                    prompt.model = mentioned_agent
+                    prompt.messages = cleaned_messages
+                    logging.info(
+                        f"@mention routing: directing to agent '{mentioned_agent}'"
+                    )
+            except Exception as e:
+                logging.warning(f"Error parsing @mentions: {e}")
+
         agixt = AGiXT(
             user=user,
             agent_name=prompt.model,
@@ -195,6 +278,23 @@ async def mcp_chat_completion(
                 logging.error("Error getting agent name: using default")
                 prompt.model = "AGiXT"
         prompt.model = prompt.model.replace('"', "")
+
+        # @mention agent routing for MCP endpoint
+        if prompt.messages:
+            try:
+                all_agents = get_agents(user=user)
+                mentioned_agent, cleaned_messages = parse_agent_mentions(
+                    prompt.messages, all_agents
+                )
+                if mentioned_agent:
+                    prompt.model = mentioned_agent
+                    prompt.messages = cleaned_messages
+                    logging.info(
+                        f"@mention routing (MCP): directing to agent '{mentioned_agent}'"
+                    )
+            except Exception as e:
+                logging.warning(f"Error parsing @mentions: {e}")
+
         agixt = AGiXT(
             user=user,
             agent_name=prompt.model,

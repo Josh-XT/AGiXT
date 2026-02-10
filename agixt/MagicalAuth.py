@@ -6513,6 +6513,7 @@ class MagicalAuth:
                         "zip_code": getattr(company, "zip_code", None),
                         "country": getattr(company, "country", None),
                         "notes": getattr(company, "notes", None),
+                        "icon_url": getattr(company, "icon_url", None),
                         "users": list(unique_users.values()),
                         "children": [],
                     }
@@ -6573,6 +6574,7 @@ class MagicalAuth:
                                 "zip_code": getattr(child, "zip_code", None),
                                 "country": getattr(child, "country", None),
                                 "notes": getattr(child, "notes", None),
+                                "icon_url": getattr(child, "icon_url", None),
                                 "users": list(child_unique_users.values()),
                             }
                             company_data["children"].append(child_data)
@@ -7116,6 +7118,7 @@ class MagicalAuth:
                     zip_code=getattr(company, "zip_code", None),
                     country=getattr(company, "country", None),
                     notes=getattr(company, "notes", None),
+                    icon_url=getattr(company, "icon_url", None),
                     users=[
                         UserResponse(
                             id=str(uc.user.id),
@@ -7618,6 +7621,7 @@ class MagicalAuth:
                 zip_code=getattr(company, "zip_code", None),
                 country=getattr(company, "country", None),
                 notes=getattr(company, "notes", None),
+                icon_url=getattr(company, "icon_url", None),
                 users=[
                     UserResponse(
                         id=str(uc.user.id),
@@ -7646,6 +7650,7 @@ class MagicalAuth:
         zip_code: Optional[str] = None,
         country: Optional[str] = None,
         notes: Optional[str] = None,
+        icon_url: Optional[str] = None,
     ):
         # Check if user has permission to write to this company
         if not self.has_scope("company:write", company_id):
@@ -7681,6 +7686,8 @@ class MagicalAuth:
                 company.country = country
             if notes is not None:
                 company.notes = notes
+            if icon_url is not None:
+                company.icon_url = icon_url
 
             db.commit()
             user_role = self.get_user_role(company_id)
@@ -7698,6 +7705,7 @@ class MagicalAuth:
                 status=getattr(company, "status", True),
                 address=getattr(company, "address", None),
                 phone_number=getattr(company, "phone_number", None),
+                icon_url=getattr(company, "icon_url", None),
                 users=[
                     UserResponse(
                         id=str(uc.user.id),

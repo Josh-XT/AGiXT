@@ -5,9 +5,11 @@ import asyncio
 from DB import (
     Conversation,
     ConversationShare,
+    ConversationParticipant,
     Agent,
     Message,
     User,
+    UserCompany,
     get_session,
 )
 from Globals import getenv, DEFAULT_USER
@@ -143,6 +145,24 @@ def get_conversation_id_by_name(conversation_name, user_id, create_if_missing=Tr
         .first()
     )
     if not conversation:
+        # Check group conversations accessible via company membership
+        user_company_ids = (
+            session.query(UserCompany.company_id)
+            .filter(UserCompany.user_id == user_id)
+            .all()
+        )
+        company_ids = [str(uc[0]) for uc in user_company_ids]
+        if company_ids:
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == conversation_name,
+                    Conversation.company_id.in_(company_ids),
+                    Conversation.conversation_type.in_(["group", "dm", "thread"]),
+                )
+                .first()
+            )
+    if not conversation:
         if not create_if_missing:
             session.close()
             # Clear any stale cache entry
@@ -167,6 +187,7 @@ def get_conversation_name_by_id(conversation_id, user_id):
         conversation_id = get_conversation_id_by_name("-", user_id)
         return "-"
     session = get_session()
+    # First try: user's own conversation
     conversation = (
         session.query(Conversation)
         .filter(
@@ -175,6 +196,24 @@ def get_conversation_name_by_id(conversation_id, user_id):
         )
         .first()
     )
+    if not conversation:
+        # Second try: group conversations accessible via company membership
+        user_company_ids = (
+            session.query(UserCompany.company_id)
+            .filter(UserCompany.user_id == user_id)
+            .all()
+        )
+        company_ids = [str(uc[0]) for uc in user_company_ids]
+        if company_ids:
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.id == conversation_id,
+                    Conversation.company_id.in_(company_ids),
+                    Conversation.conversation_type.in_(["group", "dm", "thread"]),
+                )
+                .first()
+            )
     if not conversation:
         session.close()
         return "-"
@@ -209,7 +248,7 @@ def get_conversation_name_by_message_id(message_id, user_id):
 
 
 class Conversations:
-    def __init__(self, conversation_name=None, user=DEFAULT_USER, conversation_id=None):
+    def __init__(self, conversation_name=None, user=DEFAULT_USER, conversation_id=None, create_if_missing=True):
         self.user = user
         self.conversation_id = conversation_id
         self.conversation_name = conversation_name
@@ -222,7 +261,7 @@ class Conversations:
         user_id = self._user_id
         if not self.conversation_id and self.conversation_name:
             self.conversation_id = get_conversation_id_by_name(
-                conversation_name=conversation_name, user_id=user_id
+                conversation_name=conversation_name, user_id=user_id, create_if_missing=create_if_missing
             )
         elif not self.conversation_name and self.conversation_id:
             self.conversation_name = get_conversation_name_by_id(
@@ -566,8 +605,16 @@ class Conversations:
                     "feedback_received": message.feedback_received,
                     "timestamp_utc": message.timestamp,
                     "updated_at_utc": message.updated_at,
+                    "sender_user_id": str(message.sender_user_id) if message.sender_user_id else None,
                 }
                 new_messages.append(msg)
+
+            # Pre-fetch sender user info for all new messages
+            all_new_sender_ids = {
+                str(m.sender_user_id)
+                for m in new_query
+                if m.sender_user_id
+            }
 
             # Query for updated messages - messages that have been edited since last check
             # This includes:
@@ -614,8 +661,45 @@ class Conversations:
                     "feedback_received": message.feedback_received,
                     "timestamp_utc": message.timestamp,
                     "updated_at_utc": message.updated_at,
+                    "sender_user_id": str(message.sender_user_id) if message.sender_user_id else None,
                 }
                 updated_messages.append(msg)
+
+            # Build sender lookup for all messages that have sender_user_id
+            all_updated_sender_ids = {
+                str(m.sender_user_id)
+                for m in updated_query
+                if m.sender_user_id
+            }
+            all_sender_ids = all_new_sender_ids | all_updated_sender_ids
+            sender_users = {}
+            if all_sender_ids:
+                users = (
+                    session.query(User)
+                    .filter(User.id.in_(all_sender_ids))
+                    .all()
+                )
+                sender_users = {
+                    str(u.id): {
+                        "id": str(u.id),
+                        "email": u.email,
+                        "first_name": u.first_name or "",
+                        "last_name": u.last_name or "",
+                        "avatar_url": getattr(u, "avatar_url", None),
+                    }
+                    for u in users
+                }
+            # Inject sender info into messages
+            for msg in new_messages:
+                if msg.get("sender_user_id"):
+                    msg["sender"] = sender_users.get(msg["sender_user_id"])
+                else:
+                    msg["sender"] = None
+            for msg in updated_messages:
+                if msg.get("sender_user_id"):
+                    msg["sender"] = sender_users.get(msg["sender_user_id"])
+                else:
+                    msg["sender"] = None
 
         session.close()
         return {
@@ -641,6 +725,24 @@ class Conversations:
                 )
                 .first()
             )
+            # Fallback: check group conversations accessible via company membership
+            if not conversation:
+                user_company_ids = (
+                    session.query(UserCompany.company_id)
+                    .filter(UserCompany.user_id == user_id)
+                    .all()
+                )
+                company_ids = [str(uc[0]) for uc in user_company_ids]
+                if company_ids:
+                    conversation = (
+                        session.query(Conversation)
+                        .filter(
+                            Conversation.id == self.conversation_id,
+                            Conversation.company_id.in_(company_ids),
+                            Conversation.conversation_type.in_(["group", "dm", "thread"]),
+                        )
+                        .first()
+                    )
         else:
             conversation = (
                 session.query(Conversation)
@@ -702,6 +804,29 @@ class Conversations:
             session.close()
             return {"interactions": []}
         return_messages = []
+        # Pre-fetch sender user info for all messages with sender_user_id
+        sender_user_ids = {
+            str(message.sender_user_id)
+            for message in messages
+            if message.sender_user_id
+        }
+        sender_users = {}
+        if sender_user_ids:
+            users = (
+                session.query(User)
+                .filter(User.id.in_(sender_user_ids))
+                .all()
+            )
+            sender_users = {
+                str(u.id): {
+                    "id": str(u.id),
+                    "email": u.email,
+                    "first_name": u.first_name or "",
+                    "last_name": u.last_name or "",
+                    "avatar_url": getattr(u, "avatar_url", None),
+                }
+                for u in users
+            }
         for message in messages:
             # Store raw UTC timestamps for WebSocket comparison (no timezone conversion)
             raw_timestamp_utc = message.timestamp
@@ -720,6 +845,9 @@ class Conversations:
                 # Add raw UTC timestamps for WebSocket comparison (before timezone conversion)
                 "timestamp_utc": raw_timestamp_utc,
                 "updated_at_utc": raw_updated_at_utc,
+                # Group chat: sender user info
+                "sender_user_id": str(message.sender_user_id) if message.sender_user_id else None,
+                "sender": sender_users.get(str(message.sender_user_id)) if message.sender_user_id else None,
             }
             return_messages.append(msg)
         session.close()
@@ -1269,7 +1397,7 @@ class Conversations:
         session.close()
         return str(thinking_id)
 
-    def log_interaction(self, role, message, timestamp=None):
+    def log_interaction(self, role, message, timestamp=None, sender_user_id=None):
         message = str(message)
         if str(message).startswith("[SUBACTIVITY] "):
             try:
@@ -1321,11 +1449,16 @@ class Conversations:
         if message.endswith("\n"):
             message = message[:-1]
         try:
+            # For USER messages, auto-set sender_user_id to conversation owner if not provided
+            effective_sender_user_id = sender_user_id
+            if role == "USER" and not effective_sender_user_id:
+                effective_sender_user_id = user_id
             new_message = Message(
                 role=role,
                 content=message,
                 conversation_id=conversation_id,
                 notify=notify,
+                sender_user_id=effective_sender_user_id,
             )
             # Use the provided timestamp if one is given
             if timestamp:
@@ -1349,6 +1482,7 @@ class Conversations:
                 content=message,
                 conversation_id=conversation_id,
                 notify=notify,
+                sender_user_id=effective_sender_user_id if 'effective_sender_user_id' in dir() else sender_user_id,
             )
 
         session.add(new_message)
@@ -2506,5 +2640,488 @@ class Conversations:
             session.rollback()
             logging.error(f"Error revoking share: {e}")
             raise
+        finally:
+            session.close()
+
+    # =========================================================================
+    # Group Chat / Participant Management
+    # =========================================================================
+
+    def create_group_conversation(
+        self, company_id, conversation_type="group", agents=None, parent_id=None, parent_message_id=None
+    ):
+        """
+        Create a new group conversation (channel) or thread within a company/group.
+
+        Args:
+            company_id: The company/group this channel belongs to
+            conversation_type: 'group', 'dm', or 'thread'
+            agents: Optional list of agent names to add as participants
+            parent_id: For threads - the parent conversation ID
+            parent_message_id: For threads - the message that spawned this thread
+
+        Returns:
+            dict with conversation info including id
+        """
+        session = get_session()
+        user_id = self._user_id
+        try:
+            conversation = Conversation(
+                name=self.conversation_name,
+                user_id=user_id,
+                conversation_type=conversation_type,
+                company_id=company_id,
+                parent_id=parent_id,
+                parent_message_id=parent_message_id,
+            )
+            session.add(conversation)
+            session.commit()
+            conversation_id = str(conversation.id)
+            self.conversation_id = conversation_id
+
+            # Add the creator as owner participant
+            from DB import get_new_id
+
+            owner_participant = ConversationParticipant(
+                conversation_id=conversation_id,
+                user_id=user_id,
+                participant_type="user",
+                role="owner",
+                status="active",
+            )
+            session.add(owner_participant)
+
+            # Add agents as participants if specified
+            if agents:
+                for agent_name in agents:
+                    agent = (
+                        session.query(Agent)
+                        .filter(Agent.name == agent_name)
+                        .first()
+                    )
+                    if agent:
+                        agent_participant = ConversationParticipant(
+                            conversation_id=conversation_id,
+                            agent_id=str(agent.id),
+                            participant_type="agent",
+                            role="member",
+                            status="active",
+                        )
+                        session.add(agent_participant)
+
+            session.commit()
+            return {
+                "id": conversation_id,
+                "name": self.conversation_name,
+                "conversation_type": conversation_type,
+                "company_id": company_id,
+                "parent_id": parent_id,
+                "parent_message_id": parent_message_id,
+            }
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error creating group conversation: {e}")
+            raise
+        finally:
+            session.close()
+
+    def add_participant(
+        self, user_id=None, agent_id=None, participant_type="user", role="member"
+    ):
+        """
+        Add a user or agent as a participant to this conversation.
+
+        Args:
+            user_id: User ID to add (for user participants)
+            agent_id: Agent ID to add (for agent participants)
+            participant_type: 'user' or 'agent'
+            role: 'owner', 'admin', 'member', 'observer'
+
+        Returns:
+            str: Participant ID
+        """
+        session = get_session()
+        try:
+            conversation_id = self.get_conversation_id()
+
+            # Check if already a participant
+            existing = (
+                session.query(ConversationParticipant)
+                .filter(
+                    ConversationParticipant.conversation_id == conversation_id,
+                    ConversationParticipant.status == "active",
+                )
+            )
+            if participant_type == "user" and user_id:
+                existing = existing.filter(
+                    ConversationParticipant.user_id == user_id,
+                    ConversationParticipant.participant_type == "user",
+                )
+            elif participant_type == "agent" and agent_id:
+                existing = existing.filter(
+                    ConversationParticipant.agent_id == agent_id,
+                    ConversationParticipant.participant_type == "agent",
+                )
+            else:
+                raise ValueError(
+                    "Must provide user_id for user participants or agent_id for agent participants"
+                )
+
+            if existing.first():
+                session.close()
+                return str(existing.first().id)
+
+            participant = ConversationParticipant(
+                conversation_id=conversation_id,
+                user_id=user_id if participant_type == "user" else None,
+                agent_id=agent_id if participant_type == "agent" else None,
+                participant_type=participant_type,
+                role=role,
+                status="active",
+            )
+            session.add(participant)
+            session.commit()
+            participant_id = str(participant.id)
+            return participant_id
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error adding participant: {e}")
+            raise
+        finally:
+            session.close()
+
+    def remove_participant(self, participant_id):
+        """Remove a participant from this conversation (sets status to 'removed')."""
+        session = get_session()
+        try:
+            conversation_id = self.get_conversation_id()
+            participant = (
+                session.query(ConversationParticipant)
+                .filter(
+                    ConversationParticipant.id == participant_id,
+                    ConversationParticipant.conversation_id == conversation_id,
+                )
+                .first()
+            )
+            if not participant:
+                raise ValueError("Participant not found")
+            participant.status = "removed"
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error removing participant: {e}")
+            raise
+        finally:
+            session.close()
+
+    def get_participants(self):
+        """
+        Get all active participants in this conversation.
+
+        Returns:
+            List of participant dicts with user/agent info
+        """
+        session = get_session()
+        try:
+            conversation_id = self.get_conversation_id()
+            participants = (
+                session.query(ConversationParticipant)
+                .filter(
+                    ConversationParticipant.conversation_id == conversation_id,
+                    ConversationParticipant.status == "active",
+                )
+                .all()
+            )
+
+            result = []
+            for p in participants:
+                participant_data = {
+                    "id": str(p.id),
+                    "participant_type": p.participant_type,
+                    "role": p.role,
+                    "joined_at": str(p.joined_at) if p.joined_at else None,
+                    "last_read_at": str(p.last_read_at) if p.last_read_at else None,
+                    "status": p.status,
+                }
+                if p.participant_type == "user" and p.user_id:
+                    user = session.query(User).filter(User.id == p.user_id).first()
+                    if user:
+                        participant_data["user"] = {
+                            "id": str(user.id),
+                            "email": user.email,
+                            "first_name": user.first_name or "",
+                            "last_name": user.last_name or "",
+                            "avatar_url": getattr(user, "avatar_url", None),
+                        }
+                elif p.participant_type == "agent" and p.agent_id:
+                    agent = (
+                        session.query(Agent).filter(Agent.id == p.agent_id).first()
+                    )
+                    if agent:
+                        participant_data["agent"] = {
+                            "id": str(agent.id),
+                            "name": agent.name,
+                        }
+                result.append(participant_data)
+
+            return result
+        finally:
+            session.close()
+
+    def update_participant_role(self, participant_id, new_role):
+        """Update a participant's role in this conversation."""
+        session = get_session()
+        try:
+            conversation_id = self.get_conversation_id()
+            participant = (
+                session.query(ConversationParticipant)
+                .filter(
+                    ConversationParticipant.id == participant_id,
+                    ConversationParticipant.conversation_id == conversation_id,
+                )
+                .first()
+            )
+            if not participant:
+                raise ValueError("Participant not found")
+            participant.role = new_role
+            session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error updating participant role: {e}")
+            raise
+        finally:
+            session.close()
+
+    def update_last_read(self, user_id=None):
+        """Update the last_read_at timestamp for a user in this conversation."""
+        session = get_session()
+        try:
+            effective_user_id = user_id or self._user_id
+            conversation_id = self.get_conversation_id()
+            participant = (
+                session.query(ConversationParticipant)
+                .filter(
+                    ConversationParticipant.conversation_id == conversation_id,
+                    ConversationParticipant.user_id == effective_user_id,
+                    ConversationParticipant.status == "active",
+                )
+                .first()
+            )
+            if participant:
+                participant.last_read_at = datetime.utcnow()
+                session.commit()
+            return True
+        except Exception as e:
+            session.rollback()
+            logging.warning(f"Error updating last read: {e}")
+            return False
+        finally:
+            session.close()
+
+    def get_group_conversations_for_company(self, company_id):
+        """
+        Get all group conversations for a company that the current user is a participant of.
+
+        Args:
+            company_id: The company/group ID
+
+        Returns:
+            Dict of conversation details keyed by conversation ID
+        """
+        session = get_session()
+        user_id = self._user_id
+        try:
+            # Get conversations where user is a participant
+            conversations = (
+                session.query(Conversation)
+                .join(
+                    ConversationParticipant,
+                    ConversationParticipant.conversation_id == Conversation.id,
+                )
+                .filter(
+                    Conversation.company_id == company_id,
+                    Conversation.conversation_type == "group",
+                    ConversationParticipant.user_id == user_id,
+                    ConversationParticipant.status == "active",
+                )
+                .all()
+            )
+
+            # Also include conversations the user owns (backward compat)
+            owned_conversations = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.company_id == company_id,
+                    Conversation.conversation_type == "group",
+                    Conversation.user_id == user_id,
+                )
+                .all()
+            )
+
+            # Merge and deduplicate
+            all_convos = {str(c.id): c for c in conversations}
+            for c in owned_conversations:
+                all_convos[str(c.id)] = c
+
+            result = {}
+            for conv_id, conversation in all_convos.items():
+                # Count unread messages for this user
+                participant = (
+                    session.query(ConversationParticipant)
+                    .filter(
+                        ConversationParticipant.conversation_id == conv_id,
+                        ConversationParticipant.user_id == user_id,
+                        ConversationParticipant.status == "active",
+                    )
+                    .first()
+                )
+
+                has_notifications = False
+                if participant and participant.last_read_at:
+                    unread_count = (
+                        session.query(Message)
+                        .filter(
+                            Message.conversation_id == conv_id,
+                            Message.timestamp > participant.last_read_at,
+                            Message.role != "USER",
+                        )
+                        .count()
+                    )
+                    has_notifications = unread_count > 0
+                else:
+                    # Check notify flag as fallback
+                    has_notifications = (
+                        session.query(Message)
+                        .filter(
+                            Message.conversation_id == conv_id,
+                            Message.notify == True,
+                        )
+                        .count()
+                        > 0
+                    )
+
+                # Count participants
+                participant_count = (
+                    session.query(ConversationParticipant)
+                    .filter(
+                        ConversationParticipant.conversation_id == conv_id,
+                        ConversationParticipant.status == "active",
+                    )
+                    .count()
+                )
+
+                # Count threads
+                thread_count = (
+                    session.query(Conversation)
+                    .filter(
+                        Conversation.parent_id == conv_id,
+                        Conversation.conversation_type == "thread",
+                    )
+                    .count()
+                )
+
+                result[conv_id] = {
+                    "name": conversation.name,
+                    "conversation_type": conversation.conversation_type,
+                    "company_id": str(conversation.company_id) if conversation.company_id else None,
+                    "created_at": convert_time(conversation.created_at, user_id=user_id),
+                    "updated_at": convert_time(conversation.updated_at, user_id=user_id),
+                    "has_notifications": has_notifications,
+                    "summary": conversation.summary or "None available",
+                    "attachment_count": conversation.attachment_count or 0,
+                    "pin_order": conversation.pin_order,
+                    "participant_count": participant_count,
+                    "thread_count": thread_count,
+                }
+
+            return result
+        finally:
+            session.close()
+
+    def get_threads(self, conversation_id=None):
+        """
+        Get all threads for a given parent conversation (channel).
+
+        Args:
+            conversation_id: The parent conversation ID. Uses self.conversation_id if not provided.
+
+        Returns:
+            List of thread dicts with id, name, parent_message_id, created_at, message_count
+        """
+        parent_id = conversation_id or self.conversation_id
+        if not parent_id:
+            return []
+
+        session = get_session()
+        user_id = self._user_id
+        try:
+            threads = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.parent_id == parent_id,
+                    Conversation.conversation_type == "thread",
+                )
+                .order_by(Conversation.created_at.desc())
+                .all()
+            )
+
+            result = []
+            for thread in threads:
+                # Count messages in thread
+                from DB import Message as MessageModel
+                message_count = (
+                    session.query(MessageModel)
+                    .filter(MessageModel.conversation_id == str(thread.id))
+                    .count()
+                )
+
+                # Get last message time
+                last_message = (
+                    session.query(MessageModel)
+                    .filter(MessageModel.conversation_id == str(thread.id))
+                    .order_by(MessageModel.timestamp.desc())
+                    .first()
+                )
+
+                created = convert_time(thread.created_at, user_id=user_id)
+                updated = convert_time(thread.updated_at, user_id=user_id)
+                last_msg_time = convert_time(last_message.timestamp, user_id=user_id) if last_message else None
+
+                result.append({
+                    "id": str(thread.id),
+                    "name": thread.name,
+                    "parent_id": str(thread.parent_id) if thread.parent_id else None,
+                    "parent_message_id": str(thread.parent_message_id) if thread.parent_message_id else None,
+                    "conversation_type": thread.conversation_type,
+                    "created_at": created.isoformat() if hasattr(created, 'isoformat') else str(created),
+                    "updated_at": updated.isoformat() if hasattr(updated, 'isoformat') else str(updated),
+                    "message_count": message_count,
+                    "last_message_at": last_msg_time.isoformat() if last_msg_time and hasattr(last_msg_time, 'isoformat') else str(last_msg_time) if last_msg_time else None,
+                })
+
+            return result
+        finally:
+            session.close()
+
+    def get_thread_count(self, conversation_id=None):
+        """
+        Get the count of threads for a conversation.
+        """
+        parent_id = conversation_id or self.conversation_id
+        if not parent_id:
+            return 0
+
+        session = get_session()
+        try:
+            return (
+                session.query(Conversation)
+                .filter(
+                    Conversation.parent_id == parent_id,
+                    Conversation.conversation_type == "thread",
+                )
+                .count()
+            )
         finally:
             session.close()
