@@ -4120,6 +4120,29 @@ class MagicalAuth:
             del kwargs["input_tokens"]
         if "output_tokens" in kwargs:
             del kwargs["output_tokens"]
+        # Validate username uniqueness before applying
+        if "username" in kwargs and kwargs["username"]:
+            import re
+
+            username = kwargs["username"].strip()
+            if len(username) < 3:
+                session.close()
+                return "Username must be at least 3 characters long."
+            if len(username) > 32:
+                session.close()
+                return "Username must be 32 characters or fewer."
+            if not re.match(r"^[a-zA-Z0-9_.-]+$", username):
+                session.close()
+                return "Username can only contain letters, numbers, underscores, hyphens, and dots."
+            existing = (
+                session.query(User)
+                .filter(User.username == username, User.id != self.user_id)
+                .first()
+            )
+            if existing:
+                session.close()
+                return "Username is already taken."
+            kwargs["username"] = username
         for key, value in kwargs.items():
             if "password" in key.lower():
                 value = encrypt(self.encryption_key, value)

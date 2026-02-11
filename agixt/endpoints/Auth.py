@@ -302,6 +302,7 @@ async def get_user(
         "email": user_data.email,
         "first_name": user_data.first_name,
         "last_name": user_data.last_name,
+        "username": getattr(user_data, "username", None),
         "avatar_url": getattr(user_data, "avatar_url", None),
         "last_seen": (
             user_data.last_seen.isoformat()

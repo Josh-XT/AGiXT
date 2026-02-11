@@ -465,18 +465,13 @@ class Conversations:
         conversations = (
             session.query(
                 Conversation,
-                func.count(Message.id)
-                .filter(Message.notify == True)
-                .label("notification_count"),
                 last_message_subq.c.last_message_time,
             )
-            .outerjoin(Message, Message.conversation_id == Conversation.id)
             .outerjoin(
                 last_message_subq,
                 last_message_subq.c.conversation_id == Conversation.id,
             )
             .filter(or_(ownership_filter, participant_filter))
-            .filter(Message.id != None)
             # Exclude group channels and threads from DM/conversation list
             .filter(
                 or_(
@@ -484,15 +479,37 @@ class Conversations:
                     Conversation.conversation_type.notin_(["group", "thread"]),
                 )
             )
-            .group_by(Conversation.id, last_message_subq.c.last_message_time)
+            # Only include conversations that have at least one message
+            .filter(
+                Conversation.id.in_(
+                    session.query(Message.conversation_id).distinct()
+                )
+            )
             .all()
         )
+
+        # Batch-fetch participant records for this user to get last_read_at
+        all_conv_ids = [str(c.id) for c, _ in conversations]
+        participant_map = {}
+        if all_conv_ids:
+            user_participants = (
+                session.query(ConversationParticipant)
+                .filter(
+                    ConversationParticipant.conversation_id.in_(all_conv_ids),
+                    ConversationParticipant.user_id == user_id,
+                    ConversationParticipant.participant_type == "user",
+                    ConversationParticipant.status == "active",
+                )
+                .all()
+            )
+            for p in user_participants:
+                participant_map[str(p.conversation_id)] = p
 
         # Build result dict with all data from single query
         # For DM conversations, look up participant names so the frontend
         # can display "DM with <name>" instead of the raw conversation name.
         dm_conv_ids = [
-            str(c.id) for c, _, _ in conversations if c.conversation_type == "dm"
+            str(c.id) for c, _ in conversations if c.conversation_type == "dm"
         ]
         dm_participants = {}
         if dm_conv_ids:
@@ -533,10 +550,40 @@ class Conversations:
                 agent_name_map[str(a.id)] = a.name
 
         result = {}
-        for conversation, notification_count, last_message_time in conversations:
+        for conversation, last_message_time in conversations:
             # Use last message time if available, otherwise use conversation updated_at
             effective_updated_at = last_message_time or conversation.updated_at
             conv_id = str(conversation.id)
+
+            # Determine notification state using last_read_at
+            has_notifications = False
+            participant = participant_map.get(conv_id)
+            if participant and participant.last_read_at:
+                # Count messages after last_read_at (excluding user's own messages and activity messages)
+                unread_count = (
+                    session.query(Message)
+                    .filter(
+                        Message.conversation_id == conv_id,
+                        Message.timestamp > participant.last_read_at,
+                        Message.role != "USER",
+                        ~Message.content.like("[ACTIVITY]%"),
+                        ~Message.content.like("[SUBACTIVITY]%"),
+                    )
+                    .count()
+                )
+                has_notifications = unread_count > 0
+            elif not participant:
+                # No participant record — user owns conversation but hasn't read it,
+                # fall back to notify flag for backward compat
+                has_notifications = (
+                    session.query(Message)
+                    .filter(
+                        Message.conversation_id == conv_id,
+                        Message.notify == True,
+                    )
+                    .count()
+                    > 0
+                )
 
             # For DMs, build a display name from the other participants
             display_name = conversation.name
@@ -565,7 +612,7 @@ class Conversations:
                 "conversation_type": conversation.conversation_type,
                 "created_at": convert_time(conversation.created_at, user_id=user_id),
                 "updated_at": convert_time(effective_updated_at, user_id=user_id),
-                "has_notifications": notification_count > 0,
+                "has_notifications": has_notifications,
                 "summary": (
                     conversation.summary if conversation.summary else "None available"
                 ),
@@ -1604,6 +1651,28 @@ class Conversations:
             )
             .first()
         )
+        # Fallback: check group/dm/thread conversations accessible via company membership
+        # This is needed for DM conversations where the non-creator user sends a message
+        # (DM user_id is set to the creator, not the other participant)
+        if not conversation:
+            user_company_ids = (
+                session.query(UserCompany.company_id)
+                .filter(UserCompany.user_id == user_id)
+                .all()
+            )
+            company_ids = [str(uc[0]) for uc in user_company_ids]
+            if company_ids:
+                conversation = (
+                    session.query(Conversation)
+                    .filter(
+                        Conversation.id == conversation_id,
+                        Conversation.company_id.in_(company_ids),
+                        Conversation.conversation_type.in_(
+                            ["group", "dm", "thread", "channel"]
+                        ),
+                    )
+                    .first()
+                )
         notify = False
         if role.lower() == "user":
             role = "USER"
@@ -2421,6 +2490,26 @@ class Conversations:
             )
             .first()
         )
+        # Fallback: check group/dm/thread conversations accessible via company membership
+        if not conversation:
+            user_company_ids = (
+                session.query(UserCompany.company_id)
+                .filter(UserCompany.user_id == user_id)
+                .all()
+            )
+            company_ids = [str(uc[0]) for uc in user_company_ids]
+            if company_ids:
+                conversation = (
+                    session.query(Conversation)
+                    .filter(
+                        Conversation.name == conversation_name,
+                        Conversation.company_id.in_(company_ids),
+                        Conversation.conversation_type.in_(
+                            ["group", "dm", "thread", "channel"]
+                        ),
+                    )
+                    .first()
+                )
         if not conversation:
             conversation = Conversation(name=conversation_name, user_id=user_id)
             session.add(conversation)
@@ -3535,6 +3624,8 @@ class Conversations:
                             Message.conversation_id == conv_id,
                             Message.timestamp > participant.last_read_at,
                             Message.role != "USER",
+                            ~Message.content.like("[ACTIVITY]%"),
+                            ~Message.content.like("[SUBACTIVITY]%"),
                         )
                         .count()
                     )

@@ -400,6 +400,45 @@ class ConversationMessageBroadcaster:
             and len(self.active_connections[conversation_id]) > 0
         )
 
+    async def broadcast_typing_event(
+        self, conversation_id: str, typing_data: dict, exclude_websocket: WebSocket = None
+    ):
+        """
+        Broadcast a typing indicator to all WebSocket connections for a conversation,
+        excluding the sender's connection.
+        """
+        connections_to_remove = []
+        async with self._lock:
+            if conversation_id not in self.active_connections:
+                return 0
+            connections = list(self.active_connections[conversation_id])
+
+        sent_count = 0
+        for connection in connections:
+            if connection is exclude_websocket:
+                continue
+            try:
+                await connection.send_text(
+                    json.dumps(
+                        {
+                            "type": "typing_indicator",
+                            "data": typing_data,
+                        }
+                    )
+                )
+                sent_count += 1
+            except Exception as e:
+                logging.debug(f"Failed to send typing indicator: {e}")
+                connections_to_remove.append(connection)
+
+        if connections_to_remove:
+            async with self._lock:
+                for conn in connections_to_remove:
+                    if conversation_id in self.active_connections:
+                        self.active_connections[conversation_id].discard(conn)
+
+        return sent_count
+
 
 # Global conversation message broadcaster instance
 conversation_message_broadcaster = ConversationMessageBroadcaster()
@@ -530,7 +569,11 @@ def _resolve_conversation_workspace(
         if conversation_id is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
-    conversation = Conversations(conversation_name=conversation_name, user=user)
+    conversation = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
     agent_id = conversation.get_agent_id(auth.user_id)
     if not agent_id:
         raise HTTPException(
@@ -608,7 +651,9 @@ async def get_conversation_history(
         conversation_id=conversation_id, user_id=auth.user_id
     )
     conversation_history = Conversations(
-        conversation_name=conversation_name, user=user
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
     ).get_conversation()
     if conversation_history is None:
         conversation_history = []
@@ -679,7 +724,11 @@ async def delete_conversation_v1(
     )
     if not conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    Conversations(conversation_name=conversation_name, user=user).delete_conversation()
+    Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    ).delete_conversation()
 
     # Notify user of deleted conversation via websocket
     asyncio.create_task(
@@ -718,7 +767,9 @@ async def rename_conversation_v1(
     if not old_conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
     Conversations(
-        conversation_name=old_conversation_name, user=user
+        conversation_name=old_conversation_name,
+        user=user,
+        conversation_id=conversation_id,
     ).rename_conversation(new_name=rename_model.new_conversation_name)
 
     # Notify user of renamed conversation via websocket
@@ -790,14 +841,20 @@ async def add_message_v1(
         raise HTTPException(status_code=404, detail="Conversation not found")
     # Check speaking permissions for USER messages in group channels
     if log_interaction.role.upper() == "USER":
-        c = Conversations(conversation_name=conversation_name, user=user)
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=user,
+            conversation_id=conversation_id,
+        )
         if not c.can_speak(str(auth.user_id)):
             raise HTTPException(
                 status_code=403,
                 detail="You do not have permission to speak in this channel",
             )
     interaction_id = Conversations(
-        conversation_name=conversation_name, user=user
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
     ).log_interaction(
         message=log_interaction.message,
         role=log_interaction.role,
@@ -806,15 +863,59 @@ async def add_message_v1(
         ),
     )
 
-    # Notify user of new message via websocket
+    # Build sender object for broadcast (so other users see correct avatar/name)
+    sender_data = None
+    if log_interaction.role.upper() == "USER":
+        try:
+            from DB import get_session
+
+            with get_session() as session:
+                sender_user = (
+                    session.query(User)
+                    .filter(User.id == auth.user_id)
+                    .first()
+                )
+                if sender_user:
+                    sender_data = {
+                        "id": str(sender_user.id),
+                        "email": sender_user.email,
+                        "first_name": sender_user.first_name or "",
+                        "last_name": sender_user.last_name or "",
+                        "avatar_url": getattr(sender_user, "avatar_url", None),
+                    }
+        except Exception as e:
+            logging.warning(f"Failed to fetch sender data for broadcast: {e}")
+
+    # Notify all conversation participants of the new message via user-level websocket
     asyncio.create_task(
-        notify_user_message_added(
-            user_id=auth.user_id,
+        notify_conversation_participants_message_added(
+            sender_user_id=str(auth.user_id),
             conversation_id=conversation_id,
             conversation_name=conversation_name,
             message_id=str(interaction_id),
             message=log_interaction.message,
             role=log_interaction.role,
+        )
+    )
+
+    # Broadcast to conversation-level WebSocket so other users see the message
+    asyncio.create_task(
+        conversation_message_broadcaster.broadcast_message_event(
+            conversation_id=conversation_id,
+            event_type="message_added",
+            message_data={
+                "id": str(interaction_id),
+                "role": log_interaction.role,
+                "message": log_interaction.message,
+                "conversation_id": conversation_id,
+                "timestamp": datetime.now().isoformat(),
+                "sender_user_id": (
+                    str(auth.user_id)
+                    if log_interaction.role.upper() == "USER"
+                    else None
+                ),
+                "sender": sender_data,
+            },
         )
     )
 
@@ -846,7 +947,11 @@ async def update_message_v1(
     )
     if not conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    Conversations(conversation_name=conversation_name, user=user).update_message_by_id(
+    Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    ).update_message_by_id(
         message_id=message_id,
         new_message=update_model.new_message,
     )
@@ -877,7 +982,11 @@ async def delete_message_v1(
     )
     if not conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    Conversations(conversation_name=conversation_name, user=user).delete_message_by_id(
+    Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    ).delete_message_by_id(
         message_id=message_id,
     )
     return ResponseMessage(message="Message deleted.")
@@ -1049,7 +1158,11 @@ async def toggle_pin_message(
         )
     except:
         conversation_name = conversation_id
-    c = Conversations(conversation_name=conversation_name, user=user)
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
     result = c.toggle_pin_message(message_id=message_id)
     pinned = result.get("pinned", False)
     return ResponseMessage(
@@ -1076,7 +1189,11 @@ async def get_pinned_messages(
         )
     except:
         conversation_name = conversation_id
-    c = Conversations(conversation_name=conversation_name, user=user)
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
     return c.get_pinned_messages()
 
 
@@ -1102,7 +1219,9 @@ async def get_conversation_history(
     except:
         conversation_id = None
     conversation_history = Conversations(
-        conversation_name=history.conversation_name, user=user
+        conversation_name=history.conversation_name,
+        user=user,
+        conversation_id=str(conversation_id) if conversation_id else None,
     ).get_conversation(
         limit=history.limit,
         page=history.page,
@@ -1138,7 +1257,9 @@ async def get_conversation_data(
     except:
         conversation_id = None
     conversation_history = Conversations(
-        conversation_name=conversation_name, user=user
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=str(conversation_id) if conversation_id else None,
     ).get_conversation(limit=limit, page=page)
     if conversation_history is None:
         conversation_history = []
@@ -1752,7 +1873,9 @@ async def fork_conversation(
     except:
         conversation_id = None
     new_conversation_name = Conversations(
-        conversation_name=conversation_name, user=user
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=str(conversation_id) if conversation_id else None,
     ).fork_conversation(message_id=fork.message_id)
     return ResponseMessage(message=f"Forked conversation to {new_conversation_name}")
 
@@ -1777,7 +1900,9 @@ async def forkconversation(
     except:
         conversation_id = None
     new_conversation_name = Conversations(
-        conversation_name=conversation_name, user=user
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=str(conversation_id) if conversation_id else None,
     ).fork_conversation(message_id=str(message_id))
     return ResponseMessage(message=f"Forked conversation to {new_conversation_name}")
 
@@ -1808,7 +1933,11 @@ async def get_tts(
         conversation_name = get_conversation_name_by_id(
             conversation_id=conversation_id, user_id=auth.user_id
         )
-    c = Conversations(conversation_name=conversation_name, user=user)
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
     message = c.get_message_by_id(message_id=message_id)
     agent_name = c.get_last_agent_name()
     ApiClient = get_api_client(authorization=authorization)
@@ -1863,7 +1992,11 @@ async def stop_conversation(
 
     if success:
         # Log the stop action to the conversation
-        c = Conversations(conversation_name=conversation_name, user=user)
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=user,
+            conversation_id=conversation_id,
+        )
         c.log_interaction(
             message="[ACTIVITY][INFO] Conversation stopped by user.",
             role="SYSTEM",
@@ -2048,7 +2181,7 @@ async def conversation_stream(
                     make_json_serializable(msg) for msg in messages
                 ]
                 await websocket.send_text(
-                    json.dumps({"type": "initial_data", "data": serializable_messages})
+                    json.dumps({"type": "initial_data", "data": serializable_messages, "conversation_id": conversation_id})
                 )
 
         except Exception as e:
@@ -2112,6 +2245,28 @@ async def conversation_stream(
                                     "timestamp": datetime.now().isoformat(),
                                 }
                             )
+                        )
+                    elif message_data.get("type") == "typing":
+                        # Broadcast typing indicator to other connections in this conversation
+                        typing_data = {
+                            "user_id": str(auth.user_id),
+                            "email": str(user),
+                            "first_name": "",
+                            "last_name": "",
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                        # Get user details from DB
+                        try:
+                            from DB import get_session
+                            with get_session() as session:
+                                db_user = session.query(User).filter(User.id == auth.user_id).first()
+                                if db_user:
+                                    typing_data["first_name"] = db_user.first_name or ""
+                                    typing_data["last_name"] = db_user.last_name or ""
+                        except Exception:
+                            pass
+                        await conversation_message_broadcaster.broadcast_typing_event(
+                            conversation_id, typing_data, exclude_websocket=websocket
                         )
 
                 except asyncio.TimeoutError:
@@ -2538,6 +2693,66 @@ async def notify_user_message_added(
     )
 
 
+async def notify_conversation_participants_message_added(
+    sender_user_id: str,
+    conversation_id: str,
+    conversation_name: str,
+    message_id: str,
+    message: str,
+    role: str,
+):
+    """Notify ALL participants of a conversation when a new message is added.
+    This ensures DM recipients and group channel members get notifications."""
+    try:
+        from DB import get_session, ConversationParticipant
+
+        preview = message[:100] + "..." if len(message) > 100 else message
+        notification_data = {
+            "type": "message_added",
+            "data": {
+                "conversation_id": conversation_id,
+                "conversation_name": conversation_name,
+                "message_id": message_id,
+                "message_preview": preview,
+                "role": role,
+                "timestamp": datetime.now().isoformat(),
+            },
+        }
+
+        with get_session() as session:
+            participants = (
+                session.query(ConversationParticipant)
+                .filter(
+                    ConversationParticipant.conversation_id == conversation_id,
+                    ConversationParticipant.participant_type == "user",
+                    ConversationParticipant.status == "active",
+                )
+                .all()
+            )
+            participant_user_ids = [
+                str(p.user_id) for p in participants if p.user_id
+            ]
+
+        # Notify all participants (including sender for their own SWR cache updates)
+        for user_id in participant_user_ids:
+            await user_notification_manager.broadcast_to_user(
+                user_id, notification_data
+            )
+    except Exception as e:
+        logging.warning(
+            f"Failed to notify conversation participants: {e}"
+        )
+        # Fallback: at least notify the sender
+        await notify_user_message_added(
+            user_id=sender_user_id,
+            conversation_id=conversation_id,
+            conversation_name=conversation_name,
+            message_id=message_id,
+            message=message,
+            role=role,
+        )
+
+
 async def broadcast_system_notification(notification_data: dict) -> int:
     """
     Broadcast a system-wide notification to all connected users.
@@ -2728,7 +2943,11 @@ async def share_conversation(
 
     # Create the share
     try:
-        c = Conversations(conversation_name=conversation_name, user=user)
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=user,
+            conversation_id=conversation_id,
+        )
         share_info = c.share_conversation(
             share_type=share_data.share_type,
             target_user_email=share_data.email,

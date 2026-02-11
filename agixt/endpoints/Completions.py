@@ -9,6 +9,7 @@ from Globals import get_tokens
 from MagicalAuth import get_user_id
 from ApiClient import Agent, verify_api_key, get_api_client, get_agents
 from Conversations import get_conversation_name_by_id
+from DB import get_session, Conversation, ConversationParticipant, Agent as AgentModel
 from Memories import embed
 from fastapi import UploadFile, File, Form
 from typing import Optional, List
@@ -57,11 +58,21 @@ def parse_agent_mentions(messages, available_agents):
         return None, messages
 
     # Build agent name lookup (case-insensitive), sorted longest first
+    # Support both objects with .name and dicts with ["name"]
+    def _get_agent_name(a):
+        if isinstance(a, str):
+            return a
+        if isinstance(a, dict):
+            return a.get("name", "")
+        return getattr(a, "name", "")
+
     agent_names = sorted(
-        [a.name for a in available_agents if hasattr(a, "name") and a.name],
+        [n for n in (_get_agent_name(a) for a in available_agents) if n],
         key=lambda n: len(n),
         reverse=True,
     )
+    # Deduplicate
+    agent_names = list(dict.fromkeys(agent_names))
 
     # Match @AgentName pattern - supports quoted names like @"My Agent" and unquoted
     for agent_name in agent_names:
@@ -167,7 +178,7 @@ async def chat_completion(
         if not prompt.model:
             agents = get_agents(user=user)
             try:
-                prompt.model = agents[0].name
+                prompt.model = agents[0]["name"] if isinstance(agents[0], dict) else agents[0].name
             except Exception:
                 # Log without exposing exception details
                 logging.error("Error getting agent name: using default")
@@ -183,11 +194,61 @@ async def chat_completion(
                     prompt.messages, all_agents
                 )
                 if mentioned_agent:
-                    prompt.model = mentioned_agent
-                    prompt.messages = cleaned_messages
-                    logging.info(
-                        f"@mention routing: directing to agent '{mentioned_agent}'"
-                    )
+                    # Validate the mentioned agent belongs to this conversation's company
+                    agent_allowed = True
+                    if conversation_id:
+                        try:
+                            session = get_session()
+                            conv = (
+                                session.query(Conversation)
+                                .filter(Conversation.id == conversation_id)
+                                .first()
+                            )
+                            if conv and conv.company_id:
+                                # Get the mentioned agent's company_id
+                                mentioned_agent_data = next(
+                                    (
+                                        a
+                                        for a in all_agents
+                                        if (
+                                            (a["name"] if isinstance(a, dict) else a.name)
+                                            == mentioned_agent
+                                        )
+                                    ),
+                                    None,
+                                )
+                                if mentioned_agent_data:
+                                    agent_company = (
+                                        mentioned_agent_data["company_id"]
+                                        if isinstance(mentioned_agent_data, dict)
+                                        else getattr(
+                                            mentioned_agent_data, "company_id", None
+                                        )
+                                    )
+                                    if agent_company and str(agent_company) != str(
+                                        conv.company_id
+                                    ):
+                                        agent_allowed = False
+                                        logging.info(
+                                            f"@mention blocked: agent '{mentioned_agent}' "
+                                            f"(company {agent_company}) not in conversation's "
+                                            f"company ({conv.company_id})"
+                                        )
+                            session.close()
+                        except Exception as e:
+                            logging.warning(
+                                f"Error validating agent company: {e}"
+                            )
+
+                    if agent_allowed:
+                        prompt.model = mentioned_agent
+                        prompt.messages = cleaned_messages
+                        logging.info(
+                            f"@mention routing: directing to agent '{mentioned_agent}'"
+                        )
+                    else:
+                        # Strip the mention but don't route to the agent
+                        prompt.messages = cleaned_messages
             except Exception as e:
                 logging.warning(f"Error parsing @mentions: {e}")
 
@@ -272,7 +333,7 @@ async def mcp_chat_completion(
         if not prompt.model:
             agents = get_agents(user=user)
             try:
-                prompt.model = agents[0].name
+                prompt.model = agents[0]["name"] if isinstance(agents[0], dict) else agents[0].name
             except Exception:
                 # Log without exposing exception details
                 logging.error("Error getting agent name: using default")
@@ -287,11 +348,59 @@ async def mcp_chat_completion(
                     prompt.messages, all_agents
                 )
                 if mentioned_agent:
-                    prompt.model = mentioned_agent
-                    prompt.messages = cleaned_messages
-                    logging.info(
-                        f"@mention routing (MCP): directing to agent '{mentioned_agent}'"
-                    )
+                    # Validate the mentioned agent belongs to this conversation's company
+                    agent_allowed = True
+                    if conversation_id:
+                        try:
+                            session = get_session()
+                            conv = (
+                                session.query(Conversation)
+                                .filter(Conversation.id == conversation_id)
+                                .first()
+                            )
+                            if conv and conv.company_id:
+                                mentioned_agent_data = next(
+                                    (
+                                        a
+                                        for a in all_agents
+                                        if (
+                                            (a["name"] if isinstance(a, dict) else a.name)
+                                            == mentioned_agent
+                                        )
+                                    ),
+                                    None,
+                                )
+                                if mentioned_agent_data:
+                                    agent_company = (
+                                        mentioned_agent_data["company_id"]
+                                        if isinstance(mentioned_agent_data, dict)
+                                        else getattr(
+                                            mentioned_agent_data, "company_id", None
+                                        )
+                                    )
+                                    if agent_company and str(agent_company) != str(
+                                        conv.company_id
+                                    ):
+                                        agent_allowed = False
+                                        logging.info(
+                                            f"@mention blocked (MCP): agent '{mentioned_agent}' "
+                                            f"(company {agent_company}) not in conversation's "
+                                            f"company ({conv.company_id})"
+                                        )
+                            session.close()
+                        except Exception as e:
+                            logging.warning(
+                                f"Error validating agent company: {e}"
+                            )
+
+                    if agent_allowed:
+                        prompt.model = mentioned_agent
+                        prompt.messages = cleaned_messages
+                        logging.info(
+                            f"@mention routing (MCP): directing to agent '{mentioned_agent}'"
+                        )
+                    else:
+                        prompt.messages = cleaned_messages
             except Exception as e:
                 logging.warning(f"Error parsing @mentions: {e}")
 

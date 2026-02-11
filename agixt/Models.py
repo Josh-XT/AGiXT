@@ -131,6 +131,7 @@ class Invitation(BaseModel):
 class UserInfo(BaseModel):
     first_name: str
     last_name: str
+    username: str
 
 
 class Detail(BaseModel):
