@@ -115,8 +115,9 @@ class ConversationMessageBroadcaster:
     def __init__(self):
         # Maps conversation_id -> set of active WebSocket connections
         self.active_connections: Dict[str, Set[WebSocket]] = {}
-        # Maps conversation_id -> set of message IDs that were broadcasted (to avoid duplicate sends via polling)
-        self.broadcasted_message_ids: Dict[str, Set[str]] = {}
+        # Per-connection tracking of message IDs received via broadcast
+        # Maps (conversation_id, websocket_id) -> set of message IDs
+        self._connection_broadcasted_ids: Dict[int, Set[str]] = {}
         self._lock = asyncio.Lock()
         # Store reference to main event loop for cross-thread broadcasting
         self._main_loop = None
@@ -211,8 +212,9 @@ class ConversationMessageBroadcaster:
         async with self._lock:
             if conversation_id not in self.active_connections:
                 self.active_connections[conversation_id] = set()
-                self.broadcasted_message_ids[conversation_id] = set()
             self.active_connections[conversation_id].add(websocket)
+            # Initialize per-connection broadcast tracking
+            self._connection_broadcasted_ids[id(websocket)] = set()
             logging.debug(
                 f"Conversation {conversation_id}: WebSocket connected. Total: {len(self.active_connections[conversation_id])}"
             )
@@ -224,12 +226,11 @@ class ConversationMessageBroadcaster:
                 self.active_connections[conversation_id].discard(websocket)
                 if not self.active_connections[conversation_id]:
                     del self.active_connections[conversation_id]
-                    # Clean up broadcasted IDs when no more connections
-                    if conversation_id in self.broadcasted_message_ids:
-                        del self.broadcasted_message_ids[conversation_id]
                 logging.debug(
                     f"Conversation {conversation_id}: WebSocket disconnected."
                 )
+            # Clean up per-connection broadcast tracking
+            self._connection_broadcasted_ids.pop(id(websocket), None)
 
     def publish_to_redis(
         self, conversation_id: str, event_type: str, message_data: dict
@@ -269,10 +270,7 @@ class ConversationMessageBroadcaster:
             if conversation_id not in self.active_connections:
                 return 0
             connections = list(self.active_connections[conversation_id])
-            # Track broadcasted message IDs
             message_id = message_data.get("id")
-            if message_id and conversation_id in self.broadcasted_message_ids:
-                self.broadcasted_message_ids[conversation_id].add(str(message_id))
 
         sent_count = 0
         for connection in connections:
@@ -286,6 +284,11 @@ class ConversationMessageBroadcaster:
                     )
                 )
                 sent_count += 1
+                # Track per-connection that this message was broadcast
+                if message_id:
+                    ws_id = id(connection)
+                    if ws_id in self._connection_broadcasted_ids:
+                        self._connection_broadcasted_ids[ws_id].add(str(message_id))
             except Exception as e:
                 logging.debug(f"Failed to send to WebSocket: {e}")
                 connections_to_remove.append(connection)
@@ -335,10 +338,7 @@ class ConversationMessageBroadcaster:
                 )
                 return 0
             connections = list(self.active_connections[conversation_id])
-            # Track broadcasted message IDs to prevent duplicate sends via polling
             message_id = message_data.get("id")
-            if message_id and conversation_id in self.broadcasted_message_ids:
-                self.broadcasted_message_ids[conversation_id].add(str(message_id))
             logging.debug(
                 f"broadcast_message_event: found {len(connections)} connections"
             )
@@ -355,6 +355,11 @@ class ConversationMessageBroadcaster:
                     )
                 )
                 sent_count += 1
+                # Track per-connection that this message was broadcast
+                if message_id:
+                    ws_id = id(connection)
+                    if ws_id in self._connection_broadcasted_ids:
+                        self._connection_broadcasted_ids[ws_id].add(str(message_id))
                 logging.debug(
                     f"broadcast_message_event: sent to connection {sent_count}/{len(connections)}"
                 )
@@ -373,16 +378,20 @@ class ConversationMessageBroadcaster:
 
         return sent_count
 
-    def was_broadcasted(self, conversation_id: str, message_id: str) -> bool:
-        """Check if a message was already sent via broadcast (to avoid duplicate polling sends)."""
-        if conversation_id not in self.broadcasted_message_ids:
+    def was_broadcasted_for_connection(
+        self, websocket: WebSocket, message_id: str
+    ) -> bool:
+        """Check if a message was already sent to this specific connection via broadcast."""
+        ws_id = id(websocket)
+        if ws_id not in self._connection_broadcasted_ids:
             return False
-        return str(message_id) in self.broadcasted_message_ids[conversation_id]
+        return str(message_id) in self._connection_broadcasted_ids[ws_id]
 
-    def clear_broadcasted_ids(self, conversation_id: str):
-        """Clear the broadcasted IDs for a conversation (call after processing poll cycle)."""
-        if conversation_id in self.broadcasted_message_ids:
-            self.broadcasted_message_ids[conversation_id].clear()
+    def clear_broadcasted_ids_for_connection(self, websocket: WebSocket):
+        """Clear the broadcasted IDs for a specific connection (call after processing poll cycle)."""
+        ws_id = id(websocket)
+        if ws_id in self._connection_broadcasted_ids:
+            self._connection_broadcasted_ids[ws_id].clear()
 
     def has_listeners(self, conversation_id: str) -> bool:
         """Check if a conversation has active WebSocket listeners."""
@@ -2095,8 +2104,8 @@ async def conversation_stream(
                     if message_id and message_id in previous_message_ids:
                         continue
                     # Skip if this was already sent via broadcast
-                    if message_id and conversation_message_broadcaster.was_broadcasted(
-                        conversation_id, message_id
+                    if message_id and conversation_message_broadcaster.was_broadcasted_for_connection(
+                        websocket, message_id
                     ):
                         logging.debug(
                             f"WebSocket: Skipping broadcasted new message {message_id}"
@@ -2127,8 +2136,8 @@ async def conversation_stream(
                         )
                         continue
                     # Skip if this was already sent via broadcast
-                    if message_id and conversation_message_broadcaster.was_broadcasted(
-                        conversation_id, message_id
+                    if message_id and conversation_message_broadcaster.was_broadcasted_for_connection(
+                        websocket, message_id
                     ):
                         logging.debug(
                             f"WebSocket: Skipping broadcasted updated message {message_id}"
@@ -2147,9 +2156,9 @@ async def conversation_stream(
                         )
                     )
 
-                # Reset per-cycle tracking and clear broadcasted IDs
+                # Reset per-cycle tracking and clear broadcasted IDs for this connection
                 updated_message_ids_this_cycle.clear()
-                conversation_message_broadcaster.clear_broadcasted_ids(conversation_id)
+                conversation_message_broadcaster.clear_broadcasted_ids_for_connection(websocket)
 
                 # Check for conversation rename
                 current_name = c.get_current_name_from_db()
@@ -3448,11 +3457,28 @@ async def create_thread(
     if not conversation_name:
         raise HTTPException(status_code=404, detail="Parent conversation not found")
 
+    # Inherit company_id from parent conversation if not provided
+    company_id = body.company_id
+    if not company_id:
+        session = get_session()
+        try:
+            parent_conv = (
+                session.query(Conversation)
+                .filter(Conversation.id == conversation_id)
+                .first()
+            )
+            if parent_conv and parent_conv.company_id:
+                company_id = str(parent_conv.company_id)
+        except Exception:
+            pass
+        finally:
+            session.close()
+
     c = Conversations(
         conversation_name=body.conversation_name, user=user, create_if_missing=False
     )
     result = c.create_group_conversation(
-        company_id=body.company_id,
+        company_id=company_id or "",
         conversation_type="thread",
         agents=body.agent_names,
         parent_id=conversation_id,

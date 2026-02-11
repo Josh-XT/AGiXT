@@ -6114,6 +6114,77 @@ def migrate_performance_indexes():
         logging.debug(f"Performance indexes migration completed or not needed: {e}")
 
 
+def migrate_backfill_channel_participants():
+    """
+    Backfill ConversationParticipant records for company members who were added
+    to a company AFTER non-invite-only group channels were created.
+    Previously, add_user_to_company_channels wasn't called when users joined a company,
+    so existing members may be missing from channels.
+    """
+    if engine is None:
+        return
+    try:
+        with get_db_session() as session:
+            # Find all non-invite-only group channels
+            channels = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.conversation_type == "group",
+                    Conversation.invite_only == False,
+                    Conversation.company_id.isnot(None),
+                )
+                .all()
+            )
+
+            if not channels:
+                logging.info("No group channels found for participant backfill")
+                return
+
+            added_count = 0
+            for channel in channels:
+                channel_id = str(channel.id)
+                company_id = channel.company_id
+
+                # Get all company members
+                company_users = (
+                    session.query(UserCompany.user_id)
+                    .filter(UserCompany.company_id == company_id)
+                    .all()
+                )
+                company_user_ids = {str(row[0]) for row in company_users}
+
+                # Get existing participants for this channel
+                existing_participants = (
+                    session.query(ConversationParticipant.user_id)
+                    .filter(
+                        ConversationParticipant.conversation_id == channel_id,
+                        ConversationParticipant.user_id.isnot(None),
+                    )
+                    .all()
+                )
+                existing_user_ids = {str(row[0]) for row in existing_participants}
+
+                # Add missing members
+                missing_user_ids = company_user_ids - existing_user_ids
+                for user_id in missing_user_ids:
+                    participant = ConversationParticipant(
+                        conversation_id=channel_id,
+                        user_id=user_id,
+                        participant_type="user",
+                        role="member",
+                        status="active",
+                    )
+                    session.add(participant)
+                    added_count += 1
+
+            session.commit()
+            logging.info(
+                f"Channel participant backfill complete: added {added_count} missing participant records"
+            )
+    except Exception as e:
+        logging.error(f"Error during channel participant backfill: {e}")
+
+
 # Server configuration definitions
 # These define all configurable settings and their metadata
 SERVER_CONFIG_DEFINITIONS = [

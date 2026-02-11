@@ -162,7 +162,7 @@ def get_conversation_id_by_name(conversation_name, user_id, create_if_missing=Tr
                 .filter(
                     Conversation.name == conversation_name,
                     Conversation.company_id.in_(company_ids),
-                    Conversation.conversation_type.in_(["group", "dm", "thread"]),
+                    Conversation.conversation_type.in_(["group", "dm", "thread", "channel"]),
                 )
                 .first()
             )
@@ -214,7 +214,7 @@ def get_conversation_name_by_id(conversation_id, user_id):
                 .filter(
                     Conversation.id == conversation_id,
                     Conversation.company_id.in_(company_ids),
-                    Conversation.conversation_type.in_(["group", "dm", "thread"]),
+                    Conversation.conversation_type.in_(["group", "dm", "thread", "channel"]),
                 )
                 .first()
             )
@@ -415,6 +415,7 @@ class Conversations:
         """
         OPTIMIZED: Single query to get all conversation details with notifications
         and last message timestamps in one batch instead of N+1 queries.
+        Also includes DM conversations where the user is a participant (not just owner).
         """
         session = get_session()
         user_id = self._user_id
@@ -436,7 +437,23 @@ class Conversations:
             .subquery()
         )
 
-        # Single query: conversations with notification count and last message time
+        # Get conversation IDs where this user is a participant (for DMs they didn't create)
+        participant_conv_ids = (
+            session.query(ConversationParticipant.conversation_id)
+            .filter(
+                ConversationParticipant.user_id == user_id,
+                ConversationParticipant.participant_type == "user",
+                ConversationParticipant.status == "active",
+            )
+            .all()
+        )
+        participant_conv_id_list = [str(row[0]) for row in participant_conv_ids]
+
+        # Single query: conversations owned by user OR where user is a participant
+        # Exclude group channels and threads from DM/conversation list
+        ownership_filter = Conversation.user_id == user_id
+        participant_filter = Conversation.id.in_(participant_conv_id_list) if participant_conv_id_list else False
+
         conversations = (
             session.query(
                 Conversation,
@@ -450,7 +467,7 @@ class Conversations:
                 last_message_subq,
                 last_message_subq.c.conversation_id == Conversation.id,
             )
-            .filter(Conversation.user_id == user_id)
+            .filter(or_(ownership_filter, participant_filter))
             .filter(Message.id != None)
             # Exclude group channels and threads from DM/conversation list
             .filter(
@@ -464,12 +481,75 @@ class Conversations:
         )
 
         # Build result dict with all data from single query
+        # For DM conversations, look up participant names so the frontend
+        # can display "DM with <name>" instead of the raw conversation name.
+        dm_conv_ids = [
+            str(c.id) for c, _, _ in conversations
+            if c.conversation_type == "dm"
+        ]
+        dm_participants = {}
+        if dm_conv_ids:
+            parts = (
+                session.query(ConversationParticipant)
+                .filter(
+                    ConversationParticipant.conversation_id.in_(dm_conv_ids),
+                    ConversationParticipant.status == "active",
+                )
+                .all()
+            )
+            # Group participants by conversation_id
+            for p in parts:
+                cid = str(p.conversation_id)
+                dm_participants.setdefault(cid, []).append(p)
+
+        # Batch load user/agent names for DM participants
+        dm_user_ids = set()
+        dm_agent_ids = set()
+        for plist in dm_participants.values():
+            for p in plist:
+                if p.participant_type == "user" and p.user_id:
+                    dm_user_ids.add(str(p.user_id))
+                elif p.participant_type == "agent" and p.agent_id:
+                    dm_agent_ids.add(str(p.agent_id))
+
+        user_name_map = {}
+        if dm_user_ids:
+            users = session.query(User).filter(User.id.in_(list(dm_user_ids))).all()
+            for u in users:
+                name = f"{u.first_name or ''} {u.last_name or ''}".strip() or u.email
+                user_name_map[str(u.id)] = name
+
+        agent_name_map = {}
+        if dm_agent_ids:
+            agents = session.query(Agent).filter(Agent.id.in_(list(dm_agent_ids))).all()
+            for a in agents:
+                agent_name_map[str(a.id)] = a.name
+
         result = {}
         for conversation, notification_count, last_message_time in conversations:
             # Use last message time if available, otherwise use conversation updated_at
             effective_updated_at = last_message_time or conversation.updated_at
-            result[str(conversation.id)] = {
+            conv_id = str(conversation.id)
+
+            # For DMs, build a display name from the other participants
+            display_name = conversation.name
+            dm_participant_names = []
+            if conversation.conversation_type == "dm" and conv_id in dm_participants:
+                for p in dm_participants[conv_id]:
+                    pid = str(p.user_id) if p.participant_type == "user" else str(p.agent_id)
+                    # Skip the current user
+                    if p.participant_type == "user" and str(p.user_id) == str(user_id):
+                        continue
+                    if p.participant_type == "user" and pid in user_name_map:
+                        dm_participant_names.append(user_name_map[pid])
+                    elif p.participant_type == "agent" and pid in agent_name_map:
+                        dm_participant_names.append(agent_name_map[pid])
+                if dm_participant_names:
+                    display_name = ", ".join(dm_participant_names)
+
+            result[conv_id] = {
                 "name": conversation.name,
+                "display_name": display_name,
                 "agent_id": default_agent_id,
                 "conversation_type": conversation.conversation_type,
                 "created_at": convert_time(conversation.created_at, user_id=user_id),
@@ -552,6 +632,26 @@ class Conversations:
                 )
                 .first()
             )
+            # Fallback: check group conversations accessible via company membership
+            if not conversation:
+                user_company_ids = (
+                    session.query(UserCompany.company_id)
+                    .filter(UserCompany.user_id == user_id)
+                    .all()
+                )
+                company_ids = [str(uc[0]) for uc in user_company_ids]
+                if company_ids:
+                    conversation = (
+                        session.query(Conversation)
+                        .filter(
+                            Conversation.id == self.conversation_id,
+                            Conversation.company_id.in_(company_ids),
+                            Conversation.conversation_type.in_(
+                                ["group", "dm", "thread", "channel"]
+                            ),
+                        )
+                        .first()
+                    )
         else:
             conversation = (
                 session.query(Conversation)
@@ -601,12 +701,12 @@ class Conversations:
         updated_messages = []
 
         if since_timestamp is not None:
-            # Query for new messages (created after timestamp)
+            # Query for new messages (created at or after timestamp)
             new_query = (
                 session.query(Message)
                 .filter(
                     Message.conversation_id == conversation.id,
-                    Message.timestamp > since_timestamp,
+                    Message.timestamp >= since_timestamp,
                 )
                 .order_by(Message.timestamp.asc())
                 .all()
@@ -756,7 +856,7 @@ class Conversations:
                             Conversation.id == self.conversation_id,
                             Conversation.company_id.in_(company_ids),
                             Conversation.conversation_type.in_(
-                                ["group", "dm", "thread"]
+                                ["group", "dm", "thread", "channel"]
                             ),
                         )
                         .first()
@@ -1775,6 +1875,27 @@ class Conversations:
         )
 
         if not conversation:
+            # Fallback: check group conversations accessible via company membership
+            user_company_ids = (
+                session.query(UserCompany.company_id)
+                .filter(UserCompany.user_id == user_id)
+                .all()
+            )
+            company_ids = [str(uc[0]) for uc in user_company_ids]
+            if company_ids:
+                conversation = (
+                    session.query(Conversation)
+                    .filter(
+                        Conversation.name == self.conversation_name,
+                        Conversation.company_id.in_(company_ids),
+                        Conversation.conversation_type.in_(
+                            ["group", "dm", "thread", "channel"]
+                        ),
+                    )
+                    .first()
+                )
+
+        if not conversation:
             session.close()
             return
         message = (
@@ -1809,6 +1930,27 @@ class Conversations:
             )
             .first()
         )
+
+        if not conversation:
+            # Fallback: check group conversations accessible via company membership
+            user_company_ids = (
+                session.query(UserCompany.company_id)
+                .filter(UserCompany.user_id == user_id)
+                .all()
+            )
+            company_ids = [str(uc[0]) for uc in user_company_ids]
+            if company_ids:
+                conversation = (
+                    session.query(Conversation)
+                    .filter(
+                        Conversation.name == self.conversation_name,
+                        Conversation.company_id.in_(company_ids),
+                        Conversation.conversation_type.in_(
+                            ["group", "dm", "thread", "channel"]
+                        ),
+                    )
+                    .first()
+                )
 
         if not conversation:
             session.close()
@@ -2037,6 +2179,26 @@ class Conversations:
             )
             .first()
         )
+        if not conversation:
+            # Fallback: check group conversations accessible via company membership
+            user_company_ids = (
+                session.query(UserCompany.company_id)
+                .filter(UserCompany.user_id == user_id)
+                .all()
+            )
+            company_ids = [str(uc[0]) for uc in user_company_ids]
+            if company_ids:
+                conversation = (
+                    session.query(Conversation)
+                    .filter(
+                        Conversation.name == self.conversation_name,
+                        Conversation.company_id.in_(company_ids),
+                        Conversation.conversation_type.in_(
+                            ["group", "dm", "thread", "channel"]
+                        ),
+                    )
+                    .first()
+                )
         if not conversation:
             session.close()
             return

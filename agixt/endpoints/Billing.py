@@ -3,7 +3,7 @@ from fastapi import APIRouter, Header, HTTPException, Depends, Query
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
-from MagicalAuth import MagicalAuth, verify_api_key, invalidate_user_scopes_cache
+from MagicalAuth import MagicalAuth, verify_api_key, invalidate_user_scopes_cache, add_user_to_company_channels, invalidate_user_company_cache
 from payments.pricing import PriceService
 from payments.crypto import CryptoPaymentService
 from payments.stripe_service import StripePaymentService
@@ -2017,6 +2017,18 @@ async def admin_assign_user_to_company(
         )
         session.add(user_company)
         session.commit()
+
+        # Add user to all non-invite-only company channels
+        try:
+            add_user_to_company_channels(
+                session=session, user_id=str(user.id), company_id=company_id
+            )
+            session.commit()
+            invalidate_user_company_cache(str(user.id))
+        except Exception as e:
+            logging.warning(
+                f"Failed to add user to company channels: {e}"
+            )
 
         return {
             "success": True,

@@ -26,6 +26,8 @@ from DB import (
     CompanyExtensionCommand,
     CompanyExtensionSetting,
     TrialDomain,
+    Conversation,
+    ConversationParticipant,
 )
 from payments.pricing import PriceService
 from sqlalchemy.exc import SQLAlchemyError
@@ -1342,6 +1344,66 @@ def get_agents(email, company=None):
         )
     session.close()
     return output
+
+
+def add_user_to_company_channels(session, user_id: str, company_id):
+    """
+    When a user joins a company, add them as a participant to all existing
+    non-invite-only group channels they aren't already in.
+    This mirrors the logic in create_group_conversation() which auto-adds
+    all current company members at channel creation time.
+    """
+    try:
+        # Find all non-invite-only group channels for this company
+        channels = (
+            session.query(Conversation)
+            .filter(
+                Conversation.company_id == company_id,
+                Conversation.conversation_type == "group",
+                Conversation.invite_only == False,
+            )
+            .all()
+        )
+
+        if not channels:
+            return
+
+        # Get existing participant records for this user in this company's channels
+        channel_ids = [str(c.id) for c in channels]
+        existing_participations = set()
+        if channel_ids:
+            existing = (
+                session.query(ConversationParticipant.conversation_id)
+                .filter(
+                    ConversationParticipant.user_id == user_id,
+                    ConversationParticipant.conversation_id.in_(channel_ids),
+                )
+                .all()
+            )
+            existing_participations = {str(row[0]) for row in existing}
+
+        # Add user to channels they're not already in
+        for channel in channels:
+            cid = str(channel.id)
+            if cid not in existing_participations:
+                participant = ConversationParticipant(
+                    conversation_id=cid,
+                    user_id=user_id,
+                    participant_type="user",
+                    role="member",
+                    status="active",
+                )
+                session.add(participant)
+
+        session.flush()
+        logging.info(
+            f"Added user {user_id} to {len(channel_ids) - len(existing_participations)} "
+            f"company channels for company {company_id}"
+        )
+    except Exception as e:
+        logging.error(
+            f"Error adding user {user_id} to company channels: {e}"
+        )
 
 
 class MagicalAuth:
@@ -2746,6 +2808,14 @@ class MagicalAuth:
             # Invalidate cache
             invalidate_user_company_cache(str(user.id))
 
+            # Auto-add to existing non-invite-only company channels
+            add_user_to_company_channels(
+                session=session,
+                user_id=str(user.id),
+                company_id=invitation.company_id,
+            )
+            session.commit()
+
             # Generate login link for the user
             totp = pyotp.TOTP(user.mfa_token)
             otp_uri = totp.provisioning_uri(name=email, issuer_name=getenv("APP_NAME"))
@@ -2816,6 +2886,14 @@ class MagicalAuth:
             # Invalidate cache
             invalidate_user_company_cache(str(user.id))
 
+            # Auto-add to existing non-invite-only company channels
+            add_user_to_company_channels(
+                session=session,
+                user_id=str(user.id),
+                company_id=invitation.company_id,
+            )
+            session.commit()
+
             # Generate login link for the user
             totp = pyotp.TOTP(user.mfa_token)
             login = LoginMagicLink(email=email, token=totp.now())
@@ -2863,19 +2941,25 @@ class MagicalAuth:
         Request a login link to be sent via email.
         This allows users without a password to log in via email.
         Uses the user's MFA token to generate a one-time login link.
+        Accepts either an email address or a username.
 
         Returns:
             dict with status message
         """
-        self.email = email.lower()
         session = get_session()
-        user = session.query(User).filter(User.email == self.email).first()
+        # Try email first, then username
+        identifier = email.strip().lower()
+        user = session.query(User).filter(User.email == identifier).first()
+        if user is None:
+            # Try username lookup
+            user = session.query(User).filter(User.username == email.strip()).first()
         if user is None:
             session.close()
             # Return success even if user doesn't exist to prevent email enumeration
             return {
                 "detail": "If an account exists with this email, a login link will be sent."
             }
+        self.email = user.email
 
         # Generate a one-time token using the user's MFA secret
         totp = pyotp.TOTP(user.mfa_token)
@@ -3902,6 +3986,13 @@ class MagicalAuth:
                 )
                 # Invalidate user company cache since company membership changed
                 invalidate_user_company_cache(str(new_user_db.id))
+                # Auto-add to existing non-invite-only company channels
+                add_user_to_company_channels(
+                    session=session,
+                    user_id=str(new_user_db.id),
+                    company_id=company_id,
+                )
+                session.commit()
                 # Create agent directly without login overhead
                 agixt = InternalClient(api_key=None, user=new_user.email)
                 agixt._user = new_user.email
@@ -6059,6 +6150,13 @@ class MagicalAuth:
                     db.commit()
                     # Invalidate user company cache since company membership changed
                     invalidate_user_company_cache(str(user.id))
+                    # Auto-add to existing non-invite-only company channels
+                    add_user_to_company_channels(
+                        session=db,
+                        user_id=str(user.id),
+                        company_id=invitation.company_id,
+                    )
+                    db.commit()
                     # send an email letting the user know they have been added to the company
                     company = (
                         db.query(Company)
@@ -6297,6 +6395,13 @@ class MagicalAuth:
                 db.commit()
                 # Invalidate user company cache since company membership changed
                 invalidate_user_company_cache(str(self.user_id))
+                # Auto-add to existing non-invite-only company channels
+                add_user_to_company_channels(
+                    session=db,
+                    user_id=str(self.user_id),
+                    company_id=invitation.company_id,
+                )
+                db.commit()
                 return True
             except SQLAlchemyError as e:
                 db.rollback()
