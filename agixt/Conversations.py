@@ -571,9 +571,9 @@ class Conversations:
                 ),
                 "attachment_count": conversation.attachment_count or 0,
                 "pin_order": conversation.pin_order,
-                "parent_id": str(conversation.parent_id)
-                if conversation.parent_id
-                else None,
+                "parent_id": (
+                    str(conversation.parent_id) if conversation.parent_id else None
+                ),
             }
 
         # Sort by updated_at descending (most recent first)
@@ -1019,8 +1019,16 @@ class Conversations:
                 ),
                 "reactions": reactions_map.get(str(message.id), []),
                 "pinned": bool(message.pinned) if hasattr(message, "pinned") else False,
-                "pinned_at": str(message.pinned_at) if hasattr(message, "pinned_at") and message.pinned_at else None,
-                "pinned_by": str(message.pinned_by) if hasattr(message, "pinned_by") and message.pinned_by else None,
+                "pinned_at": (
+                    str(message.pinned_at)
+                    if hasattr(message, "pinned_at") and message.pinned_at
+                    else None
+                ),
+                "pinned_by": (
+                    str(message.pinned_by)
+                    if hasattr(message, "pinned_by") and message.pinned_by
+                    else None
+                ),
             }
             return_messages.append(msg)
         session.close()
@@ -2372,11 +2380,7 @@ class Conversations:
         for msg in messages:
             sender = None
             if msg.sender_user_id:
-                user = (
-                    session.query(User)
-                    .filter(User.id == msg.sender_user_id)
-                    .first()
-                )
+                user = session.query(User).filter(User.id == msg.sender_user_id).first()
                 if user:
                     sender = {
                         "id": str(user.id),

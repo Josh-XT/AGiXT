@@ -1622,9 +1622,7 @@ class Conversation(Base):
     invite_only = Column(
         Boolean, nullable=False, default=False
     )  # If True, only explicitly invited users can join; if False, all company members auto-join
-    description = Column(
-        Text, nullable=True, default=None
-    )  # Channel topic/description
+    description = Column(Text, nullable=True, default=None)  # Channel topic/description
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     user_id = Column(
