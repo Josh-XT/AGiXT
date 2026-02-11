@@ -6081,19 +6081,19 @@ def migrate_performance_indexes():
                 session.execute(
                     text(
                         "CREATE INDEX IF NOT EXISTS ix_conversation_user_id "
-                        'ON conversation(user_id)'
+                        "ON conversation(user_id)"
                     )
                 )
                 session.execute(
                     text(
                         "CREATE INDEX IF NOT EXISTS ix_conversation_name_user "
-                        'ON conversation(name, user_id)'
+                        "ON conversation(name, user_id)"
                     )
                 )
                 session.execute(
                     text(
                         "CREATE INDEX IF NOT EXISTS ix_conversation_company_id "
-                        'ON conversation(company_id)'
+                        "ON conversation(company_id)"
                     )
                 )
                 session.execute(
