@@ -45,7 +45,10 @@ def parse_agent_mentions(messages, available_agents):
     # Find the last user message
     last_user_idx = None
     for i in range(len(messages) - 1, -1, -1):
-        if isinstance(messages[i], dict) and messages[i].get("role", "").lower() == "user":
+        if (
+            isinstance(messages[i], dict)
+            and messages[i].get("role", "").lower() == "user"
+        ):
             last_user_idx = i
             break
 
@@ -83,7 +86,7 @@ def parse_agent_mentions(messages, available_agents):
         )
         match = quoted_pattern.search(content)
         if match:
-            cleaned_content = content[:match.start()] + content[match.end():]
+            cleaned_content = content[: match.start()] + content[match.end() :]
             cleaned_content = cleaned_content.strip()
             new_messages = list(messages)
             new_messages[last_user_idx] = {**msg, "content": cleaned_content}
@@ -91,18 +94,19 @@ def parse_agent_mentions(messages, available_agents):
 
         # Try unquoted pattern: @AgentName (word boundary after)
         unquoted_pattern = re.compile(
-            r'@' + re.escape(agent_name) + r'(?:\b|(?=\s|$|[,.:;!?]))',
+            r"@" + re.escape(agent_name) + r"(?:\b|(?=\s|$|[,.:;!?]))",
             re.IGNORECASE,
         )
         match = unquoted_pattern.search(content)
         if match:
-            cleaned_content = content[:match.start()] + content[match.end():]
+            cleaned_content = content[: match.start()] + content[match.end() :]
             cleaned_content = cleaned_content.strip()
             new_messages = list(messages)
             new_messages[last_user_idx] = {**msg, "content": cleaned_content}
             return agent_name, new_messages
 
     return None, messages
+
 
 app = APIRouter()
 
@@ -178,7 +182,9 @@ async def chat_completion(
         if not prompt.model:
             agents = get_agents(user=user)
             try:
-                prompt.model = agents[0]["name"] if isinstance(agents[0], dict) else agents[0].name
+                prompt.model = (
+                    agents[0]["name"] if isinstance(agents[0], dict) else agents[0].name
+                )
             except Exception:
                 # Log without exposing exception details
                 logging.error("Error getting agent name: using default")
@@ -211,7 +217,11 @@ async def chat_completion(
                                         a
                                         for a in all_agents
                                         if (
-                                            (a["name"] if isinstance(a, dict) else a.name)
+                                            (
+                                                a["name"]
+                                                if isinstance(a, dict)
+                                                else a.name
+                                            )
                                             == mentioned_agent
                                         )
                                     ),
@@ -236,9 +246,7 @@ async def chat_completion(
                                         )
                             session.close()
                         except Exception as e:
-                            logging.warning(
-                                f"Error validating agent company: {e}"
-                            )
+                            logging.warning(f"Error validating agent company: {e}")
 
                     if agent_allowed:
                         prompt.model = mentioned_agent
@@ -333,7 +341,9 @@ async def mcp_chat_completion(
         if not prompt.model:
             agents = get_agents(user=user)
             try:
-                prompt.model = agents[0]["name"] if isinstance(agents[0], dict) else agents[0].name
+                prompt.model = (
+                    agents[0]["name"] if isinstance(agents[0], dict) else agents[0].name
+                )
             except Exception:
                 # Log without exposing exception details
                 logging.error("Error getting agent name: using default")
@@ -364,7 +374,11 @@ async def mcp_chat_completion(
                                         a
                                         for a in all_agents
                                         if (
-                                            (a["name"] if isinstance(a, dict) else a.name)
+                                            (
+                                                a["name"]
+                                                if isinstance(a, dict)
+                                                else a.name
+                                            )
                                             == mentioned_agent
                                         )
                                     ),
@@ -389,9 +403,7 @@ async def mcp_chat_completion(
                                         )
                             session.close()
                         except Exception as e:
-                            logging.warning(
-                                f"Error validating agent company: {e}"
-                            )
+                            logging.warning(f"Error validating agent company: {e}")
 
                     if agent_allowed:
                         prompt.model = mentioned_agent

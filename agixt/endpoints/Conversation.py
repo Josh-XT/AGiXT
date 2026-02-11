@@ -401,7 +401,10 @@ class ConversationMessageBroadcaster:
         )
 
     async def broadcast_typing_event(
-        self, conversation_id: str, typing_data: dict, exclude_websocket: WebSocket = None
+        self,
+        conversation_id: str,
+        typing_data: dict,
+        exclude_websocket: WebSocket = None,
     ):
         """
         Broadcast a typing indicator to all WebSocket connections for a conversation,
@@ -871,9 +874,7 @@ async def add_message_v1(
 
             with get_session() as session:
                 sender_user = (
-                    session.query(User)
-                    .filter(User.id == auth.user_id)
-                    .first()
+                    session.query(User).filter(User.id == auth.user_id).first()
                 )
                 if sender_user:
                     sender_data = {
@@ -2181,7 +2182,13 @@ async def conversation_stream(
                     make_json_serializable(msg) for msg in messages
                 ]
                 await websocket.send_text(
-                    json.dumps({"type": "initial_data", "data": serializable_messages, "conversation_id": conversation_id})
+                    json.dumps(
+                        {
+                            "type": "initial_data",
+                            "data": serializable_messages,
+                            "conversation_id": conversation_id,
+                        }
+                    )
                 )
 
         except Exception as e:
@@ -2258,8 +2265,13 @@ async def conversation_stream(
                         # Get user details from DB
                         try:
                             from DB import get_session
+
                             with get_session() as session:
-                                db_user = session.query(User).filter(User.id == auth.user_id).first()
+                                db_user = (
+                                    session.query(User)
+                                    .filter(User.id == auth.user_id)
+                                    .first()
+                                )
                                 if db_user:
                                     typing_data["first_name"] = db_user.first_name or ""
                                     typing_data["last_name"] = db_user.last_name or ""
@@ -2729,9 +2741,7 @@ async def notify_conversation_participants_message_added(
                 )
                 .all()
             )
-            participant_user_ids = [
-                str(p.user_id) for p in participants if p.user_id
-            ]
+            participant_user_ids = [str(p.user_id) for p in participants if p.user_id]
 
         # Notify all participants (including sender for their own SWR cache updates)
         for user_id in participant_user_ids:
@@ -2739,9 +2749,7 @@ async def notify_conversation_participants_message_added(
                 user_id, notification_data
             )
     except Exception as e:
-        logging.warning(
-            f"Failed to notify conversation participants: {e}"
-        )
+        logging.warning(f"Failed to notify conversation participants: {e}")
         # Fallback: at least notify the sender
         await notify_user_message_added(
             user_id=sender_user_id,

@@ -481,9 +481,7 @@ class Conversations:
             )
             # Only include conversations that have at least one message
             .filter(
-                Conversation.id.in_(
-                    session.query(Message.conversation_id).distinct()
-                )
+                Conversation.id.in_(session.query(Message.conversation_id).distinct())
             )
             .all()
         )
