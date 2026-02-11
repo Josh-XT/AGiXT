@@ -27,6 +27,7 @@ agixt/agents/*
 agixt/data/*
 agixt/WORKSPACE/*
 agixt/models/*
+agixt/uploads/*
 agixt/conversations
 agixt/.github
 agixt/prompts/private
