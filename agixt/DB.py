@@ -5673,7 +5673,7 @@ def migrate_group_chat_tables():
                 if not result.fetchone():
                     session.execute(
                         text(
-                            'ALTER TABLE "user" ADD COLUMN status_mode VARCHAR(20) DEFAULT \'online\''
+                            "ALTER TABLE \"user\" ADD COLUMN status_mode VARCHAR(20) DEFAULT 'online'"
                         )
                     )
                     session.commit()
@@ -6005,6 +6005,113 @@ def migrate_message_reaction_table():
                     logging.info("Created message_reaction table")
     except Exception as e:
         logging.debug(f"message_reaction table migration completed or not needed: {e}")
+
+
+def migrate_performance_indexes():
+    """Add performance indexes on message and conversation tables for fast lookups."""
+    if engine is None:
+        return
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                # Composite index for the main message query pattern:
+                # WHERE conversation_id = ? ORDER BY timestamp ASC
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_conv_timestamp "
+                        "ON message(conversation_id, timestamp)"
+                    )
+                )
+                # Index for notify update: WHERE conversation_id = ? AND notify = 1
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_conv_notify "
+                        "ON message(conversation_id, notify)"
+                    )
+                )
+                # Index for conversation lookup by user
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_user_id "
+                        "ON conversation(user_id)"
+                    )
+                )
+                # Composite index for conversation lookup by name + user
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_name_user "
+                        "ON conversation(name, user_id)"
+                    )
+                )
+                # Index for group conversation lookup by company
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_company_id "
+                        "ON conversation(company_id)"
+                    )
+                )
+                # Index for participant status filter
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conv_participant_conv_status "
+                        "ON conversation_participant(conversation_id, status)"
+                    )
+                )
+                # Index for UserPreferences timezone lookup
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_user_prefs_user_key "
+                        "ON user_preferences(user_id, pref_key)"
+                    )
+                )
+            else:
+                # PostgreSQL
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_conv_timestamp "
+                        "ON message(conversation_id, timestamp)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_conv_notify "
+                        "ON message(conversation_id, notify)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_user_id "
+                        'ON conversation(user_id)'
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_name_user "
+                        'ON conversation(name, user_id)'
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_company_id "
+                        'ON conversation(company_id)'
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conv_participant_conv_status "
+                        "ON conversation_participant(conversation_id, status)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_user_prefs_user_key "
+                        "ON user_preferences(user_id, pref_key)"
+                    )
+                )
+            session.commit()
+            logging.info("Performance indexes migration complete")
+    except Exception as e:
+        logging.debug(f"Performance indexes migration completed or not needed: {e}")
 
 
 # Server configuration definitions

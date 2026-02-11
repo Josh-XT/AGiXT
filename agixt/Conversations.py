@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import logging
 import secrets
 import asyncio
+import pytz
 from DB import (
     Conversation,
     ConversationShare,
@@ -17,7 +18,7 @@ from DB import (
 )
 from Globals import getenv, DEFAULT_USER
 from sqlalchemy.sql import func, or_
-from MagicalAuth import convert_time, get_user_id
+from MagicalAuth import convert_time, get_user_id, get_user_timezone
 from SharedCache import shared_cache
 
 logging.basicConfig(
@@ -776,38 +777,21 @@ class Conversations:
             session.commit()
         else:
             # Mark all notifications as read for this conversation
-            # Use retry logic with exponential backoff for SQLite lock handling
-            max_retries = 3
-            retry_delay = 0.1  # Start with 100ms
-            for attempt in range(max_retries):
-                try:
-                    (
-                        session.query(Message)
-                        .filter(
-                            Message.conversation_id == conversation.id,
-                            Message.notify == True,
-                        )
-                        .update({"notify": False}, synchronize_session=False)
+            # Mark notifications as read in a fire-and-forget manner
+            # This is not critical to the read path and shouldn't block message retrieval
+            try:
+                (
+                    session.query(Message)
+                    .filter(
+                        Message.conversation_id == conversation.id,
+                        Message.notify == True,
                     )
-                    session.commit()
-                    break  # Success, exit retry loop
-                except Exception as e:
-                    session.rollback()
-                    if (
-                        "database is locked" in str(e).lower()
-                        and attempt < max_retries - 1
-                    ):
-                        import time
-
-                        time.sleep(retry_delay)
-                        retry_delay *= 2  # Exponential backoff
-                        logging.warning(
-                            f"Database locked on notify update, retrying (attempt {attempt + 2}/{max_retries})"
-                        )
-                    else:
-                        # Log but don't fail - marking notifications as read is not critical
-                        logging.warning(f"Failed to mark notifications as read: {e}")
-                        break
+                    .update({"notify": False}, synchronize_session=False)
+                )
+                session.commit()
+            except Exception as e:
+                session.rollback()
+                logging.debug(f"Failed to mark notifications as read: {e}")
         offset = (page - 1) * limit
         messages = (
             session.query(Message)
@@ -880,24 +864,36 @@ class Conversations:
                 )
         except Exception as e:
             logging.debug(f"Failed to fetch reactions: {e}")
-        for message in messages:
-            # Store raw UTC timestamps for WebSocket comparison (no timezone conversion)
-            raw_timestamp_utc = message.timestamp
-            raw_updated_at_utc = message.updated_at
 
+        # Pre-fetch timezone ONCE for this user instead of per-message
+        # (was doing 2 DB queries per message = 200 queries for 100 messages)
+        user_timezone = get_user_timezone(user_id)
+        gmt = pytz.timezone("GMT")
+        local_tz = pytz.timezone(user_timezone)
+
+        # Inline timezone conversion to avoid per-message function call overhead
+        def _convert_time_fast(utc_time):
+            if utc_time is None:
+                return None
+            if utc_time.tzinfo is None:
+                return gmt.localize(utc_time).astimezone(local_tz)
+            return utc_time.astimezone(local_tz)
+
+        agixt_uri = getenv("AGIXT_URI")
+        for message in messages:
             msg = {
                 "id": message.id,
                 "role": message.role,
                 "message": str(message.content).replace(
-                    "http://localhost:7437", getenv("AGIXT_URI")
+                    "http://localhost:7437", agixt_uri
                 ),
-                "timestamp": convert_time(message.timestamp, user_id=user_id),
-                "updated_at": convert_time(message.updated_at, user_id=user_id),
+                "timestamp": _convert_time_fast(message.timestamp),
+                "updated_at": _convert_time_fast(message.updated_at),
                 "updated_by": message.updated_by,
                 "feedback_received": message.feedback_received,
-                # Add raw UTC timestamps for WebSocket comparison (before timezone conversion)
-                "timestamp_utc": raw_timestamp_utc,
-                "updated_at_utc": raw_updated_at_utc,
+                # Raw UTC timestamps for WebSocket comparison
+                "timestamp_utc": message.timestamp,
+                "updated_at_utc": message.updated_at,
                 # Group chat: sender user info
                 "sender_user_id": (
                     str(message.sender_user_id) if message.sender_user_id else None
@@ -3029,6 +3025,28 @@ class Conversations:
                 .all()
             )
 
+            # Batch-fetch all users and agents in 2 queries instead of N
+            user_ids = [
+                p.user_id
+                for p in participants
+                if p.participant_type == "user" and p.user_id
+            ]
+            agent_ids = [
+                p.agent_id
+                for p in participants
+                if p.participant_type == "agent" and p.agent_id
+            ]
+
+            users_map = {}
+            if user_ids:
+                users = session.query(User).filter(User.id.in_(user_ids)).all()
+                users_map = {str(u.id): u for u in users}
+
+            agents_map = {}
+            if agent_ids:
+                agents = session.query(Agent).filter(Agent.id.in_(agent_ids)).all()
+                agents_map = {str(a.id): a for a in agents}
+
             result = []
             for p in participants:
                 participant_data = {
@@ -3040,7 +3058,7 @@ class Conversations:
                     "status": p.status,
                 }
                 if p.participant_type == "user" and p.user_id:
-                    user = session.query(User).filter(User.id == p.user_id).first()
+                    user = users_map.get(str(p.user_id))
                     if user:
                         participant_data["user"] = {
                             "id": str(user.id),
@@ -3056,7 +3074,7 @@ class Conversations:
                             "status_text": getattr(user, "status_text", None),
                         }
                 elif p.participant_type == "agent" and p.agent_id:
-                    agent = session.query(Agent).filter(Agent.id == p.agent_id).first()
+                    agent = agents_map.get(str(p.agent_id))
                     if agent:
                         participant_data["agent"] = {
                             "id": str(agent.id),
