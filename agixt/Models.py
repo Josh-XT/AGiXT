@@ -1186,6 +1186,7 @@ class UpdateChannelModel(BaseModel):
 
     category: Optional[str] = None  # Channel category for grouping
     name: Optional[str] = None  # Channel name
+    description: Optional[str] = None  # Channel topic/description
 
 
 class ParticipantResponse(BaseModel):

@@ -1622,6 +1622,9 @@ class Conversation(Base):
     invite_only = Column(
         Boolean, nullable=False, default=False
     )  # If True, only explicitly invited users can join; if False, all company members auto-join
+    description = Column(
+        Text, nullable=True, default=None
+    )  # Channel topic/description
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     user_id = Column(
@@ -1715,6 +1718,14 @@ class Message(Base):
     sender_user = relationship("User", foreign_keys=[sender_user_id])
     reactions = relationship(
         "MessageReaction", back_populates="message", cascade="all, delete-orphan"
+    )
+    # Message pinning
+    pinned = Column(Boolean, default=False, nullable=False)
+    pinned_at = Column(DateTime, nullable=True)
+    pinned_by = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=True,
     )
 
 
@@ -5924,10 +5935,85 @@ def migrate_group_chat_tables():
                 session.commit()
                 logging.info("Added column invite_only to conversation table")
 
+            if "description" not in existing_columns:
+                if DATABASE_TYPE == "sqlite":
+                    session.execute(
+                        text("ALTER TABLE conversation ADD COLUMN description TEXT")
+                    )
+                else:
+                    session.execute(
+                        text("ALTER TABLE conversation ADD COLUMN description TEXT")
+                    )
+                session.commit()
+                logging.info("Added column description to conversation table")
+
             logging.info("Group chat tables migration complete")
 
     except Exception as e:
         logging.error(f"Error migrating group chat tables: {e}")
+
+
+def migrate_message_pinning():
+    """Migration to add pinning columns to the message table."""
+    if engine is None:
+        return
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(message)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "pinned" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE message ADD COLUMN pinned BOOLEAN DEFAULT 0 NOT NULL"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column pinned to message table")
+
+                if "pinned_at" not in existing_columns:
+                    session.execute(
+                        text("ALTER TABLE message ADD COLUMN pinned_at DATETIME")
+                    )
+                    session.commit()
+                    logging.info("Added column pinned_at to message table")
+
+                if "pinned_by" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE message ADD COLUMN pinned_by VARCHAR REFERENCES user(id)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column pinned_by to message table")
+            else:
+                for col_name, col_def in [
+                    ("pinned", "BOOLEAN DEFAULT FALSE NOT NULL"),
+                    ("pinned_at", "TIMESTAMP"),
+                    ("pinned_by", 'UUID REFERENCES "user"(id)'),
+                ]:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name FROM information_schema.columns
+                            WHERE table_name = 'message' AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": col_name},
+                    )
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "message" ADD COLUMN {col_name} {col_def}'
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {col_name} to message table")
+
+            logging.info("Message pinning migration complete")
+    except Exception as e:
+        logging.debug(f"Message pinning migration completed or not needed: {e}")
 
 
 def migrate_message_reaction_table():

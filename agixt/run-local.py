@@ -116,12 +116,18 @@ async def initialize_database(is_restart=False):
         startup_timer.section_end("migrate_message_reaction_table", section_start)
 
         section_start = startup_timer.section_start()
+        DB.migrate_message_pinning()
+        startup_timer.section_end("migrate_message_pinning", section_start)
+
+        section_start = startup_timer.section_start()
         DB.migrate_performance_indexes()
         startup_timer.section_end("migrate_performance_indexes", section_start)
 
         section_start = startup_timer.section_start()
         DB.migrate_backfill_channel_participants()
-        startup_timer.section_end("migrate_backfill_channel_participants", section_start)
+        startup_timer.section_end(
+            "migrate_backfill_channel_participants", section_start
+        )
 
         section_start = startup_timer.section_start()
         DB.migrate_conversation_table()

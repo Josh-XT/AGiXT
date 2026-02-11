@@ -1401,9 +1401,7 @@ def add_user_to_company_channels(session, user_id: str, company_id):
             f"company channels for company {company_id}"
         )
     except Exception as e:
-        logging.error(
-            f"Error adding user {user_id} to company channels: {e}"
-        )
+        logging.error(f"Error adding user {user_id} to company channels: {e}")
 
 
 class MagicalAuth:

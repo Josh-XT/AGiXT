@@ -1023,6 +1023,63 @@ async def remove_reaction(
         session.close()
 
 
+# ============================================
+# Message Pinning
+# ============================================
+
+
+@app.put(
+    "/v1/conversation/{conversation_id}/message/{message_id}/pin",
+    response_model=ResponseMessage,
+    summary="Toggle Pin Message",
+    description="Toggles the pinned state of a message. Pinned messages can be viewed via the pinned messages endpoint.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def toggle_pin_message(
+    conversation_id: str,
+    message_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    try:
+        conversation_name = get_conversation_name_by_id(
+            conversation_id=conversation_id, user_id=auth.user_id
+        )
+    except:
+        conversation_name = conversation_id
+    c = Conversations(conversation_name=conversation_name, user=user)
+    result = c.toggle_pin_message(message_id=message_id)
+    pinned = result.get("pinned", False)
+    return ResponseMessage(
+        message=f"Message {'pinned' if pinned else 'unpinned'} successfully."
+    )
+
+
+@app.get(
+    "/v1/conversation/{conversation_id}/pins",
+    summary="Get Pinned Messages",
+    description="Returns all pinned messages in a conversation.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_pinned_messages(
+    conversation_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    try:
+        conversation_name = get_conversation_name_by_id(
+            conversation_id=conversation_id, user_id=auth.user_id
+        )
+    except:
+        conversation_name = conversation_id
+    c = Conversations(conversation_name=conversation_name, user=user)
+    return c.get_pinned_messages()
+
+
 @app.get(
     "/api/conversation",
     response_model=ConversationHistoryResponse,
@@ -2104,8 +2161,11 @@ async def conversation_stream(
                     if message_id and message_id in previous_message_ids:
                         continue
                     # Skip if this was already sent via broadcast
-                    if message_id and conversation_message_broadcaster.was_broadcasted_for_connection(
-                        websocket, message_id
+                    if (
+                        message_id
+                        and conversation_message_broadcaster.was_broadcasted_for_connection(
+                            websocket, message_id
+                        )
                     ):
                         logging.debug(
                             f"WebSocket: Skipping broadcasted new message {message_id}"
@@ -2136,8 +2196,11 @@ async def conversation_stream(
                         )
                         continue
                     # Skip if this was already sent via broadcast
-                    if message_id and conversation_message_broadcaster.was_broadcasted_for_connection(
-                        websocket, message_id
+                    if (
+                        message_id
+                        and conversation_message_broadcaster.was_broadcasted_for_connection(
+                            websocket, message_id
+                        )
                     ):
                         logging.debug(
                             f"WebSocket: Skipping broadcasted updated message {message_id}"
@@ -2158,7 +2221,9 @@ async def conversation_stream(
 
                 # Reset per-cycle tracking and clear broadcasted IDs for this connection
                 updated_message_ids_this_cycle.clear()
-                conversation_message_broadcaster.clear_broadcasted_ids_for_connection(websocket)
+                conversation_message_broadcaster.clear_broadcasted_ids_for_connection(
+                    websocket
+                )
 
                 # Check for conversation rename
                 current_name = c.get_current_name_from_db()
@@ -3521,12 +3586,15 @@ async def update_channel(
             conversation.category = body.category
         if body.name is not None:
             conversation.name = body.name
+        if body.description is not None:
+            conversation.description = body.description
 
         session.commit()
         return {
             "id": str(conversation.id),
             "name": conversation.name,
             "category": getattr(conversation, "category", None),
+            "description": getattr(conversation, "description", None),
             "message": "Channel updated successfully",
         }
     except HTTPException:

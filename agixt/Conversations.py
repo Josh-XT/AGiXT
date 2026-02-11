@@ -162,7 +162,9 @@ def get_conversation_id_by_name(conversation_name, user_id, create_if_missing=Tr
                 .filter(
                     Conversation.name == conversation_name,
                     Conversation.company_id.in_(company_ids),
-                    Conversation.conversation_type.in_(["group", "dm", "thread", "channel"]),
+                    Conversation.conversation_type.in_(
+                        ["group", "dm", "thread", "channel"]
+                    ),
                 )
                 .first()
             )
@@ -214,7 +216,9 @@ def get_conversation_name_by_id(conversation_id, user_id):
                 .filter(
                     Conversation.id == conversation_id,
                     Conversation.company_id.in_(company_ids),
-                    Conversation.conversation_type.in_(["group", "dm", "thread", "channel"]),
+                    Conversation.conversation_type.in_(
+                        ["group", "dm", "thread", "channel"]
+                    ),
                 )
                 .first()
             )
@@ -452,7 +456,11 @@ class Conversations:
         # Single query: conversations owned by user OR where user is a participant
         # Exclude group channels and threads from DM/conversation list
         ownership_filter = Conversation.user_id == user_id
-        participant_filter = Conversation.id.in_(participant_conv_id_list) if participant_conv_id_list else False
+        participant_filter = (
+            Conversation.id.in_(participant_conv_id_list)
+            if participant_conv_id_list
+            else False
+        )
 
         conversations = (
             session.query(
@@ -484,8 +492,7 @@ class Conversations:
         # For DM conversations, look up participant names so the frontend
         # can display "DM with <name>" instead of the raw conversation name.
         dm_conv_ids = [
-            str(c.id) for c, _, _ in conversations
-            if c.conversation_type == "dm"
+            str(c.id) for c, _, _ in conversations if c.conversation_type == "dm"
         ]
         dm_participants = {}
         if dm_conv_ids:
@@ -536,7 +543,11 @@ class Conversations:
             dm_participant_names = []
             if conversation.conversation_type == "dm" and conv_id in dm_participants:
                 for p in dm_participants[conv_id]:
-                    pid = str(p.user_id) if p.participant_type == "user" else str(p.agent_id)
+                    pid = (
+                        str(p.user_id)
+                        if p.participant_type == "user"
+                        else str(p.agent_id)
+                    )
                     # Skip the current user
                     if p.participant_type == "user" and str(p.user_id) == str(user_id):
                         continue
@@ -560,6 +571,9 @@ class Conversations:
                 ),
                 "attachment_count": conversation.attachment_count or 0,
                 "pin_order": conversation.pin_order,
+                "parent_id": str(conversation.parent_id)
+                if conversation.parent_id
+                else None,
             }
 
         # Sort by updated_at descending (most recent first)
@@ -1004,6 +1018,9 @@ class Conversations:
                     else None
                 ),
                 "reactions": reactions_map.get(str(message.id), []),
+                "pinned": bool(message.pinned) if hasattr(message, "pinned") else False,
+                "pinned_at": str(message.pinned_at) if hasattr(message, "pinned_at") and message.pinned_at else None,
+                "pinned_by": str(message.pinned_by) if hasattr(message, "pinned_by") and message.pinned_by else None,
             }
             return_messages.append(msg)
         session.close()
@@ -2232,6 +2249,155 @@ class Conversations:
         finally:
             session.close()
 
+    def toggle_pin_message(self, message_id):
+        """Toggle the pinned state of a message."""
+        session = get_session()
+        user_id = self._user_id
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            user_company_ids = (
+                session.query(UserCompany.company_id)
+                .filter(UserCompany.user_id == user_id)
+                .all()
+            )
+            company_ids = [str(uc[0]) for uc in user_company_ids]
+            if company_ids:
+                conversation = (
+                    session.query(Conversation)
+                    .filter(
+                        Conversation.name == self.conversation_name,
+                        Conversation.company_id.in_(company_ids),
+                        Conversation.conversation_type.in_(
+                            ["group", "dm", "thread", "channel"]
+                        ),
+                    )
+                    .first()
+                )
+        if not conversation:
+            session.close()
+            return {"pinned": False}
+        message = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == conversation.id,
+                Message.id == message_id,
+            )
+            .first()
+        )
+        if not message:
+            session.close()
+            return {"pinned": False}
+        current_pinned = bool(message.pinned)
+        new_pinned = not current_pinned
+        now = datetime.now()
+        try:
+            # Use explicit SQL UPDATE to ensure persistence
+            from sqlalchemy import update
+
+            stmt = (
+                update(Message)
+                .where(Message.id == message_id)
+                .values(
+                    pinned=new_pinned,
+                    pinned_at=now if new_pinned else None,
+                    pinned_by=user_id if new_pinned else None,
+                )
+            )
+            session.execute(stmt)
+            session.flush()
+            session.commit()
+            logging.info(
+                f"Pin toggled for message {message_id}: {current_pinned} -> {new_pinned}"
+            )
+            return {"pinned": new_pinned, "message_id": str(message_id)}
+        except Exception as e:
+            logging.error(f"Error toggling pin: {e}")
+            session.rollback()
+            return {"pinned": False}
+        finally:
+            session.close()
+
+    def get_pinned_messages(self):
+        """Get all pinned messages in this conversation."""
+        session = get_session()
+        user_id = self._user_id
+        conversation = (
+            session.query(Conversation)
+            .filter(
+                Conversation.name == self.conversation_name,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+        if not conversation:
+            user_company_ids = (
+                session.query(UserCompany.company_id)
+                .filter(UserCompany.user_id == user_id)
+                .all()
+            )
+            company_ids = [str(uc[0]) for uc in user_company_ids]
+            if company_ids:
+                conversation = (
+                    session.query(Conversation)
+                    .filter(
+                        Conversation.name == self.conversation_name,
+                        Conversation.company_id.in_(company_ids),
+                        Conversation.conversation_type.in_(
+                            ["group", "dm", "thread", "channel"]
+                        ),
+                    )
+                    .first()
+                )
+        if not conversation:
+            session.close()
+            return []
+        conv_id = str(conversation.id)
+        messages = (
+            session.query(Message)
+            .filter(
+                Message.conversation_id == conv_id,
+                Message.pinned == True,
+            )
+            .order_by(Message.pinned_at.desc())
+            .all()
+        )
+        result = []
+        for msg in messages:
+            sender = None
+            if msg.sender_user_id:
+                user = (
+                    session.query(User)
+                    .filter(User.id == msg.sender_user_id)
+                    .first()
+                )
+                if user:
+                    sender = {
+                        "id": str(user.id),
+                        "email": user.email,
+                        "first_name": user.first_name,
+                        "last_name": user.last_name,
+                    }
+            result.append(
+                {
+                    "id": str(msg.id),
+                    "role": msg.role,
+                    "message": str(msg.content),
+                    "timestamp": str(msg.timestamp),
+                    "pinned_at": str(msg.pinned_at) if msg.pinned_at else None,
+                    "pinned_by": str(msg.pinned_by) if msg.pinned_by else None,
+                    "sender": sender,
+                }
+            )
+        session.close()
+        return result
+
     def get_conversation_id(self):
         # Return cached ID if available - this is stable even if name changes
         if self.conversation_id:
@@ -3422,6 +3588,7 @@ class Conversations:
                     "participant_count": participant_count,
                     "thread_count": thread_count,
                     "category": getattr(conversation, "category", None),
+                    "description": getattr(conversation, "description", None),
                 }
 
             return result
