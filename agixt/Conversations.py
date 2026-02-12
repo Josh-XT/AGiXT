@@ -39,9 +39,7 @@ _conversation_id_cache_ttl = 30  # 30 seconds
 # Uses .+? (lazy) for the MIME type to handle parameters like ;codecs=opus
 # Uses [^)]+ for the base64 payload instead of a character class to avoid
 # catastrophic backtracking on large files (videos can be 10MB+ as base64)
-_DATA_URL_PATTERN = re.compile(
-    r'(!?\[([^\]]*)\])\(data:(.+?);base64,([^)]+)\)'
-)
+_DATA_URL_PATTERN = re.compile(r"(!?\[([^\]]*)\])\(data:(.+?);base64,([^)]+)\)")
 
 # Minimum size threshold for extracting data URLs to workspace (10KB)
 # Smaller data URLs (like tiny icons) are left inline
@@ -105,7 +103,9 @@ def extract_data_urls_to_workspace(
         try:
             markdown_prefix = match.group(1)  # ![alt] or [text]
             alt_text = match.group(2)  # alt text or link text
-            mime_type = match.group(3)  # e.g., image/png, video/mp4, audio/webm;codecs=opus
+            mime_type = match.group(
+                3
+            )  # e.g., image/png, video/mp4, audio/webm;codecs=opus
             base64_data = match.group(4).strip()
 
             # Check size threshold - only extract large data URLs
@@ -135,9 +135,7 @@ def extract_data_urls_to_workspace(
                 filename = alt_text
                 # Sanitize filename - remove path separators and unsafe chars
                 filename = (
-                    filename.replace("/", "_")
-                    .replace("\\", "_")
-                    .replace("..", "_")
+                    filename.replace("/", "_").replace("\\", "_").replace("..", "_")
                 )
             else:
                 filename = f"{uuid.uuid4().hex[:12]}{ext}"
@@ -858,9 +856,7 @@ class Conversations:
 
         # Get conversation IDs where user is owner
         owned_conv_ids = (
-            session.query(Conversation.id)
-            .filter(Conversation.user_id == user_id)
-            .all()
+            session.query(Conversation.id).filter(Conversation.user_id == user_id).all()
         )
         owned_ids = [str(row[0]) for row in owned_conv_ids]
 
@@ -902,9 +898,7 @@ class Conversations:
         if company_id:
             msg_query = msg_query.filter(Conversation.company_id == company_id)
 
-        messages = (
-            msg_query.order_by(Message.timestamp.desc()).limit(limit).all()
-        )
+        messages = msg_query.order_by(Message.timestamp.desc()).limit(limit).all()
 
         # Batch load sender user names
         sender_ids = set()
@@ -913,14 +907,10 @@ class Conversations:
                 sender_ids.add(str(msg.sender_user_id))
         sender_name_map = {}
         if sender_ids:
-            users = (
-                session.query(User).filter(User.id.in_(list(sender_ids))).all()
-            )
+            users = session.query(User).filter(User.id.in_(list(sender_ids))).all()
             for u in users:
                 name = (
-                    f"{u.first_name} {u.last_name}".strip()
-                    if u.first_name
-                    else u.email
+                    f"{u.first_name} {u.last_name}".strip() if u.first_name else u.email
                 )
                 sender_name_map[str(u.id)] = name
 
@@ -933,9 +923,7 @@ class Conversations:
 
             sender_name = None
             if message.sender_user_id:
-                sender_name = sender_name_map.get(
-                    str(message.sender_user_id), None
-                )
+                sender_name = sender_name_map.get(str(message.sender_user_id), None)
             elif message.role == "USER":
                 sender_name = "You"
 
@@ -953,9 +941,7 @@ class Conversations:
                     "content": content,
                     "role": message.role,
                     "sender_name": sender_name,
-                    "timestamp": convert_time(
-                        message.timestamp, user_id=user_id
-                    ),
+                    "timestamp": convert_time(message.timestamp, user_id=user_id),
                 }
             )
 

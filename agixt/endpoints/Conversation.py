@@ -889,6 +889,7 @@ async def add_message_v1(
     if "data:" in stored_message and "base64," in stored_message:
         try:
             from Conversations import extract_data_urls_to_workspace
+
             conv_obj = Conversations(
                 conversation_name=conversation_name,
                 user=user,
@@ -969,8 +970,9 @@ async def add_message_v1(
 
     # If message contains audio file references, schedule background transcription
     import re as _re
+
     audio_pattern = _re.compile(
-        r'\[([^\]]*)\]\(((?:https?://[^\s)]+|/outputs/[^\s)]+)\.(?:webm|wav|mp3|ogg|m4a|aac|flac))\)',
+        r"\[([^\]]*)\]\(((?:https?://[^\s)]+|/outputs/[^\s)]+)\.(?:webm|wav|mp3|ogg|m4a|aac|flac))\)",
         _re.IGNORECASE,
     )
     audio_matches = audio_pattern.findall(stored_message)
@@ -1059,9 +1061,7 @@ async def _transcribe_channel_audio(
                 session.close()
 
                 # Transcribe the audio
-                transcription = await agent_obj.transcribe_audio(
-                    audio_path=audio_path
-                )
+                transcription = await agent_obj.transcribe_audio(audio_path=audio_path)
                 if not transcription or len(transcription.strip()) < 1:
                     continue
 

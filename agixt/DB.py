@@ -6233,9 +6233,9 @@ def migrate_extract_data_urls_from_messages():
                 agents = session.query(Agent).all()
                 hash_to_uuid = {}
                 for agent in agents:
-                    agent_hash = _hashlib.sha256(
-                        str(agent.id).encode()
-                    ).hexdigest()[:16]
+                    agent_hash = _hashlib.sha256(str(agent.id).encode()).hexdigest()[
+                        :16
+                    ]
                     hash_to_uuid[f"agent_{agent_hash}"] = str(agent.id)
 
                 for msg in messages_with_hashed_urls:

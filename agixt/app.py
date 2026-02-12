@@ -395,7 +395,11 @@ async def serve_file(
         # Authenticate the request
         from ApiClient import verify_api_key
         from MagicalAuth import MagicalAuth
-        from DB import get_session, Conversation as ConversationModel, ConversationParticipant
+        from DB import (
+            get_session,
+            Conversation as ConversationModel,
+            ConversationParticipant,
+        )
 
         try:
             user_email = verify_api_key(authorization)

@@ -548,9 +548,7 @@ class WorkspaceManager(SecurityValidationMixin):
         # Agent.py stores files under agent_{sha256(agent_id)[:16]} directories
         import hashlib
 
-        agent_hash = hashlib.sha256(
-            str(validated_agent_id).encode()
-        ).hexdigest()[:16]
+        agent_hash = hashlib.sha256(str(validated_agent_id).encode()).hexdigest()[:16]
         agent_folder = f"agent_{agent_hash}"
 
         filename = sanitize_path_component(self.validate_filename(filename), "filename")
