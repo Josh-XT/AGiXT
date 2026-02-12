@@ -22,7 +22,7 @@ from DB import (
     get_session,
 )
 from Globals import getenv, DEFAULT_USER
-from sqlalchemy.sql import func, or_
+from sqlalchemy.sql import func, or_, and_, case, exists
 from MagicalAuth import convert_time, get_user_id, get_user_timezone
 from SharedCache import shared_cache
 
@@ -766,7 +766,7 @@ class Conversations:
             )
             # Only include conversations that have at least one message
             .filter(
-                Conversation.id.in_(session.query(Message.conversation_id).distinct())
+                exists().where(Message.conversation_id == Conversation.id)
             )
             .all()
         )
@@ -870,10 +870,12 @@ class Conversations:
         ]
         if private_conv_ids:
             # Get first non-USER, non-ACTIVITY message role per conversation
-            first_agent_msgs = (
+            # Use a subquery to find the earliest timestamp per conversation,
+            # then join back to get only those rows (avoids loading ALL messages).
+            min_ts_subq = (
                 session.query(
                     Message.conversation_id,
-                    Message.role,
+                    func.min(Message.timestamp).label("min_ts"),
                 )
                 .filter(
                     Message.conversation_id.in_(private_conv_ids),
@@ -881,14 +883,128 @@ class Conversations:
                     ~Message.content.like("[ACTIVITY]%"),
                     ~Message.content.like("[SUBACTIVITY]%"),
                 )
-                .order_by(Message.conversation_id, Message.timestamp)
+                .group_by(Message.conversation_id)
+                .subquery()
+            )
+            first_agent_msgs = (
+                session.query(
+                    Message.conversation_id,
+                    Message.role,
+                )
+                .join(
+                    min_ts_subq,
+                    and_(
+                        Message.conversation_id == min_ts_subq.c.conversation_id,
+                        Message.timestamp == min_ts_subq.c.min_ts,
+                    ),
+                )
+                .filter(
+                    Message.role != "USER",
+                    ~Message.content.like("[ACTIVITY]%"),
+                    ~Message.content.like("[SUBACTIVITY]%"),
+                )
                 .all()
             )
-            # Take only the first role per conversation
             for conv_id_val, role in first_agent_msgs:
                 cid = str(conv_id_val)
                 if cid not in conv_agent_role_map:
                     conv_agent_role_map[cid] = role
+
+        # --- Batch unread counts (replaces N+1 per-conversation COUNT queries) ---
+        unread_count_map = {}  # conv_id -> bool (has unread)
+        dm_conv_id_set = set(dm_conv_ids)
+
+        # Build per-conversation baselines from participant data
+        with_baseline_dm = {}  # conv_id -> baseline datetime (DM conversations)
+        with_baseline_other = {}  # conv_id -> baseline datetime (non-DM conversations)
+        no_participant_ids = []  # conversations with no participant record
+
+        for conv_id_str in all_conv_ids:
+            participant = participant_map.get(conv_id_str)
+            if participant:
+                baseline = participant.last_read_at or participant.joined_at
+                if baseline:
+                    if conv_id_str in dm_conv_id_set:
+                        with_baseline_dm[conv_id_str] = baseline
+                    else:
+                        with_baseline_other[conv_id_str] = baseline
+                # else: participant exists but no baseline -> 0 unread
+            else:
+                no_participant_ids.append(conv_id_str)
+
+        # Batch query 1: DM conversations with baselines
+        # Count messages from OTHER users after the baseline
+        if with_baseline_dm:
+            baseline_case = case(
+                *[
+                    (Message.conversation_id == cid, ts)
+                    for cid, ts in with_baseline_dm.items()
+                ],
+            )
+            rows = (
+                session.query(
+                    Message.conversation_id,
+                    func.count().label("cnt"),
+                )
+                .filter(
+                    Message.conversation_id.in_(list(with_baseline_dm.keys())),
+                    Message.timestamp > baseline_case,
+                    ~Message.content.like("[ACTIVITY]%"),
+                    ~Message.content.like("[SUBACTIVITY]%"),
+                    or_(
+                        Message.sender_user_id != str(user_id),
+                        Message.role != "USER",
+                    ),
+                )
+                .group_by(Message.conversation_id)
+                .all()
+            )
+            for row in rows:
+                unread_count_map[str(row.conversation_id)] = row.cnt > 0
+
+        # Batch query 2: Non-DM conversations with baselines
+        # Count non-USER messages after the baseline
+        if with_baseline_other:
+            baseline_case = case(
+                *[
+                    (Message.conversation_id == cid, ts)
+                    for cid, ts in with_baseline_other.items()
+                ],
+            )
+            rows = (
+                session.query(
+                    Message.conversation_id,
+                    func.count().label("cnt"),
+                )
+                .filter(
+                    Message.conversation_id.in_(list(with_baseline_other.keys())),
+                    Message.timestamp > baseline_case,
+                    ~Message.content.like("[ACTIVITY]%"),
+                    ~Message.content.like("[SUBACTIVITY]%"),
+                    Message.role != "USER",
+                )
+                .group_by(Message.conversation_id)
+                .all()
+            )
+            for row in rows:
+                unread_count_map[str(row.conversation_id)] = row.cnt > 0
+
+        # Batch query 3: No-participant conversations (legacy notify flag)
+        if no_participant_ids:
+            rows = (
+                session.query(
+                    Message.conversation_id,
+                    func.count().label("cnt"),
+                )
+                .filter(
+                    Message.conversation_id.in_(no_participant_ids),
+                    Message.notify == True,
+                )
+                .group_by(Message.conversation_id)
+                .all()
+            )
+            for row in rows:
+                unread_count_map[str(row.conversation_id)] = row.cnt > 0
 
         result = {}
         for conversation, last_message_time in conversations:
@@ -896,66 +1012,7 @@ class Conversations:
             effective_updated_at = last_message_time or conversation.updated_at
             conv_id = str(conversation.id)
 
-            # Determine notification state using last_read_at
-            has_notifications = False
-            is_dm = conversation.conversation_type == "dm"
-            participant = participant_map.get(conv_id)
-            if participant and participant.last_read_at:
-                # Count unread messages after last_read_at.
-                # For DMs: count messages from other users (role is always USER in DMs).
-                # For agent chats: count agent/non-USER messages only.
-                unread_query = session.query(Message).filter(
-                    Message.conversation_id == conv_id,
-                    Message.timestamp > participant.last_read_at,
-                    ~Message.content.like("[ACTIVITY]%"),
-                    ~Message.content.like("[SUBACTIVITY]%"),
-                )
-                if is_dm:
-                    # In DMs, count messages from OTHER users (not our own)
-                    unread_query = unread_query.filter(
-                        or_(
-                            Message.sender_user_id != str(user_id),
-                            Message.role != "USER",
-                        )
-                    )
-                else:
-                    unread_query = unread_query.filter(Message.role != "USER")
-                unread_count = unread_query.count()
-                has_notifications = unread_count > 0
-            elif participant and not participant.last_read_at:
-                # Participant exists but never explicitly read the conversation.
-                # Use joined_at as baseline — messages after joining are unread.
-                baseline = participant.joined_at
-                if baseline:
-                    unread_query = session.query(Message).filter(
-                        Message.conversation_id == conv_id,
-                        Message.timestamp > baseline,
-                        ~Message.content.like("[ACTIVITY]%"),
-                        ~Message.content.like("[SUBACTIVITY]%"),
-                    )
-                    if is_dm:
-                        unread_query = unread_query.filter(
-                            or_(
-                                Message.sender_user_id != str(user_id),
-                                Message.role != "USER",
-                            )
-                        )
-                    else:
-                        unread_query = unread_query.filter(Message.role != "USER")
-                    unread_count = unread_query.count()
-                    has_notifications = unread_count > 0
-            elif not participant:
-                # No participant record — user owns conversation but hasn't read it,
-                # fall back to notify flag for backward compat
-                has_notifications = (
-                    session.query(Message)
-                    .filter(
-                        Message.conversation_id == conv_id,
-                        Message.notify == True,
-                    )
-                    .count()
-                    > 0
-                )
+            has_notifications = unread_count_map.get(conv_id, False)
 
             # For DMs, build a display name from the other participants
             display_name = conversation.name
@@ -1391,7 +1448,7 @@ class Conversations:
             "current_count": current_count,
         }
 
-    def get_conversation(self, limit=1000, page=1):
+    def get_conversation(self, limit=100, page=1):
         session = get_session()
         user_id = self._user_id
         if not self.conversation_name:
@@ -1399,34 +1456,55 @@ class Conversations:
 
         # Prefer conversation_id lookup to avoid duplicate name issues
         if self.conversation_id:
-            conversation = (
-                session.query(Conversation)
+            # Single query with OR to check ownership, company membership, or participant status
+            user_company_ids = (
+                session.query(UserCompany.company_id)
+                .filter(UserCompany.user_id == user_id)
+                .all()
+            )
+            company_ids = [str(uc[0]) for uc in user_company_ids]
+
+            participant_conv_ids = (
+                session.query(ConversationParticipant.conversation_id)
                 .filter(
+                    ConversationParticipant.conversation_id == self.conversation_id,
+                    ConversationParticipant.user_id == user_id,
+                    ConversationParticipant.participant_type == "user",
+                    ConversationParticipant.status == "active",
+                )
+            )
+
+            access_filters = [
+                # Owner
+                and_(
                     Conversation.id == self.conversation_id,
                     Conversation.user_id == user_id,
+                ),
+            ]
+            if company_ids:
+                access_filters.append(
+                    # Company member
+                    and_(
+                        Conversation.id == self.conversation_id,
+                        Conversation.company_id.in_(company_ids),
+                        Conversation.conversation_type.in_(
+                            ["group", "dm", "thread", "channel"]
+                        ),
+                    )
                 )
+            access_filters.append(
+                # Participant
+                and_(
+                    Conversation.id == self.conversation_id,
+                    Conversation.id.in_(participant_conv_ids),
+                )
+            )
+
+            conversation = (
+                session.query(Conversation)
+                .filter(or_(*access_filters))
                 .first()
             )
-            # Fallback: check group conversations accessible via company membership
-            if not conversation:
-                user_company_ids = (
-                    session.query(UserCompany.company_id)
-                    .filter(UserCompany.user_id == user_id)
-                    .all()
-                )
-                company_ids = [str(uc[0]) for uc in user_company_ids]
-                if company_ids:
-                    conversation = (
-                        session.query(Conversation)
-                        .filter(
-                            Conversation.id == self.conversation_id,
-                            Conversation.company_id.in_(company_ids),
-                            Conversation.conversation_type.in_(
-                                ["group", "dm", "thread", "channel"]
-                            ),
-                        )
-                        .first()
-                    )
         else:
             conversation = (
                 session.query(Conversation)

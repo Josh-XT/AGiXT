@@ -674,20 +674,21 @@ async def get_conversation_history(
     conversation_id: str,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
+    limit: int = 100,
+    page: int = 1,
 ):
     auth = MagicalAuth(token=authorization)
     if conversation_id == "-":
         conversation_id = get_conversation_id_by_name(
             conversation_name="-", user_id=auth.user_id
         )
-    conversation_name = get_conversation_name_by_id(
-        conversation_id=conversation_id, user_id=auth.user_id
-    )
+    # Skip redundant get_conversation_name_by_id() — get_conversation() already
+    # resolves the conversation via conversation_id with its own fallback logic.
     conversation_history = Conversations(
-        conversation_name=conversation_name,
+        conversation_name="-",
         user=user,
         conversation_id=conversation_id,
-    ).get_conversation()
+    ).get_conversation(limit=limit, page=page)
     if conversation_history is None:
         conversation_history = []
     if "interactions" in conversation_history:
