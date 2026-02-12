@@ -34,18 +34,57 @@ logging.basicConfig(
 # Cache TTL for conversation ID lookups (uses SharedCache)
 _conversation_id_cache_ttl = 30  # 30 seconds
 
-# Regex pattern to match base64 data URLs in markdown image/link syntax
-# Matches: ![alt](data:mime/type;base64,...) or [text](data:mime/type;base64,...)
-# MIME type uses explicit segment matching to handle parameters like ;codecs=opus
-# without polynomial backtracking. Base64 payload restricted to valid base64 chars.
-_DATA_URL_PATTERN = re.compile(
-    r"(!?\[([^\]]{0,5000})\])"  # Group 1+2: ![alt] or [text] with bounded alt text
-    r"\(data:"
-    r"([^\s;)]+(?:;(?!base64,)[^\s;)]*)*)"  # Group 3: MIME type with optional params
-    r";base64,"
-    r"([A-Za-z0-9+/=\s]+)"  # Group 4: base64 data (only valid base64 chars)
-    r"\)"
-)
+
+def _find_markdown_data_urls(message: str):
+    """
+    Find all markdown data URL references in a message using imperative O(n)
+    parsing. Returns list of (start, end, is_image, alt_text, data_url) tuples.
+
+    This avoids regex backtracking entirely — Python's re module does not
+    optimize [^\\]]*\\] patterns, causing O(n²) on strings with many '[' but
+    no ']' (CodeQL: polynomial regular expression).
+    """
+    results = []
+    pos = 0
+    msg_len = len(message)
+    while pos < msg_len:
+        # Find the next '[' character
+        bracket_start = message.find("[", pos)
+        if bracket_start == -1:
+            break
+
+        # Check for '!' prefix (image syntax)
+        is_image = bracket_start > 0 and message[bracket_start - 1] == "!"
+        match_start = bracket_start - 1 if is_image else bracket_start
+
+        # Find the closing ']'
+        bracket_end = message.find("]", bracket_start + 1)
+        if bracket_end == -1:
+            break  # No more ']' in the string, stop scanning
+
+        # Check for '(' immediately after ']'
+        if bracket_end + 1 >= msg_len or message[bracket_end + 1] != "(":
+            pos = bracket_end + 1
+            continue
+
+        # Check if the URL starts with 'data:'
+        url_start = bracket_end + 2
+        if not message[url_start : url_start + 5] == "data:":
+            pos = bracket_end + 1
+            continue
+
+        # Find the closing ')'
+        paren_end = message.find(")", url_start)
+        if paren_end == -1:
+            break  # No more ')' in the string, stop scanning
+
+        alt_text = message[bracket_start + 1 : bracket_end]
+        data_url = message[url_start : paren_end]
+
+        results.append((match_start, paren_end + 1, is_image, alt_text, data_url))
+        pos = paren_end + 1
+
+    return results
 
 # Minimum size threshold for extracting data URLs to workspace (10KB)
 # Smaller data URLs (like tiny icons) are left inline
@@ -105,19 +144,26 @@ def extract_data_urls_to_workspace(
     agent_hash = hashlib.sha256(str(agent_id).encode()).hexdigest()[:16]
     agent_folder = f"agent_{agent_hash}"
 
-    def _replace_data_url(match):
+    def _process_data_url(is_image, alt_text, data_url):
+        """Process a single data URL match and return the replacement string."""
         try:
-            markdown_prefix = match.group(1)  # ![alt] or [text]
-            alt_text = match.group(2)  # alt text or link text
-            mime_type = match.group(
-                3
-            )  # e.g., image/png, video/mp4, audio/webm;codecs=opus
-            base64_data = match.group(4).strip()
+            # Parse MIME type and base64 payload from the data URL
+            if ";base64," not in data_url:
+                return None
+            mime_part, base64_data = data_url.split(";base64,", 1)
+            mime_type = mime_part[5:]  # Strip "data:" prefix
+            base64_data = base64_data.strip()
+
+            # Validate base64 data contains only valid characters
+            if not base64_data or not re.fullmatch(
+                r"[A-Za-z0-9+/=\s]+", base64_data
+            ):
+                return None
 
             # Check size threshold - only extract large data URLs
             data_size = len(base64_data) * 3 // 4  # Approximate decoded size
             if data_size < _DATA_URL_SIZE_THRESHOLD:
-                return match.group(0)  # Leave small data URLs inline
+                return None  # Leave small data URLs inline
 
             # Decode the base64 data
             file_data = base64.b64decode(base64_data)
@@ -154,20 +200,23 @@ def extract_data_urls_to_workspace(
             workspace_root = os.path.abspath(
                 os.path.join(working_directory, agent_folder)
             )
-            workspace_dir = os.path.normpath(
-                os.path.join(workspace_root, safe_conv_id)
-            )
+            workspace_dir = os.path.normpath(os.path.join(workspace_root, safe_conv_id))
             # Verify path stays within workspace root
             if os.path.commonpath([workspace_root, workspace_dir]) != workspace_root:
                 logging.warning(
                     "Rejected unsafe conversation_id for workspace path; "
                     "falling back to generated directory name."
                 )
-                workspace_dir = os.path.join(
-                    workspace_root, uuid.uuid4().hex[:12]
-                )
+                workspace_dir = os.path.join(workspace_root, uuid.uuid4().hex[:12])
             os.makedirs(workspace_dir, exist_ok=True)
-            file_path = os.path.join(workspace_dir, filename)
+            file_path = os.path.normpath(os.path.join(workspace_dir, filename))
+
+            # Verify assembled file path stays within workspace_dir
+            if (
+                os.path.commonpath([workspace_dir, file_path]) != workspace_dir
+            ):
+                filename = f"{uuid.uuid4().hex[:12]}{ext}"
+                file_path = os.path.join(workspace_dir, filename)
 
             # Handle filename collisions (e.g., multiple "recording.webm" files)
             if os.path.exists(file_path):
@@ -185,7 +234,6 @@ def extract_data_urls_to_workspace(
             output_url = f"{agixt_uri}/outputs/{agent_id}/{conversation_id}/{filename}"
 
             # Determine if it should be an image (!) or link markdown
-            is_image = markdown_prefix.startswith("!")
             if is_image:
                 return f"![{alt_text}]({output_url})"
             else:
@@ -193,10 +241,25 @@ def extract_data_urls_to_workspace(
 
         except Exception as e:
             logging.warning(f"Failed to extract data URL to workspace: {e}")
-            return match.group(0)  # Return original on failure
+            return None  # Return None to keep original on failure
 
-    result = _DATA_URL_PATTERN.sub(_replace_data_url, message)
-    return result
+    # Use imperative O(n) parser instead of regex to avoid polynomial
+    # backtracking (CodeQL: polynomial regular expression on uncontrolled data)
+    matches = _find_markdown_data_urls(message)
+    if not matches:
+        return message
+
+    # Build result by splicing original string with replacements
+    parts = []
+    last_end = 0
+    for start, end, is_img, alt, data_url in matches:
+        replacement = _process_data_url(is_img, alt, data_url)
+        if replacement is not None:
+            parts.append(message[last_end:start])
+            parts.append(replacement)
+            last_end = end
+    parts.append(message[last_end:])
+    return "".join(parts)
 
 
 def _get_conversation_cache_key(conversation_name: str, user_id: str) -> str:

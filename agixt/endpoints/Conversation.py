@@ -971,15 +971,31 @@ async def add_message_v1(
     )
 
     # If message contains audio file references, schedule background transcription
-    import re as _re
-
-    audio_pattern = _re.compile(
-        r"\[([^\]]{0,500})\]"
-        r"\(((?:https?://|/outputs/)(?:[^\s).]+\.)*[^\s).]+"
-        r"\.(?:webm|wav|mp3|ogg|m4a|aac|flac))\)",
-        _re.IGNORECASE,
-    )
-    audio_matches = audio_pattern.findall(stored_message)
+    # Find audio links using imperative O(n) parsing instead of regex to avoid
+    # polynomial backtracking (CodeQL: polynomial regular expression).
+    _audio_extensions = {".webm", ".wav", ".mp3", ".ogg", ".m4a", ".aac", ".flac"}
+    audio_matches = []
+    _pos = 0
+    _msg_len = len(stored_message)
+    while _pos < _msg_len:
+        _bracket_start = stored_message.find("[", _pos)
+        if _bracket_start == -1:
+            break
+        _bracket_end = stored_message.find("]", _bracket_start + 1)
+        if _bracket_end == -1:
+            break
+        if _bracket_end + 1 < _msg_len and stored_message[_bracket_end + 1] == "(":
+            _paren_end = stored_message.find(")", _bracket_end + 2)
+            if _paren_end != -1:
+                _alt = stored_message[_bracket_start + 1 : _bracket_end]
+                _url = stored_message[_bracket_end + 2 : _paren_end]
+                if _url.startswith(("http://", "https://", "/outputs/")) and any(
+                    _url.lower().endswith(ext) for ext in _audio_extensions
+                ):
+                    audio_matches.append((_alt, _url))
+                _pos = _paren_end + 1
+                continue
+        _pos = _bracket_end + 1
     if audio_matches:
         asyncio.create_task(
             _transcribe_channel_audio(
