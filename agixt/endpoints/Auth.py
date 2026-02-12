@@ -326,6 +326,7 @@ async def get_user(
         "last_name": response_data["last_name"],
         "companies": response_data["companies"],
         "tos_accepted_at": response_data.get("tos_accepted_at"),
+        "preferences": user_preferences,
     }
     etag_string = json.dumps(etag_data, sort_keys=True, default=str)
     etag = f'"{hashlib.sha256(etag_string.encode()).hexdigest()}"'
