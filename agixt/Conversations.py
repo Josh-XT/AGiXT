@@ -794,6 +794,23 @@ class Conversations:
                     .count()
                 )
                 has_notifications = unread_count > 0
+            elif participant and not participant.last_read_at:
+                # Participant exists but never explicitly read the conversation.
+                # Use joined_at as baseline — messages after joining are unread.
+                baseline = participant.joined_at
+                if baseline:
+                    unread_count = (
+                        session.query(Message)
+                        .filter(
+                            Message.conversation_id == conv_id,
+                            Message.timestamp > baseline,
+                            Message.role != "USER",
+                            ~Message.content.like("[ACTIVITY]%"),
+                            ~Message.content.like("[SUBACTIVITY]%"),
+                        )
+                        .count()
+                    )
+                    has_notifications = unread_count > 0
             elif not participant:
                 # No participant record — user owns conversation but hasn't read it,
                 # fall back to notify flag for backward compat
