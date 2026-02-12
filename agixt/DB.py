@@ -7594,8 +7594,16 @@ def decrypt_config_value(encrypted_value: str) -> str:
         f = Fernet(key)
         return f.decrypt(encrypted_value.encode()).decode()
     except Exception:
-        # If decryption fails, return empty string (value may not be encrypted)
-        return encrypted_value
+        # If decryption fails, the encryption key has likely changed.
+        # Return empty string so callers treat this as "not configured"
+        # rather than leaking the raw Fernet ciphertext to external APIs.
+        logging.warning(
+            f"Failed to decrypt sensitive config value "
+            f"(starts with '{encrypted_value[:10]}...'). "
+            f"The AGIXT_API_KEY may have changed since this value was encrypted. "
+            f"Please re-save the setting to re-encrypt it with the current key."
+        )
+        return ""
 
 
 def get_server_config(name: str, default: str = None) -> str:
