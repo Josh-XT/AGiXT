@@ -79,12 +79,13 @@ def _find_markdown_data_urls(message: str):
             break  # No more ')' in the string, stop scanning
 
         alt_text = message[bracket_start + 1 : bracket_end]
-        data_url = message[url_start : paren_end]
+        data_url = message[url_start:paren_end]
 
         results.append((match_start, paren_end + 1, is_image, alt_text, data_url))
         pos = paren_end + 1
 
     return results
+
 
 # Minimum size threshold for extracting data URLs to workspace (10KB)
 # Smaller data URLs (like tiny icons) are left inline
@@ -155,9 +156,7 @@ def extract_data_urls_to_workspace(
             base64_data = base64_data.strip()
 
             # Validate base64 data contains only valid characters
-            if not base64_data or not re.fullmatch(
-                r"[A-Za-z0-9+/=\s]+", base64_data
-            ):
+            if not base64_data or not re.fullmatch(r"[A-Za-z0-9+/=\s]+", base64_data):
                 return None
 
             # Check size threshold - only extract large data URLs
@@ -212,9 +211,7 @@ def extract_data_urls_to_workspace(
             file_path = os.path.normpath(os.path.join(workspace_dir, filename))
 
             # Verify assembled file path stays within workspace_dir
-            if (
-                os.path.commonpath([workspace_dir, file_path]) != workspace_dir
-            ):
+            if os.path.commonpath([workspace_dir, file_path]) != workspace_dir:
                 filename = f"{uuid.uuid4().hex[:12]}{ext}"
                 file_path = os.path.join(workspace_dir, filename)
 
