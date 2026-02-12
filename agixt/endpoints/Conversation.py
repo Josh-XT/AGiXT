@@ -632,6 +632,34 @@ async def get_conversations(user=Depends(verify_api_key)):
     }
 
 
+class SearchMessagesRequest(BaseModel):
+    query: str
+    conversation_types: Optional[List[str]] = None
+    company_id: Optional[str] = None
+    limit: Optional[int] = 50
+
+
+@app.post(
+    "/v1/conversations/search",
+    summary="Search Messages",
+    description="Search message content across all conversations the user has access to, with optional filters for conversation type and company.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def search_messages(
+    body: SearchMessagesRequest,
+    user=Depends(verify_api_key),
+):
+    c = Conversations(user=user)
+    results = c.search_messages(
+        query=body.query,
+        conversation_types=body.conversation_types,
+        company_id=body.company_id,
+        limit=body.limit or 50,
+    )
+    return {"results": results}
+
+
 @app.get(
     "/v1/conversation/{conversation_id}",
     response_model=ConversationHistoryResponse,
@@ -854,12 +882,31 @@ async def add_message_v1(
                 status_code=403,
                 detail="You do not have permission to speak in this channel",
             )
+
+    # Extract base64 data URLs to workspace files before storing/broadcasting
+    # This prevents massive base64 strings from bloating the DB, DOM, and WebSocket payloads
+    stored_message = log_interaction.message
+    if "data:" in stored_message and "base64," in stored_message:
+        try:
+            from Conversations import extract_data_urls_to_workspace
+            conv_obj = Conversations(
+                conversation_name=conversation_name,
+                user=user,
+                conversation_id=conversation_id,
+            )
+            agent_id = conv_obj.get_agent_id(str(auth.user_id)) or "default"
+            stored_message = extract_data_urls_to_workspace(
+                stored_message, agent_id, conversation_id
+            )
+        except Exception as e:
+            logging.warning(f"Failed to extract data URLs from channel message: {e}")
+
     interaction_id = Conversations(
         conversation_name=conversation_name,
         user=user,
         conversation_id=conversation_id,
     ).log_interaction(
-        message=log_interaction.message,
+        message=stored_message,
         role=log_interaction.role,
         sender_user_id=(
             str(auth.user_id) if log_interaction.role.upper() == "USER" else None
@@ -894,7 +941,7 @@ async def add_message_v1(
             conversation_id=conversation_id,
             conversation_name=conversation_name,
             message_id=str(interaction_id),
-            message=log_interaction.message,
+            message=stored_message,
             role=log_interaction.role,
         )
     )
@@ -907,7 +954,7 @@ async def add_message_v1(
             message_data={
                 "id": str(interaction_id),
                 "role": log_interaction.role,
-                "message": log_interaction.message,
+                "message": stored_message,
                 "conversation_id": conversation_id,
                 "timestamp": datetime.now().isoformat(),
                 "sender_user_id": (
@@ -920,7 +967,145 @@ async def add_message_v1(
         )
     )
 
+    # If message contains audio file references, schedule background transcription
+    import re as _re
+    audio_pattern = _re.compile(
+        r'\[([^\]]*)\]\(((?:https?://[^\s)]+|/outputs/[^\s)]+)\.(?:webm|wav|mp3|ogg|m4a|aac|flac))\)',
+        _re.IGNORECASE,
+    )
+    audio_matches = audio_pattern.findall(stored_message)
+    if audio_matches:
+        asyncio.create_task(
+            _transcribe_channel_audio(
+                conversation_id=conversation_id,
+                conversation_name=conversation_name,
+                message_id=str(interaction_id),
+                stored_message=stored_message,
+                audio_matches=audio_matches,
+                user=user,
+                user_id=str(auth.user_id),
+            )
+        )
+
     return ResponseMessage(message=str(interaction_id))
+
+
+async def _transcribe_channel_audio(
+    conversation_id: str,
+    conversation_name: str,
+    message_id: str,
+    stored_message: str,
+    audio_matches: list,
+    user: str,
+    user_id: str,
+):
+    """
+    Background task to transcribe audio files in channel messages.
+    Updates the message with transcription text after processing.
+    """
+    try:
+        from Globals import getenv
+
+        agixt_uri = getenv("AGIXT_URI")
+        working_directory = getenv("WORKING_DIRECTORY")
+        original_message = stored_message
+
+        for alt_text, audio_url in audio_matches:
+            try:
+                # Convert the URL to a local file path
+                # URL format: {AGIXT_URI}/outputs/agent_{hash}/{conversation_id}/{filename}
+                # or /outputs/agent_{hash}/{conversation_id}/{filename}
+                audio_path = None
+                if audio_url.startswith(agixt_uri):
+                    path_part = audio_url[len(agixt_uri) :]
+                elif audio_url.startswith("/outputs/"):
+                    path_part = audio_url
+                else:
+                    continue
+
+                # Convert /outputs/... to WORKSPACE/...
+                relative = path_part.replace("/outputs/", "", 1)
+                audio_path = os.path.join(working_directory, relative)
+
+                if not os.path.exists(audio_path):
+                    logging.warning(
+                        f"Audio file not found for transcription: {audio_path}"
+                    )
+                    continue
+
+                # Get the default agent for transcription
+                conv_obj = Conversations(
+                    conversation_name=conversation_name,
+                    user=user,
+                    conversation_id=conversation_id,
+                )
+                agent_id = conv_obj.get_agent_id(user_id)
+                if not agent_id:
+                    logging.warning("No agent found for audio transcription")
+                    continue
+
+                agent_obj = Agent(user=user, agent_name=None)
+                # Get the actual agent by ID
+                from DB import get_session, Agent as DBAgentModel
+
+                session = get_session()
+                db_agent = (
+                    session.query(DBAgentModel)
+                    .filter(DBAgentModel.id == agent_id)
+                    .first()
+                )
+                if db_agent:
+                    agent_obj = Agent(user=user, agent_name=db_agent.name)
+                session.close()
+
+                # Transcribe the audio
+                transcription = await agent_obj.transcribe_audio(
+                    audio_path=audio_path
+                )
+                if not transcription or len(transcription.strip()) < 1:
+                    continue
+
+                # Update the stored message to include transcription below the audio
+                audio_link = f"[{alt_text}]({audio_url})"
+                updated_message = stored_message.replace(
+                    audio_link,
+                    f"{audio_link}\n\n> **Transcription:** {transcription.strip()}",
+                )
+                stored_message = updated_message
+
+            except Exception as e:
+                logging.warning(f"Failed to transcribe audio in channel message: {e}")
+                continue
+
+        # If no transcription was added, skip the update
+        if stored_message == original_message:
+            return
+
+        # Update message in DB
+        conv_obj = Conversations(
+            conversation_name=conversation_name,
+            user=user,
+            conversation_id=conversation_id,
+        )
+        conv_obj.update_message_by_id(
+            message_id=message_id,
+            new_message=stored_message,
+        )
+
+        # Broadcast the update via WebSocket
+        await conversation_message_broadcaster.broadcast_message_event(
+            conversation_id=conversation_id,
+            event_type="message_updated",
+            message_data={
+                "id": message_id,
+                "message": stored_message,
+                "conversation_id": conversation_id,
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+
+    except Exception as e:
+        logging.warning(f"Background audio transcription failed: {e}")
 
 
 @app.put(
@@ -2727,6 +2912,7 @@ async def notify_conversation_participants_message_added(
                 "message_id": message_id,
                 "message_preview": preview,
                 "role": role,
+                "sender_user_id": sender_user_id,
                 "timestamp": datetime.now().isoformat(),
             },
         }

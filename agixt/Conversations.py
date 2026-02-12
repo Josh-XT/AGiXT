@@ -3,6 +3,11 @@ import logging
 import secrets
 import asyncio
 import pytz
+import re
+import base64
+import hashlib
+import os
+import uuid
 from DB import (
     Conversation,
     ConversationShare,
@@ -28,6 +33,150 @@ logging.basicConfig(
 
 # Cache TTL for conversation ID lookups (uses SharedCache)
 _conversation_id_cache_ttl = 30  # 30 seconds
+
+# Regex pattern to match base64 data URLs in markdown image/link syntax
+# Matches: ![alt](data:mime/type;base64,...) or [text](data:mime/type;base64,...)
+# Uses .+? (lazy) for the MIME type to handle parameters like ;codecs=opus
+# Uses [^)]+ for the base64 payload instead of a character class to avoid
+# catastrophic backtracking on large files (videos can be 10MB+ as base64)
+_DATA_URL_PATTERN = re.compile(
+    r'(!?\[([^\]]*)\])\(data:(.+?);base64,([^)]+)\)'
+)
+
+# Minimum size threshold for extracting data URLs to workspace (10KB)
+# Smaller data URLs (like tiny icons) are left inline
+_DATA_URL_SIZE_THRESHOLD = 10 * 1024
+
+# MIME type to file extension mapping
+_MIME_TO_EXT = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/svg+xml": ".svg",
+    "image/bmp": ".bmp",
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+    "video/ogg": ".ogv",
+    "audio/webm": ".webm",
+    "audio/wav": ".wav",
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/ogg": ".ogg",
+    "audio/flac": ".flac",
+    "audio/m4a": ".m4a",
+    "audio/aac": ".aac",
+    "application/pdf": ".pdf",
+    "application/octet-stream": ".bin",
+}
+
+
+def extract_data_urls_to_workspace(
+    message: str, agent_id: str, conversation_id: str
+) -> str:
+    """
+    Extract base64 data URLs from markdown message content and save them as
+    workspace files. Returns the message with data URLs replaced by /outputs/ URLs.
+
+    This prevents massive base64 strings from being stored in the database and
+    rendered in the DOM, which causes performance issues especially for video/audio.
+
+    Args:
+        message: The message content potentially containing base64 data URLs
+        agent_id: The agent ID for workspace path
+        conversation_id: The conversation ID for workspace path
+
+    Returns:
+        The message with base64 data URLs replaced by /outputs/ URLs
+    """
+    if not message or "data:" not in message or "base64," not in message:
+        return message
+
+    agixt_uri = getenv("AGIXT_URI")
+    # Use os.getcwd()/WORKSPACE to match the Workspace manager's path
+    # (not WORKING_DIRECTORY env which may point to a different location)
+    working_directory = os.path.join(os.getcwd(), "WORKSPACE")
+
+    # Hash agent_id to match workspace directory pattern
+    agent_hash = hashlib.sha256(str(agent_id).encode()).hexdigest()[:16]
+    agent_folder = f"agent_{agent_hash}"
+
+    def _replace_data_url(match):
+        try:
+            markdown_prefix = match.group(1)  # ![alt] or [text]
+            alt_text = match.group(2)  # alt text or link text
+            mime_type = match.group(3)  # e.g., image/png, video/mp4, audio/webm;codecs=opus
+            base64_data = match.group(4).strip()
+
+            # Check size threshold - only extract large data URLs
+            data_size = len(base64_data) * 3 // 4  # Approximate decoded size
+            if data_size < _DATA_URL_SIZE_THRESHOLD:
+                return match.group(0)  # Leave small data URLs inline
+
+            # Decode the base64 data
+            file_data = base64.b64decode(base64_data)
+
+            # Strip MIME type parameters for extension lookup
+            # e.g., "audio/webm;codecs=opus" -> "audio/webm"
+            base_mime = mime_type.split(";")[0].strip()
+
+            # Determine file extension from MIME type
+            ext = _MIME_TO_EXT.get(base_mime, "")
+            if not ext:
+                # Try to extract from base MIME type
+                parts = base_mime.split("/")
+                if len(parts) == 2:
+                    ext = f".{parts[1]}"
+                else:
+                    ext = ".bin"
+
+            # Use alt text as filename if it has an extension, otherwise generate one
+            if alt_text and "." in alt_text:
+                filename = alt_text
+                # Sanitize filename - remove path separators and unsafe chars
+                filename = (
+                    filename.replace("/", "_")
+                    .replace("\\", "_")
+                    .replace("..", "_")
+                )
+            else:
+                filename = f"{uuid.uuid4().hex[:12]}{ext}"
+
+            # Build the workspace file path
+            workspace_dir = os.path.join(
+                working_directory, agent_folder, conversation_id
+            )
+            os.makedirs(workspace_dir, exist_ok=True)
+            file_path = os.path.join(workspace_dir, filename)
+
+            # Handle filename collisions (e.g., multiple "recording.webm" files)
+            if os.path.exists(file_path):
+                name_part, ext_part = os.path.splitext(filename)
+                filename = f"{name_part}_{uuid.uuid4().hex[:8]}{ext_part}"
+                file_path = os.path.join(workspace_dir, filename)
+
+            # Write the file
+            with open(file_path, "wb") as f:
+                f.write(file_data)
+
+            # Build the /outputs/ URL
+            # Use the raw agent_id (not the hashed folder name) because
+            # the serve_file endpoint hashes agent_id via _get_local_cache_path
+            output_url = f"{agixt_uri}/outputs/{agent_id}/{conversation_id}/{filename}"
+
+            # Determine if it should be an image (!) or link markdown
+            is_image = markdown_prefix.startswith("!")
+            if is_image:
+                return f"![{alt_text}]({output_url})"
+            else:
+                return f"[{alt_text}]({output_url})"
+
+        except Exception as e:
+            logging.warning(f"Failed to extract data URL to workspace: {e}")
+            return match.group(0)  # Return original on failure
+
+    result = _DATA_URL_PATTERN.sub(_replace_data_url, message)
+    return result
 
 
 def _get_conversation_cache_key(conversation_name: str, user_id: str) -> str:
@@ -220,6 +369,24 @@ def get_conversation_name_by_id(conversation_id, user_id):
                         ["group", "dm", "thread", "channel"]
                     ),
                 )
+                .first()
+            )
+    if not conversation:
+        # Third try: conversations where user is a participant (handles DMs without company_id)
+        participant_conv = (
+            session.query(ConversationParticipant)
+            .filter(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.user_id == user_id,
+                ConversationParticipant.participant_type == "user",
+                ConversationParticipant.status == "active",
+            )
+            .first()
+        )
+        if participant_conv:
+            conversation = (
+                session.query(Conversation)
+                .filter(Conversation.id == conversation_id)
                 .first()
             )
     if not conversation:
@@ -661,6 +828,139 @@ class Conversations:
 
         session.close()
         return result
+
+    def search_messages(
+        self,
+        query: str,
+        conversation_types: list = None,
+        company_id: str = None,
+        limit: int = 50,
+    ):
+        """
+        Search message content across all conversations the user has access to.
+
+        Args:
+            query: Text to search for in message content
+            conversation_types: Optional filter list, e.g. ['group', 'dm', 'private', 'thread']
+            company_id: Optional company/group ID to restrict search to
+            limit: Max results to return (default 50)
+
+        Returns:
+            List of search result dicts with message and conversation info.
+        """
+        session = get_session()
+        user_id = self._user_id
+        if not user_id or not query or not query.strip():
+            session.close()
+            return []
+
+        search_term = f"%{query.strip()}%"
+
+        # Get conversation IDs where user is owner
+        owned_conv_ids = (
+            session.query(Conversation.id)
+            .filter(Conversation.user_id == user_id)
+            .all()
+        )
+        owned_ids = [str(row[0]) for row in owned_conv_ids]
+
+        # Get conversation IDs where user is an active participant
+        participant_conv_ids = (
+            session.query(ConversationParticipant.conversation_id)
+            .filter(
+                ConversationParticipant.user_id == user_id,
+                ConversationParticipant.participant_type == "user",
+                ConversationParticipant.status == "active",
+            )
+            .all()
+        )
+        participant_ids = [str(row[0]) for row in participant_conv_ids]
+
+        all_accessible_ids = list(set(owned_ids + participant_ids))
+        if not all_accessible_ids:
+            session.close()
+            return []
+
+        # Build message query with filters
+        msg_query = (
+            session.query(Message, Conversation)
+            .join(Conversation, Message.conversation_id == Conversation.id)
+            .filter(
+                Message.conversation_id.in_(all_accessible_ids),
+                Message.content.ilike(search_term),
+                # Exclude activity messages
+                ~Message.content.like("[ACTIVITY]%"),
+                ~Message.content.like("[SUBACTIVITY]%"),
+            )
+        )
+
+        if conversation_types:
+            msg_query = msg_query.filter(
+                Conversation.conversation_type.in_(conversation_types)
+            )
+
+        if company_id:
+            msg_query = msg_query.filter(Conversation.company_id == company_id)
+
+        messages = (
+            msg_query.order_by(Message.timestamp.desc()).limit(limit).all()
+        )
+
+        # Batch load sender user names
+        sender_ids = set()
+        for msg, _ in messages:
+            if msg.sender_user_id:
+                sender_ids.add(str(msg.sender_user_id))
+        sender_name_map = {}
+        if sender_ids:
+            users = (
+                session.query(User).filter(User.id.in_(list(sender_ids))).all()
+            )
+            for u in users:
+                name = (
+                    f"{u.first_name} {u.last_name}".strip()
+                    if u.first_name
+                    else u.email
+                )
+                sender_name_map[str(u.id)] = name
+
+        results = []
+        for message, conversation in messages:
+            # Truncate content for preview (strip markdown links for cleaner preview)
+            content = message.content
+            if len(content) > 200:
+                content = content[:200] + "..."
+
+            sender_name = None
+            if message.sender_user_id:
+                sender_name = sender_name_map.get(
+                    str(message.sender_user_id), None
+                )
+            elif message.role == "USER":
+                sender_name = "You"
+
+            results.append(
+                {
+                    "message_id": str(message.id),
+                    "conversation_id": str(conversation.id),
+                    "conversation_name": conversation.name,
+                    "conversation_type": conversation.conversation_type or "private",
+                    "company_id": (
+                        str(conversation.company_id)
+                        if conversation.company_id
+                        else None
+                    ),
+                    "content": content,
+                    "role": message.role,
+                    "sender_name": sender_name,
+                    "timestamp": convert_time(
+                        message.timestamp, user_id=user_id
+                    ),
+                }
+            )
+
+        session.close()
+        return results
 
     def get_conversation_changes(self, since_timestamp=None, last_known_ids=None):
         """
@@ -1636,6 +1936,19 @@ class Conversations:
                 )
             else:
                 message = message.replace("[SUBACTIVITY] ", "[ACTIVITY] ")
+
+        # Extract base64 data URLs from message and save to workspace
+        # This prevents massive base64 strings from bloating the DB and DOM
+        if "data:" in message and "base64," in message:
+            try:
+                conversation_id = self.get_conversation_id()
+                agent_id = self.get_agent_id(self._user_id) or "default"
+                message = extract_data_urls_to_workspace(
+                    message, agent_id, conversation_id
+                )
+            except Exception as e:
+                logging.warning(f"Failed to extract data URLs from message: {e}")
+
         session = get_session()
         user_id = self._user_id
         # Get conversation_id first - it's stable even if name changes
@@ -1983,6 +2296,30 @@ class Conversations:
                         Conversation.conversation_type.in_(
                             ["group", "dm", "thread", "channel"]
                         ),
+                    )
+                    .first()
+                )
+
+        if not conversation:
+            # Fallback: check conversations where user is a participant
+            participant_conv = (
+                session.query(ConversationParticipant)
+                .filter(
+                    ConversationParticipant.user_id == user_id,
+                    ConversationParticipant.participant_type == "user",
+                    ConversationParticipant.status == "active",
+                )
+                .all()
+            )
+            if participant_conv:
+                participant_conv_ids = [
+                    str(p.conversation_id) for p in participant_conv
+                ]
+                conversation = (
+                    session.query(Conversation)
+                    .filter(
+                        Conversation.name == self.conversation_name,
+                        Conversation.id.in_(participant_conv_ids),
                     )
                     .first()
                 )

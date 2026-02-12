@@ -395,7 +395,7 @@ async def serve_file(
         # Authenticate the request
         from ApiClient import verify_api_key
         from MagicalAuth import MagicalAuth
-        from DB import get_session, Conversation as ConversationModel
+        from DB import get_session, Conversation as ConversationModel, ConversationParticipant
 
         try:
             user_email = verify_api_key(authorization)
@@ -421,10 +421,20 @@ async def serve_file(
                         status_code=404, detail="Conversation not found"
                     )
 
-                # Verify the conversation belongs to the authenticated user
-                if str(conversation.user_id) != str(auth.user_id):
+                # Verify the user is either the conversation owner or a participant
+                is_owner = str(conversation.user_id) == str(auth.user_id)
+                is_participant = (
+                    session.query(ConversationParticipant)
+                    .filter_by(
+                        conversation_id=conversation_id,
+                        user_id=auth.user_id,
+                    )
+                    .first()
+                    is not None
+                )
+                if not is_owner and not is_participant:
                     logging.warning(
-                        "User attempted to access conversation owned by another user"
+                        "User attempted to access conversation they don't belong to"
                     )
                     raise HTTPException(
                         status_code=403,

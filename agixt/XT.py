@@ -3010,7 +3010,23 @@ Your response (true or false):"""
                                                     "total_tokens": 0,
                                                 },
                                             }
+                                        # Include audio with transcription for display
+                                        audio_ext = (
+                                            file_name.rsplit(".", 1)[-1]
+                                            if "." in file_name
+                                            else "webm"
+                                        )
+                                        # Use the converted WAV file URL for the audio player (not the raw base64)
+                                        wav_filename = os.path.basename(wav_file)
+                                        audio_url = f"{self.outputs}/{conversation_id}/{wav_filename}"
+                                        # Only add transcription to the prompt (for the AI)
                                         new_prompt += transcribed_audio
+                                        # Mark that we have voice audio to include in the display message
+                                        if not hasattr(self, '_voice_audio_display'):
+                                            self._voice_audio_display = []
+                                        self._voice_audio_display.append(
+                                            f'<audio controls><source src="{audio_url}" type="audio/wav"></audio>'
+                                        )
         # Save the original user prompt before adding file info (for logging)
         original_user_prompt = new_prompt.strip()
         # Add file info to the prompt (for context to the agent)
@@ -3025,7 +3041,33 @@ Your response (true or false):"""
         if log_user_input and not has_tool_result:
             # Log the original user input, not the modified one with file names appended
             # Don't log tool results as USER - they should be logged as TOOL subactivity
-            c.log_interaction(role="USER", message=original_user_prompt)
+            # Include voice audio player HTML if this was a voice recording
+            display_message = original_user_prompt
+            if hasattr(self, '_voice_audio_display') and self._voice_audio_display:
+                audio_html = '\n'.join(self._voice_audio_display)
+                # Format: audio player(s) followed by transcription with a label
+                transcription_text = original_user_prompt.strip()
+                if transcription_text:
+                    display_message = f"{audio_html}\n\n*Transcription:* {transcription_text}"
+                else:
+                    display_message = audio_html
+                del self._voice_audio_display
+            # Include image markdown for uploaded image files so they display in conversation
+            if files:
+                image_extensions = {
+                    'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico',
+                }
+                image_markdown_parts = []
+                for file in files:
+                    fname = file.get('file_name', '')
+                    furl = file.get('file_url', '')
+                    ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
+                    if ext in image_extensions and furl:
+                        image_markdown_parts.append(f'![{fname}]({furl})')
+                if image_markdown_parts:
+                    image_md = '\n'.join(image_markdown_parts)
+                    display_message = f"{display_message}\n\n{image_md}" if display_message else image_md
+            c.log_interaction(role="USER", message=display_message)
         thinking_id = ""
         if log_output:
             thinking_id = c.get_thinking_id(agent_name=self.agent_name)

@@ -6198,6 +6198,144 @@ def migrate_performance_indexes():
         logging.debug(f"Performance indexes migration completed or not needed: {e}")
 
 
+def migrate_extract_data_urls_from_messages():
+    """
+    One-time migration to extract inline base64 data URLs from existing messages
+    and save them as workspace files. This prevents massive base64 strings from
+    being stored in the DB and loaded into the DOM, which causes severe performance
+    issues (especially for video files which can be 10MB+ of base64).
+
+    Also fixes any previously-extracted URLs that used the hashed agent folder name
+    instead of the raw agent UUID in the /outputs/ path.
+
+    This migration is idempotent: it only processes messages that still contain
+    base64 data URLs. Once extracted, the message content is updated to reference
+    /outputs/ URLs instead, so subsequent runs will skip already-processed messages.
+    """
+    if engine is None:
+        return
+
+    try:
+        import re
+        import hashlib as _hashlib
+
+        with get_db_session() as session:
+            # Phase 1: Fix any previously-extracted URLs that used hashed agent folder
+            # Pattern: /outputs/agent_<hex16>/ should be /outputs/<raw-uuid>/
+            messages_with_hashed_urls = (
+                session.query(Message)
+                .filter(Message.content.like("%/outputs/agent_%"))
+                .all()
+            )
+            fixed_urls = 0
+            if messages_with_hashed_urls:
+                # Build a reverse map: hash -> raw agent_id
+                agents = session.query(Agent).all()
+                hash_to_uuid = {}
+                for agent in agents:
+                    agent_hash = _hashlib.sha256(
+                        str(agent.id).encode()
+                    ).hexdigest()[:16]
+                    hash_to_uuid[f"agent_{agent_hash}"] = str(agent.id)
+
+                for msg in messages_with_hashed_urls:
+                    new_content = msg.content
+                    for hashed_name, raw_uuid in hash_to_uuid.items():
+                        if f"/outputs/{hashed_name}/" in new_content:
+                            new_content = new_content.replace(
+                                f"/outputs/{hashed_name}/",
+                                f"/outputs/{raw_uuid}/",
+                            )
+                    if new_content != msg.content:
+                        msg.content = new_content
+                        fixed_urls += 1
+
+                if fixed_urls > 0:
+                    session.commit()
+                    logging.info(
+                        f"Fixed {fixed_urls} messages with hashed agent folder URLs"
+                    )
+
+            # Phase 2: Extract inline base64 data URLs to workspace files
+            messages_with_data_urls = (
+                session.query(Message)
+                .filter(
+                    Message.content.like("%data:%"),
+                    Message.content.like("%base64,%"),
+                )
+                .all()
+            )
+
+            if not messages_with_data_urls:
+                logging.debug(
+                    "No messages with inline data URLs found, skipping extraction"
+                )
+                return
+
+            logging.info(
+                f"Found {len(messages_with_data_urls)} messages with inline data URLs to extract"
+            )
+
+            # Build a cache of user_id -> default agent_id
+            agent_cache = {}
+            processed = 0
+            errors = 0
+
+            for msg in messages_with_data_urls:
+                try:
+                    # Get the conversation to find the user_id
+                    conversation = (
+                        session.query(Conversation)
+                        .filter_by(id=msg.conversation_id)
+                        .first()
+                    )
+                    if not conversation:
+                        continue
+
+                    user_id = str(conversation.user_id)
+
+                    # Get agent_id for this user (cached)
+                    if user_id not in agent_cache:
+                        agent = (
+                            session.query(Agent)
+                            .filter(Agent.user_id == user_id)
+                            .first()
+                        )
+                        agent_cache[user_id] = str(agent.id) if agent else "default"
+
+                    agent_id = agent_cache[user_id]
+                    conversation_id = str(msg.conversation_id)
+
+                    # Import and call the extraction function
+                    from Conversations import extract_data_urls_to_workspace
+
+                    new_content = extract_data_urls_to_workspace(
+                        msg.content, agent_id, conversation_id
+                    )
+
+                    if new_content != msg.content:
+                        msg.content = new_content
+                        processed += 1
+
+                except Exception as e:
+                    errors += 1
+                    logging.warning(
+                        f"Failed to extract data URLs from message {msg.id}: {e}"
+                    )
+
+            if processed > 0:
+                session.commit()
+                logging.info(
+                    f"Extracted data URLs from {processed} messages "
+                    f"({errors} errors)"
+                )
+            else:
+                logging.debug("No data URLs needed extraction")
+
+    except Exception as e:
+        logging.error(f"Error in migrate_extract_data_urls_from_messages: {e}")
+
+
 def migrate_backfill_channel_participants():
     """
     Backfill ConversationParticipant records for company members who were added

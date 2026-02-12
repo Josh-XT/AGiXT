@@ -124,6 +124,12 @@ async def initialize_database(is_restart=False):
         startup_timer.section_end("migrate_performance_indexes", section_start)
 
         section_start = startup_timer.section_start()
+        DB.migrate_extract_data_urls_from_messages()
+        startup_timer.section_end(
+            "migrate_extract_data_urls_from_messages", section_start
+        )
+
+        section_start = startup_timer.section_start()
         DB.migrate_backfill_channel_participants()
         startup_timer.section_end(
             "migrate_backfill_channel_participants", section_start
