@@ -1046,8 +1046,18 @@ async def _transcribe_channel_audio(
                     continue
 
                 # Convert /outputs/... to a path under the working directory
+                # Split into components and sanitize each with os.path.basename
+                # to prevent path traversal (CodeQL-recognized sanitizer)
                 relative = path_part.replace("/outputs/", "", 1)
-                candidate_path = os.path.join(working_directory, relative)
+                relative_parts = relative.replace("\\", "/").split("/")
+                safe_parts = [
+                    os.path.basename(p)
+                    for p in relative_parts
+                    if p and p not in (".", "..")
+                ]
+                if not safe_parts:
+                    continue
+                candidate_path = os.path.join(working_directory, *safe_parts)
                 # Normalize and validate the path stays within workspace root
                 workspace_root = os.path.realpath(working_directory)
                 audio_path = os.path.realpath(candidate_path)
