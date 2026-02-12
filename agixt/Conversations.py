@@ -627,7 +627,8 @@ class Conversations:
             else False
         )
 
-        conversations = (
+        # Main query: non-group, non-thread conversations
+        main_conversations = (
             session.query(
                 Conversation,
                 last_message_subq.c.last_message_time,
@@ -650,6 +651,33 @@ class Conversations:
             )
             .all()
         )
+
+        # Second query: DM/private threads (threads whose parent is a non-group conversation)
+        # Get IDs of the user's DM/private conversations to find their threads
+        dm_parent_ids = [
+            str(c.id)
+            for c, _ in main_conversations
+            if c.conversation_type in (None, "dm", "private")
+        ]
+        dm_threads = []
+        if dm_parent_ids:
+            dm_threads = (
+                session.query(
+                    Conversation,
+                    last_message_subq.c.last_message_time,
+                )
+                .outerjoin(
+                    last_message_subq,
+                    last_message_subq.c.conversation_id == Conversation.id,
+                )
+                .filter(
+                    Conversation.conversation_type == "thread",
+                    Conversation.parent_id.in_(dm_parent_ids),
+                )
+                .all()
+            )
+
+        conversations = main_conversations + dm_threads
 
         # Batch-fetch participant records for this user to get last_read_at
         all_conv_ids = [str(c.id) for c, _ in conversations]
@@ -3652,6 +3680,30 @@ class Conversations:
                         status="active",
                     )
                     session.add(member_participant)
+
+            # For threads: inherit participants from the parent conversation
+            if conversation_type == "thread" and parent_id:
+                parent_participants = (
+                    session.query(ConversationParticipant)
+                    .filter(
+                        ConversationParticipant.conversation_id == parent_id,
+                        ConversationParticipant.status == "active",
+                    )
+                    .all()
+                )
+                for pp in parent_participants:
+                    pp_user_id = str(pp.user_id) if pp.user_id else None
+                    if pp_user_id and pp_user_id == user_id:
+                        continue  # Already added as owner
+                    inherited = ConversationParticipant(
+                        conversation_id=conversation_id,
+                        user_id=pp_user_id,
+                        agent_id=str(pp.agent_id) if pp.agent_id else None,
+                        participant_type=pp.participant_type,
+                        role="member",
+                        status="active",
+                    )
+                    session.add(inherited)
 
             session.commit()
             return {

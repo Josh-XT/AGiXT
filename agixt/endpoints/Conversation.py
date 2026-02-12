@@ -4023,7 +4023,7 @@ async def create_thread(
 
     # Inherit company_id from parent conversation if not provided
     company_id = body.company_id
-    if not company_id:
+    if not company_id or company_id == "private":
         session = get_session()
         try:
             parent_conv = (

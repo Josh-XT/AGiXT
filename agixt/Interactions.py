@@ -2616,6 +2616,31 @@ Example: Web Search, Read File"""
                     if file_matches:
                         file_context = f"Uploaded files: {', '.join(file_matches)}"
 
+            # Auto-discover existing files in the conversation workspace
+            try:
+                workspace_dir = (
+                    f"{self.agent.working_directory}/{c.get_conversation_id()}"
+                )
+                if os.path.isdir(workspace_dir):
+                    existing_files = []
+                    for root, dirs, files in os.walk(workspace_dir):
+                        for f in files:
+                            rel_path = os.path.relpath(
+                                os.path.join(root, f), workspace_dir
+                            )
+                            existing_files.append(rel_path)
+                    if existing_files:
+                        existing_context = (
+                            f"Existing workspace files: {', '.join(existing_files)}"
+                        )
+                        if file_context:
+                            file_context = f"{file_context}\n{existing_context}"
+                        else:
+                            file_context = existing_context
+                        has_uploaded_files = True
+            except Exception:
+                pass
+
             # Do intelligent command selection
             try:
                 selected_commands = await self.select_commands_for_task(
