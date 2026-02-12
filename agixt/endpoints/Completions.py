@@ -169,6 +169,7 @@ async def chat_completion(
         # prompt.user is the conversation name
         # Check if conversation name is a uuid, if so, it is the conversation_id and nedds convertd
         conversation_name = prompt.user
+        conversation_id = None
         if conversation_name != "-":
             try:
                 conversation_id = str(uuid.UUID(conversation_name))
@@ -260,6 +261,67 @@ async def chat_completion(
             except Exception as e:
                 logging.warning(f"Error parsing @mentions: {e}")
 
+        # Defense-in-depth: refuse agent responses in user-to-user DMs
+        # (no agent participants).  The front end already routes these to
+        # the message-only endpoint, but this prevents accidental triggers
+        # from stale clients, race conditions, or API callers.
+        if conversation_id:
+            try:
+                _dm_session = get_session()
+                _dm_conv = (
+                    _dm_session.query(Conversation)
+                    .filter(Conversation.id == conversation_id)
+                    .first()
+                )
+                if _dm_conv and _dm_conv.conversation_type == "dm":
+                    _has_agent = (
+                        _dm_session.query(ConversationParticipant)
+                        .filter(
+                            ConversationParticipant.conversation_id
+                            == conversation_id,
+                            ConversationParticipant.participant_type == "agent",
+                        )
+                        .first()
+                    )
+                    if not _has_agent:
+                        _dm_session.close()
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Cannot trigger agent response in a user-to-user DM with no agent participants.",
+                        )
+                elif (
+                    _dm_conv
+                    and _dm_conv.conversation_type == "thread"
+                    and _dm_conv.parent_id
+                ):
+                    _parent_conv = (
+                        _dm_session.query(Conversation)
+                        .filter(Conversation.id == _dm_conv.parent_id)
+                        .first()
+                    )
+                    if _parent_conv and _parent_conv.conversation_type == "dm":
+                        _has_agent = (
+                            _dm_session.query(ConversationParticipant)
+                            .filter(
+                                ConversationParticipant.conversation_id
+                                == _parent_conv.id,
+                                ConversationParticipant.participant_type
+                                == "agent",
+                            )
+                            .first()
+                        )
+                        if not _has_agent:
+                            _dm_session.close()
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Cannot trigger agent response in a thread within a user-to-user DM.",
+                            )
+                _dm_session.close()
+            except HTTPException:
+                raise
+            except Exception as e:
+                logging.warning(f"Error checking DM conversation type: {e}")
+
         agixt = AGiXT(
             user=user,
             agent_name=prompt.model,
@@ -328,6 +390,7 @@ async def mcp_chat_completion(
         # Check if conversation name is a uuid, if so, it is the conversation_id and nedds convertd
         prompt.messages[0]["running_command"] = "Browser Automation"
         conversation_name = prompt.user
+        conversation_id = None
         if conversation_name != "-":
             try:
                 conversation_id = str(uuid.UUID(conversation_name))
@@ -415,6 +478,64 @@ async def mcp_chat_completion(
                         prompt.messages = cleaned_messages
             except Exception as e:
                 logging.warning(f"Error parsing @mentions: {e}")
+
+        # Defense-in-depth: refuse agent responses in user-to-user DMs
+        if conversation_id:
+            try:
+                _dm_session = get_session()
+                _dm_conv = (
+                    _dm_session.query(Conversation)
+                    .filter(Conversation.id == conversation_id)
+                    .first()
+                )
+                if _dm_conv and _dm_conv.conversation_type == "dm":
+                    _has_agent = (
+                        _dm_session.query(ConversationParticipant)
+                        .filter(
+                            ConversationParticipant.conversation_id
+                            == conversation_id,
+                            ConversationParticipant.participant_type == "agent",
+                        )
+                        .first()
+                    )
+                    if not _has_agent:
+                        _dm_session.close()
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Cannot trigger agent response in a user-to-user DM with no agent participants.",
+                        )
+                elif (
+                    _dm_conv
+                    and _dm_conv.conversation_type == "thread"
+                    and _dm_conv.parent_id
+                ):
+                    _parent_conv = (
+                        _dm_session.query(Conversation)
+                        .filter(Conversation.id == _dm_conv.parent_id)
+                        .first()
+                    )
+                    if _parent_conv and _parent_conv.conversation_type == "dm":
+                        _has_agent = (
+                            _dm_session.query(ConversationParticipant)
+                            .filter(
+                                ConversationParticipant.conversation_id
+                                == _parent_conv.id,
+                                ConversationParticipant.participant_type
+                                == "agent",
+                            )
+                            .first()
+                        )
+                        if not _has_agent:
+                            _dm_session.close()
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Cannot trigger agent response in a thread within a user-to-user DM.",
+                            )
+                _dm_session.close()
+            except HTTPException:
+                raise
+            except Exception as e:
+                logging.warning(f"Error checking DM conversation type (MCP): {e}")
 
         agixt = AGiXT(
             user=user,
