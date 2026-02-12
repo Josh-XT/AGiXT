@@ -861,37 +861,51 @@ class Conversations:
 
             # Determine notification state using last_read_at
             has_notifications = False
+            is_dm = conversation.conversation_type == "dm"
             participant = participant_map.get(conv_id)
             if participant and participant.last_read_at:
-                # Count messages after last_read_at (excluding user's own messages and activity messages)
-                unread_count = (
-                    session.query(Message)
-                    .filter(
-                        Message.conversation_id == conv_id,
-                        Message.timestamp > participant.last_read_at,
-                        Message.role != "USER",
-                        ~Message.content.like("[ACTIVITY]%"),
-                        ~Message.content.like("[SUBACTIVITY]%"),
-                    )
-                    .count()
+                # Count unread messages after last_read_at.
+                # For DMs: count messages from other users (role is always USER in DMs).
+                # For agent chats: count agent/non-USER messages only.
+                unread_query = session.query(Message).filter(
+                    Message.conversation_id == conv_id,
+                    Message.timestamp > participant.last_read_at,
+                    ~Message.content.like("[ACTIVITY]%"),
+                    ~Message.content.like("[SUBACTIVITY]%"),
                 )
+                if is_dm:
+                    # In DMs, count messages from OTHER users (not our own)
+                    unread_query = unread_query.filter(
+                        or_(
+                            Message.sender_user_id != str(user_id),
+                            Message.role != "USER",
+                        )
+                    )
+                else:
+                    unread_query = unread_query.filter(Message.role != "USER")
+                unread_count = unread_query.count()
                 has_notifications = unread_count > 0
             elif participant and not participant.last_read_at:
                 # Participant exists but never explicitly read the conversation.
                 # Use joined_at as baseline — messages after joining are unread.
                 baseline = participant.joined_at
                 if baseline:
-                    unread_count = (
-                        session.query(Message)
-                        .filter(
-                            Message.conversation_id == conv_id,
-                            Message.timestamp > baseline,
-                            Message.role != "USER",
-                            ~Message.content.like("[ACTIVITY]%"),
-                            ~Message.content.like("[SUBACTIVITY]%"),
-                        )
-                        .count()
+                    unread_query = session.query(Message).filter(
+                        Message.conversation_id == conv_id,
+                        Message.timestamp > baseline,
+                        ~Message.content.like("[ACTIVITY]%"),
+                        ~Message.content.like("[SUBACTIVITY]%"),
                     )
+                    if is_dm:
+                        unread_query = unread_query.filter(
+                            or_(
+                                Message.sender_user_id != str(user_id),
+                                Message.role != "USER",
+                            )
+                        )
+                    else:
+                        unread_query = unread_query.filter(Message.role != "USER")
+                    unread_count = unread_query.count()
                     has_notifications = unread_count > 0
             elif not participant:
                 # No participant record — user owns conversation but hasn't read it,
