@@ -277,8 +277,7 @@ async def chat_completion(
                     _has_agent = (
                         _dm_session.query(ConversationParticipant)
                         .filter(
-                            ConversationParticipant.conversation_id
-                            == conversation_id,
+                            ConversationParticipant.conversation_id == conversation_id,
                             ConversationParticipant.participant_type == "agent",
                         )
                         .first()
@@ -305,8 +304,7 @@ async def chat_completion(
                             .filter(
                                 ConversationParticipant.conversation_id
                                 == _parent_conv.id,
-                                ConversationParticipant.participant_type
-                                == "agent",
+                                ConversationParticipant.participant_type == "agent",
                             )
                             .first()
                         )
@@ -492,8 +490,7 @@ async def mcp_chat_completion(
                     _has_agent = (
                         _dm_session.query(ConversationParticipant)
                         .filter(
-                            ConversationParticipant.conversation_id
-                            == conversation_id,
+                            ConversationParticipant.conversation_id == conversation_id,
                             ConversationParticipant.participant_type == "agent",
                         )
                         .first()
@@ -520,8 +517,7 @@ async def mcp_chat_completion(
                             .filter(
                                 ConversationParticipant.conversation_id
                                 == _parent_conv.id,
-                                ConversationParticipant.participant_type
-                                == "agent",
+                                ConversationParticipant.participant_type == "agent",
                             )
                             .first()
                         )
