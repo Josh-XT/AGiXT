@@ -36,10 +36,16 @@ _conversation_id_cache_ttl = 30  # 30 seconds
 
 # Regex pattern to match base64 data URLs in markdown image/link syntax
 # Matches: ![alt](data:mime/type;base64,...) or [text](data:mime/type;base64,...)
-# Uses .+? (lazy) for the MIME type to handle parameters like ;codecs=opus
-# Uses [^)]+ for the base64 payload instead of a character class to avoid
-# catastrophic backtracking on large files (videos can be 10MB+ as base64)
-_DATA_URL_PATTERN = re.compile(r"(!?\[([^\]]*)\])\(data:(.+?);base64,([^)]+)\)")
+# MIME type uses explicit segment matching to handle parameters like ;codecs=opus
+# without polynomial backtracking. Base64 payload restricted to valid base64 chars.
+_DATA_URL_PATTERN = re.compile(
+    r"(!?\[([^\]]{0,5000})\])"  # Group 1+2: ![alt] or [text] with bounded alt text
+    r"\(data:"
+    r"([^\s;)]+(?:;(?!base64,)[^\s;)]*)*)"  # Group 3: MIME type with optional params
+    r";base64,"
+    r"([A-Za-z0-9+/=\s]+)"  # Group 4: base64 data (only valid base64 chars)
+    r"\)"
+)
 
 # Minimum size threshold for extracting data URLs to workspace (10KB)
 # Smaller data URLs (like tiny icons) are left inline
@@ -141,9 +147,25 @@ def extract_data_urls_to_workspace(
                 filename = f"{uuid.uuid4().hex[:12]}{ext}"
 
             # Build the workspace file path
-            workspace_dir = os.path.join(
-                working_directory, agent_folder, conversation_id
+            # Sanitize conversation_id to prevent path traversal
+            safe_conv_id = re.sub(r"[^a-zA-Z0-9_-]", "_", str(conversation_id))
+            if not safe_conv_id:
+                safe_conv_id = "unknown_conversation"
+            workspace_root = os.path.abspath(
+                os.path.join(working_directory, agent_folder)
             )
+            workspace_dir = os.path.normpath(
+                os.path.join(workspace_root, safe_conv_id)
+            )
+            # Verify path stays within workspace root
+            if os.path.commonpath([workspace_root, workspace_dir]) != workspace_root:
+                logging.warning(
+                    "Rejected unsafe conversation_id for workspace path; "
+                    "falling back to generated directory name."
+                )
+                workspace_dir = os.path.join(
+                    workspace_root, uuid.uuid4().hex[:12]
+                )
             os.makedirs(workspace_dir, exist_ok=True)
             file_path = os.path.join(workspace_dir, filename)
 

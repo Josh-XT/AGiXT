@@ -974,7 +974,9 @@ async def add_message_v1(
     import re as _re
 
     audio_pattern = _re.compile(
-        r"\[([^\]]*)\]\(((?:https?://[^\s)]+|/outputs/[^\s)]+)\.(?:webm|wav|mp3|ogg|m4a|aac|flac))\)",
+        r"\[([^\]]{0,500})\]"
+        r"\(((?:https?://|/outputs/)(?:[^\s).]+\.)*[^\s).]+"
+        r"\.(?:webm|wav|mp3|ogg|m4a|aac|flac))\)",
         _re.IGNORECASE,
     )
     audio_matches = audio_pattern.findall(stored_message)
@@ -1027,9 +1029,17 @@ async def _transcribe_channel_audio(
                 else:
                     continue
 
-                # Convert /outputs/... to WORKSPACE/...
+                # Convert /outputs/... to a path under the working directory
                 relative = path_part.replace("/outputs/", "", 1)
-                audio_path = os.path.join(working_directory, relative)
+                candidate_path = os.path.join(working_directory, relative)
+                # Normalize and validate the path stays within workspace root
+                workspace_root = os.path.realpath(working_directory)
+                audio_path = os.path.realpath(candidate_path)
+                if os.path.commonpath([workspace_root, audio_path]) != workspace_root:
+                    logging.warning(
+                        f"Skipping audio transcription for path outside workspace: {audio_path}"
+                    )
+                    continue
 
                 if not os.path.exists(audio_path):
                     logging.warning(

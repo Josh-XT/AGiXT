@@ -66,9 +66,7 @@ async def send_feedback(
             "access": "🔐",
             "other": "📝",
         }
-        category_emoji = category_emojis.get(
-            feedback_input.category.lower(), "📝"
-        )
+        category_emoji = category_emojis.get(feedback_input.category.lower(), "📝")
 
         # Map priority to color
         priority_colors = {
@@ -80,7 +78,11 @@ async def send_feedback(
         color = priority_colors.get(feedback_input.priority.lower(), 5814783)
 
         # Build the embed title from subject or fallback
-        embed_title = f"{category_emoji} {feedback_input.subject}" if feedback_input.subject else f"{category_emoji} User Feedback"
+        embed_title = (
+            f"{category_emoji} {feedback_input.subject}"
+            if feedback_input.subject
+            else f"{category_emoji} User Feedback"
+        )
 
         # Build Discord embed fields - each field is a clean key/value pair
         fields = [
@@ -125,7 +127,11 @@ async def send_feedback(
             )
 
         # Add the description/feedback as the last field
-        feedback_text = feedback_input.feedback[:1024] if feedback_input.feedback else "No details provided"
+        feedback_text = (
+            feedback_input.feedback[:1024]
+            if feedback_input.feedback
+            else "No details provided"
+        )
         fields.append(
             {
                 "name": "Description",
