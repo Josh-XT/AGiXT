@@ -237,9 +237,7 @@ def extract_data_urls_to_workspace(
 
             # Verify assembled file path stays within workspace_dir
             if os.path.commonpath([workspace_dir, file_path]) != workspace_dir:
-                filename = _sanitize_filename(
-                    f"{uuid.uuid4().hex[:12]}{ext}", ext
-                )
+                filename = _sanitize_filename(f"{uuid.uuid4().hex[:12]}{ext}", ext)
                 file_path = os.path.abspath(
                     os.path.normpath(os.path.join(workspace_dir, filename))
                 )
@@ -255,9 +253,7 @@ def extract_data_urls_to_workspace(
                     os.path.normpath(os.path.join(workspace_dir, filename))
                 )
                 if os.path.commonpath([workspace_dir, file_path]) != workspace_dir:
-                    filename = _sanitize_filename(
-                        f"{uuid.uuid4().hex[:12]}{ext}", ext
-                    )
+                    filename = _sanitize_filename(f"{uuid.uuid4().hex[:12]}{ext}", ext)
                     file_path = os.path.abspath(
                         os.path.normpath(os.path.join(workspace_dir, filename))
                     )
