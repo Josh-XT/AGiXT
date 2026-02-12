@@ -2349,8 +2349,18 @@ class MagicalAuth:
                     "agents": agents_by_company.get(cid, []),
                     "scopes": list(company_scopes) if company_scopes else [],
                     "icon_url": getattr(company, "icon_url", None),
+                    "sort_order": getattr(uc, "sort_order", None),
                 }
                 companies.append(company_dict)
+
+            # Sort companies by sort_order (nulls last), then by name
+            companies.sort(
+                key=lambda c: (
+                    0 if c["sort_order"] is not None else 1,
+                    c["sort_order"] if c["sort_order"] is not None else 0,
+                    c["name"].lower(),
+                )
+            )
 
             # === 10. Background Stripe check (non-blocking) ===
             billing_paused = getenv("BILLING_PAUSED", "false").lower() == "true"
@@ -6016,8 +6026,18 @@ class MagicalAuth:
                     "primary": str(company.id) == str(self.company_id),
                     "agents": agents_by_company.get(str(company.id), []),
                     "icon_url": getattr(company, "icon_url", None),
+                    "sort_order": getattr(uc, "sort_order", None),
                 }
                 response.append(company_dict)
+
+            # Sort by sort_order (nulls last), then by name
+            response.sort(
+                key=lambda c: (
+                    0 if c["sort_order"] is not None else 1,
+                    c["sort_order"] if c["sort_order"] is not None else 0,
+                    c["name"].lower(),
+                )
+            )
             return response
         finally:
             session.close()

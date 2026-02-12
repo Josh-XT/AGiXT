@@ -1190,6 +1190,49 @@ async def get_companies(
         )
 
 
+@app.put(
+    "/v1/user/companies/order",
+    summary="Update server display order",
+    description="Updates the display order of a user's companies/servers in the sidebar.",
+    tags=["Companies"],
+)
+async def update_company_order(
+    body: List[dict],
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Expects a list of objects: [{"company_id": "...", "sort_order": 0}, ...]
+    """
+    try:
+        auth = MagicalAuth(token=authorization)
+        from DB import UserCompany
+        session = get_session()
+        try:
+            for item in body:
+                company_id = item.get("company_id")
+                sort_order = item.get("sort_order")
+                if company_id is None or sort_order is None:
+                    continue
+                uc = (
+                    session.query(UserCompany)
+                    .filter(
+                        UserCompany.user_id == auth.user_id,
+                        UserCompany.company_id == company_id,
+                    )
+                    .first()
+                )
+                if uc:
+                    uc.sort_order = sort_order
+            session.commit()
+        finally:
+            session.close()
+        return {"detail": "Server order updated successfully"}
+    except Exception as e:
+        logging.error(f"Error updating company order: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/v1/companies", response_model=NewCompanyResponse, tags=["Companies"])
 async def create_company(
     company: NewCompanyInput,

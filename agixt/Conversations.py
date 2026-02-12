@@ -4036,6 +4036,48 @@ class Conversations:
             for c in owned_conversations:
                 all_convos[str(c.id)] = c
 
+            # Auto-create a #general channel if the company has no group channels at all
+            if not all_convos:
+                any_group = (
+                    session.query(Conversation.id)
+                    .filter(
+                        Conversation.company_id == company_id,
+                        Conversation.conversation_type == "group",
+                    )
+                    .first()
+                )
+                if not any_group:
+                    general = Conversation(
+                        name="general",
+                        user_id=user_id,
+                        conversation_type="group",
+                        company_id=company_id,
+                        category="Text Channels",
+                    )
+                    session.add(general)
+                    session.commit()
+                    general_id = str(general.id)
+
+                    # Add all company members as participants
+                    company_users = (
+                        session.query(UserCompany)
+                        .filter(UserCompany.company_id == company_id)
+                        .all()
+                    )
+                    for uc in company_users:
+                        uc_user_id = str(uc.user_id)
+                        participant = ConversationParticipant(
+                            conversation_id=general_id,
+                            user_id=uc_user_id,
+                            participant_type="user",
+                            role="owner" if uc_user_id == user_id else "member",
+                            status="active",
+                        )
+                        session.add(participant)
+                    session.commit()
+
+                    all_convos[general_id] = general
+
             result = {}
             for conv_id, conversation in all_convos.items():
                 # Count unread messages for this user

@@ -513,6 +513,7 @@ class UserCompany(Base):
         nullable=False,
     )
     role_id = Column(Integer, ForeignKey("Role.id"), nullable=False, server_default="3")
+    sort_order = Column(Integer, nullable=True, default=None)  # User-defined display order for servers
 
     user = relationship("User", back_populates="user_companys")
     company = relationship("Company", back_populates="users")
@@ -7996,4 +7997,55 @@ def migrate_conversation_participant_notification_mode():
     except Exception as e:
         logging.debug(
             f"conversation_participant table migration completed or not needed: {e}"
+        )
+
+
+def migrate_user_company_sort_order():
+    """
+    Migration function to add sort_order column to UserCompany table.
+    Allows users to reorder their server list like Discord.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            columns_to_add = [
+                ("sort_order", "INTEGER"),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(UserCompany)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "UserCompany" ADD COLUMN {column_name} {column_def}'
+                            )
+                        )
+                        session.commit()
+            else:
+                # PostgreSQL
+                for column_name, column_def in columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name FROM information_schema.columns 
+                            WHERE table_name = 'UserCompany' AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    )
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "UserCompany" ADD COLUMN {column_name} {column_def}'
+                            )
+                        )
+                        session.commit()
+    except Exception as e:
+        logging.debug(
+            f"UserCompany sort_order migration completed or not needed: {e}"
         )
