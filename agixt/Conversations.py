@@ -115,6 +115,20 @@ _MIME_TO_EXT = {
 }
 
 
+def _sanitize_filename(name: str, default_ext: str) -> str:
+    """
+    Sanitize a user-controlled filename so it is safe to use on disk.
+    Strips directory components, rejects traversal tokens, and falls
+    back to a random name when invalid.
+    """
+    base = os.path.basename(str(name).strip())
+    if not base or base in (".", "..") or os.path.isabs(base):
+        return f"{uuid.uuid4().hex[:12]}{default_ext}"
+    if "/" in base or "\\" in base or ".." in base:
+        return f"{uuid.uuid4().hex[:12]}{default_ext}"
+    return base
+
+
 def extract_data_urls_to_workspace(
     message: str, agent_id: str, conversation_id: str
 ) -> str:
@@ -183,45 +197,70 @@ def extract_data_urls_to_workspace(
 
             # Use alt text as filename if it has an extension, otherwise generate one
             if alt_text and "." in alt_text:
-                # os.path.basename strips directory components (CodeQL-recognized sanitizer)
-                filename = os.path.basename(alt_text)
-                if not filename:
-                    filename = f"{uuid.uuid4().hex[:12]}{ext}"
+                filename = _sanitize_filename(alt_text, ext)
             else:
-                filename = f"{uuid.uuid4().hex[:12]}{ext}"
+                filename = _sanitize_filename(f"{uuid.uuid4().hex[:12]}{ext}", ext)
 
             # Build the workspace file path
-            # os.path.basename strips directory traversal components
-            # (CodeQL-recognized sanitizer for path injection)
+            # Sanitize conversation_id to prevent path traversal
             safe_conv_id = os.path.basename(str(conversation_id))
-            if not safe_conv_id:
+            if not safe_conv_id or safe_conv_id in (".", ".."):
                 safe_conv_id = "unknown_conversation"
-            workspace_root = os.path.abspath(
-                os.path.join(working_directory, agent_folder)
-            )
-            workspace_dir = os.path.normpath(os.path.join(workspace_root, safe_conv_id))
-            # Verify path stays within workspace root
-            if os.path.commonpath([workspace_root, workspace_dir]) != workspace_root:
+            if os.path.isabs(safe_conv_id) or ".." in safe_conv_id:
                 logging.warning(
                     "Rejected unsafe conversation_id for workspace path; "
                     "falling back to generated directory name."
                 )
-                workspace_dir = os.path.join(workspace_root, uuid.uuid4().hex[:12])
+                safe_conv_id = uuid.uuid4().hex[:12]
+
+            workspace_root = os.path.abspath(
+                os.path.join(working_directory, agent_folder)
+            )
+            workspace_dir = os.path.abspath(
+                os.path.normpath(os.path.join(workspace_root, safe_conv_id))
+            )
+            # Verify path stays within workspace root
+            if os.path.commonpath([workspace_root, workspace_dir]) != workspace_root:
+                logging.warning(
+                    "Rejected unsafe workspace_dir; falling back to generated directory name."
+                )
+                workspace_dir = os.path.abspath(
+                    os.path.join(workspace_root, uuid.uuid4().hex[:12])
+                )
             os.makedirs(workspace_dir, exist_ok=True)
-            # Apply os.path.basename at the sink to ensure CodeQL recognizes
-            # the filename is sanitized right at the point of path construction
-            file_path = os.path.join(workspace_dir, os.path.basename(filename))
+
+            # Construct the final file path with fully sanitized filename
+            filename = _sanitize_filename(filename, ext)
+            file_path = os.path.abspath(
+                os.path.normpath(os.path.join(workspace_dir, filename))
+            )
 
             # Verify assembled file path stays within workspace_dir
             if os.path.commonpath([workspace_dir, file_path]) != workspace_dir:
-                filename = f"{uuid.uuid4().hex[:12]}{ext}"
-                file_path = os.path.join(workspace_dir, filename)
+                filename = _sanitize_filename(
+                    f"{uuid.uuid4().hex[:12]}{ext}", ext
+                )
+                file_path = os.path.abspath(
+                    os.path.normpath(os.path.join(workspace_dir, filename))
+                )
 
             # Handle filename collisions (e.g., multiple "recording.webm" files)
             if os.path.exists(file_path):
                 name_part, ext_part = os.path.splitext(filename)
-                filename = f"{name_part}_{uuid.uuid4().hex[:8]}{ext_part}"
-                file_path = os.path.join(workspace_dir, filename)
+                filename = _sanitize_filename(
+                    f"{name_part}_{uuid.uuid4().hex[:8]}{ext_part}",
+                    ext_part or ext,
+                )
+                file_path = os.path.abspath(
+                    os.path.normpath(os.path.join(workspace_dir, filename))
+                )
+                if os.path.commonpath([workspace_dir, file_path]) != workspace_dir:
+                    filename = _sanitize_filename(
+                        f"{uuid.uuid4().hex[:12]}{ext}", ext
+                    )
+                    file_path = os.path.abspath(
+                        os.path.normpath(os.path.join(workspace_dir, filename))
+                    )
 
             # Write the file
             with open(file_path, "wb") as f:
