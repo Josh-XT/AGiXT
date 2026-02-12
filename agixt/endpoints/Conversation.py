@@ -2378,8 +2378,11 @@ async def conversation_stream(
         )
 
         # Get initial conversation history
+        # Use a generous limit for WebSocket initial load to prevent message loss
+        # on reconnection. The REST API uses limit=100 for pagination, but the
+        # WebSocket needs all messages to maintain accurate state tracking.
         try:
-            initial_history = c.get_conversation()
+            initial_history = c.get_conversation(limit=1000)
 
             messages = []
             if initial_history is None:
