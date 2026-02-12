@@ -1542,13 +1542,19 @@ class Conversations:
                 session.rollback()
                 logging.debug(f"Failed to mark notifications as read: {e}")
         offset = (page - 1) * limit
-        messages = (
-            session.query(Message)
-            .filter(Message.conversation_id == conversation.id)
-            .order_by(Message.timestamp.asc())
-            .limit(limit)
-            .offset(offset)
-            .all()
+        # Query most recent messages first (descending), then reverse to
+        # chronological order.  This ensures that the default limit=100
+        # returns the LATEST messages rather than the oldest, so the UI
+        # shows the tail of the conversation immediately.
+        messages = list(
+            reversed(
+                session.query(Message)
+                .filter(Message.conversation_id == conversation.id)
+                .order_by(Message.timestamp.desc())
+                .limit(limit)
+                .offset(offset)
+                .all()
+            )
         )
         if not messages:
             session.close()
