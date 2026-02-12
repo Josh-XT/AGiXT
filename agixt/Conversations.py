@@ -115,6 +115,26 @@ _MIME_TO_EXT = {
 }
 
 
+def _safe_join_path(base_dir: str, *parts: str) -> str:
+    """Join path components and verify the result stays under *base_dir*.
+
+    Uses ``os.path.realpath`` + ``str.startswith`` so static-analysis
+    tools (CodeQL ``py/path-injection``) recognise the guard as a
+    path-traversal sanitizer.
+
+    Raises ``ValueError`` if the resolved path escapes *base_dir*.
+    """
+    resolved_base = os.path.realpath(base_dir)
+    resolved = os.path.realpath(os.path.join(base_dir, *parts))
+    # startswith(base + sep) handles the "base_dir_extra" false-positive;
+    # the equality check covers the edge case where resolved == base.
+    if not (resolved.startswith(resolved_base + os.sep) or resolved == resolved_base):
+        raise ValueError(
+            f"Path escapes base directory: {resolved!r} is not under {resolved_base!r}"
+        )
+    return resolved
+
+
 def _sanitize_filename(name: str, default_ext: str) -> str:
     """
     Sanitize a user-controlled filename so it is safe to use on disk.
@@ -213,34 +233,27 @@ def extract_data_urls_to_workspace(
                 )
                 safe_conv_id = uuid.uuid4().hex[:12]
 
-            workspace_root = os.path.abspath(
+            workspace_root = os.path.realpath(
                 os.path.join(working_directory, agent_folder)
             )
-            workspace_dir = os.path.abspath(
-                os.path.normpath(os.path.join(workspace_root, safe_conv_id))
-            )
-            # Verify path stays within workspace root
-            if os.path.commonpath([workspace_root, workspace_dir]) != workspace_root:
+            # _safe_join_path uses realpath+startswith (CodeQL-recognised
+            # sanitizer) so the taint chain is broken for downstream uses.
+            try:
+                workspace_dir = _safe_join_path(workspace_root, safe_conv_id)
+            except ValueError:
                 logging.warning(
                     "Rejected unsafe workspace_dir; falling back to generated directory name."
                 )
-                workspace_dir = os.path.abspath(
-                    os.path.join(workspace_root, uuid.uuid4().hex[:12])
-                )
+                workspace_dir = _safe_join_path(workspace_root, uuid.uuid4().hex[:12])
             os.makedirs(workspace_dir, exist_ok=True)
 
             # Construct the final file path with fully sanitized filename
             filename = _sanitize_filename(filename, ext)
-            file_path = os.path.abspath(
-                os.path.normpath(os.path.join(workspace_dir, filename))
-            )
-
-            # Verify assembled file path stays within workspace_dir
-            if os.path.commonpath([workspace_dir, file_path]) != workspace_dir:
+            try:
+                file_path = _safe_join_path(workspace_dir, filename)
+            except ValueError:
                 filename = _sanitize_filename(f"{uuid.uuid4().hex[:12]}{ext}", ext)
-                file_path = os.path.abspath(
-                    os.path.normpath(os.path.join(workspace_dir, filename))
-                )
+                file_path = _safe_join_path(workspace_dir, filename)
 
             # Handle filename collisions (e.g., multiple "recording.webm" files)
             if os.path.exists(file_path):
@@ -249,14 +262,11 @@ def extract_data_urls_to_workspace(
                     f"{name_part}_{uuid.uuid4().hex[:8]}{ext_part}",
                     ext_part or ext,
                 )
-                file_path = os.path.abspath(
-                    os.path.normpath(os.path.join(workspace_dir, filename))
-                )
-                if os.path.commonpath([workspace_dir, file_path]) != workspace_dir:
+                try:
+                    file_path = _safe_join_path(workspace_dir, filename)
+                except ValueError:
                     filename = _sanitize_filename(f"{uuid.uuid4().hex[:12]}{ext}", ext)
-                    file_path = os.path.abspath(
-                        os.path.normpath(os.path.join(workspace_dir, filename))
-                    )
+                    file_path = _safe_join_path(workspace_dir, filename)
 
             # Write the file
             with open(file_path, "wb") as f:
@@ -765,9 +775,7 @@ class Conversations:
                 )
             )
             # Only include conversations that have at least one message
-            .filter(
-                exists().where(Message.conversation_id == Conversation.id)
-            )
+            .filter(exists().where(Message.conversation_id == Conversation.id))
             .all()
         )
 
@@ -1464,14 +1472,13 @@ class Conversations:
             )
             company_ids = [str(uc[0]) for uc in user_company_ids]
 
-            participant_conv_ids = (
-                session.query(ConversationParticipant.conversation_id)
-                .filter(
-                    ConversationParticipant.conversation_id == self.conversation_id,
-                    ConversationParticipant.user_id == user_id,
-                    ConversationParticipant.participant_type == "user",
-                    ConversationParticipant.status == "active",
-                )
+            participant_conv_ids = session.query(
+                ConversationParticipant.conversation_id
+            ).filter(
+                ConversationParticipant.conversation_id == self.conversation_id,
+                ConversationParticipant.user_id == user_id,
+                ConversationParticipant.participant_type == "user",
+                ConversationParticipant.status == "active",
             )
 
             access_filters = [
@@ -1501,9 +1508,7 @@ class Conversations:
             )
 
             conversation = (
-                session.query(Conversation)
-                .filter(or_(*access_filters))
-                .first()
+                session.query(Conversation).filter(or_(*access_filters)).first()
             )
         else:
             conversation = (
