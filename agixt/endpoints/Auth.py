@@ -1207,6 +1207,7 @@ async def update_company_order(
     try:
         auth = MagicalAuth(token=authorization)
         from DB import UserCompany
+
         session = get_session()
         try:
             for item in body:

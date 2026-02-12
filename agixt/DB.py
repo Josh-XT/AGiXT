@@ -513,7 +513,9 @@ class UserCompany(Base):
         nullable=False,
     )
     role_id = Column(Integer, ForeignKey("Role.id"), nullable=False, server_default="3")
-    sort_order = Column(Integer, nullable=True, default=None)  # User-defined display order for servers
+    sort_order = Column(
+        Integer, nullable=True, default=None
+    )  # User-defined display order for servers
 
     user = relationship("User", back_populates="user_companys")
     company = relationship("Company", back_populates="users")
@@ -8046,6 +8048,4 @@ def migrate_user_company_sort_order():
                         )
                         session.commit()
     except Exception as e:
-        logging.debug(
-            f"UserCompany sort_order migration completed or not needed: {e}"
-        )
+        logging.debug(f"UserCompany sort_order migration completed or not needed: {e}")

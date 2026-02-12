@@ -187,9 +187,7 @@ async def initialize_database(is_restart=False):
 
         section_start = startup_timer.section_start()
         DB.migrate_user_company_sort_order()
-        startup_timer.section_end(
-            "migrate_user_company_sort_order", section_start
-        )
+        startup_timer.section_end("migrate_user_company_sort_order", section_start)
 
         # Clean up expired cache entries on startup
         section_start = startup_timer.section_start()
