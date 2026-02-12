@@ -3940,7 +3940,9 @@ class Conversations:
                 has_notifications = False
                 notification_mode = "all"
                 if participant:
-                    notification_mode = getattr(participant, "notification_mode", None) or "all"
+                    notification_mode = (
+                        getattr(participant, "notification_mode", None) or "all"
+                    )
                 if notification_mode == "none":
                     # User muted this channel — never show notification dot
                     has_notifications = False
