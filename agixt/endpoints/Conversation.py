@@ -4019,6 +4019,7 @@ async def create_thread(
     )
     if not conversation_name:
         raise HTTPException(status_code=404, detail="Parent conversation not found")
+    from DB import get_session, Conversation, Message
 
     # Inherit company_id from parent conversation if not provided
     company_id = body.company_id
@@ -4047,6 +4048,42 @@ async def create_thread(
         parent_id=conversation_id,
         parent_message_id=body.parent_message_id,
     )
+
+    # Copy the parent message into the thread as the first message
+    # so the thread context is clear (like Discord does)
+    if body.parent_message_id and result and result.get("id"):
+        session = get_session()
+        try:
+            parent_msg = (
+                session.query(Message)
+                .filter(Message.id == str(body.parent_message_id))
+                .first()
+            )
+            if parent_msg:
+                thread_conv = Conversations(
+                    conversation_name=body.conversation_name,
+                    user=user,
+                    conversation_id=result["id"],
+                )
+                thread_conv.log_interaction(
+                    role=parent_msg.role,
+                    message=parent_msg.content,
+                    timestamp=parent_msg.timestamp,
+                    sender_user_id=(
+                        str(parent_msg.sender_user_id)
+                        if parent_msg.sender_user_id
+                        else None
+                    ),
+                )
+            else:
+                logging.warning(
+                    f"Parent message not found for thread copy: id={body.parent_message_id}"
+                )
+        except Exception as e:
+            logging.warning(f"Failed to copy parent message into thread: {e}")
+        finally:
+            session.close()
+
     return result
 
 
@@ -4069,6 +4106,7 @@ async def update_channel(
     )
     if not conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    from DB import get_session, Conversation
 
     session = get_session()
     try:

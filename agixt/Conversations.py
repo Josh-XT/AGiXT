@@ -712,6 +712,37 @@ class Conversations:
             for a in agents:
                 agent_name_map[str(a.id)] = a.name
 
+        # Batch-fetch the first agent role for each conversation to identify
+        # which agent the conversation is with (for frontend sorting).
+        # Uses a window function to efficiently get the first non-USER message per conv.
+        conv_agent_role_map = {}
+        private_conv_ids = [
+            str(c.id)
+            for c, _ in conversations
+            if c.conversation_type is None or c.conversation_type in ("private", "dm")
+        ]
+        if private_conv_ids:
+            # Get first non-USER, non-ACTIVITY message role per conversation
+            first_agent_msgs = (
+                session.query(
+                    Message.conversation_id,
+                    Message.role,
+                )
+                .filter(
+                    Message.conversation_id.in_(private_conv_ids),
+                    Message.role != "USER",
+                    ~Message.content.like("[ACTIVITY]%"),
+                    ~Message.content.like("[SUBACTIVITY]%"),
+                )
+                .order_by(Message.conversation_id, Message.timestamp)
+                .all()
+            )
+            # Take only the first role per conversation
+            for conv_id_val, role in first_agent_msgs:
+                cid = str(conv_id_val)
+                if cid not in conv_agent_role_map:
+                    conv_agent_role_map[cid] = role
+
         result = {}
         for conversation, last_message_time in conversations:
             # Use last message time if available, otherwise use conversation updated_at
@@ -768,10 +799,22 @@ class Conversations:
                 if dm_participant_names:
                     display_name = ", ".join(dm_participant_names)
 
+            # For DM agent conversations, use agent participant name as fallback
+            dm_agent_name = None
+            if conversation.conversation_type == "dm" and conv_id in dm_participants:
+                for p in dm_participants[conv_id]:
+                    if (
+                        p.participant_type == "agent"
+                        and str(p.agent_id) in agent_name_map
+                    ):
+                        dm_agent_name = agent_name_map[str(p.agent_id)]
+                        break
+
             result[conv_id] = {
                 "name": conversation.name,
                 "display_name": display_name,
                 "agent_id": default_agent_id,
+                "agent_name": conv_agent_role_map.get(conv_id) or dm_agent_name,
                 "conversation_type": conversation.conversation_type,
                 "created_at": convert_time(conversation.created_at, user_id=user_id),
                 "updated_at": convert_time(effective_updated_at, user_id=user_id),
@@ -3551,7 +3594,7 @@ class Conversations:
                 name=self.conversation_name,
                 user_id=user_id,
                 conversation_type=conversation_type,
-                company_id=company_id,
+                company_id=company_id if company_id else None,
                 parent_id=parent_id,
                 parent_message_id=parent_message_id,
                 category=category,
