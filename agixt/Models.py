@@ -1182,6 +1182,18 @@ class UpdateParticipantRoleModel(BaseModel):
     role: str  # 'owner', 'admin', 'member', 'observer'
 
 
+class UpdateNotificationSettingsModel(BaseModel):
+    """Request model for updating per-channel notification settings"""
+
+    notification_mode: str = "all"  # 'all', 'mentions', 'none'
+
+
+class NotificationSettingsResponse(BaseModel):
+    """Response model for per-channel notification settings"""
+
+    notification_mode: str = "all"
+
+
 class UpdateChannelModel(BaseModel):
     """Request model for updating a channel's properties"""
 

@@ -51,6 +51,8 @@ from Models import (
     AddParticipantModel,
     UpdateParticipantRoleModel,
     UpdateChannelModel,
+    UpdateNotificationSettingsModel,
+    NotificationSettingsResponse,
     GroupConversationListResponse,
     ThreadListResponse,
     AddReactionModel,
@@ -3885,6 +3887,89 @@ async def mark_conversation_read(
     )
     c.update_last_read(user_id=str(auth.user_id))
     return ResponseMessage(message="Conversation marked as read.")
+
+
+@app.get(
+    "/v1/conversation/{conversation_id}/notification-settings",
+    summary="Get Notification Settings",
+    description="Gets the current user's notification settings for a conversation.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_notification_settings(
+    conversation_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    from DB import get_session, ConversationParticipant
+
+    auth = MagicalAuth(token=authorization)
+    session = get_session()
+    try:
+        participant = (
+            session.query(ConversationParticipant)
+            .filter(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.user_id == str(auth.user_id),
+                ConversationParticipant.status == "active",
+            )
+            .first()
+        )
+        if not participant:
+            raise HTTPException(
+                status_code=404, detail="Not a participant in this conversation"
+            )
+        return NotificationSettingsResponse(
+            notification_mode=participant.notification_mode or "all",
+        )
+    finally:
+        session.close()
+
+
+@app.put(
+    "/v1/conversation/{conversation_id}/notification-settings",
+    summary="Update Notification Settings",
+    description="Updates the current user's notification settings for a conversation. Supports 'all' (all messages), 'mentions' (only @mentions), or 'none' (muted).",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_notification_settings(
+    conversation_id: str,
+    body: UpdateNotificationSettingsModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    from DB import get_session, ConversationParticipant
+
+    auth = MagicalAuth(token=authorization)
+    valid_modes = {"all", "mentions", "none"}
+    if body.notification_mode not in valid_modes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid notification_mode. Must be one of: {', '.join(valid_modes)}",
+        )
+    session = get_session()
+    try:
+        participant = (
+            session.query(ConversationParticipant)
+            .filter(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.user_id == str(auth.user_id),
+                ConversationParticipant.status == "active",
+            )
+            .first()
+        )
+        if not participant:
+            raise HTTPException(
+                status_code=404, detail="Not a participant in this conversation"
+            )
+        participant.notification_mode = body.notification_mode
+        session.commit()
+    finally:
+        session.close()
+    return ResponseMessage(
+        message=f"Notification settings updated to '{body.notification_mode}'."
+    )
 
 
 @app.get(

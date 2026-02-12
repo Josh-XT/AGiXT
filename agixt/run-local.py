@@ -179,6 +179,12 @@ async def initialize_database(is_restart=False):
         DB.migrate_user_oauth_table()
         startup_timer.section_end("migrate_user_oauth_table", section_start)
 
+        section_start = startup_timer.section_start()
+        DB.migrate_conversation_participant_notification_mode()
+        startup_timer.section_end(
+            "migrate_conversation_participant_notification_mode", section_start
+        )
+
         # Clean up expired cache entries on startup
         section_start = startup_timer.section_start()
         DB.cleanup_expired_cache()

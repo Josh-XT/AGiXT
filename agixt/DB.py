@@ -1785,6 +1785,9 @@ class ConversationParticipant(Base):
     role = Column(
         String, nullable=False, default="member"
     )  # 'owner', 'admin', 'member', 'observer'
+    notification_mode = Column(
+        String, nullable=False, default="all"
+    )  # 'all', 'mentions', 'none'
     joined_at = Column(DateTime, server_default=func.now())
     last_read_at = Column(DateTime, nullable=True)  # Last time user read messages
     status = Column(
@@ -7941,3 +7944,56 @@ def seed_server_chains():
 
     if seeded_count > 0:
         logging.info(f"Server chains: {seeded_count} seeded")
+
+
+def migrate_conversation_participant_notification_mode():
+    """
+    Migration function to add notification_mode column to conversation_participant table.
+    Supports 'all' (default), 'mentions', or 'none' (muted).
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            columns_to_add = [
+                ("notification_mode", "VARCHAR DEFAULT 'all'"),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(
+                    text("PRAGMA table_info(conversation_participant)")
+                )
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE conversation_participant ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
+            else:
+                # PostgreSQL
+                for column_name, column_def in columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name FROM information_schema.columns 
+                            WHERE table_name = 'conversation_participant' AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    )
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f"ALTER TABLE conversation_participant ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
+    except Exception as e:
+        logging.debug(
+            f"conversation_participant table migration completed or not needed: {e}"
+        )

@@ -3938,7 +3938,13 @@ class Conversations:
                 )
 
                 has_notifications = False
-                if participant and participant.last_read_at:
+                notification_mode = "all"
+                if participant:
+                    notification_mode = getattr(participant, "notification_mode", None) or "all"
+                if notification_mode == "none":
+                    # User muted this channel — never show notification dot
+                    has_notifications = False
+                elif participant and participant.last_read_at:
                     unread_count = (
                         session.query(Message)
                         .filter(
@@ -4005,6 +4011,7 @@ class Conversations:
                     "thread_count": thread_count,
                     "category": getattr(conversation, "category", None),
                     "description": getattr(conversation, "description", None),
+                    "notification_mode": notification_mode,
                 }
 
             return result
