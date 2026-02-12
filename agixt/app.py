@@ -463,6 +463,10 @@ async def serve_file(
         content_type, _ = mimetypes.guess_type(filename)
         if not content_type:
             content_type = "application/octet-stream"
+        # Voice recordings saved as .webm are audio-only; Python's mimetypes
+        # returns video/webm for all .webm files, so override for recordings.
+        if content_type == "video/webm" and "recording" in filename.lower():
+            content_type = "audio/webm"
 
         def sanitize_path_component(component: str) -> str:
             # Only allow alphanumeric chars, hyphen, underscore, dot, and forward slash
