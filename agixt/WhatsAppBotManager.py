@@ -193,16 +193,7 @@ class CompanyWhatsAppBot:
         # Cache of phone numbers to AGiXT user IDs
         self._user_id_cache: Dict[str, str] = {}
 
-        # Log initialization without exposing sensitive phone number data
-        masked_phone = (
-            "****" + (display_phone_number or phone_number_id or "")[-4:]
-            if (display_phone_number or phone_number_id)
-            else "unknown"
-        )
-        logger.info(
-            f"Initialized WhatsApp bot for company {company_name}, "
-            f"phone {masked_phone}"
-        )
+        logger.info(f"Initialized WhatsApp bot for company {company_name}")
 
     def _get_headers(self):
         """Get authorization headers."""
@@ -230,9 +221,7 @@ class CompanyWhatsAppBot:
         try:
             return impersonate_user(agixt_user_id)
         except Exception as e:
-            # Log error without exposing sensitive phone number
-            masked_phone = "****" + phone_number[-4:] if phone_number else "unknown"
-            logger.error(f"Error impersonating user {masked_phone}: {type(e).__name__}")
+            logger.error(f"Error impersonating user: {type(e).__name__}")
             return None
 
     async def _get_available_agents(self) -> List[str]:
@@ -921,13 +910,7 @@ class WhatsAppBotManager:
                     # Find the bot for this phone number
                     bot = self.bots.get(phone_number_id)
                     if not bot:
-                        # Log warning without exposing full phone number ID
-                        masked_id = (
-                            "****" + (phone_number_id or "")[-4:]
-                            if phone_number_id
-                            else "unknown"
-                        )
-                        logger.warning(f"No bot configured for phone {masked_id}")
+                        logger.warning("No bot configured for incoming phone number")
                         continue
 
                     # Process messages

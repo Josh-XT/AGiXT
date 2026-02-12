@@ -7598,10 +7598,9 @@ def decrypt_config_value(encrypted_value: str) -> str:
         # Return empty string so callers treat this as "not configured"
         # rather than leaking the raw Fernet ciphertext to external APIs.
         logging.warning(
-            f"Failed to decrypt sensitive config value "
-            f"(starts with '{encrypted_value[:10]}...'). "
-            f"The AGIXT_API_KEY may have changed since this value was encrypted. "
-            f"Please re-save the setting to re-encrypt it with the current key."
+            "Failed to decrypt sensitive config value. "
+            "The AGIXT_API_KEY may have changed since this value was encrypted. "
+            "Please re-save the setting to re-encrypt it with the current key."
         )
         return ""
 
