@@ -2143,14 +2143,53 @@ class Conversations:
         user_id = self._user_id
         if not self.conversation_name:
             self.conversation_name = "-"
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
+        # First try: find by conversation_id if available (most reliable)
+        conversation = None
+        if self.conversation_id:
+            conversation = (
+                session.query(Conversation)
+                .filter(Conversation.id == self.conversation_id)
+                .first()
             )
-            .first()
-        )
+            # Verify the user has access to this conversation
+            if conversation and conversation.user_id != user_id:
+                # Check if user is in the same company for group/thread/channel/dm
+                if conversation.company_id:
+                    has_access = (
+                        session.query(UserCompany)
+                        .filter(
+                            UserCompany.user_id == user_id,
+                            UserCompany.company_id == conversation.company_id,
+                        )
+                        .first()
+                    )
+                    if not has_access:
+                        conversation = None
+                else:
+                    # Check if user is a participant
+                    is_participant = (
+                        session.query(ConversationParticipant)
+                        .filter(
+                            ConversationParticipant.conversation_id
+                            == self.conversation_id,
+                            ConversationParticipant.user_id == user_id,
+                            ConversationParticipant.participant_type == "user",
+                            ConversationParticipant.status == "active",
+                        )
+                        .first()
+                    )
+                    if not is_participant:
+                        conversation = None
+        # Fallback: find by name + user_id (legacy personal conversations)
+        if not conversation:
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == self.conversation_name,
+                    Conversation.user_id == user_id,
+                )
+                .first()
+            )
         if not conversation:
             session.close()
             return
@@ -2223,9 +2262,7 @@ class Conversations:
                 ).delete(synchronize_session="fetch")
                 session.delete(child)
             # 8. Finally delete the conversation itself
-            session.query(Conversation).filter(
-                Conversation.id == conv_id, Conversation.user_id == user_id
-            ).delete()
+            session.query(Conversation).filter(Conversation.id == conv_id).delete()
             session.commit()
         except Exception as e:
             session.rollback()
