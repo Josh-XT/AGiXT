@@ -4262,8 +4262,16 @@ class Conversations:
                     "id": str(p.id),
                     "participant_type": p.participant_type,
                     "role": p.role,
-                    "joined_at": str(p.joined_at) if p.joined_at else None,
-                    "last_read_at": str(p.last_read_at) if p.last_read_at else None,
+                    "joined_at": (
+                        convert_time(p.joined_at, user_id=self._user_id).isoformat()
+                        if p.joined_at
+                        else None
+                    ),
+                    "last_read_at": (
+                        convert_time(p.last_read_at, user_id=self._user_id).isoformat()
+                        if p.last_read_at
+                        else None
+                    ),
                     "status": p.status,
                 }
                 if p.participant_type == "user" and p.user_id:
