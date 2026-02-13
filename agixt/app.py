@@ -383,6 +383,183 @@ def register_extension_routers():
 register_extension_routers()
 
 
+def _get_cache_headers(content_type: str) -> dict:
+    """Return appropriate cache headers based on content type.
+    Media files (images, video, audio) are immutable workspace uploads —
+    they never change once written, so we can cache aggressively.
+    """
+    if content_type and (
+        content_type.startswith("image/")
+        or content_type.startswith("video/")
+        or content_type.startswith("audio/")
+    ):
+        return {
+            "Cache-Control": "public, max-age=86400, immutable",
+            "X-Content-Type-Options": "nosniff",
+        }
+    return {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+    }
+
+
+@app.get(
+    "/outputs/{agent_id}/{conversation_id}/thumb/{filename:path}",
+    tags=["Workspace"],
+)
+async def serve_video_thumbnail(
+    agent_id: str,
+    conversation_id: str,
+    filename: str,
+    authorization: str = Header(None),
+):
+    """Generate and serve a JPEG thumbnail for a video file using ffmpeg.
+    Thumbnails are cached on disk next to the original file so subsequent
+    requests are served instantly without re-running ffmpeg.
+    """
+    import subprocess
+
+    try:
+        from ApiClient import verify_api_key
+        from MagicalAuth import MagicalAuth
+        from DB import (
+            get_session,
+            Conversation as ConversationModel,
+            ConversationParticipant,
+        )
+
+        try:
+            user_email = verify_api_key(authorization)
+        except HTTPException:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        # Verify user has access to this conversation
+        auth = MagicalAuth(token=authorization)
+        session = get_session()
+        try:
+            conversation = (
+                session.query(ConversationModel)
+                .filter_by(id=conversation_id)
+                .first()
+            )
+            if not conversation:
+                raise HTTPException(
+                    status_code=404, detail="Conversation not found"
+                )
+            is_owner = str(conversation.user_id) == str(auth.user_id)
+            is_participant = (
+                session.query(ConversationParticipant)
+                .filter_by(
+                    conversation_id=conversation_id,
+                    user_id=auth.user_id,
+                )
+                .first()
+                is not None
+            )
+            if not is_owner and not is_participant:
+                raise HTTPException(status_code=403, detail="Access denied")
+        finally:
+            session.close()
+
+        # Resolve the video file path
+        def sanitize_path_component(component: str) -> str:
+            sanitized = (
+                "".join(c for c in component if c.isalnum() or c in "-_./ ")
+                .replace("..", "")
+                .strip("/")
+            )
+            return sanitized if sanitized else ""
+
+        safe_agent_id = sanitize_path_component(agent_id)
+        safe_filename = sanitize_path_component(filename)
+        safe_conversation_id = sanitize_path_component(conversation_id)
+
+        video_path = Path(
+            workspace_manager._get_local_cache_path(
+                safe_agent_id, safe_conversation_id, safe_filename
+            )
+        ).resolve()
+
+        workspace_root = Path(workspace_manager.workspace_dir).resolve()
+        if not str(video_path).startswith(str(workspace_root)):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        if not video_path.is_file():
+            raise HTTPException(status_code=404, detail="Video not found")
+
+        # Thumbnail path — same name with .thumb.jpg appended
+        thumb_path = video_path.with_suffix(video_path.suffix + ".thumb.jpg")
+
+        # Generate thumbnail if not already cached
+        if not thumb_path.is_file():
+            try:
+                result = subprocess.run(
+                    [
+                        "ffmpeg",
+                        "-i",
+                        str(video_path),
+                        "-ss",
+                        "00:00:00.500",  # half second in to avoid black frames
+                        "-vframes",
+                        "1",
+                        "-vf",
+                        "scale=640:-2",  # 640px wide, auto height
+                        "-q:v",
+                        "5",  # JPEG quality (~75%)
+                        "-y",
+                        str(thumb_path),
+                    ],
+                    capture_output=True,
+                    timeout=10,
+                )
+                if result.returncode != 0:
+                    # Try at 0s if 0.5s failed (very short video)
+                    subprocess.run(
+                        [
+                            "ffmpeg",
+                            "-i",
+                            str(video_path),
+                            "-vframes",
+                            "1",
+                            "-vf",
+                            "scale=640:-2",
+                            "-q:v",
+                            "5",
+                            "-y",
+                            str(thumb_path),
+                        ],
+                        capture_output=True,
+                        timeout=10,
+                    )
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                logging.warning(f"ffmpeg thumbnail generation failed: {e}")
+                raise HTTPException(
+                    status_code=500, detail="Thumbnail generation failed"
+                )
+
+        if not thumb_path.is_file():
+            raise HTTPException(
+                status_code=500, detail="Thumbnail generation failed"
+            )
+
+        from fastapi.responses import FileResponse
+
+        return FileResponse(
+            path=str(thumb_path),
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "public, max-age=604800, immutable",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error generating video thumbnail: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @app.get("/outputs/{agent_id}/{conversation_id}/{filename:path}", tags=["Workspace"])
 @app.get("/outputs/{agent_id}/{filename:path}", tags=["Workspace"])
 async def serve_file(
@@ -573,9 +750,7 @@ async def serve_file(
                     media_type=content_type,
                     headers={
                         "Content-Disposition": f'inline; filename="{filename}"',
-                        "X-Content-Type-Options": "nosniff",
-                        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-                        "Pragma": "no-cache",
+                        **_get_cache_headers(content_type),
                     },
                 )
 
@@ -598,9 +773,7 @@ async def serve_file(
             media_type=content_type,
             headers={
                 "Content-Disposition": f'inline; filename="{filename}"',
-                "X-Content-Type-Options": "nosniff",
-                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-                "Pragma": "no-cache",
+                **_get_cache_headers(content_type),
             },
         )
 
