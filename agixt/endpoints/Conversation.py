@@ -690,13 +690,23 @@ async def get_conversation_history(
         conversation_id=conversation_id,
     ).get_conversation(limit=limit, page=page)
     if conversation_history is None:
-        conversation_history = {"interactions": [], "total": 0, "page": page, "limit": limit}
+        conversation_history = {
+            "interactions": [],
+            "total": 0,
+            "page": page,
+            "limit": limit,
+        }
     total = conversation_history.get("total")
     resp_page = conversation_history.get("page")
     resp_limit = conversation_history.get("limit")
     if "interactions" in conversation_history:
         conversation_history = conversation_history["interactions"]
-    return {"conversation_history": conversation_history, "total": total, "page": resp_page, "limit": resp_limit}
+    return {
+        "conversation_history": conversation_history,
+        "total": total,
+        "page": resp_page,
+        "limit": resp_limit,
+    }
 
 
 @app.post(
