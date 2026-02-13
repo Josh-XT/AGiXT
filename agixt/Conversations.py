@@ -1564,7 +1564,12 @@ class Conversations:
         )
         if not messages:
             session.close()
-            return {"interactions": [], "total": total_messages, "page": page, "limit": limit}
+            return {
+                "interactions": [],
+                "total": total_messages,
+                "page": page,
+                "limit": limit,
+            }
         return_messages = []
         # Pre-fetch sender user info for all messages with sender_user_id
         sender_user_ids = {
@@ -1679,7 +1684,12 @@ class Conversations:
             }
             return_messages.append(msg)
         session.close()
-        return {"interactions": return_messages, "total": total_messages, "page": page, "limit": limit}
+        return {
+            "interactions": return_messages,
+            "total": total_messages,
+            "page": page,
+            "limit": limit,
+        }
 
     def fork_conversation(self, message_id):
         session = get_session()
@@ -4128,6 +4138,9 @@ class Conversations:
     def get_participants(self):
         """
         Get all active participants in this conversation.
+        For threads, inherits participants from the parent channel so that
+        all channel members can see and access the thread. Thread-specific
+        roles (e.g. owner) are preserved when they exist.
 
         Returns:
             List of participant dicts with user/agent info
@@ -4135,7 +4148,23 @@ class Conversations:
         session = get_session()
         try:
             conversation_id = self.get_conversation_id()
-            participants = (
+
+            # Check if this is a thread with a parent channel
+            conversation = (
+                session.query(Conversation)
+                .filter(Conversation.id == conversation_id)
+                .first()
+            )
+            parent_id = None
+            if (
+                conversation
+                and conversation.conversation_type == "thread"
+                and conversation.parent_id
+            ):
+                parent_id = str(conversation.parent_id)
+
+            # Get thread's own participants
+            thread_participants = (
                 session.query(ConversationParticipant)
                 .filter(
                     ConversationParticipant.conversation_id == conversation_id,
@@ -4143,6 +4172,67 @@ class Conversations:
                 )
                 .all()
             )
+
+            # For threads, merge parent channel participants so all channel
+            # members appear even if they weren't copied at thread creation time
+            # or joined the channel after the thread was created.
+            if parent_id:
+                parent_participants = (
+                    session.query(ConversationParticipant)
+                    .filter(
+                        ConversationParticipant.conversation_id == parent_id,
+                        ConversationParticipant.status == "active",
+                    )
+                    .all()
+                )
+                # Build a set of (participant_type, user_id/agent_id) already
+                # in the thread so we don't duplicate them
+                existing_keys = set()
+                for p in thread_participants:
+                    if p.participant_type == "user" and p.user_id:
+                        existing_keys.add(("user", str(p.user_id)))
+                    elif p.participant_type == "agent" and p.agent_id:
+                        existing_keys.add(("agent", str(p.agent_id)))
+
+                # Add missing parent participants to the thread DB records
+                # so they persist and have proper access going forward
+                added_any = False
+                for pp in parent_participants:
+                    if pp.participant_type == "user" and pp.user_id:
+                        key = ("user", str(pp.user_id))
+                    elif pp.participant_type == "agent" and pp.agent_id:
+                        key = ("agent", str(pp.agent_id))
+                    else:
+                        continue
+                    if key not in existing_keys:
+                        inherited = ConversationParticipant(
+                            conversation_id=conversation_id,
+                            user_id=(
+                                pp.user_id if pp.participant_type == "user" else None
+                            ),
+                            agent_id=(
+                                pp.agent_id if pp.participant_type == "agent" else None
+                            ),
+                            participant_type=pp.participant_type,
+                            role="member",
+                            status="active",
+                        )
+                        session.add(inherited)
+                        added_any = True
+
+                if added_any:
+                    session.commit()
+                    # Re-fetch to get the newly added participants
+                    thread_participants = (
+                        session.query(ConversationParticipant)
+                        .filter(
+                            ConversationParticipant.conversation_id == conversation_id,
+                            ConversationParticipant.status == "active",
+                        )
+                        .all()
+                    )
+
+            participants = thread_participants
 
             # Batch-fetch all users and agents in 2 queries instead of N
             user_ids = [
