@@ -469,9 +469,9 @@ async def serve_file(
             content_type = "audio/webm"
 
         def sanitize_path_component(component: str) -> str:
-            # Only allow alphanumeric chars, hyphen, underscore, dot, and forward slash
+            # Only allow alphanumeric chars, hyphen, underscore, dot, forward slash, and space
             sanitized = (
-                "".join(c for c in component if c.isalnum() or c in "-_./")
+                "".join(c for c in component if c.isalnum() or c in "-_./ ")
                 .replace("..", "")
                 .strip("/")
             )
