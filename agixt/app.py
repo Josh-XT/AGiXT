@@ -439,14 +439,10 @@ async def serve_video_thumbnail(
         session = get_session()
         try:
             conversation = (
-                session.query(ConversationModel)
-                .filter_by(id=conversation_id)
-                .first()
+                session.query(ConversationModel).filter_by(id=conversation_id).first()
             )
             if not conversation:
-                raise HTTPException(
-                    status_code=404, detail="Conversation not found"
-                )
+                raise HTTPException(status_code=404, detail="Conversation not found")
             is_owner = str(conversation.user_id) == str(auth.user_id)
             is_participant = (
                 session.query(ConversationParticipant)
@@ -491,11 +487,12 @@ async def serve_video_thumbnail(
         # Skip audio-only files (e.g. voice recordings saved as .webm)
         content_type, _ = mimetypes.guess_type(str(video_path))
         if content_type and content_type.startswith("audio/"):
-            raise HTTPException(
-                status_code=404, detail="No video stream in audio file"
-            )
+            raise HTTPException(status_code=404, detail="No video stream in audio file")
         # recording*.webm files are audio-only even though mimetypes says video/webm
-        if "recording" in video_path.name.lower() and video_path.suffix.lower() == ".webm":
+        if (
+            "recording" in video_path.name.lower()
+            and video_path.suffix.lower() == ".webm"
+        ):
             raise HTTPException(
                 status_code=404, detail="No video stream in audio recording"
             )
@@ -556,9 +553,7 @@ async def serve_video_thumbnail(
                 )
 
         if not thumb_path.is_file():
-            raise HTTPException(
-                status_code=404, detail="No video stream found"
-            )
+            raise HTTPException(status_code=404, detail="No video stream found")
 
         from fastapi.responses import FileResponse
 

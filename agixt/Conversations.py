@@ -2661,9 +2661,7 @@ class Conversations:
             )
 
             conversation = (
-                session.query(Conversation)
-                .filter(or_(*access_filters))
-                .first()
+                session.query(Conversation).filter(or_(*access_filters)).first()
             )
         else:
             # Fallback: name-based lookup for legacy /api/ endpoint
