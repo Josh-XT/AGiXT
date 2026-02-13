@@ -801,6 +801,9 @@ class ConversationDetailResponse(BaseModel):
 
 class ConversationHistoryResponse(BaseModel):
     conversation_history: List[Dict[str, Any]]
+    total: Optional[int] = None
+    page: Optional[int] = None
+    limit: Optional[int] = None
 
 
 class NewConversationHistoryResponse(BaseModel):

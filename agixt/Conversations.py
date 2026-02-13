@@ -1542,6 +1542,12 @@ class Conversations:
                 session.rollback()
                 logging.debug(f"Failed to mark notifications as read: {e}")
         offset = (page - 1) * limit
+        # Get total message count for pagination support
+        total_messages = (
+            session.query(Message)
+            .filter(Message.conversation_id == conversation.id)
+            .count()
+        )
         # Query most recent messages first (descending), then reverse to
         # chronological order.  This ensures that the default limit=100
         # returns the LATEST messages rather than the oldest, so the UI
@@ -1558,7 +1564,7 @@ class Conversations:
         )
         if not messages:
             session.close()
-            return {"interactions": []}
+            return {"interactions": [], "total": total_messages, "page": page, "limit": limit}
         return_messages = []
         # Pre-fetch sender user info for all messages with sender_user_id
         sender_user_ids = {
@@ -1673,7 +1679,7 @@ class Conversations:
             }
             return_messages.append(msg)
         session.close()
-        return {"interactions": return_messages}
+        return {"interactions": return_messages, "total": total_messages, "page": page, "limit": limit}
 
     def fork_conversation(self, message_id):
         session = get_session()
