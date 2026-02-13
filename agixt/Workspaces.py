@@ -104,7 +104,8 @@ class SecurityValidationMixin:
                 if component == "..":
                     raise ValueError("Path traversal detected")
                 # Validate each component matches safe pattern
-                if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_.\-]*$", component):
+                # Allow alphanumeric, underscore, dot, hyphen, and space
+                if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_.\- ]*$", component):
                     raise ValueError(f"Invalid path component: {component}")
                 # Create a new string to break taint chain
                 validated_components.append(str(component))
