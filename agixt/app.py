@@ -488,6 +488,18 @@ async def serve_video_thumbnail(
         if not video_path.is_file():
             raise HTTPException(status_code=404, detail="Video not found")
 
+        # Skip audio-only files (e.g. voice recordings saved as .webm)
+        content_type, _ = mimetypes.guess_type(str(video_path))
+        if content_type and content_type.startswith("audio/"):
+            raise HTTPException(
+                status_code=404, detail="No video stream in audio file"
+            )
+        # recording*.webm files are audio-only even though mimetypes says video/webm
+        if "recording" in video_path.name.lower() and video_path.suffix.lower() == ".webm":
+            raise HTTPException(
+                status_code=404, detail="No video stream in audio recording"
+            )
+
         # Thumbnail path — same name with .thumb.jpg appended
         thumb_path = video_path.with_suffix(video_path.suffix + ".thumb.jpg")
 
@@ -515,7 +527,7 @@ async def serve_video_thumbnail(
                 )
                 if result.returncode != 0:
                     # Try at 0s if 0.5s failed (very short video)
-                    subprocess.run(
+                    result2 = subprocess.run(
                         [
                             "ffmpeg",
                             "-i",
@@ -532,15 +544,20 @@ async def serve_video_thumbnail(
                         capture_output=True,
                         timeout=10,
                     )
+                    if result2.returncode != 0:
+                        stderr = result2.stderr.decode(errors="replace")[:500]
+                        logging.warning(
+                            f"ffmpeg failed for {video_path.name}: {stderr}"
+                        )
             except (subprocess.TimeoutExpired, FileNotFoundError) as e:
                 logging.warning(f"ffmpeg thumbnail generation failed: {e}")
                 raise HTTPException(
-                    status_code=500, detail="Thumbnail generation failed"
+                    status_code=404, detail="Thumbnail generation failed"
                 )
 
         if not thumb_path.is_file():
             raise HTTPException(
-                status_code=500, detail="Thumbnail generation failed"
+                status_code=404, detail="No video stream found"
             )
 
         from fastapi.responses import FileResponse
