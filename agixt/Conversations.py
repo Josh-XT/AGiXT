@@ -2617,59 +2617,109 @@ class Conversations:
         session = get_session()
         user_id = self._user_id
 
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
-            )
-            .first()
-        )
+        conversation = None
 
-        if not conversation:
-            # Fallback: check group conversations accessible via company membership
+        # Prefer conversation_id lookup (fast, unambiguous) over name-based lookup
+        if self.conversation_id:
             user_company_ids = (
                 session.query(UserCompany.company_id)
                 .filter(UserCompany.user_id == user_id)
                 .all()
             )
             company_ids = [str(uc[0]) for uc in user_company_ids]
+
+            participant_conv_ids = session.query(
+                ConversationParticipant.conversation_id
+            ).filter(
+                ConversationParticipant.conversation_id == self.conversation_id,
+                ConversationParticipant.user_id == user_id,
+                ConversationParticipant.participant_type == "user",
+                ConversationParticipant.status == "active",
+            )
+
+            access_filters = [
+                and_(
+                    Conversation.id == self.conversation_id,
+                    Conversation.user_id == user_id,
+                ),
+            ]
             if company_ids:
-                conversation = (
-                    session.query(Conversation)
-                    .filter(
-                        Conversation.name == self.conversation_name,
+                access_filters.append(
+                    and_(
+                        Conversation.id == self.conversation_id,
                         Conversation.company_id.in_(company_ids),
                         Conversation.conversation_type.in_(
                             ["group", "dm", "thread", "channel"]
                         ),
                     )
-                    .first()
                 )
-
-        if not conversation:
-            # Fallback: check conversations where user is a participant
-            participant_conv = (
-                session.query(ConversationParticipant)
-                .filter(
-                    ConversationParticipant.user_id == user_id,
-                    ConversationParticipant.participant_type == "user",
-                    ConversationParticipant.status == "active",
+            access_filters.append(
+                and_(
+                    Conversation.id == self.conversation_id,
+                    Conversation.id.in_(participant_conv_ids),
                 )
-                .all()
             )
-            if participant_conv:
-                participant_conv_ids = [
-                    str(p.conversation_id) for p in participant_conv
-                ]
-                conversation = (
-                    session.query(Conversation)
-                    .filter(
-                        Conversation.name == self.conversation_name,
-                        Conversation.id.in_(participant_conv_ids),
-                    )
-                    .first()
+
+            conversation = (
+                session.query(Conversation)
+                .filter(or_(*access_filters))
+                .first()
+            )
+        else:
+            # Fallback: name-based lookup for legacy /api/ endpoint
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == self.conversation_name,
+                    Conversation.user_id == user_id,
                 )
+                .first()
+            )
+
+            if not conversation:
+                # Fallback: check group conversations accessible via company membership
+                user_company_ids = (
+                    session.query(UserCompany.company_id)
+                    .filter(UserCompany.user_id == user_id)
+                    .all()
+                )
+                company_ids = [str(uc[0]) for uc in user_company_ids]
+                if company_ids:
+                    conversation = (
+                        session.query(Conversation)
+                        .filter(
+                            Conversation.name == self.conversation_name,
+                            Conversation.company_id.in_(company_ids),
+                            Conversation.conversation_type.in_(
+                                ["group", "dm", "thread", "channel"]
+                            ),
+                        )
+                        .first()
+                    )
+
+            if not conversation:
+                # Fallback: check conversations where user is a participant
+                participant_conv = (
+                    session.query(ConversationParticipant)
+                    .filter(
+                        ConversationParticipant.user_id == user_id,
+                        ConversationParticipant.participant_type == "user",
+                        ConversationParticipant.status == "active",
+                    )
+                    .all()
+                )
+                if participant_conv:
+                    participant_conv_ids = [
+                        str(p.conversation_id) for p in participant_conv
+                    ]
+                    conversation = (
+                        session.query(Conversation)
+                        .filter(
+                            Conversation.name == self.conversation_name,
+                            Conversation.id.in_(participant_conv_ids),
+                        )
+                        .first()
+                    )
 
         if not conversation:
             session.close()
