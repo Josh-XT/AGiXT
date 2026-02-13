@@ -1524,23 +1524,6 @@ class Conversations:
             conversation = Conversation(name=self.conversation_name, user_id=user_id)
             session.add(conversation)
             session.commit()
-        else:
-            # Mark all notifications as read for this conversation
-            # Mark notifications as read in a fire-and-forget manner
-            # This is not critical to the read path and shouldn't block message retrieval
-            try:
-                (
-                    session.query(Message)
-                    .filter(
-                        Message.conversation_id == conversation.id,
-                        Message.notify == True,
-                    )
-                    .update({"notify": False}, synchronize_session=False)
-                )
-                session.commit()
-            except Exception as e:
-                session.rollback()
-                logging.debug(f"Failed to mark notifications as read: {e}")
         offset = (page - 1) * limit
         # Get total message count for pagination support
         total_messages = (
@@ -1683,6 +1666,21 @@ class Conversations:
                 ),
             }
             return_messages.append(msg)
+        # Mark notifications as read AFTER retrieving messages so the UPDATE+COMMIT
+        # doesn't block the read path.  This is not critical — if it fails, the user
+        # simply sees the unread badge a bit longer.
+        try:
+            (
+                session.query(Message)
+                .filter(
+                    Message.conversation_id == conversation.id,
+                    Message.notify == True,
+                )
+                .update({"notify": False}, synchronize_session=False)
+            )
+            session.commit()
+        except Exception:
+            session.rollback()
         session.close()
         return {
             "interactions": return_messages,

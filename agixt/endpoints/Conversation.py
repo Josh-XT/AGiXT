@@ -2391,11 +2391,16 @@ async def conversation_stream(
         )
 
         # Get initial conversation history
-        # Use a generous limit for WebSocket initial load to prevent message loss
-        # on reconnection. The REST API uses limit=100 for pagination, but the
-        # WebSocket needs all messages to maintain accurate state tracking.
+        # Respect client-requested limit (via ?limit= query param), defaulting to 50.
+        # The SWR HTTP endpoint already fetches 50 messages for display; loading
+        # hundreds/thousands here was the primary cause of slow DM loading.
         try:
-            initial_history = c.get_conversation(limit=1000)
+            ws_limit_str = websocket.query_params.get("limit", "50")
+            try:
+                ws_limit = max(1, min(int(ws_limit_str), 200))  # Clamp 1-200
+            except (ValueError, TypeError):
+                ws_limit = 50
+            initial_history = c.get_conversation(limit=ws_limit)
 
             messages = []
             if initial_history is None:
