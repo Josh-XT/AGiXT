@@ -333,9 +333,7 @@ def get_agents_lightweight(
                     enabled_by_agent[agent_id_str].add(cmd_name)
 
             # Build commands dict for the default agent only
-            enabled_commands = enabled_by_agent.get(
-                str(default_agent_id), set()
-            )
+            enabled_commands = enabled_by_agent.get(str(default_agent_id), set())
             commands_by_agent[str(default_agent_id)] = {
                 cmd_name: cmd_name in enabled_commands
                 for cmd_name in command_id_to_name.values()
