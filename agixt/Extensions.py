@@ -471,10 +471,8 @@ class Extensions:
 
     def get_chains(self):
         session = get_session()
-        chains = session.query(ChainDB).filter(ChainDB.user_id == self.user_id).all()
-        chain_list = []
-        for chain in chains:
-            chain_list.append(chain.name)
+        chain_names = session.query(ChainDB.name).filter(ChainDB.user_id == self.user_id).all()
+        chain_list = [name for (name,) in chain_names]
         session.close()
         return chain_list
 

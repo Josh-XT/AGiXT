@@ -24,6 +24,7 @@ from Globals import getenv, DEFAULT_USER, get_default_user_id
 from Prompts import Prompts
 from Extensions import Extensions
 from MagicalAuth import get_user_id, get_user_company_id
+from collections import defaultdict
 import logging
 import asyncio
 from WebhookManager import webhook_emitter
@@ -48,15 +49,6 @@ class Chain:
             .filter(ChainDB.user_id == self.user_id, ChainDB.name == chain_name)
             .first()
         )
-        if chain_db is None:
-            chain_db = (
-                session.query(ChainDB)
-                .filter(
-                    ChainDB.name == chain_name,
-                    ChainDB.user_id == self.user_id,
-                )
-                .first()
-            )
         if chain_db is None:
             session.close()
             return []
@@ -322,28 +314,29 @@ class Chain:
         chains_set = set()  # Use set for deduplication by name
 
         # 1. Server-level chains (non-internal only)
-        server_chains = (
-            session.query(ServerChain).filter(ServerChain.is_internal == False).all()
+        server_names = (
+            session.query(ServerChain.name)
+            .filter(ServerChain.is_internal == False)
+            .all()
         )
-        for chain in server_chains:
-            chains_set.add(chain.name)
+        chains_set.update(name for (name,) in server_names)
 
         # 2. Company-level chains (add or override server)
         if self.company_id:
-            company_chains = (
-                session.query(CompanyChain)
+            company_names = (
+                session.query(CompanyChain.name)
                 .filter(CompanyChain.company_id == self.company_id)
                 .all()
             )
-            for chain in company_chains:
-                chains_set.add(chain.name)
+            chains_set.update(name for (name,) in company_names)
 
         # 3. User-level chains (add or override company and server)
-        user_chains = (
-            session.query(ChainDB).filter(ChainDB.user_id == self.user_id).all()
+        user_names = (
+            session.query(ChainDB.name)
+            .filter(ChainDB.user_id == self.user_id)
+            .all()
         )
-        for chain in user_chains:
-            chains_set.add(chain.name)
+        chains_set.update(name for (name,) in user_names)
 
         session.close()
         return list(chains_set)
@@ -579,10 +572,20 @@ class Chain:
         session.add(chain_step)
         session.commit()
 
-        for argument_name, argument_value in prompt_arguments.items():
-            argument = (
-                session.query(Argument).filter(Argument.name == argument_name).first()
+        # Batch-load all arguments by name
+        arg_names = list(prompt_arguments.keys())
+        if arg_names:
+            args = (
+                session.query(Argument)
+                .filter(Argument.name.in_(arg_names))
+                .all()
             )
+            args_by_name = {a.name: a for a in args}
+        else:
+            args_by_name = {}
+
+        for argument_name, argument_value in prompt_arguments.items():
+            argument = args_by_name.get(argument_name)
             if not argument:
                 # Handle the case where argument not found based on argument_name
                 # You can choose to skip this argument or raise an exception
@@ -789,14 +792,24 @@ class Chain:
         ).delete()
         session.commit()  # Commit deletion
 
+        # Batch-load all arguments by name
+        arg_names = list(cleaned_prompt_args.keys())
+        if arg_names:
+            args = (
+                session.query(Argument)
+                .filter(Argument.name.in_(arg_names))
+                .all()
+            )
+            args_by_name = {a.name: a for a in args}
+        else:
+            args_by_name = {}
+
         # Add new arguments
         for (
             argument_name,
             argument_value,
         ) in cleaned_prompt_args.items():  # Use cleaned args
-            argument = (
-                session.query(Argument).filter(Argument.name == argument_name).first()
-            )
+            argument = args_by_name.get(argument_name)
             if argument:
                 chain_step_argument = ChainStepArgument(
                     chain_step_id=str(chain_step.id),
@@ -988,19 +1001,29 @@ class Chain:
                 .all()
             )
 
+            # Batch-load all responses for all steps in one query (eliminates N+1)
+            step_ids = [step.id for step in chain_steps]
+            all_responses = (
+                session.query(ChainStepResponse)
+                .filter(
+                    ChainStepResponse.chain_step_id.in_(step_ids),
+                    ChainStepResponse.chain_run_id == chain_run_id,
+                )
+                .order_by(
+                    ChainStepResponse.chain_step_id,
+                    ChainStepResponse.timestamp,
+                )
+                .all()
+            ) if step_ids else []
+
+            # Group responses by step_id
+            responses_by_step = defaultdict(list)
+            for resp in all_responses:
+                responses_by_step[resp.chain_step_id].append(resp.content)
+
             responses = {}
             for step in chain_steps:
-                chain_step_responses = (
-                    session.query(ChainStepResponse)
-                    .filter(
-                        ChainStepResponse.chain_step_id == step.id,
-                        ChainStepResponse.chain_run_id == chain_run_id,
-                    )
-                    .order_by(ChainStepResponse.timestamp)
-                    .all()
-                )
-                step_responses = [response.content for response in chain_step_responses]
-                responses[str(step.step_number)] = step_responses
+                responses[str(step.step_number)] = responses_by_step.get(step.id, [])
             session.close()
             return responses
         else:
@@ -1034,16 +1057,27 @@ class Chain:
     def get_chain_responses(self, chain_name):
         chain_steps = self.get_steps(chain_name=chain_name)
         responses = {}
+        if not chain_steps:
+            return responses
         session = get_session()
-        for step in chain_steps:
-            chain_step_responses = (
-                session.query(ChainStepResponse)
-                .filter(ChainStepResponse.chain_step_id == step.id)
-                .order_by(ChainStepResponse.timestamp)
-                .all()
+        # Batch-load all responses for all steps in one query (eliminates N+1)
+        step_ids = [step.id for step in chain_steps]
+        all_responses = (
+            session.query(ChainStepResponse)
+            .filter(ChainStepResponse.chain_step_id.in_(step_ids))
+            .order_by(
+                ChainStepResponse.chain_step_id,
+                ChainStepResponse.timestamp,
             )
-            step_responses = [response.content for response in chain_step_responses]
-            responses[str(step.step_number)] = step_responses
+            .all()
+        )
+
+        responses_by_step = defaultdict(list)
+        for resp in all_responses:
+            responses_by_step[resp.chain_step_id].append(resp.content)
+
+        for step in chain_steps:
+            responses[str(step.step_number)] = responses_by_step.get(step.id, [])
         session.close()
         return responses
 
@@ -1095,18 +1129,51 @@ class Chain:
             session.add(chain)
             session.commit()
         steps = steps["steps"] if "steps" in steps else steps
+
+        # Pre-load all agents for this user to avoid per-step agent queries
+        user_agents = (
+            session.query(Agent)
+            .filter(Agent.user_id == self.user_id)
+            .all()
+        )
+        agents_by_name = {a.name: a for a in user_agents}
+        fallback_agent = user_agents[0] if user_agents else None
+
+        # Collect all unique argument names from all steps for batch loading
+        all_arg_names = set()
+        for step_data in steps:
+            prompt = step_data["prompt"]
+            prompt_type = step_data.get("prompt_type", "prompt").lower()
+            if prompt_type == "prompt":
+                arg_key = "prompt_name"
+            elif prompt_type == "chain":
+                arg_key = "chain_name" if "chain_name" in prompt else "chain"
+            elif prompt_type == "command":
+                arg_key = "command_name"
+            else:
+                continue
+            prompt_copy = prompt.copy()
+            if arg_key in prompt_copy:
+                del prompt_copy[arg_key]
+            all_arg_names.update(prompt_copy.keys())
+
+        # Batch-load existing arguments
+        args_by_name = {}
+        if all_arg_names:
+            existing_args = (
+                session.query(Argument)
+                .filter(Argument.name.in_(list(all_arg_names)))
+                .all()
+            )
+            args_by_name = {a.name: a for a in existing_args}
+
         for step_data in steps:
             agent_name = step_data["agent_name"]
-            agent = (
-                session.query(Agent)
-                .filter(Agent.name == agent_name, Agent.user_id == self.user_id)
-                .first()
-            )
+            agent = agents_by_name.get(agent_name, fallback_agent)
             if not agent:
-                # Use the first agent in the database
-                agent = (
-                    session.query(Agent).filter(Agent.user_id == self.user_id).first()
-                )
+                logging.error(f"No agents found for user. Skipping step.")
+                continue
+
             prompt = step_data["prompt"]
             if "prompt_type" not in step_data:
                 step_data["prompt_type"] = "prompt"
@@ -1177,15 +1244,12 @@ class Chain:
             session.add(chain_step)
             session.commit()
             for argument_name, argument_value in prompt_arguments.items():
-                argument = (
-                    session.query(Argument)
-                    .filter(Argument.name == argument_name)
-                    .first()
-                )
+                argument = args_by_name.get(argument_name)
                 if not argument:
                     argument = Argument(name=argument_name)
                     session.add(argument)
                     session.commit()
+                    args_by_name[argument_name] = argument
 
                 chain_step_argument = ChainStepArgument(
                     chain_step_id=chain_step.id,
@@ -1537,45 +1601,86 @@ class Chain:
 
         steps = (
             session.query(ChainStep)
-            .join(Agent, ChainStep.agent_id == Agent.id)
             .filter(ChainStep.chain_id == chain_db.id)
             .order_by(ChainStep.step_number)
             .all()
         )
-        chain_steps = []
-        for step in steps:
-            # Get the agent name from the joined Agent table
-            agent = session.query(Agent).filter(Agent.id == step.agent_id).first()
-            agent_name = agent.name if agent else ""
 
-            # Build prompt object similar to get_chain() method
-            prompt = {}
-            if step.target_chain_id:
-                chain_obj = session.query(ChainDB).get(step.target_chain_id)
-                if chain_obj:
-                    prompt["chain_name"] = chain_obj.name
-            elif step.target_command_id:
-                command_obj = session.query(Command).get(step.target_command_id)
-                if command_obj:
-                    prompt["command_name"] = command_obj.name
-            elif step.target_prompt_id:
-                prompt_obj = session.query(Prompt).get(step.target_prompt_id)
-                if prompt_obj:
-                    prompt["prompt_name"] = prompt_obj.name
+        if not steps:
+            result = {
+                "id": str(chain_db.id),
+                "name": chain_db.name,
+                "description": chain_db.description,
+                "steps": [],
+            }
+            session.close()
+            return result
 
-            # Retrieve argument data for the step
-            arguments = (
-                session.query(Argument, ChainStepArgument)
-                .join(ChainStepArgument, ChainStepArgument.argument_id == Argument.id)
-                .filter(ChainStepArgument.chain_step_id == step.id)
-                .all()
+        # Batch-load all referenced entities to avoid N+1 queries
+        agent_ids = {s.agent_id for s in steps if s.agent_id}
+        target_chain_ids = {s.target_chain_id for s in steps if s.target_chain_id}
+        target_command_ids = {s.target_command_id for s in steps if s.target_command_id}
+        target_prompt_ids = {s.target_prompt_id for s in steps if s.target_prompt_id}
+        step_ids = [s.id for s in steps]
+
+        agents_map = {}
+        if agent_ids:
+            agents = session.query(Agent).filter(Agent.id.in_(agent_ids)).all()
+            agents_map = {a.id: a.name for a in agents}
+
+        chains_map = {}
+        if target_chain_ids:
+            chains = (
+                session.query(ChainDB).filter(ChainDB.id.in_(target_chain_ids)).all()
+            )
+            chains_map = {c.id: c.name for c in chains}
+
+        commands_map = {}
+        if target_command_ids:
+            cmds = (
+                session.query(Command).filter(Command.id.in_(target_command_ids)).all()
+            )
+            commands_map = {c.id: c.name for c in cmds}
+
+        prompts_map = {}
+        if target_prompt_ids:
+            prms = (
+                session.query(Prompt).filter(Prompt.id.in_(target_prompt_ids)).all()
+            )
+            prompts_map = {p.id: p.name for p in prms}
+
+        # Batch-load all arguments for all steps in one query
+        all_args = (
+            session.query(Argument, ChainStepArgument)
+            .join(ChainStepArgument, ChainStepArgument.argument_id == Argument.id)
+            .filter(ChainStepArgument.chain_step_id.in_(step_ids))
+            .all()
+        )
+        args_by_step = defaultdict(dict)
+        for argument, chain_step_argument in all_args:
+            args_by_step[chain_step_argument.chain_step_id][argument.name] = (
+                chain_step_argument.value
             )
 
-            prompt_args = {}
-            for argument, chain_step_argument in arguments:
-                prompt_args[argument.name] = chain_step_argument.value
+        chain_steps = []
+        for step in steps:
+            agent_name = agents_map.get(step.agent_id, "")
 
-            prompt.update(prompt_args)
+            prompt = {}
+            if step.target_chain_id:
+                chain_name = chains_map.get(step.target_chain_id)
+                if chain_name:
+                    prompt["chain_name"] = chain_name
+            elif step.target_command_id:
+                cmd_name = commands_map.get(step.target_command_id)
+                if cmd_name:
+                    prompt["command_name"] = cmd_name
+            elif step.target_prompt_id:
+                prm_name = prompts_map.get(step.target_prompt_id)
+                if prm_name:
+                    prompt["prompt_name"] = prm_name
+
+            prompt.update(args_by_step.get(step.id, {}))
 
             step_data = {
                 "step": step.step_number,
@@ -1745,18 +1850,20 @@ class Chain:
             .all()
         )
 
-        chain_args = []
-        for step in steps:
-            # Get step arguments with joined Argument to get the name
-            step_args = (
-                session.query(ChainStepArgument, Argument)
-                .join(Argument, ChainStepArgument.argument_id == Argument.id)
-                .filter(ChainStepArgument.chain_step_id == step.id)
-                .all()
-            )
-            for step_arg, arg in step_args:
-                if arg.name not in chain_args:
-                    chain_args.append(arg.name)
+        if not steps:
+            session.close()
+            return []
+
+        # Batch-load all argument names for all steps in one query
+        step_ids = [s.id for s in steps]
+        arg_names = (
+            session.query(Argument.name)
+            .join(ChainStepArgument, ChainStepArgument.argument_id == Argument.id)
+            .filter(ChainStepArgument.chain_step_id.in_(step_ids))
+            .distinct()
+            .all()
+        )
+        chain_args = [name for (name,) in arg_names]
 
         session.close()
         return chain_args
@@ -1924,18 +2031,24 @@ class Chain:
         user_chains = (
             session.query(ChainDB).filter(ChainDB.user_id == self.user_id).all()
         )
-        for chain in user_chains:
-            steps = self._get_chain_steps_data(session, chain, "user")
 
-            # Check if this is an override
-            override = (
+        if user_chains:
+            # Batch-load all UserChainOverride records for this user's chains
+            user_chain_ids = [c.id for c in user_chains]
+            overrides = (
                 session.query(UserChainOverride)
                 .filter(
                     UserChainOverride.user_id == self.user_id,
-                    UserChainOverride.chain_id == chain.id,
+                    UserChainOverride.chain_id.in_(user_chain_ids),
                 )
-                .first()
+                .all()
             )
+            overrides_map = {o.chain_id: o for o in overrides}
+
+        for chain in user_chains:
+            steps = self._get_chain_steps_data(session, chain, "user")
+
+            override = overrides_map.get(chain.id)
             is_override = override is not None
             parent_id = None
             if override:

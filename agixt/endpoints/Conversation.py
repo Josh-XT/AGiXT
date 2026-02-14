@@ -3551,11 +3551,10 @@ async def import_shared_conversation(
         if share.include_workspace:
             try:
                 # Get DEFAULT_USER's agent that has the workspace files
-                default_user = (
-                    session.query(User).filter(User.email == DEFAULT_USER).first()
-                )
-                if default_user:
-                    default_user_id = str(default_user.id)
+                from Globals import get_default_user_id
+
+                default_user_id = get_default_user_id()
+                if default_user_id:
 
                     # Get agent name from shared conversation messages
                     agent_message = (
@@ -3702,15 +3701,11 @@ async def get_shared_conversation_workspace(
         conversation_id = str(shared_conversation.id)
 
         # Get the DEFAULT_USER's ID to query for their agent
-        from DB import User
+        from Globals import get_default_user_id
 
-        default_user_obj = (
-            session.query(User).filter(User.email == DEFAULT_USER).first()
-        )
-        if not default_user_obj:
+        default_user_id = get_default_user_id()
+        if not default_user_id:
             raise HTTPException(status_code=500, detail="Default user not found")
-
-        default_user_id = str(default_user_obj.id)
 
         # Get the agent name from the shared conversation's messages
         agent_message = (
@@ -3819,15 +3814,11 @@ async def download_shared_workspace_file(
         conversation_id = str(shared_conversation.id)
 
         # Get the DEFAULT_USER's ID to query for their agent
-        from DB import User
+        from Globals import get_default_user_id
 
-        default_user_obj = (
-            session.query(User).filter(User.email == DEFAULT_USER).first()
-        )
-        if not default_user_obj:
+        default_user_id = get_default_user_id()
+        if not default_user_id:
             raise HTTPException(status_code=500, detail="Default user not found")
-
-        default_user_id = str(default_user_obj.id)
 
         # Get the agent name from the shared conversation's messages
         agent_message = (

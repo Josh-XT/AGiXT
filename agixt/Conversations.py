@@ -133,6 +133,7 @@ def _find_markdown_data_urls(message: str):
 # Minimum size threshold for extracting data URLs to workspace (10KB)
 # Smaller data URLs (like tiny icons) are left inline
 _DATA_URL_SIZE_THRESHOLD = 10 * 1024
+_RE_BASE64_CHARS = re.compile(r"[A-Za-z0-9+/=\s]+")
 
 # MIME type to file extension mapping
 _MIME_TO_EXT = {
@@ -233,7 +234,7 @@ def extract_data_urls_to_workspace(
             base64_data = base64_data.strip()
 
             # Validate base64 data contains only valid characters
-            if not base64_data or not re.fullmatch(r"[A-Za-z0-9+/=\s]+", base64_data):
+            if not base64_data or not _RE_BASE64_CHARS.fullmatch(base64_data):
                 return None
 
             # Check size threshold - only extract large data URLs
@@ -481,7 +482,6 @@ def get_conversation_id_by_name(conversation_name, user_id, create_if_missing=Tr
             return cached
 
     session = get_session()
-    user = session.query(User).filter(User.id == user_id).first()
     conversation = (
         session.query(Conversation)
         .filter(
@@ -2958,21 +2958,13 @@ class Conversations:
     def toggle_feedback_received(self, message):
         session = get_session()
         try:
-            user_id = self._user_id
-            conversation = (
-                session.query(Conversation)
-                .filter(
-                    Conversation.name == self.conversation_name,
-                    Conversation.user_id == user_id,
-                )
-                .first()
-            )
-            if not conversation:
+            conversation_id = self.get_conversation_id()
+            if not conversation_id:
                 return
             msg = (
                 session.query(Message)
                 .filter(
-                    Message.conversation_id == conversation.id,
+                    Message.conversation_id == conversation_id,
                     Message.content == message,
                 )
                 .first()
@@ -2987,21 +2979,13 @@ class Conversations:
     def has_received_feedback(self, message):
         session = get_session()
         try:
-            user_id = self._user_id
-            conversation = (
-                session.query(Conversation)
-                .filter(
-                    Conversation.name == self.conversation_name,
-                    Conversation.user_id == user_id,
-                )
-                .first()
-            )
-            if not conversation:
+            conversation_id = self.get_conversation_id()
+            if not conversation_id:
                 return
             msg = (
                 session.query(Message)
                 .filter(
-                    Message.conversation_id == conversation.id,
+                    Message.conversation_id == conversation_id,
                     Message.content == message,
                 )
                 .first()
@@ -3015,21 +2999,13 @@ class Conversations:
     def update_message(self, message, new_message):
         session = get_session()
         try:
-            user_id = self._user_id
-            conversation = (
-                session.query(Conversation)
-                .filter(
-                    Conversation.name == self.conversation_name,
-                    Conversation.user_id == user_id,
-                )
-                .first()
-            )
-            if not conversation:
+            conversation_id = self.get_conversation_id()
+            if not conversation_id:
                 return
             msg = (
                 session.query(Message)
                 .filter(
-                    Message.conversation_id == conversation.id,
+                    Message.conversation_id == conversation_id,
                     Message.content == message,
                 )
                 .first()
@@ -3351,15 +3327,11 @@ class Conversations:
 
     def set_conversation_summary(self, summary: str):
         session = get_session()
-        user_id = self._user_id
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
-            )
-            .first()
-        )
+        conversation_id = self.get_conversation_id()
+        if not conversation_id:
+            session.close()
+            return ""
+        conversation = session.query(Conversation).filter(Conversation.id == conversation_id).first()
         if not conversation:
             session.close()
             return ""
@@ -3370,51 +3342,31 @@ class Conversations:
 
     def get_conversation_summary(self):
         session = get_session()
-        user_id = self._user_id
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
-            )
-            .first()
-        )
-        if not conversation:
+        conversation_id = self.get_conversation_id()
+        if not conversation_id:
             session.close()
             return ""
-        summary = conversation.summary
+        result = session.query(Conversation.summary).filter(Conversation.id == conversation_id).scalar()
         session.close()
-        return summary
+        return result or ""
 
     def get_attachment_count(self):
         session = get_session()
-        user_id = self._user_id
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
-            )
-            .first()
-        )
-        if not conversation:
+        conversation_id = self.get_conversation_id()
+        if not conversation_id:
             session.close()
             return 0
-        attachment_count = conversation.attachment_count
+        result = session.query(Conversation.attachment_count).filter(Conversation.id == conversation_id).scalar()
         session.close()
-        return attachment_count
+        return result or 0
 
     def update_attachment_count(self, count: int):
         session = get_session()
-        user_id = self._user_id
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
-            )
-            .first()
-        )
+        conversation_id = self.get_conversation_id()
+        if not conversation_id:
+            session.close()
+            return 0
+        conversation = session.query(Conversation).filter(Conversation.id == conversation_id).first()
         if not conversation:
             session.close()
             return 0
@@ -3425,15 +3377,11 @@ class Conversations:
 
     def increment_attachment_count(self):
         session = get_session()
-        user_id = self._user_id
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
-            )
-            .first()
-        )
+        conversation_id = self.get_conversation_id()
+        if not conversation_id:
+            session.close()
+            return 0
+        conversation = session.query(Conversation).filter(Conversation.id == conversation_id).first()
         if not conversation:
             session.close()
             return 0
@@ -4447,37 +4395,29 @@ class Conversations:
         session = get_session()
         user_id = self._user_id
         try:
-            # Get conversations where user is a participant
-            conversations = (
+            # Single query: conversations where user is active participant OR owner
+            all_conversations = (
                 session.query(Conversation)
-                .join(
+                .outerjoin(
                     ConversationParticipant,
                     ConversationParticipant.conversation_id == Conversation.id,
                 )
                 .filter(
                     Conversation.company_id == company_id,
                     Conversation.conversation_type == "group",
-                    ConversationParticipant.user_id == user_id,
-                    ConversationParticipant.status == "active",
+                    or_(
+                        and_(
+                            ConversationParticipant.user_id == user_id,
+                            ConversationParticipant.status == "active",
+                        ),
+                        Conversation.user_id == user_id,
+                    ),
                 )
+                .distinct()
                 .all()
             )
 
-            # Also include conversations the user owns (backward compat)
-            owned_conversations = (
-                session.query(Conversation)
-                .filter(
-                    Conversation.company_id == company_id,
-                    Conversation.conversation_type == "group",
-                    Conversation.user_id == user_id,
-                )
-                .all()
-            )
-
-            # Merge and deduplicate
-            all_convos = {str(c.id): c for c in conversations}
-            for c in owned_conversations:
-                all_convos[str(c.id)] = c
+            all_convos = {str(c.id): c for c in all_conversations}
 
             # Auto-create a #general channel if the company has no group channels at all
             if not all_convos:

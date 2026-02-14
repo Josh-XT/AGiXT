@@ -30,6 +30,10 @@ from XT import AGiXT
 import json
 import asyncio
 
+# Pre-compiled regex for @mention extraction
+_RE_QUOTED_MENTION = re.compile(r'@["\u201c]([^"\u201d]+)["\u201d]')
+_RE_UNQUOTED_MENTION = re.compile(r"@(\S+)")
+
 
 def parse_agent_mentions(messages, available_agents):
     """
@@ -61,7 +65,6 @@ def parse_agent_mentions(messages, available_agents):
         return None, messages
 
     # Build agent name lookup (case-insensitive), sorted longest first
-    # Support both objects with .name and dicts with ["name"]
     def _get_agent_name(a):
         if isinstance(a, str):
             return a
@@ -76,31 +79,30 @@ def parse_agent_mentions(messages, available_agents):
     )
     # Deduplicate
     agent_names = list(dict.fromkeys(agent_names))
+    # Build case-insensitive lookup
+    agent_names_lower = {n.lower(): n for n in agent_names}
 
-    # Match @AgentName pattern - supports quoted names like @"My Agent" and unquoted
-    for agent_name in agent_names:
-        # Try quoted pattern first: @"Agent Name"
-        quoted_pattern = re.compile(
-            r'@["\u201c]' + re.escape(agent_name) + r'["\u201d]',
-            re.IGNORECASE,
-        )
-        match = quoted_pattern.search(content)
-        if match:
-            cleaned_content = content[: match.start()] + content[match.end() :]
-            cleaned_content = cleaned_content.strip()
+    # Try quoted pattern first: @"Agent Name" or @\u201cAgent Name\u201d
+    match = _RE_QUOTED_MENTION.search(content)
+    if match:
+        mentioned = match.group(1)
+        canonical = agent_names_lower.get(mentioned.lower())
+        if canonical:
+            cleaned_content = (content[: match.start()] + content[match.end() :]).strip()
             new_messages = list(messages)
             new_messages[last_user_idx] = {**msg, "content": cleaned_content}
-            return agent_name, new_messages
+            return canonical, new_messages
 
-        # Try unquoted pattern: @AgentName (word boundary after)
+    # Try unquoted pattern: @AgentName — match longest agent name first
+    for agent_name in agent_names:
+        # Use word-boundary-aware pattern per agent name (compiled patterns are cached by Python)
         unquoted_pattern = re.compile(
             r"@" + re.escape(agent_name) + r"(?:\b|(?=\s|$|[,.:;!?]))",
             re.IGNORECASE,
         )
         match = unquoted_pattern.search(content)
         if match:
-            cleaned_content = content[: match.start()] + content[match.end() :]
-            cleaned_content = cleaned_content.strip()
+            cleaned_content = (content[: match.start()] + content[match.end() :]).strip()
             new_messages = list(messages)
             new_messages[last_user_idx] = {**msg, "content": cleaned_content}
             return agent_name, new_messages
@@ -195,6 +197,20 @@ async def chat_completion(
                 prompt.model = "AGiXT"
         prompt.model = prompt.model.replace('"', "")
 
+        # Pre-fetch conversation once for both @mention validation and DM check
+        _conv_obj = None
+        if conversation_id:
+            try:
+                _conv_session = get_session()
+                _conv_obj = (
+                    _conv_session.query(Conversation)
+                    .filter(Conversation.id == conversation_id)
+                    .first()
+                )
+                _conv_session.close()
+            except Exception as e:
+                logging.warning(f"Error fetching conversation: {e}")
+
         # @mention agent routing: if the user's message contains @AgentName,
         # override the target agent and strip the mention from the message.
         if prompt.messages:
@@ -205,51 +221,39 @@ async def chat_completion(
                 if mentioned_agent:
                     # Validate the mentioned agent belongs to this conversation's company
                     agent_allowed = True
-                    if conversation_id:
-                        try:
-                            session = get_session()
-                            conv = (
-                                session.query(Conversation)
-                                .filter(Conversation.id == conversation_id)
-                                .first()
-                            )
-                            if conv and conv.company_id:
-                                # Get the mentioned agent's company_id
-                                mentioned_agent_data = next(
+                    if _conv_obj and _conv_obj.company_id:
+                        mentioned_agent_data = next(
+                            (
+                                a
+                                for a in all_agents
+                                if (
                                     (
-                                        a
-                                        for a in all_agents
-                                        if (
-                                            (
-                                                a["name"]
-                                                if isinstance(a, dict)
-                                                else a.name
-                                            )
-                                            == mentioned_agent
-                                        )
-                                    ),
-                                    None,
-                                )
-                                if mentioned_agent_data:
-                                    agent_company = (
-                                        mentioned_agent_data["company_id"]
-                                        if isinstance(mentioned_agent_data, dict)
-                                        else getattr(
-                                            mentioned_agent_data, "company_id", None
-                                        )
+                                        a["name"]
+                                        if isinstance(a, dict)
+                                        else a.name
                                     )
-                                    if agent_company and str(agent_company) != str(
-                                        conv.company_id
-                                    ):
-                                        agent_allowed = False
-                                        logging.info(
-                                            f"@mention blocked: agent '{mentioned_agent}' "
-                                            f"(company {agent_company}) not in conversation's "
-                                            f"company ({conv.company_id})"
-                                        )
-                            session.close()
-                        except Exception as e:
-                            logging.warning(f"Error validating agent company: {e}")
+                                    == mentioned_agent
+                                )
+                            ),
+                            None,
+                        )
+                        if mentioned_agent_data:
+                            agent_company = (
+                                mentioned_agent_data["company_id"]
+                                if isinstance(mentioned_agent_data, dict)
+                                else getattr(
+                                    mentioned_agent_data, "company_id", None
+                                )
+                            )
+                            if agent_company and str(agent_company) != str(
+                                _conv_obj.company_id
+                            ):
+                                agent_allowed = False
+                                logging.info(
+                                    f"@mention blocked: agent '{mentioned_agent}' "
+                                    f"(company {agent_company}) not in conversation's "
+                                    f"company ({_conv_obj.company_id})"
+                                )
 
                     if agent_allowed:
                         prompt.model = mentioned_agent
@@ -267,15 +271,10 @@ async def chat_completion(
         # (no agent participants).  The front end already routes these to
         # the message-only endpoint, but this prevents accidental triggers
         # from stale clients, race conditions, or API callers.
-        if conversation_id:
+        if _conv_obj:
             try:
-                _dm_session = get_session()
-                _dm_conv = (
-                    _dm_session.query(Conversation)
-                    .filter(Conversation.id == conversation_id)
-                    .first()
-                )
-                if _dm_conv and _dm_conv.conversation_type == "dm":
+                if _conv_obj.conversation_type == "dm":
+                    _dm_session = get_session()
                     _has_agent = (
                         _dm_session.query(ConversationParticipant)
                         .filter(
@@ -284,20 +283,20 @@ async def chat_completion(
                         )
                         .first()
                     )
+                    _dm_session.close()
                     if not _has_agent:
-                        _dm_session.close()
                         raise HTTPException(
                             status_code=400,
                             detail="Cannot trigger agent response in a user-to-user DM with no agent participants.",
                         )
                 elif (
-                    _dm_conv
-                    and _dm_conv.conversation_type == "thread"
-                    and _dm_conv.parent_id
+                    _conv_obj.conversation_type == "thread"
+                    and _conv_obj.parent_id
                 ):
+                    _dm_session = get_session()
                     _parent_conv = (
                         _dm_session.query(Conversation)
-                        .filter(Conversation.id == _dm_conv.parent_id)
+                        .filter(Conversation.id == _conv_obj.parent_id)
                         .first()
                     )
                     if _parent_conv and _parent_conv.conversation_type == "dm":
@@ -316,7 +315,7 @@ async def chat_completion(
                                 status_code=400,
                                 detail="Cannot trigger agent response in a thread within a user-to-user DM.",
                             )
-                _dm_session.close()
+                    _dm_session.close()
             except HTTPException:
                 raise
             except Exception as e:
@@ -416,6 +415,20 @@ async def mcp_chat_completion(
                 prompt.model = "AGiXT"
         prompt.model = prompt.model.replace('"', "")
 
+        # Pre-fetch conversation once for both @mention validation and DM check
+        _conv_obj = None
+        if conversation_id:
+            try:
+                _conv_session = get_session()
+                _conv_obj = (
+                    _conv_session.query(Conversation)
+                    .filter(Conversation.id == conversation_id)
+                    .first()
+                )
+                _conv_session.close()
+            except Exception as e:
+                logging.warning(f"Error fetching conversation: {e}")
+
         # @mention agent routing for MCP endpoint
         if prompt.messages:
             try:
@@ -425,50 +438,39 @@ async def mcp_chat_completion(
                 if mentioned_agent:
                     # Validate the mentioned agent belongs to this conversation's company
                     agent_allowed = True
-                    if conversation_id:
-                        try:
-                            session = get_session()
-                            conv = (
-                                session.query(Conversation)
-                                .filter(Conversation.id == conversation_id)
-                                .first()
-                            )
-                            if conv and conv.company_id:
-                                mentioned_agent_data = next(
+                    if _conv_obj and _conv_obj.company_id:
+                        mentioned_agent_data = next(
+                            (
+                                a
+                                for a in all_agents
+                                if (
                                     (
-                                        a
-                                        for a in all_agents
-                                        if (
-                                            (
-                                                a["name"]
-                                                if isinstance(a, dict)
-                                                else a.name
-                                            )
-                                            == mentioned_agent
-                                        )
-                                    ),
-                                    None,
-                                )
-                                if mentioned_agent_data:
-                                    agent_company = (
-                                        mentioned_agent_data["company_id"]
-                                        if isinstance(mentioned_agent_data, dict)
-                                        else getattr(
-                                            mentioned_agent_data, "company_id", None
-                                        )
+                                        a["name"]
+                                        if isinstance(a, dict)
+                                        else a.name
                                     )
-                                    if agent_company and str(agent_company) != str(
-                                        conv.company_id
-                                    ):
-                                        agent_allowed = False
-                                        logging.info(
-                                            f"@mention blocked (MCP): agent '{mentioned_agent}' "
-                                            f"(company {agent_company}) not in conversation's "
-                                            f"company ({conv.company_id})"
-                                        )
-                            session.close()
-                        except Exception as e:
-                            logging.warning(f"Error validating agent company: {e}")
+                                    == mentioned_agent
+                                )
+                            ),
+                            None,
+                        )
+                        if mentioned_agent_data:
+                            agent_company = (
+                                mentioned_agent_data["company_id"]
+                                if isinstance(mentioned_agent_data, dict)
+                                else getattr(
+                                    mentioned_agent_data, "company_id", None
+                                )
+                            )
+                            if agent_company and str(agent_company) != str(
+                                _conv_obj.company_id
+                            ):
+                                agent_allowed = False
+                                logging.info(
+                                    f"@mention blocked (MCP): agent '{mentioned_agent}' "
+                                    f"(company {agent_company}) not in conversation's "
+                                    f"company ({_conv_obj.company_id})"
+                                )
 
                     if agent_allowed:
                         prompt.model = mentioned_agent
@@ -482,15 +484,10 @@ async def mcp_chat_completion(
                 logging.warning(f"Error parsing @mentions: {e}")
 
         # Defense-in-depth: refuse agent responses in user-to-user DMs
-        if conversation_id:
+        if _conv_obj:
             try:
-                _dm_session = get_session()
-                _dm_conv = (
-                    _dm_session.query(Conversation)
-                    .filter(Conversation.id == conversation_id)
-                    .first()
-                )
-                if _dm_conv and _dm_conv.conversation_type == "dm":
+                if _conv_obj.conversation_type == "dm":
+                    _dm_session = get_session()
                     _has_agent = (
                         _dm_session.query(ConversationParticipant)
                         .filter(
@@ -499,20 +496,20 @@ async def mcp_chat_completion(
                         )
                         .first()
                     )
+                    _dm_session.close()
                     if not _has_agent:
-                        _dm_session.close()
                         raise HTTPException(
                             status_code=400,
                             detail="Cannot trigger agent response in a user-to-user DM with no agent participants.",
                         )
                 elif (
-                    _dm_conv
-                    and _dm_conv.conversation_type == "thread"
-                    and _dm_conv.parent_id
+                    _conv_obj.conversation_type == "thread"
+                    and _conv_obj.parent_id
                 ):
+                    _dm_session = get_session()
                     _parent_conv = (
                         _dm_session.query(Conversation)
-                        .filter(Conversation.id == _dm_conv.parent_id)
+                        .filter(Conversation.id == _conv_obj.parent_id)
                         .first()
                     )
                     if _parent_conv and _parent_conv.conversation_type == "dm":
@@ -531,7 +528,7 @@ async def mcp_chat_completion(
                                 status_code=400,
                                 detail="Cannot trigger agent response in a thread within a user-to-user DM.",
                             )
-                _dm_session.close()
+                    _dm_session.close()
             except HTTPException:
                 raise
             except Exception as e:

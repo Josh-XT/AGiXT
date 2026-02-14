@@ -15,6 +15,7 @@ from DB import (
 from Globals import DEFAULT_USER, get_default_user_id
 from MagicalAuth import get_user_id, get_user_company_id
 from SharedCache import shared_cache
+from sqlalchemy.orm import joinedload
 import os
 import logging
 
@@ -213,6 +214,10 @@ class Prompts:
         # 1. Server-level prompts (non-internal only)
         server_prompts = (
             session.query(ServerPrompt)
+            .options(
+                joinedload(ServerPrompt.arguments),
+                joinedload(ServerPrompt.category),
+            )
             .join(ServerPromptCategory)
             .filter(ServerPrompt.is_internal == False)
             .all()
@@ -237,6 +242,10 @@ class Prompts:
         if self.company_id:
             company_prompts = (
                 session.query(CompanyPrompt)
+                .options(
+                    joinedload(CompanyPrompt.arguments),
+                    joinedload(CompanyPrompt.category),
+                )
                 .filter(CompanyPrompt.company_id == self.company_id)
                 .all()
             )
@@ -264,7 +273,13 @@ class Prompts:
 
         # 3. User-level prompts (override company and server)
         user_prompts = (
-            session.query(Prompt).filter(Prompt.user_id == self.user_id).all()
+            session.query(Prompt)
+            .options(
+                joinedload(Prompt.arguments),
+                joinedload(Prompt.prompt_category),
+            )
+            .filter(Prompt.user_id == self.user_id)
+            .all()
         )
         # Batch-fetch all user prompt overrides in a single query (N+1 → 1)
         all_user_overrides = (
@@ -306,7 +321,13 @@ class Prompts:
         default_uid = get_default_user_id()
         if default_uid and default_uid != str(self.user_id):
             global_prompts = (
-                session.query(Prompt).filter(Prompt.user_id == default_uid).all()
+                session.query(Prompt)
+                .options(
+                    joinedload(Prompt.arguments),
+                    joinedload(Prompt.prompt_category),
+                )
+                .filter(Prompt.user_id == default_uid)
+                .all()
             )
             for prompt in global_prompts:
                 if prompt.name not in prompts_dict:
@@ -345,7 +366,13 @@ class Prompts:
 
         # Server-level prompts (non-internal)
         server_prompts = (
-            session.query(ServerPrompt).filter(ServerPrompt.is_internal == False).all()
+            session.query(ServerPrompt)
+            .options(
+                joinedload(ServerPrompt.arguments),
+                joinedload(ServerPrompt.category),
+            )
+            .filter(ServerPrompt.is_internal == False)
+            .all()
         )
         for prompt in server_prompts:
             if prompt.name not in user_prompt_names:
@@ -369,6 +396,10 @@ class Prompts:
         if self.company_id:
             company_prompts = (
                 session.query(CompanyPrompt)
+                .options(
+                    joinedload(CompanyPrompt.arguments),
+                    joinedload(CompanyPrompt.category),
+                )
                 .filter(CompanyPrompt.company_id == self.company_id)
                 .all()
             )
@@ -394,7 +425,13 @@ class Prompts:
         default_uid = get_default_user_id()
         if default_uid:
             global_prompts = (
-                session.query(Prompt).filter(Prompt.user_id == default_uid).all()
+                session.query(Prompt)
+                .options(
+                    joinedload(Prompt.arguments),
+                    joinedload(Prompt.prompt_category),
+                )
+                .filter(Prompt.user_id == default_uid)
+                .all()
             )
             for prompt in global_prompts:
                 if prompt.name not in user_prompt_names:

@@ -836,22 +836,17 @@ def get_sso_credentials(user_id):
     if not user:
         session.close()
         raise HTTPException(status_code=404, detail="User not found.")
-    user_oauth = session.query(UserOAuth).filter(UserOAuth.user_id == user_id).all()
-    if not user_oauth:
-        session.close()
-        return {}
-    credentials = {}
-    for oauth in user_oauth:
-        provider = (
-            session.query(OAuthProvider)
-            .filter(OAuthProvider.id == oauth.provider_id)
-            .first()
-        )
-        credentials.update(
-            {f"{str(provider.name).upper()}_ACCESS_TOKEN": oauth.access_token}
-        )
+    # JOIN to get provider name in a single query instead of N+1
+    results = (
+        session.query(UserOAuth.access_token, OAuthProvider.name)
+        .join(OAuthProvider, UserOAuth.provider_id == OAuthProvider.id)
+        .filter(UserOAuth.user_id == user_id)
+        .all()
+    )
     session.close()
-    return credentials
+    if not results:
+        return {}
+    return {f"{str(name).upper()}_ACCESS_TOKEN": token for token, name in results}
 
 
 def get_agent_oauth_credentials(agent_id: str, provider_name: str = None):
@@ -969,41 +964,54 @@ def get_all_agent_oauth_connections(agent_id: str):
 
         connections = {}
 
-        # Get all OAuth providers
+        # Batch-fetch all OAuth connections in one query instead of N+1 per provider
         providers = session.query(OAuthProvider).all()
+        provider_by_id = {str(p.id): p.name for p in providers}
 
-        for provider in providers:
-            # Check for agent-specific credentials first
-            agent_oauth = (
-                session.query(UserOAuth)
-                .filter(UserOAuth.agent_id == agent_id)
-                .filter(UserOAuth.provider_id == provider.id)
-                .first()
-            )
+        # Get all relevant UserOAuth records in one query
+        from sqlalchemy import or_, and_
 
-            if agent_oauth:
-                connections[provider.name] = {
-                    "connected": True,
-                    "account_name": agent_oauth.account_name,
-                    "is_agent_specific": True,
-                    "provider_user_id": agent_oauth.provider_user_id,
-                }
-            elif agent.user_id:
-                # Check for owner's credentials
-                owner_oauth = (
-                    session.query(UserOAuth)
-                    .filter(UserOAuth.user_id == agent.user_id)
-                    .filter(UserOAuth.provider_id == provider.id)
-                    .filter(UserOAuth.agent_id.is_(None))
-                    .first()
+        relevant_oauth = (
+            session.query(UserOAuth)
+            .filter(
+                or_(
+                    UserOAuth.agent_id == agent_id,
+                    and_(
+                        UserOAuth.user_id == agent.user_id,
+                        UserOAuth.agent_id.is_(None),
+                    ),
                 )
-                if owner_oauth:
-                    connections[provider.name] = {
-                        "connected": True,
-                        "account_name": owner_oauth.account_name,
-                        "is_agent_specific": False,
-                        "provider_user_id": owner_oauth.provider_user_id,
-                    }
+            )
+            .all()
+        )
+
+        # Partition into agent-specific vs owner credentials
+        agent_oauth_by_provider = {}
+        owner_oauth_by_provider = {}
+        for oauth in relevant_oauth:
+            pid = str(oauth.provider_id)
+            if str(oauth.agent_id) == str(agent_id):
+                agent_oauth_by_provider[pid] = oauth
+            elif oauth.agent_id is None:
+                owner_oauth_by_provider[pid] = oauth
+
+        for pid, pname in provider_by_id.items():
+            if pid in agent_oauth_by_provider:
+                ao = agent_oauth_by_provider[pid]
+                connections[pname] = {
+                    "connected": True,
+                    "account_name": ao.account_name,
+                    "is_agent_specific": True,
+                    "provider_user_id": ao.provider_user_id,
+                }
+            elif pid in owner_oauth_by_provider:
+                oo = owner_oauth_by_provider[pid]
+                connections[pname] = {
+                    "connected": True,
+                    "account_name": oo.account_name,
+                    "is_agent_specific": False,
+                    "provider_user_id": oo.provider_user_id,
+                }
 
         return connections
     finally:
@@ -5041,44 +5049,41 @@ class MagicalAuth:
 
                     # Only check company subscriptions if the user doesn't have their own
                     if not has_active_subscription:
-                        for user_company in user_companies:
-                            # Get the company admins
-                            company_admins = (
-                                session.query(User)
-                                .join(
-                                    UserCompany, User.id == UserCompany.user_id
-                                )  # Add proper JOIN
-                                .filter(
-                                    UserCompany.company_id == user_company.company_id
-                                )
-                                .filter(UserCompany.role_id <= 2)
-                                .all()
+                        # Batch-fetch all company admin preferences in one query
+                        company_ids = [uc.company_id for uc in user_companies]
+                        admin_rows = (
+                            session.query(
+                                User.id, User.email,
+                                UserPreferences.pref_key, UserPreferences.pref_value,
+                                UserCompany.company_id,
                             )
-                            for company_admin in company_admins:
-                                company_admin_preferences = (
-                                    session.query(UserPreferences)
-                                    .filter(UserPreferences.user_id == company_admin.id)
-                                    .all()
+                            .join(UserCompany, User.id == UserCompany.user_id)
+                            .outerjoin(UserPreferences, User.id == UserPreferences.user_id)
+                            .filter(
+                                UserCompany.company_id.in_(company_ids),
+                                UserCompany.role_id <= 2,
+                            )
+                            .all()
+                        ) if company_ids else []
+                        # Group into {admin_id: {email, prefs}} 
+                        admins_data = {}
+                        for uid, email, pkey, pval, cid in admin_rows:
+                            if uid not in admins_data:
+                                admins_data[uid] = {"email": email, "prefs": {}}
+                            if pkey is not None:
+                                admins_data[uid]["prefs"][pkey] = pval
+                        for admin_info in admins_data.values():
+                            if "stripe_id" in admin_info["prefs"]:
+                                user_preferences["stripe_id"] = admin_info["prefs"]["stripe_id"]
+                                relevant_subscriptions = (
+                                    self.get_subscribed_products(
+                                        api_key,
+                                        admin_info["email"],
+                                    )
                                 )
-                                company_admin_preferences = {
-                                    x.pref_key: x.pref_value
-                                    for x in company_admin_preferences
-                                }
-                                if "stripe_id" in company_admin_preferences:
-                                    # add to users preferences
-                                    user_preferences["stripe_id"] = (
-                                        company_admin_preferences["stripe_id"]
-                                    )
-                                    # check if it has an active subscription
-                                    relevant_subscriptions = (
-                                        self.get_subscribed_products(
-                                            api_key,
-                                            company_admin.email,
-                                        )
-                                    )
-                                    if relevant_subscriptions:
-                                        has_active_subscription = True
-                                        break
+                                if relevant_subscriptions:
+                                    has_active_subscription = True
+                                    break
                         if not has_active_subscription:
                             if (
                                 "stripe_id" not in user_preferences

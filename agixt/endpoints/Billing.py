@@ -969,14 +969,17 @@ async def get_company_usage(
         )
 
         # Convert to dict for JSON serialization
+        # Batch-fetch all users to avoid N+1
+        user_ids = list({record.user_id for record in usage_records})
+        users = session.query(User).filter(User.id.in_(user_ids)).all() if user_ids else []
+        users_by_id = {str(u.id): u.email for u in users}
+
         result = []
         for record in usage_records:
-            # Get user email for display
-            user = session.query(User).filter(User.id == record.user_id).first()
             result.append(
                 {
                     "user_id": record.user_id,
-                    "user_email": user.email if user else "Unknown",
+                    "user_email": users_by_id.get(str(record.user_id), "Unknown"),
                     "input_tokens": record.input_tokens,
                     "output_tokens": record.output_tokens,
                     "total_tokens": record.total_tokens,

@@ -521,11 +521,12 @@ class Websearch:
         while websearch_endpoint in self.failures:
             random_index = random.randint(0, len(servers) - 1)
             websearch_endpoint = servers[random_index]
-        self.agent_settings["websearch_endpoint"] = websearch_endpoint
-        self.agent.update_agent_config(
-            new_config={"websearch_endpoint": websearch_endpoint},
-            config_key="settings",
-        )
+        if websearch_endpoint != self.agent_settings.get("websearch_endpoint"):
+            self.agent_settings["websearch_endpoint"] = websearch_endpoint
+            self.agent.update_agent_config(
+                new_config={"websearch_endpoint": websearch_endpoint},
+                config_key="settings",
+            )
         self.websearch_endpoint = websearch_endpoint
         return websearch_endpoint
 

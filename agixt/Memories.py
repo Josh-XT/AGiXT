@@ -2,6 +2,8 @@ import logging
 import os
 import asyncio
 import sys
+import base64
+from hashlib import sha256
 from DB import (
     Memory,
     Agent,
@@ -221,9 +223,6 @@ def hash_user_id(user: str, length: int = 8) -> str:
     Returns:
         str: Short, consistent hash of the user ID
     """
-    from hashlib import sha256
-    import base64
-
     # Generate hash of the user identifier
     hash_obj = sha256(user.encode())
     hash_bytes = hash_obj.digest()[:6]  # Take first 6 bytes
