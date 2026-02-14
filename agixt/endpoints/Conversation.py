@@ -326,6 +326,11 @@ class ConversationMessageBroadcaster:
             f"broadcast_message_event called: conv={conversation_id}, type={event_type}"
         )
 
+        # Mark conversation updated in SharedCache so poll loops can skip DB queries
+        from Conversations import mark_conversation_updated
+
+        mark_conversation_updated(conversation_id)
+
         # Try to publish to Redis for cross-worker distribution
         if self.publish_to_redis(conversation_id, event_type, message_data):
             # Redis will handle distribution to all workers including this one
@@ -619,16 +624,25 @@ async def get_conversations_list(user=Depends(verify_api_key)):
     "/v1/conversations",
     response_model=ConversationDetailResponse,
     summary="Get Detailed Conversations List",
-    description="Retrieves a detailed list of conversations including metadata such as creation date, update date, and notification status.",
+    description="Retrieves a detailed list of conversations including metadata such as creation date, update date, and notification status. Supports optional limit/offset for pagination.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_conversations(user=Depends(verify_api_key)):
+async def get_conversations(
+    user=Depends(verify_api_key),
+    limit: int = None,
+    offset: int = 0,
+):
     c = Conversations(user=user)
     conversations = c.get_conversations_with_detail()
     if not conversations:
         conversations = {}
-    # Output: {"conversations": { "conversation_id": { "name": "conversation_name", "created_at": "datetime", "updated_at": "datetime" } } }
+    # Apply pagination if limit is specified
+    # The dict is already sorted by updated_at descending from get_conversations_with_detail
+    if limit is not None and limit > 0:
+        keys = list(conversations.keys())
+        paginated_keys = keys[offset : offset + limit]
+        conversations = {k: conversations[k] for k in paginated_keys}
     return {
         "conversations": conversations,
     }
@@ -923,25 +937,29 @@ async def add_message_v1(
     )
 
     # Build sender object for broadcast (so other users see correct avatar/name)
+    # Reuse the user dict from verify_api_key instead of a redundant DB query
     sender_data = None
     if log_interaction.role.upper() == "USER":
         try:
-            from DB import get_session
-
-            with get_session() as session:
-                sender_user = (
-                    session.query(User).filter(User.id == auth.user_id).first()
-                )
-                if sender_user:
-                    sender_data = {
-                        "id": str(sender_user.id),
-                        "email": sender_user.email,
-                        "first_name": sender_user.first_name or "",
-                        "last_name": sender_user.last_name or "",
-                        "avatar_url": getattr(sender_user, "avatar_url", None),
-                    }
+            sender_data = {
+                "id": str(
+                    user.get("id", auth.user_id)
+                    if isinstance(user, dict)
+                    else auth.user_id
+                ),
+                "email": user.get("email", "") if isinstance(user, dict) else "",
+                "first_name": (
+                    user.get("first_name", "") if isinstance(user, dict) else ""
+                ),
+                "last_name": (
+                    user.get("last_name", "") if isinstance(user, dict) else ""
+                ),
+                "avatar_url": (
+                    user.get("avatar_url", None) if isinstance(user, dict) else None
+                ),
+            }
         except Exception as e:
-            logging.warning(f"Failed to fetch sender data for broadcast: {e}")
+            logging.warning(f"Failed to build sender data for broadcast: {e}")
 
     # Notify all conversation participants of the new message via user-level websocket
     asyncio.create_task(
@@ -1219,6 +1237,10 @@ async def delete_message_v1(
     ).delete_message_by_id(
         message_id=message_id,
     )
+    # Mark conversation updated so WebSocket poll loops detect the deletion
+    from Conversations import mark_conversation_updated
+
+    mark_conversation_updated(conversation_id)
     return ResponseMessage(message="Message deleted.")
 
 
@@ -2476,14 +2498,17 @@ async def conversation_stream(
         last_heartbeat_time = datetime.now()
         last_rename_check_time = datetime.now()
 
+        # Adaptive poll interval: grows from 0.5s to 3s when idle, resets on activity
+        poll_interval = 0.5
+        consecutive_empty_polls = 0
+
         # Main streaming loop
         while True:
             try:
-                # Use wait_for with a timeout to check for incoming messages
-                # Increased to 0.5s to reduce CPU usage while still being responsive
+                # Use wait_for with adaptive timeout
                 try:
                     message_data = await asyncio.wait_for(
-                        websocket.receive_json(), timeout=0.5
+                        websocket.receive_json(), timeout=poll_interval
                     )
 
                     # Handle incoming messages
@@ -2672,6 +2697,22 @@ async def conversation_stream(
                 # Update tracking
                 last_message_count = changes["current_count"]
                 last_check_time = datetime.now()
+
+                # Adaptive poll interval: grow when idle, shrink on activity
+                has_changes = (
+                    changes["new_messages"]
+                    or changes["updated_messages"]
+                    or changes["deleted_ids"]
+                )
+                if has_changes:
+                    # Activity detected — reset to fast polling
+                    consecutive_empty_polls = 0
+                    poll_interval = 0.5
+                else:
+                    # No changes — gradually increase poll interval (0.5 → 1 → 1.5 → 2 → 2.5 → 3s)
+                    consecutive_empty_polls += 1
+                    if consecutive_empty_polls >= 4:
+                        poll_interval = min(poll_interval + 0.5, 3.0)
 
                 # Send heartbeat every 30 seconds to keep connection alive
                 current_time = datetime.now()

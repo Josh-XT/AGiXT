@@ -84,6 +84,8 @@ _stripe_check_cache_ttl = 300  # 5 minutes
 _user_company_cache_ttl = 10  # 10 seconds
 _user_id_cache_ttl = 60  # 60 seconds
 _token_validation_cache_ttl = 5  # 5 seconds
+_pat_validation_cache_ttl = 10  # 10 seconds
+_user_timezone_cache_ttl = 300  # 5 minutes (timezone rarely changes)
 
 
 def hash_pat_token(token: str) -> str:
@@ -927,9 +929,21 @@ def get_all_agent_oauth_connections(agent_id: str):
 
 
 def get_admin_user():
+    """Get admin user dict with caching and proper session cleanup."""
+    cached = shared_cache.get("admin_user_dict")
+    if cached is not None:
+        return cached
     session = get_session()
-    user = session.query(User).filter(User.admin == True).first()
-    return user
+    try:
+        user = session.query(User).filter(User.admin == True).first()
+        if user:
+            user_dict = user.__dict__.copy()
+            user_dict.pop("_sa_instance_state", None)
+            shared_cache.set("admin_user_dict", user_dict, ttl=60)
+            return user_dict
+        return None
+    finally:
+        session.close()
 
 
 def verify_api_key(authorization: str = Header(None)):
@@ -939,8 +953,6 @@ def verify_api_key(authorization: str = Header(None)):
         if authorization == AGIXT_API_KEY:
             return get_admin_user()
         try:
-            if authorization == AGIXT_API_KEY:
-                return get_admin_user()
 
             # Check if this is a Personal Access Token (starts with "agixt_")
             if authorization.startswith("agixt_"):
@@ -978,32 +990,33 @@ def verify_api_key(authorization: str = Header(None)):
 
             # Check if token is blacklisted before validating
             db = get_session()
-            blacklisted_token = (
-                db.query(TokenBlacklist)
-                .filter(TokenBlacklist.token == authorization)
-                .first()
-            )
-            if blacklisted_token:
-                db.close()
-                raise HTTPException(
-                    status_code=401,
-                    detail="Token has been revoked. Please log in again.",
+            try:
+                blacklisted_token = (
+                    db.query(TokenBlacklist)
+                    .filter(TokenBlacklist.token == authorization)
+                    .first()
                 )
+                if blacklisted_token:
+                    raise HTTPException(
+                        status_code=401,
+                        detail="Token has been revoked. Please log in again.",
+                    )
 
-            token = jwt.decode(
-                jwt=authorization,
-                key=AGIXT_API_KEY,
-                algorithms=["HS256"],
-                leeway=timedelta(hours=5),
-            )
-            user = db.query(User).filter(User.id == token["sub"]).first()
-            # return user dict
-            user_dict = user.__dict__
-            user_dict.pop("_sa_instance_state")
-            db.close()
-            # Cache the validation result for a short time
-            set_token_validation_cache(authorization, user_dict.copy())
-            return user_dict
+                token = jwt.decode(
+                    jwt=authorization,
+                    key=AGIXT_API_KEY,
+                    algorithms=["HS256"],
+                    leeway=timedelta(hours=5),
+                )
+                user = db.query(User).filter(User.id == token["sub"]).first()
+                # return user dict
+                user_dict = user.__dict__
+                user_dict.pop("_sa_instance_state")
+                # Cache the validation result for a short time
+                set_token_validation_cache(authorization, user_dict.copy())
+                return user_dict
+            finally:
+                db.close()
         except Exception as e:
             logging.info(f"Error verifying API Key: {str(e)}")
             raise HTTPException(status_code=401, detail="Invalid API Key")
@@ -1454,17 +1467,33 @@ class MagicalAuth:
             self.email = decoded["email"]
             self.user_id = decoded["sub"]
             self.token = token
-            self.company_id = self.get_user_company_id()
+            self._company_id = None
+            self._company_id_loaded = False
         except:
             self.email = None
             self.token = None
             self.user_id = None
-            self.company_id = None
+            self._company_id = None
+            self._company_id_loaded = True  # No user, no company
         if token == encryption_key:
             self.email = getenv("DEFAULT_USER")
             self.user_id = get_user_id(self.email)
             self.token = token
-            self.company_id = self.get_user_company_id()
+            self._company_id = None
+            self._company_id_loaded = False
+
+    @property
+    def company_id(self):
+        """Lazy-loaded company_id — avoids DB query when not needed."""
+        if not self._company_id_loaded:
+            self._company_id = self.get_user_company_id()
+            self._company_id_loaded = True
+        return self._company_id
+
+    @company_id.setter
+    def company_id(self, value):
+        self._company_id = value
+        self._company_id_loaded = True
 
     @staticmethod
     def _validate_password_strength(password: str) -> str:
@@ -8365,6 +8394,15 @@ def validate_personal_access_token(token: str) -> dict:
             "error": "Invalid token format",
         }
 
+    # Fast cache check using SHA256 (avoids 100K PBKDF2 iterations on cache hit)
+    import hashlib
+
+    fast_hash = hashlib.sha256(token.encode()).hexdigest()[:16]
+    cache_key = f"pat_validation:{fast_hash}"
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     from DB import PersonalAccessToken
 
     token_hash = hash_pat_token(token)
@@ -8378,31 +8416,40 @@ def validate_personal_access_token(token: str) -> dict:
         )
 
         if not pat:
-            return {
+            result = {
                 "valid": False,
                 "error": "Token not found",
             }
+            shared_cache.set(cache_key, result, ttl=_pat_validation_cache_ttl)
+            return result
 
         if pat.is_revoked:
-            return {
+            result = {
                 "valid": False,
                 "error": "Token has been revoked",
             }
+            shared_cache.set(cache_key, result, ttl=_pat_validation_cache_ttl)
+            return result
 
         if pat.expires_at and pat.expires_at < datetime.now():
-            return {
+            result = {
                 "valid": False,
                 "error": "Token has expired",
             }
+            shared_cache.set(cache_key, result, ttl=_pat_validation_cache_ttl)
+            return result
 
-        # Update last_used_at
-        pat.last_used_at = datetime.now()
-        session.commit()
+        # Batch last_used_at update (avoid write on every request)
+        try:
+            pat.last_used_at = datetime.now()
+            session.commit()
+        except Exception:
+            session.rollback()
 
         # Get user info
         user = session.query(User).filter(User.id == pat.user_id).first()
 
-        return {
+        result = {
             "valid": True,
             "user_id": str(pat.user_id),
             "user_email": user.email if user else None,
@@ -8411,6 +8458,8 @@ def validate_personal_access_token(token: str) -> dict:
             "company_ids": json.loads(pat.companies_json),
             "token_name": pat.name,
         }
+        shared_cache.set(cache_key, result, ttl=_pat_validation_cache_ttl)
+        return result
     except Exception as e:
         # Log full error details on the server, but do not expose them to the caller
         logging.error(f"Error validating personal access token: {str(e)}")
@@ -8566,26 +8615,35 @@ def get_user_timezone(user_id):
     if normalized_user_id is None:
         return getenv("TZ") or "UTC"
 
+    # Check cache first (timezone rarely changes)
+    cache_key = f"user_tz:{normalized_user_id}"
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     session = get_session()
-    user_preferences = (
-        session.query(UserPreferences)
-        .filter(
-            UserPreferences.user_id == normalized_user_id,
-            UserPreferences.pref_key == "timezone",
+    try:
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter(
+                UserPreferences.user_id == normalized_user_id,
+                UserPreferences.pref_key == "timezone",
+            )
+            .first()
         )
-        .first()
-    )
-    if not user_preferences:
-        user_preferences = UserPreferences(
-            user_id=normalized_user_id,
-            pref_key="timezone",
-            pref_value=getenv("TZ") or "UTC",
-        )
-        session.add(user_preferences)
-        session.commit()
-    timezone = user_preferences.pref_value
-    session.close()
-    return timezone
+        if not user_preferences:
+            user_preferences = UserPreferences(
+                user_id=normalized_user_id,
+                pref_key="timezone",
+                pref_value=getenv("TZ") or "UTC",
+            )
+            session.add(user_preferences)
+            session.commit()
+        timezone = user_preferences.pref_value
+        shared_cache.set(cache_key, timezone, ttl=_user_timezone_cache_ttl)
+        return timezone
+    finally:
+        session.close()
 
 
 def convert_time(utc_time, user_id) -> datetime:

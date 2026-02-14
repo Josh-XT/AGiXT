@@ -322,6 +322,24 @@ def invalidate_conversation_cache(user_id: str = None, conversation_name: str = 
         shared_cache.delete_pattern(f"conversation_id:{user_id}:*")
 
 
+def mark_conversation_updated(conversation_id: str):
+    """Mark a conversation as updated in SharedCache for poll-skip optimization.
+
+    The WebSocket poll loop checks this timestamp before hitting the DB.
+    If the cached timestamp hasn't changed since the last poll, all DB
+    queries are skipped entirely — turning a 5-8 query poll cycle into
+    a microsecond cache lookup.
+    """
+    try:
+        shared_cache.set(
+            f"conv_updated:{conversation_id}",
+            datetime.now().isoformat(),
+            ttl=120,  # 2 min TTL — polls run every 0.5-3s so this is plenty
+        )
+    except Exception:
+        pass  # Cache miss is fine — poll will just hit DB as before
+
+
 async def broadcast_message_to_conversation(
     conversation_id: str, event_type: str, message_data: dict
 ) -> int:
@@ -343,6 +361,9 @@ async def broadcast_message_to_conversation(
         # Import here to avoid circular imports
         from endpoints.Conversation import conversation_message_broadcaster
 
+        # Mark conversation updated in SharedCache so poll loops can skip DB queries
+        mark_conversation_updated(conversation_id)
+
         return await conversation_message_broadcaster.broadcast_message_event(
             conversation_id, event_type, message_data
         )
@@ -363,6 +384,8 @@ def broadcast_message_sync(conversation_id: str, event_type: str, message_data: 
     logging.debug(
         f"broadcast_message_sync called: conv={conversation_id}, type={event_type}, msg_id={message_data.get('id')}"
     )
+    # Mark conversation updated in SharedCache so poll loops can skip DB queries
+    mark_conversation_updated(conversation_id)
     try:
         # Import broadcaster to use Redis pub/sub
         from endpoints.Conversation import conversation_message_broadcaster
@@ -468,60 +491,69 @@ def get_conversation_name_by_id(conversation_id, user_id):
     if conversation_id == "-":
         conversation_id = get_conversation_id_by_name("-", user_id)
         return "-"
+
+    # Check cache first (avoids 2-4 DB queries per call)
+    cache_key = f"conv_name:{conversation_id}:{user_id}"
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     session = get_session()
-    # First try: user's own conversation
-    conversation = (
-        session.query(Conversation)
-        .filter(
-            Conversation.id == conversation_id,
-            Conversation.user_id == user_id,
-        )
-        .first()
-    )
-    if not conversation:
-        # Second try: group conversations accessible via company membership
-        user_company_ids = (
-            session.query(UserCompany.company_id)
-            .filter(UserCompany.user_id == user_id)
-            .all()
-        )
-        company_ids = [str(uc[0]) for uc in user_company_ids]
-        if company_ids:
-            conversation = (
-                session.query(Conversation)
-                .filter(
-                    Conversation.id == conversation_id,
-                    Conversation.company_id.in_(company_ids),
-                    Conversation.conversation_type.in_(
-                        ["group", "dm", "thread", "channel"]
-                    ),
-                )
-                .first()
-            )
-    if not conversation:
-        # Third try: conversations where user is a participant (handles DMs without company_id)
-        participant_conv = (
-            session.query(ConversationParticipant)
+    try:
+        # First try: user's own conversation
+        conversation = (
+            session.query(Conversation)
             .filter(
-                ConversationParticipant.conversation_id == conversation_id,
-                ConversationParticipant.user_id == user_id,
-                ConversationParticipant.participant_type == "user",
-                ConversationParticipant.status == "active",
+                Conversation.id == conversation_id,
+                Conversation.user_id == user_id,
             )
             .first()
         )
-        if participant_conv:
-            conversation = (
-                session.query(Conversation)
-                .filter(Conversation.id == conversation_id)
+        if not conversation:
+            # Second try: group conversations accessible via company membership
+            user_company_ids = (
+                session.query(UserCompany.company_id)
+                .filter(UserCompany.user_id == user_id)
+                .all()
+            )
+            company_ids = [str(uc[0]) for uc in user_company_ids]
+            if company_ids:
+                conversation = (
+                    session.query(Conversation)
+                    .filter(
+                        Conversation.id == conversation_id,
+                        Conversation.company_id.in_(company_ids),
+                        Conversation.conversation_type.in_(
+                            ["group", "dm", "thread", "channel"]
+                        ),
+                    )
+                    .first()
+                )
+        if not conversation:
+            # Third try: conversations where user is a participant (handles DMs without company_id)
+            participant_conv = (
+                session.query(ConversationParticipant)
+                .filter(
+                    ConversationParticipant.conversation_id == conversation_id,
+                    ConversationParticipant.user_id == user_id,
+                    ConversationParticipant.participant_type == "user",
+                    ConversationParticipant.status == "active",
+                )
                 .first()
             )
-    if not conversation:
+            if participant_conv:
+                conversation = (
+                    session.query(Conversation)
+                    .filter(Conversation.id == conversation_id)
+                    .first()
+                )
+        if not conversation:
+            return "-"
+        conversation_name = conversation.name
+        shared_cache.set(cache_key, conversation_name, ttl=30)
+        return conversation_name
+    finally:
         session.close()
-        return "-"
-    conversation_name = conversation.name
-    session.close()
-    return conversation_name
 
 
 def get_conversation_name_by_message_id(message_id, user_id):
@@ -649,14 +681,12 @@ class Conversations:
         session = get_session()
         user_id = self._user_id
 
-        # Use a LEFT OUTER JOIN to get conversations and their messages
+        # Use EXISTS subquery instead of JOIN+DISTINCT for O(1) existence check per row
         conversations = (
             session.query(Conversation)
-            .outerjoin(Message, Message.conversation_id == Conversation.id)
             .filter(Conversation.user_id == user_id)
-            .filter(Message.id != None)  # Only get conversations with messages
+            .filter(exists().where(Message.conversation_id == Conversation.id))
             .order_by(Conversation.updated_at.desc())
-            .distinct()
             .all()
         )
 
@@ -668,14 +698,12 @@ class Conversations:
         session = get_session()
         user_id = self._user_id
 
-        # Use a LEFT OUTER JOIN to get conversations and their messages
+        # Use EXISTS subquery instead of JOIN+DISTINCT for O(1) existence check per row
         conversations = (
             session.query(Conversation)
-            .outerjoin(Message, Message.conversation_id == Conversation.id)
             .filter(Conversation.user_id == user_id)
-            .filter(Message.id != None)  # Only get conversations with messages
+            .filter(exists().where(Message.conversation_id == Conversation.id))
             .order_by(Conversation.updated_at.desc())
-            .distinct()
             .all()
         )
 
@@ -721,19 +749,22 @@ class Conversations:
             session.close()
             return {}
 
+        # Pre-fetch timezone ONCE for fast inline conversion
+        # (avoids opening a new DB session per convert_time call)
+        user_timezone = get_user_timezone(user_id)
+        gmt = pytz.timezone("GMT")
+        local_tz = pytz.timezone(user_timezone)
+
+        def _convert_time_fast(utc_time):
+            if utc_time is None:
+                return None
+            if utc_time.tzinfo is None:
+                return gmt.localize(utc_time).astimezone(local_tz)
+            return utc_time.astimezone(local_tz)
+
         # Get default agent_id once (not per conversation - they all share the same user)
         default_agent = session.query(Agent).filter(Agent.user_id == user_id).first()
         default_agent_id = str(default_agent.id) if default_agent else None
-
-        # Subquery to get max message timestamp per conversation
-        last_message_subq = (
-            session.query(
-                Message.conversation_id,
-                func.max(Message.timestamp).label("last_message_time"),
-            )
-            .group_by(Message.conversation_id)
-            .subquery()
-        )
 
         # Get conversation IDs where this user is a participant (for DMs they didn't create)
         participant_conv_ids = (
@@ -746,6 +777,25 @@ class Conversations:
             .all()
         )
         participant_conv_id_list = [str(row[0]) for row in participant_conv_ids]
+
+        # Get owned conversation IDs to scope the last_message subquery
+        owned_conv_ids = (
+            session.query(Conversation.id).filter(Conversation.user_id == user_id).all()
+        )
+        owned_conv_id_list = [str(row[0]) for row in owned_conv_ids]
+        all_relevant_conv_ids = list(set(owned_conv_id_list + participant_conv_id_list))
+
+        # Subquery to get max message timestamp per conversation
+        # BOUNDED to only user-relevant conversations (avoids full table scan)
+        last_message_subq = (
+            session.query(
+                Message.conversation_id,
+                func.max(Message.timestamp).label("last_message_time"),
+            )
+            .filter(Message.conversation_id.in_(all_relevant_conv_ids))
+            .group_by(Message.conversation_id)
+            .subquery()
+        )
 
         # Single query: conversations owned by user OR where user is a participant
         # Exclude group channels and threads from DM/conversation list
@@ -1059,8 +1109,8 @@ class Conversations:
                 "agent_id": default_agent_id,
                 "agent_name": conv_agent_role_map.get(conv_id) or dm_agent_name,
                 "conversation_type": conversation.conversation_type,
-                "created_at": convert_time(conversation.created_at, user_id=user_id),
-                "updated_at": convert_time(effective_updated_at, user_id=user_id),
+                "created_at": _convert_time_fast(conversation.created_at),
+                "updated_at": _convert_time_fast(effective_updated_at),
                 "has_notifications": has_notifications,
                 "summary": (
                     conversation.summary if conversation.summary else "None available"
@@ -1251,7 +1301,42 @@ class Conversations:
                 "current_count": int        # Current total message count
             }
         """
+        # SharedCache fast-path: skip DB queries entirely if nothing has changed
+        # since our last poll. The broadcast functions set this timestamp whenever
+        # a message is added/updated/deleted.
+        _empty_result = {
+            "new_messages": [],
+            "updated_messages": [],
+            "deleted_ids": [],
+            "current_count": len(last_known_ids) if last_known_ids else 0,
+        }
+        if self.conversation_id and since_timestamp is not None:
+            cache_key = f"conv_updated:{self.conversation_id}"
+            cached_ts = shared_cache.get(cache_key)
+            if cached_ts is not None:
+                try:
+                    last_update = datetime.fromisoformat(cached_ts)
+                    if last_update <= since_timestamp:
+                        # Nothing changed since last poll — skip all DB work
+                        return _empty_result
+                except (ValueError, TypeError):
+                    pass  # Malformed cache entry — fall through to DB
+            elif last_known_ids is not None and len(last_known_ids) > 0:
+                # No cache entry at all (no broadcasts happened recently).
+                # If we already have tracked IDs, it's very likely nothing changed.
+                # Fall through to DB to be safe (cache miss).
+                pass
+
         session = get_session()
+        try:
+            return self._get_conversation_changes_db(
+                session, since_timestamp, last_known_ids
+            )
+        finally:
+            session.close()
+
+    def _get_conversation_changes_db(self, session, since_timestamp, last_known_ids):
+        """Internal: runs the actual DB queries for get_conversation_changes."""
         user_id = self._user_id
 
         # Get conversation ID
@@ -1295,7 +1380,6 @@ class Conversations:
             )
 
         if not conversation:
-            session.close()
             return {
                 "new_messages": [],
                 "updated_messages": [],
@@ -1312,27 +1396,40 @@ class Conversations:
             .scalar()
         )
 
-        current_ids = set()
-        if last_known_ids is not None:
-            # Only query IDs if we need to check for deletions
-            id_query = (
-                session.query(Message.id)
-                .filter(Message.conversation_id == conversation.id)
-                .all()
-            )
-            current_ids = {str(row[0]) for row in id_query}
-
-        # Calculate deleted IDs
+        # Optimized deletion detection: only fetch all IDs if the count
+        # differs from what the client has, avoiding O(messages) per poll cycle
         deleted_ids = []
-        if last_known_ids:
-            # Convert to strings for comparison
-            last_known_str = {str(id) for id in last_known_ids}
-            deleted_ids = list(last_known_str - current_ids)
+        if last_known_ids is not None and len(last_known_ids) > 0:
+            if current_count != len(last_known_ids):
+                # Count changed — something was added or deleted, fetch IDs to diff
+                id_query = (
+                    session.query(Message.id)
+                    .filter(Message.conversation_id == conversation.id)
+                    .all()
+                )
+                current_ids = {str(row[0]) for row in id_query}
+                last_known_str = {str(id) for id in last_known_ids}
+                deleted_ids = list(last_known_str - current_ids)
 
         new_messages = []
         updated_messages = []
 
         if since_timestamp is not None:
+            # Pre-fetch timezone ONCE for fast inline conversion
+            # (avoids opening a new DB session per convert_time call)
+            user_timezone = get_user_timezone(user_id)
+            gmt = pytz.timezone("GMT")
+            local_tz = pytz.timezone(user_timezone)
+
+            def _convert_time_fast(utc_time):
+                if utc_time is None:
+                    return None
+                if utc_time.tzinfo is None:
+                    return gmt.localize(utc_time).astimezone(local_tz)
+                return utc_time.astimezone(local_tz)
+
+            agixt_uri = getenv("AGIXT_URI")
+
             # Query for new messages (created at or after timestamp)
             new_query = (
                 session.query(Message)
@@ -1349,10 +1446,10 @@ class Conversations:
                     "id": message.id,
                     "role": message.role,
                     "message": str(message.content).replace(
-                        "http://localhost:7437", getenv("AGIXT_URI")
+                        "http://localhost:7437", agixt_uri
                     ),
-                    "timestamp": convert_time(message.timestamp, user_id=user_id),
-                    "updated_at": convert_time(message.updated_at, user_id=user_id),
+                    "timestamp": _convert_time_fast(message.timestamp),
+                    "updated_at": _convert_time_fast(message.updated_at),
                     "updated_by": message.updated_by,
                     "feedback_received": message.feedback_received,
                     "timestamp_utc": message.timestamp,
@@ -1405,10 +1502,10 @@ class Conversations:
                     "id": message.id,
                     "role": message.role,
                     "message": str(message.content).replace(
-                        "http://localhost:7437", getenv("AGIXT_URI")
+                        "http://localhost:7437", agixt_uri
                     ),
-                    "timestamp": convert_time(message.timestamp, user_id=user_id),
-                    "updated_at": convert_time(message.updated_at, user_id=user_id),
+                    "timestamp": _convert_time_fast(message.timestamp),
+                    "updated_at": _convert_time_fast(message.updated_at),
                     "updated_by": message.updated_by,
                     "feedback_received": message.feedback_received,
                     "timestamp_utc": message.timestamp,
@@ -1449,7 +1546,6 @@ class Conversations:
                 else:
                     msg["sender"] = None
 
-        session.close()
         return {
             "new_messages": new_messages,
             "updated_messages": updated_messages,
@@ -1793,7 +1889,10 @@ class Conversations:
         offset = (page - 1) * limit
         messages = (
             session.query(Message)
-            .filter(Message.conversation_id == conversation.id)
+            .filter(
+                Message.conversation_id == conversation.id,
+                Message.content.like("[ACTIVITY]%"),
+            )
             .order_by(Message.timestamp.asc())
             .limit(limit)
             .offset(offset)
@@ -1802,18 +1901,15 @@ class Conversations:
         if not messages:
             session.close()
             return {"activities": []}
-        return_activities = []
-        for message in messages:
-            if message.content.startswith("[ACTIVITY]"):
-                msg = {
-                    "id": message.id,
-                    "role": message.role,
-                    "message": message.content,
-                    "timestamp": message.timestamp,
-                }
-                return_activities.append(msg)
-        # Order messages by timestamp oldest to newest
-        return_activities = sorted(return_activities, key=lambda x: x["timestamp"])
+        return_activities = [
+            {
+                "id": message.id,
+                "role": message.role,
+                "message": message.content,
+                "timestamp": message.timestamp,
+            }
+            for message in messages
+        ]
         session.close()
         return {"activities": return_activities}
 
@@ -1835,27 +1931,25 @@ class Conversations:
             return ""
         messages = (
             session.query(Message)
-            .filter(Message.conversation_id == conversation.id)
+            .filter(
+                Message.conversation_id == conversation.id,
+                Message.content.like(f"[SUBACTIVITY][{activity_id}]%"),
+            )
             .order_by(Message.timestamp.asc())
             .all()
         )
         if not messages:
             session.close()
             return ""
-        return_subactivities = []
-        for message in messages:
-            if message.content.startswith(f"[SUBACTIVITY][{activity_id}]"):
-                msg = {
-                    "id": message.id,
-                    "role": message.role,
-                    "message": message.content,
-                    "timestamp": message.timestamp,
-                }
-                return_subactivities.append(msg)
-        # Order messages by timestamp oldest to newest
-        return_subactivities = sorted(
-            return_subactivities, key=lambda x: x["timestamp"]
-        )
+        return_subactivities = [
+            {
+                "id": message.id,
+                "role": message.role,
+                "message": message.content,
+                "timestamp": message.timestamp,
+            }
+            for message in messages
+        ]
         session.close()
         # Return it as a string with timestamps per subactivity in markdown format
         subactivities = "\n".join(
@@ -1897,7 +1991,13 @@ class Conversations:
             return ""
         messages = (
             session.query(Message)
-            .filter(Message.conversation_id == conversation.id)
+            .filter(
+                Message.conversation_id == conversation.id,
+                or_(
+                    Message.content.like("[ACTIVITY]%"),
+                    Message.content.like("[SUBACTIVITY]%"),
+                ),
+            )
             .order_by(Message.timestamp.asc())
             .all()
         )
@@ -3176,18 +3276,29 @@ class Conversations:
             .order_by(Message.pinned_at.desc())
             .all()
         )
+        # Batch-fetch all sender users at once instead of N+1 individual queries
+        sender_ids = list(
+            {str(msg.sender_user_id) for msg in messages if msg.sender_user_id}
+        )
+        senders_by_id = {}
+        if sender_ids:
+            users = session.query(User).filter(User.id.in_(sender_ids)).all()
+            senders_by_id = {
+                str(u.id): {
+                    "id": str(u.id),
+                    "email": u.email,
+                    "first_name": u.first_name,
+                    "last_name": u.last_name,
+                }
+                for u in users
+            }
         result = []
         for msg in messages:
-            sender = None
-            if msg.sender_user_id:
-                user = session.query(User).filter(User.id == msg.sender_user_id).first()
-                if user:
-                    sender = {
-                        "id": str(user.id),
-                        "email": user.email,
-                        "first_name": user.first_name,
-                        "last_name": user.last_name,
-                    }
+            sender = (
+                senders_by_id.get(str(msg.sender_user_id))
+                if msg.sender_user_id
+                else None
+            )
             result.append(
                 {
                     "id": str(msg.id),
@@ -3357,11 +3468,6 @@ class Conversations:
         if not conversation:
             session.close()
             return ""
-        conversation = (
-            session.query(Conversation)
-            .filter(Conversation.id == conversation.id)
-            .first()
-        )
         conversation.summary = summary
         session.commit()
         session.close()
@@ -3417,11 +3523,6 @@ class Conversations:
         if not conversation:
             session.close()
             return 0
-        conversation = (
-            session.query(Conversation)
-            .filter(Conversation.id == conversation.id)
-            .first()
-        )
         conversation.attachment_count = count
         session.commit()
         session.close()
@@ -3441,11 +3542,6 @@ class Conversations:
         if not conversation:
             session.close()
             return 0
-        conversation = (
-            session.query(Conversation)
-            .filter(Conversation.id == conversation.id)
-            .first()
-        )
         conversation.attachment_count += 1
         session.commit()
         session.close()

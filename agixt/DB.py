@@ -197,18 +197,20 @@ try:
     connection.close()  # Close test connection
     Base = declarative_base()
 
+    # Create session factory once at module level (not per-call)
+    _SessionFactory = sessionmaker(bind=engine, autoflush=False)
 except Exception as e:
     logging.error(f"Error connecting to database: {e}")
     Base = None
     engine = None
+    _SessionFactory = None
 
 
 from contextlib import contextmanager
 
 
 def get_session():
-    Session = sessionmaker(bind=engine, autoflush=False)
-    session = Session()
+    session = _SessionFactory()
     return session
 
 
@@ -6130,6 +6132,13 @@ def migrate_performance_indexes():
                         "ON message(conversation_id, notify)"
                     )
                 )
+                # Index for updated_at queries in WebSocket polling
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_conv_updated_at "
+                        "ON message(conversation_id, updated_at)"
+                    )
+                )
                 # Index for conversation lookup by user
                 session.execute(
                     text(
@@ -6172,6 +6181,20 @@ def migrate_performance_indexes():
                         "ON conversation_participant(user_id)"
                     )
                 )
+                # Index for thread lookups by parent conversation
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_parent_id "
+                        "ON conversation(parent_id)"
+                    )
+                )
+                # Composite index for group/DM access-control queries
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_company_type "
+                        "ON conversation(company_id, conversation_type)"
+                    )
+                )
             else:
                 # PostgreSQL
                 session.execute(
@@ -6184,6 +6207,12 @@ def migrate_performance_indexes():
                     text(
                         "CREATE INDEX IF NOT EXISTS ix_message_conv_notify "
                         "ON message(conversation_id, notify)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_conv_updated_at "
+                        "ON message(conversation_id, updated_at)"
                     )
                 )
                 session.execute(
@@ -6220,6 +6249,20 @@ def migrate_performance_indexes():
                     text(
                         "CREATE INDEX IF NOT EXISTS ix_conv_participant_user_id "
                         "ON conversation_participant(user_id)"
+                    )
+                )
+                # Index for thread lookups by parent conversation
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_parent_id "
+                        "ON conversation(parent_id)"
+                    )
+                )
+                # Composite index for group/DM access-control queries
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_company_type "
+                        "ON conversation(company_id, conversation_type)"
                     )
                 )
             session.commit()
