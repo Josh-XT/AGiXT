@@ -10,6 +10,18 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Set, Tuple, Optional
 from Globals import getenv
 
+# Module-level persistent httpx client for Discord webhooks
+# Reuses connections instead of creating/destroying per webhook post
+_discord_http_client: httpx.AsyncClient = None
+
+
+def _get_discord_client() -> httpx.AsyncClient:
+    """Get or create a persistent httpx.AsyncClient for Discord webhooks."""
+    global _discord_http_client
+    if _discord_http_client is None or _discord_http_client.is_closed:
+        _discord_http_client = httpx.AsyncClient(timeout=10.0)
+    return _discord_http_client
+
 
 def extract_user_from_token(
     authorization: str = None,
@@ -171,9 +183,9 @@ async def _send_silenced_exception_to_discord(
                     }
                 )
 
-        # Send to Discord webhook asynchronously
-        async with httpx.AsyncClient() as client:
-            await client.post(webhook_url, json=content, timeout=10.0)
+        # Send to Discord webhook using shared client
+        client = _get_discord_client()
+        await client.post(webhook_url, json=content, timeout=10.0)
 
     except Exception as e:
         # Log but don't raise - we don't want error reporting to cause more errors
@@ -266,9 +278,9 @@ async def send_discord_error(
                     }
                 )
 
-        # Send to Discord webhook asynchronously
-        async with httpx.AsyncClient() as client:
-            await client.post(webhook_url, json=content, timeout=10.0)
+        # Send to Discord webhook using shared client
+        client = _get_discord_client()
+        await client.post(webhook_url, json=content, timeout=10.0)
 
     except Exception as e:
         # Log but don't raise - we don't want error reporting to cause more errors
@@ -327,8 +339,8 @@ async def send_discord_notification(
         if fields:
             content["embeds"][0]["fields"] = fields
 
-        async with httpx.AsyncClient() as client:
-            await client.post(webhook_url, json=content, timeout=10.0)
+        client = _get_discord_client()
+        await client.post(webhook_url, json=content, timeout=10.0)
 
     except Exception as e:
         logging.error(f"Failed to send notification to Discord webhook: {e}")

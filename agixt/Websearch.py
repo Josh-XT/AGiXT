@@ -7,14 +7,11 @@ import logging
 import asyncio
 import urllib.parse
 from urllib.parse import urlparse
-from playwright.async_api import async_playwright
-from bs4 import BeautifulSoup  # type: ignore
 from typing import List
 from ApiClient import Agent, Conversations
 from Globals import getenv, get_tokens
 from Memories import Memories
 from datetime import datetime
-from googleapiclient.discovery import build
 from MagicalAuth import MagicalAuth
 from InternalClient import InternalClient
 
@@ -207,6 +204,8 @@ class Websearch:
             )
             return content, None
         try:
+            from playwright.async_api import async_playwright
+
             async with async_playwright() as p:
                 browser = await p.chromium.launch()
                 context = await browser.new_context()
@@ -252,6 +251,8 @@ class Websearch:
                         except:
                             vision_response = ""
                 await browser.close()
+                from bs4 import BeautifulSoup
+
                 soup = BeautifulSoup(content, "html.parser")
                 text_content = soup.get_text()
                 text_content = " ".join(text_content.split())
@@ -431,6 +432,8 @@ class Websearch:
         return message
 
     async def ddg_search(self, query: str, proxy=None) -> List[str]:
+        from playwright.async_api import async_playwright
+
         async with async_playwright() as p:
             launch_options = {}
             if proxy:
@@ -463,6 +466,8 @@ class Websearch:
         google_search_engine_id: str = "",
     ) -> List[str]:
         try:
+            from googleapiclient.discovery import build
+
             service = build(
                 "customsearch", "v1", developerKey=google_api_key, cache_discovery=False
             )

@@ -26,6 +26,48 @@ from sqlalchemy.sql import func, or_, and_, case, exists
 from MagicalAuth import convert_time, get_user_id, get_user_timezone
 from SharedCache import shared_cache
 
+# Module-level timezone constants to avoid repeated pytz.timezone() calls
+_GMT = pytz.timezone("GMT")
+_tz_cache = {}
+
+
+def _make_time_converter(user_id):
+    """Create a fast timezone converter closure for a user. Caches pytz timezone objects."""
+    user_timezone = get_user_timezone(user_id)
+    if user_timezone not in _tz_cache:
+        _tz_cache[user_timezone] = pytz.timezone(user_timezone)
+    local_tz = _tz_cache[user_timezone]
+    gmt = _GMT
+
+    def _convert(utc_time):
+        if utc_time is None:
+            return None
+        if utc_time.tzinfo is None:
+            return gmt.localize(utc_time).astimezone(local_tz)
+        return utc_time.astimezone(local_tz)
+
+    return _convert
+
+
+def _get_user_company_ids(user_id: str) -> list:
+    """Get user's company IDs with SharedCache (10s TTL)."""
+    cache_key = f"user_company_ids:{user_id}"
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    session = get_session()
+    try:
+        ids = [
+            str(uc[0])
+            for uc in session.query(UserCompany.company_id)
+            .filter(UserCompany.user_id == user_id)
+            .all()
+        ]
+        shared_cache.set(cache_key, ids, ttl=10)
+        return ids
+    finally:
+        session.close()
+
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
@@ -449,12 +491,7 @@ def get_conversation_id_by_name(conversation_name, user_id, create_if_missing=Tr
     )
     if not conversation:
         # Check group conversations accessible via company membership
-        user_company_ids = (
-            session.query(UserCompany.company_id)
-            .filter(UserCompany.user_id == user_id)
-            .all()
-        )
-        company_ids = [str(uc[0]) for uc in user_company_ids]
+        company_ids = _get_user_company_ids(user_id)
         if company_ids:
             conversation = (
                 session.query(Conversation)
@@ -511,12 +548,7 @@ def get_conversation_name_by_id(conversation_id, user_id):
         )
         if not conversation:
             # Second try: group conversations accessible via company membership
-            user_company_ids = (
-                session.query(UserCompany.company_id)
-                .filter(UserCompany.user_id == user_id)
-                .all()
-            )
-            company_ids = [str(uc[0]) for uc in user_company_ids]
+            company_ids = _get_user_company_ids(user_id)
             if company_ids:
                 conversation = (
                     session.query(Conversation)
@@ -559,26 +591,17 @@ def get_conversation_name_by_id(conversation_id, user_id):
 def get_conversation_name_by_message_id(message_id, user_id):
     """Get the conversation name that contains a specific message for a user."""
     session = get_session()
-    message = (
-        session.query(Message)
-        .join(Conversation, Message.conversation_id == Conversation.id)
+    result = (
+        session.query(Conversation.name)
+        .join(Message, Message.conversation_id == Conversation.id)
         .filter(
             Message.id == message_id,
             Conversation.user_id == user_id,
         )
         .first()
     )
-    if not message:
-        session.close()
-        return None
-    conversation = (
-        session.query(Conversation)
-        .filter(Conversation.id == message.conversation_id)
-        .first()
-    )
-    conversation_name = conversation.name if conversation else None
     session.close()
-    return conversation_name
+    return result[0] if result else None
 
 
 class Conversations:
@@ -648,34 +671,36 @@ class Conversations:
 
     def export_conversation(self):
         session = get_session()
-        user_id = self._user_id
-        if not self.conversation_name:
-            self.conversation_name = "-"
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
+        try:
+            user_id = self._user_id
+            if not self.conversation_name:
+                self.conversation_name = "-"
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == self.conversation_name,
+                    Conversation.user_id == user_id,
+                )
+                .first()
             )
-            .first()
-        )
-        history = {"interactions": []}
-        if not conversation:
+            history = {"interactions": []}
+            if not conversation:
+                return history
+            messages = (
+                session.query(Message)
+                .filter(Message.conversation_id == conversation.id)
+                .all()
+            )
+            for message in messages:
+                interaction = {
+                    "role": message.role,
+                    "message": message.content,
+                    "timestamp": message.timestamp,
+                }
+                history["interactions"].append(interaction)
             return history
-        messages = (
-            session.query(Message)
-            .filter(Message.conversation_id == conversation.id)
-            .all()
-        )
-        for message in messages:
-            interaction = {
-                "role": message.role,
-                "message": message.content,
-                "timestamp": message.timestamp,
-            }
-            history["interactions"].append(interaction)
-        session.close()
-        return history
+        finally:
+            session.close()
 
     def get_conversations(self):
         session = get_session()
@@ -714,28 +739,46 @@ class Conversations:
         return result
 
     def get_agent_id(self, user_id):
+        # Return cached agent_id if available (set by log_interaction or prior calls)
+        if hasattr(self, "_cached_agent_id") and self._cached_agent_id:
+            return self._cached_agent_id
         session = get_session()
-        agent_name = self.get_last_agent_name()
-        # Get the agent's ID from the database
-        # Make sure this agent belongs the the right user
-        agent = (
-            session.query(Agent)
-            .filter(Agent.name == agent_name, Agent.user_id == user_id)
-            .first()
-        )
         try:
-            agent_id = str(agent.id)
-        except:
-            agent_id = None
-        if not agent_id:
-            # Get the default agent for this user
-            agent = session.query(Agent).filter(Agent.user_id == user_id).first()
+            conversation_id = self.get_conversation_id()
+            # Get last non-USER agent name in the same session instead of calling
+            # get_last_agent_name() which opens a separate session
+            last_msg = (
+                session.query(Message.role)
+                .filter(
+                    Message.conversation_id == conversation_id,
+                    Message.role != "USER",
+                    Message.role != "user",
+                )
+                .order_by(Message.timestamp.desc())
+                .first()
+            )
+            agent_name = last_msg[0] if last_msg else "AGiXT"
+            agent = (
+                session.query(Agent)
+                .filter(Agent.name == agent_name, Agent.user_id == user_id)
+                .first()
+            )
             try:
                 agent_id = str(agent.id)
             except:
                 agent_id = None
-        session.close()
-        return agent_id
+            if not agent_id:
+                agent = (
+                    session.query(Agent).filter(Agent.user_id == user_id).first()
+                )
+                try:
+                    agent_id = str(agent.id)
+                except:
+                    agent_id = None
+            self._cached_agent_id = agent_id
+            return agent_id
+        finally:
+            session.close()
 
     def get_conversations_with_detail(self):
         """
@@ -751,16 +794,7 @@ class Conversations:
 
         # Pre-fetch timezone ONCE for fast inline conversion
         # (avoids opening a new DB session per convert_time call)
-        user_timezone = get_user_timezone(user_id)
-        gmt = pytz.timezone("GMT")
-        local_tz = pytz.timezone(user_timezone)
-
-        def _convert_time_fast(utc_time):
-            if utc_time is None:
-                return None
-            if utc_time.tzinfo is None:
-                return gmt.localize(utc_time).astimezone(local_tz)
-            return utc_time.astimezone(local_tz)
+        _convert_time_fast = _make_time_converter(user_id)
 
         # Get default agent_id once (not per conversation - they all share the same user)
         default_agent = session.query(Agent).filter(Agent.user_id == user_id).first()
@@ -1139,6 +1173,9 @@ class Conversations:
         session = get_session()
         user_id = self._user_id
 
+        # Pre-fetch timezone ONCE for fast inline conversion
+        _convert_time_fast = _make_time_converter(user_id)
+
         # Get all messages with notify=True for this user's conversations
         notifications = (
             session.query(Message, Conversation)
@@ -1157,7 +1194,7 @@ class Conversations:
                     "message_id": str(message.id),
                     "message": message.content,
                     "role": message.role,
-                    "timestamp": convert_time(message.timestamp, user_id=user_id),
+                    "timestamp": _convert_time_fast(message.timestamp),
                 }
             )
 
@@ -1251,6 +1288,9 @@ class Conversations:
                 )
                 sender_name_map[str(u.id)] = name
 
+        # Pre-fetch timezone ONCE for fast inline conversion
+        _convert_time_fast = _make_time_converter(user_id)
+
         results = []
         for message, conversation in messages:
             # Truncate content for preview (strip markdown links for cleaner preview)
@@ -1278,7 +1318,7 @@ class Conversations:
                     "content": content,
                     "role": message.role,
                     "sender_name": sender_name,
-                    "timestamp": convert_time(message.timestamp, user_id=user_id),
+                    "timestamp": _convert_time_fast(message.timestamp),
                 }
             )
 
@@ -1351,12 +1391,7 @@ class Conversations:
             )
             # Fallback: check group conversations accessible via company membership
             if not conversation:
-                user_company_ids = (
-                    session.query(UserCompany.company_id)
-                    .filter(UserCompany.user_id == user_id)
-                    .all()
-                )
-                company_ids = [str(uc[0]) for uc in user_company_ids]
+                company_ids = _get_user_company_ids(user_id)
                 if company_ids:
                     conversation = (
                         session.query(Conversation)
@@ -1417,16 +1452,7 @@ class Conversations:
         if since_timestamp is not None:
             # Pre-fetch timezone ONCE for fast inline conversion
             # (avoids opening a new DB session per convert_time call)
-            user_timezone = get_user_timezone(user_id)
-            gmt = pytz.timezone("GMT")
-            local_tz = pytz.timezone(user_timezone)
-
-            def _convert_time_fast(utc_time):
-                if utc_time is None:
-                    return None
-                if utc_time.tzinfo is None:
-                    return gmt.localize(utc_time).astimezone(local_tz)
-                return utc_time.astimezone(local_tz)
+            _convert_time_fast = _make_time_converter(user_id)
 
             agixt_uri = getenv("AGIXT_URI")
 
@@ -1562,12 +1588,7 @@ class Conversations:
         # Prefer conversation_id lookup to avoid duplicate name issues
         if self.conversation_id:
             # Single query with OR to check ownership, company membership, or participant status
-            user_company_ids = (
-                session.query(UserCompany.company_id)
-                .filter(UserCompany.user_id == user_id)
-                .all()
-            )
-            company_ids = [str(uc[0]) for uc in user_company_ids]
+            company_ids = _get_user_company_ids(user_id)
 
             participant_conv_ids = session.query(
                 ConversationParticipant.conversation_id
@@ -1713,17 +1734,7 @@ class Conversations:
 
         # Pre-fetch timezone ONCE for this user instead of per-message
         # (was doing 2 DB queries per message = 200 queries for 100 messages)
-        user_timezone = get_user_timezone(user_id)
-        gmt = pytz.timezone("GMT")
-        local_tz = pytz.timezone(user_timezone)
-
-        # Inline timezone conversion to avoid per-message function call overhead
-        def _convert_time_fast(utc_time):
-            if utc_time is None:
-                return None
-            if utc_time.tzinfo is None:
-                return gmt.localize(utc_time).astimezone(local_tz)
-            return utc_time.astimezone(local_tz)
+        _convert_time_fast = _make_time_converter(user_id)
 
         agixt_uri = getenv("AGIXT_URI")
         for message in messages:
@@ -2265,23 +2276,16 @@ class Conversations:
         # Use get_conversation_id() to get the stable conversation ID
         # This prevents issues during conversation renames
         conversation_id = self.get_conversation_id()
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.id == conversation_id,
-                Conversation.user_id == user_id,
-            )
-            .first()
-        )
-        if not conversation:
+        if not conversation_id:
             session.close()
             return None
 
         # Get the most recent thinking activity
+        # Use conversation_id directly instead of querying Conversation table first
         current_thinking = (
             session.query(Message)
             .filter(
-                Message.conversation_id == conversation.id,
+                Message.conversation_id == conversation_id,
                 Message.content == "[ACTIVITY] Thinking.",
             )
             .order_by(Message.timestamp.desc())
@@ -2293,7 +2297,7 @@ class Conversations:
         most_recent_message = (
             session.query(Message)
             .filter(
-                Message.conversation_id == conversation.id,
+                Message.conversation_id == conversation_id,
                 ~Message.content.like("[SUBACTIVITY]%"),
                 Message.content != "[ACTIVITY] Thinking.",
             )
@@ -2336,6 +2340,9 @@ class Conversations:
 
     def log_interaction(self, role, message, timestamp=None, sender_user_id=None):
         message = str(message)
+        # Cache conversation_id once at the top (avoids repeated session opens)
+        conversation_id = self.get_conversation_id()
+
         if str(message).startswith("[SUBACTIVITY] "):
             try:
                 last_activity_id = self.get_last_activity_id()
@@ -2352,18 +2359,19 @@ class Conversations:
         # This prevents massive base64 strings from bloating the DB and DOM
         if "data:" in message and "base64," in message:
             try:
-                conversation_id = self.get_conversation_id()
-                agent_id = self.get_agent_id(self._user_id) or "default"
+                # Cache agent_id per instance to avoid repeated DB lookups
+                if not hasattr(self, "_cached_agent_id"):
+                    self._cached_agent_id = (
+                        self.get_agent_id(self._user_id) or "default"
+                    )
                 message = extract_data_urls_to_workspace(
-                    message, agent_id, conversation_id
+                    message, self._cached_agent_id, conversation_id
                 )
             except Exception as e:
                 logging.warning(f"Failed to extract data URLs from message: {e}")
 
         session = get_session()
         user_id = self._user_id
-        # Get conversation_id first - it's stable even if name changes
-        conversation_id = self.get_conversation_id()
         # Look up by ID instead of name to handle renames during a request
         conversation = (
             session.query(Conversation)
@@ -2377,12 +2385,8 @@ class Conversations:
         # This is needed for DM conversations where the non-creator user sends a message
         # (DM user_id is set to the creator, not the other participant)
         if not conversation:
-            user_company_ids = (
-                session.query(UserCompany.company_id)
-                .filter(UserCompany.user_id == user_id)
-                .all()
-            )
-            company_ids = [str(uc[0]) for uc in user_company_ids]
+            # Cache company_ids per instance to avoid repeated queries during multi-message logging
+            company_ids = _get_user_company_ids(user_id)
             if company_ids:
                 conversation = (
                     session.query(Conversation)
@@ -2563,24 +2567,24 @@ class Conversations:
                 | (ConversationShare.shared_conversation_id == conv_id)
             ).delete(synchronize_session="fetch")
             # 7. Child conversations (parent_id references this conversation)
-            child_convos = (
-                session.query(Conversation)
+            child_conv_ids = [
+                row[0]
+                for row in session.query(Conversation.id)
                 .filter(Conversation.parent_id == conv_id)
                 .all()
-            )
-            for child in child_convos:
-                # Recursively clean up child conversations
-                child_conv_id = child.id
+            ]
+            if child_conv_ids:
+                # Batch clean up all child conversations at once
                 session.query(DiscardedContext).filter(
-                    DiscardedContext.conversation_id == child_conv_id
-                ).delete()
+                    DiscardedContext.conversation_id.in_(child_conv_ids)
+                ).delete(synchronize_session="fetch")
                 session.query(Memory).filter(
-                    Memory.conversation_id == child_conv_id
-                ).delete()
+                    Memory.conversation_id.in_(child_conv_ids)
+                ).delete(synchronize_session="fetch")
                 child_message_ids = [
-                    m.id
-                    for m in session.query(Message.id)
-                    .filter(Message.conversation_id == child_conv_id)
+                    row[0]
+                    for row in session.query(Message.id)
+                    .filter(Message.conversation_id.in_(child_conv_ids))
                     .all()
                 ]
                 if child_message_ids:
@@ -2588,16 +2592,18 @@ class Conversations:
                         MessageReaction.message_id.in_(child_message_ids)
                     ).delete(synchronize_session="fetch")
                 session.query(Message).filter(
-                    Message.conversation_id == child_conv_id
-                ).delete()
-                session.query(ConversationParticipant).filter(
-                    ConversationParticipant.conversation_id == child_conv_id
-                ).delete()
-                session.query(ConversationShare).filter(
-                    (ConversationShare.source_conversation_id == child_conv_id)
-                    | (ConversationShare.shared_conversation_id == child_conv_id)
+                    Message.conversation_id.in_(child_conv_ids)
                 ).delete(synchronize_session="fetch")
-                session.delete(child)
+                session.query(ConversationParticipant).filter(
+                    ConversationParticipant.conversation_id.in_(child_conv_ids)
+                ).delete(synchronize_session="fetch")
+                session.query(ConversationShare).filter(
+                    (ConversationShare.source_conversation_id.in_(child_conv_ids))
+                    | (ConversationShare.shared_conversation_id.in_(child_conv_ids))
+                ).delete(synchronize_session="fetch")
+                session.query(Conversation).filter(
+                    Conversation.id.in_(child_conv_ids)
+                ).delete(synchronize_session="fetch")
             # 8. Finally delete the conversation itself
             session.query(Conversation).filter(Conversation.id == conv_id).delete()
             session.commit()
@@ -2628,27 +2634,19 @@ class Conversations:
         if not conversation:
             session.close()
             return
-        message_id = (
+        msg = (
             session.query(Message)
             .filter(
                 Message.conversation_id == conversation.id,
                 Message.content == message,
             )
             .first()
-        ).id
-        message = (
-            session.query(Message)
-            .filter(
-                Message.conversation_id == conversation.id,
-                Message.id == message_id,
-            )
-            .first()
         )
 
-        if not message:
+        if not msg:
             session.close()
             return
-        session.delete(message)
+        session.delete(msg)
         session.commit()
         session.close()
 
@@ -2686,33 +2684,24 @@ class Conversations:
     def get_last_agent_name(self):
         # Get the last role in the conversation that isn't "user"
         session = get_session()
-        user_id = self._user_id
-        if not self.conversation_name:
-            self.conversation_name = "-"
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
+        try:
+            # Use cached conversation_id (avoids name-based Conversation query)
+            conversation_id = self.get_conversation_id()
+            if not conversation_id:
+                return "AGiXT"
+            message = (
+                session.query(Message.role)
+                .filter(
+                    Message.conversation_id == conversation_id,
+                    Message.role != "USER",
+                    Message.role != "user",
+                )
+                .order_by(Message.timestamp.desc())
+                .first()
             )
-            .first()
-        )
-        if not conversation:
+            return message[0] if message else "AGiXT"
+        finally:
             session.close()
-            return "AGiXT"
-        message = (
-            session.query(Message)
-            .filter(Message.conversation_id == conversation.id)
-            .filter(Message.role != "USER")
-            .filter(Message.role != "user")
-            .order_by(Message.timestamp.desc())
-            .first()
-        )
-        if not message:
-            session.close()
-            return "AGiXT"
-        session.close()
-        return message.role
 
     def delete_message_by_id(self, message_id):
         session = get_session()
@@ -2722,12 +2711,7 @@ class Conversations:
 
         # Prefer conversation_id lookup (fast, unambiguous) over name-based lookup
         if self.conversation_id:
-            user_company_ids = (
-                session.query(UserCompany.company_id)
-                .filter(UserCompany.user_id == user_id)
-                .all()
-            )
-            company_ids = [str(uc[0]) for uc in user_company_ids]
+            company_ids = _get_user_company_ids(user_id)
 
             participant_conv_ids = session.query(
                 ConversationParticipant.conversation_id
@@ -2777,12 +2761,7 @@ class Conversations:
 
             if not conversation:
                 # Fallback: check group conversations accessible via company membership
-                user_company_ids = (
-                    session.query(UserCompany.company_id)
-                    .filter(UserCompany.user_id == user_id)
-                    .all()
-                )
-                company_ids = [str(uc[0]) for uc in user_company_ids]
+                company_ids = _get_user_company_ids(user_id)
                 if company_ids:
                     conversation = (
                         session.query(Conversation)
@@ -2858,12 +2837,7 @@ class Conversations:
 
         if not conversation:
             # Fallback: check group conversations accessible via company membership
-            user_company_ids = (
-                session.query(UserCompany.company_id)
-                .filter(UserCompany.user_id == user_id)
-                .all()
-            )
-            company_ids = [str(uc[0]) for uc in user_company_ids]
+            company_ids = _get_user_company_ids(user_id)
             if company_ids:
                 conversation = (
                     session.query(Conversation)
@@ -2984,114 +2958,89 @@ class Conversations:
 
     def toggle_feedback_received(self, message):
         session = get_session()
-        user_id = self._user_id
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
+        try:
+            user_id = self._user_id
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == self.conversation_name,
+                    Conversation.user_id == user_id,
+                )
+                .first()
             )
-            .first()
-        )
-        if not conversation:
+            if not conversation:
+                return
+            msg = (
+                session.query(Message)
+                .filter(
+                    Message.conversation_id == conversation.id,
+                    Message.content == message,
+                )
+                .first()
+            )
+            if not msg:
+                return
+            msg.feedback_received = not msg.feedback_received
+            session.commit()
+        finally:
             session.close()
-            return
-        message_id = (
-            session.query(Message)
-            .filter(
-                Message.conversation_id == conversation.id,
-                Message.content == message,
-            )
-            .first()
-        ).id
-        message = (
-            session.query(Message)
-            .filter(
-                Message.conversation_id == conversation.id,
-                Message.id == message_id,
-            )
-            .first()
-        )
-        if not message:
-            session.close()
-            return
-        message.feedback_received = not message.feedback_received
-        session.commit()
-        session.close()
 
     def has_received_feedback(self, message):
         session = get_session()
-        user_id = self._user_id
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
+        try:
+            user_id = self._user_id
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == self.conversation_name,
+                    Conversation.user_id == user_id,
+                )
+                .first()
             )
-            .first()
-        )
-        if not conversation:
+            if not conversation:
+                return
+            msg = (
+                session.query(Message)
+                .filter(
+                    Message.conversation_id == conversation.id,
+                    Message.content == message,
+                )
+                .first()
+            )
+            if not msg:
+                return
+            return msg.feedback_received
+        finally:
             session.close()
-            return
-        message_id = (
-            session.query(Message)
-            .filter(
-                Message.conversation_id == conversation.id,
-                Message.content == message,
-            )
-            .first()
-        ).id
-        message = (
-            session.query(Message)
-            .filter(
-                Message.conversation_id == conversation.id,
-                Message.id == message_id,
-            )
-            .first()
-        )
-        if not message:
-            session.close()
-            return
-        feedback_received = message.feedback_received
-        session.close()
-        return feedback_received
 
     def update_message(self, message, new_message):
         session = get_session()
-        user_id = self._user_id
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
+        try:
+            user_id = self._user_id
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == self.conversation_name,
+                    Conversation.user_id == user_id,
+                )
+                .first()
             )
-            .first()
-        )
-        if not conversation:
+            if not conversation:
+                return
+            msg = (
+                session.query(Message)
+                .filter(
+                    Message.conversation_id == conversation.id,
+                    Message.content == message,
+                )
+                .first()
+            )
+            if not msg:
+                return
+            msg.content = new_message
+            session.commit()
+        finally:
             session.close()
-            return
-        message_id = (
-            session.query(Message)
-            .filter(
-                Message.conversation_id == conversation.id,
-                Message.content == message,
-            )
-            .first()
-        ).id
-        message = (
-            session.query(Message)
-            .filter(
-                Message.conversation_id == conversation.id,
-                Message.id == message_id,
-            )
-            .first()
-        )
-        if not message:
-            session.close()
-            return
-        message.content = new_message
-        session.commit()
-        session.close()
 
     def update_message_by_id(self, message_id, new_message):
         session = get_session()
@@ -3106,12 +3055,7 @@ class Conversations:
         )
         if not conversation:
             # Fallback: check group conversations accessible via company membership
-            user_company_ids = (
-                session.query(UserCompany.company_id)
-                .filter(UserCompany.user_id == user_id)
-                .all()
-            )
-            company_ids = [str(uc[0]) for uc in user_company_ids]
+            company_ids = _get_user_company_ids(user_id)
             if company_ids:
                 conversation = (
                     session.query(Conversation)
@@ -3124,6 +3068,7 @@ class Conversations:
                     )
                     .first()
                 )
+
         if not conversation:
             session.close()
             return
@@ -3170,12 +3115,7 @@ class Conversations:
             .first()
         )
         if not conversation:
-            user_company_ids = (
-                session.query(UserCompany.company_id)
-                .filter(UserCompany.user_id == user_id)
-                .all()
-            )
-            company_ids = [str(uc[0]) for uc in user_company_ids]
+            company_ids = _get_user_company_ids(user_id)
             if company_ids:
                 conversation = (
                     session.query(Conversation)
@@ -3245,12 +3185,7 @@ class Conversations:
             .first()
         )
         if not conversation:
-            user_company_ids = (
-                session.query(UserCompany.company_id)
-                .filter(UserCompany.user_id == user_id)
-                .all()
-            )
-            company_ids = [str(uc[0]) for uc in user_company_ids]
+            company_ids = _get_user_company_ids(user_id)
             if company_ids:
                 conversation = (
                     session.query(Conversation)
@@ -3322,44 +3257,15 @@ class Conversations:
             conversation_name = "-"
         else:
             conversation_name = self.conversation_name
-        session = get_session()
-        user_id = self._user_id
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == conversation_name,
-                Conversation.user_id == user_id,
-            )
-            .first()
+
+        # Delegate to the cached module-level function
+        conversation_id = get_conversation_id_by_name(
+            conversation_name=conversation_name,
+            user_id=self._user_id,
+            create_if_missing=True,
         )
-        # Fallback: check group/dm/thread conversations accessible via company membership
-        if not conversation:
-            user_company_ids = (
-                session.query(UserCompany.company_id)
-                .filter(UserCompany.user_id == user_id)
-                .all()
-            )
-            company_ids = [str(uc[0]) for uc in user_company_ids]
-            if company_ids:
-                conversation = (
-                    session.query(Conversation)
-                    .filter(
-                        Conversation.name == conversation_name,
-                        Conversation.company_id.in_(company_ids),
-                        Conversation.conversation_type.in_(
-                            ["group", "dm", "thread", "channel"]
-                        ),
-                    )
-                    .first()
-                )
-        if not conversation:
-            conversation = Conversation(name=conversation_name, user_id=user_id)
-            session.add(conversation)
-            session.commit()
-        conversation_id = str(conversation.id)
-        # Cache the ID for future calls
+        # Cache the ID on the instance for future calls
         self.conversation_id = conversation_id
-        session.close()
         return conversation_id
 
     def rename_conversation(self, new_name: str):
@@ -3426,33 +3332,23 @@ class Conversations:
 
     def get_last_activity_id(self):
         session = get_session()
-        user_id = self._user_id
-        if not self.conversation_name:
-            self.conversation_name = "-"
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
+        try:
+            # Use cached conversation_id (avoids name-based Conversation query)
+            conversation_id = self.get_conversation_id()
+            if not conversation_id:
+                return None
+            last_activity = (
+                session.query(Message.id)
+                .filter(
+                    Message.conversation_id == conversation_id,
+                    Message.content.like("[ACTIVITY]%"),
+                )
+                .order_by(Message.timestamp.desc())
+                .first()
             )
-            .first()
-        )
-        if not conversation:
+            return str(last_activity[0]) if last_activity else None
+        finally:
             session.close()
-            return None
-        last_activity = (
-            session.query(Message)
-            .filter(Message.conversation_id == conversation.id)
-            .filter(Message.content.like("[ACTIVITY]%"))
-            .order_by(Message.timestamp.desc())
-            .first()
-        )
-        if not last_activity:
-            session.close()
-            return None
-        last_id = last_activity.id
-        session.close()
-        return last_id
 
     def set_conversation_summary(self, summary: str):
         session = get_session()
@@ -3766,6 +3662,7 @@ class Conversations:
     def get_shared_conversations(self):
         """
         Get all conversations shared with the current user.
+        OPTIMIZED: Batch-fetch conversations and users instead of N+1 queries.
 
         Returns:
             list: List of shared conversation details
@@ -3783,22 +3680,46 @@ class Conversations:
                 .all()
             )
 
-            result = []
-            for share in shares:
-                # Check if expired
-                if share.expires_at and share.expires_at < datetime.now():
-                    continue
+            if not shares:
+                return []
 
-                shared_conv = (
+            # Filter out expired shares
+            now = datetime.now()
+            active_shares = [
+                s for s in shares if not s.expires_at or s.expires_at >= now
+            ]
+
+            if not active_shares:
+                return []
+
+            # Batch-fetch all conversations and users in 2 queries
+            conv_ids = list(
+                set(s.shared_conversation_id for s in active_shares)
+            )
+            user_ids = list(
+                set(s.shared_by_user_id for s in active_shares)
+            )
+
+            convs_map = {}
+            if conv_ids:
+                convs = (
                     session.query(Conversation)
-                    .filter(Conversation.id == share.shared_conversation_id)
-                    .first()
+                    .filter(Conversation.id.in_(conv_ids))
+                    .all()
                 )
-                shared_by = (
-                    session.query(User)
-                    .filter(User.id == share.shared_by_user_id)
-                    .first()
+                convs_map = {str(c.id): c for c in convs}
+
+            users_map = {}
+            if user_ids:
+                users = (
+                    session.query(User).filter(User.id.in_(user_ids)).all()
                 )
+                users_map = {str(u.id): u for u in users}
+
+            result = []
+            for share in active_shares:
+                shared_conv = convs_map.get(str(share.shared_conversation_id))
+                shared_by = users_map.get(str(share.shared_by_user_id))
 
                 if shared_conv:
                     result.append(
@@ -4250,9 +4171,9 @@ class Conversations:
                     "Must provide user_id for user participants or agent_id for agent participants"
                 )
 
-            if existing.first():
-                session.close()
-                return str(existing.first().id)
+            existing_record = existing.first()
+            if existing_record:
+                return str(existing_record.id)
 
             participant = ConversationParticipant(
                 conversation_id=conversation_id,
@@ -4420,18 +4341,21 @@ class Conversations:
                 agents_map = {str(a.id): a for a in agents}
 
             result = []
+            # Pre-fetch timezone ONCE for fast inline conversion
+            _convert_time_fast = _make_time_converter(self._user_id)
+
             for p in participants:
                 participant_data = {
                     "id": str(p.id),
                     "participant_type": p.participant_type,
                     "role": p.role,
                     "joined_at": (
-                        convert_time(p.joined_at, user_id=self._user_id).isoformat()
+                        _convert_time_fast(p.joined_at).isoformat()
                         if p.joined_at
                         else None
                     ),
                     "last_read_at": (
-                        convert_time(p.last_read_at, user_id=self._user_id).isoformat()
+                        _convert_time_fast(p.last_read_at).isoformat()
                         if p.last_read_at
                         else None
                     ),
@@ -4604,73 +4528,122 @@ class Conversations:
 
                     all_convos[general_id] = general
 
+            # --- Batch all per-channel queries BEFORE the loop ---
+            all_conv_ids = list(all_convos.keys())
+
+            # Batch: participant records for this user
+            user_participants = (
+                session.query(ConversationParticipant)
+                .filter(
+                    ConversationParticipant.conversation_id.in_(all_conv_ids),
+                    ConversationParticipant.user_id == user_id,
+                    ConversationParticipant.status == "active",
+                )
+                .all()
+            )
+            participant_map = {str(p.conversation_id): p for p in user_participants}
+
+            # Batch: participant counts per channel
+            part_counts = (
+                session.query(
+                    ConversationParticipant.conversation_id,
+                    func.count().label("cnt"),
+                )
+                .filter(
+                    ConversationParticipant.conversation_id.in_(all_conv_ids),
+                    ConversationParticipant.status == "active",
+                )
+                .group_by(ConversationParticipant.conversation_id)
+                .all()
+            )
+            part_count_map = {str(r[0]): r[1] for r in part_counts}
+
+            # Batch: thread counts per channel
+            thr_counts = (
+                session.query(
+                    Conversation.parent_id,
+                    func.count().label("cnt"),
+                )
+                .filter(
+                    Conversation.parent_id.in_(all_conv_ids),
+                    Conversation.conversation_type == "thread",
+                )
+                .group_by(Conversation.parent_id)
+                .all()
+            )
+            thr_count_map = {str(r[0]): r[1] for r in thr_counts}
+
+            # Batch: unread counts for channels with last_read_at baselines
+            baseline_map = {}
+            no_participant_ids = []
+            for cid in all_conv_ids:
+                p = participant_map.get(cid)
+                if p:
+                    mode = getattr(p, "notification_mode", None) or "all"
+                    if mode != "none" and p.last_read_at:
+                        baseline_map[cid] = p.last_read_at
+                else:
+                    no_participant_ids.append(cid)
+
+            unread_count_map = {}  # conv_id -> int
+            if baseline_map:
+                baseline_case = case(
+                    *[
+                        (Message.conversation_id == cid, ts)
+                        for cid, ts in baseline_map.items()
+                    ],
+                )
+                rows = (
+                    session.query(
+                        Message.conversation_id,
+                        func.count().label("cnt"),
+                    )
+                    .filter(
+                        Message.conversation_id.in_(list(baseline_map.keys())),
+                        Message.timestamp > baseline_case,
+                        Message.role != "USER",
+                        ~Message.content.like("[ACTIVITY]%"),
+                        ~Message.content.like("[SUBACTIVITY]%"),
+                    )
+                    .group_by(Message.conversation_id)
+                    .all()
+                )
+                for row in rows:
+                    unread_count_map[str(row.conversation_id)] = row.cnt
+
+            # Batch: fallback notify counts for channels without participant records
+            if no_participant_ids:
+                rows = (
+                    session.query(
+                        Message.conversation_id,
+                        func.count().label("cnt"),
+                    )
+                    .filter(
+                        Message.conversation_id.in_(no_participant_ids),
+                        Message.notify == True,
+                    )
+                    .group_by(Message.conversation_id)
+                    .all()
+                )
+                for row in rows:
+                    unread_count_map[str(row.conversation_id)] = row.cnt
+
+            # Pre-fetch timezone ONCE for fast inline conversion
+            _convert_time_fast = _make_time_converter(user_id)
+
             result = {}
             for conv_id, conversation in all_convos.items():
-                # Count unread messages for this user
-                participant = (
-                    session.query(ConversationParticipant)
-                    .filter(
-                        ConversationParticipant.conversation_id == conv_id,
-                        ConversationParticipant.user_id == user_id,
-                        ConversationParticipant.status == "active",
-                    )
-                    .first()
+                participant = participant_map.get(conv_id)
+                notification_mode = (
+                    getattr(participant, "notification_mode", None) or "all"
+                    if participant
+                    else "all"
                 )
-
-                has_notifications = False
-                notification_mode = "all"
-                if participant:
-                    notification_mode = (
-                        getattr(participant, "notification_mode", None) or "all"
-                    )
                 notification_count = 0
-                if notification_mode == "none":
-                    # User muted this channel — never show notification dot
-                    has_notifications = False
-                elif participant and participant.last_read_at:
-                    notification_count = (
-                        session.query(Message)
-                        .filter(
-                            Message.conversation_id == conv_id,
-                            Message.timestamp > participant.last_read_at,
-                            Message.role != "USER",
-                            ~Message.content.like("[ACTIVITY]%"),
-                            ~Message.content.like("[SUBACTIVITY]%"),
-                        )
-                        .count()
-                    )
+                has_notifications = False
+                if notification_mode != "none":
+                    notification_count = unread_count_map.get(conv_id, 0)
                     has_notifications = notification_count > 0
-                else:
-                    # Check notify flag as fallback
-                    notification_count = (
-                        session.query(Message)
-                        .filter(
-                            Message.conversation_id == conv_id,
-                            Message.notify == True,
-                        )
-                        .count()
-                    )
-                    has_notifications = notification_count > 0
-
-                # Count participants
-                participant_count = (
-                    session.query(ConversationParticipant)
-                    .filter(
-                        ConversationParticipant.conversation_id == conv_id,
-                        ConversationParticipant.status == "active",
-                    )
-                    .count()
-                )
-
-                # Count threads
-                thread_count = (
-                    session.query(Conversation)
-                    .filter(
-                        Conversation.parent_id == conv_id,
-                        Conversation.conversation_type == "thread",
-                    )
-                    .count()
-                )
 
                 result[conv_id] = {
                     "name": conversation.name,
@@ -4680,19 +4653,15 @@ class Conversations:
                         if conversation.company_id
                         else None
                     ),
-                    "created_at": convert_time(
-                        conversation.created_at, user_id=user_id
-                    ),
-                    "updated_at": convert_time(
-                        conversation.updated_at, user_id=user_id
-                    ),
+                    "created_at": _convert_time_fast(conversation.created_at),
+                    "updated_at": _convert_time_fast(conversation.updated_at),
                     "has_notifications": has_notifications,
                     "notification_count": notification_count,
                     "summary": conversation.summary or "None available",
                     "attachment_count": conversation.attachment_count or 0,
                     "pin_order": conversation.pin_order,
-                    "participant_count": participant_count,
-                    "thread_count": thread_count,
+                    "participant_count": part_count_map.get(conv_id, 0),
+                    "thread_count": thr_count_map.get(conv_id, 0),
                     "category": getattr(conversation, "category", None),
                     "description": getattr(conversation, "description", None),
                     "notification_mode": notification_mode,
@@ -4719,8 +4688,30 @@ class Conversations:
         session = get_session()
         user_id = self._user_id
         try:
+            # Pre-fetch timezone ONCE for fast inline conversion
+            _convert_time_fast = _make_time_converter(user_id)
+
+            # Batch: message count + last message time per thread (avoids N+1)
+            thread_stats = (
+                session.query(
+                    Message.conversation_id,
+                    func.count().label("message_count"),
+                    func.max(Message.timestamp).label("last_message_time"),
+                )
+                .group_by(Message.conversation_id)
+                .subquery()
+            )
+
             threads = (
-                session.query(Conversation)
+                session.query(
+                    Conversation,
+                    thread_stats.c.message_count,
+                    thread_stats.c.last_message_time,
+                )
+                .outerjoin(
+                    thread_stats,
+                    thread_stats.c.conversation_id == Conversation.id,
+                )
                 .filter(
                     Conversation.parent_id == parent_id,
                     Conversation.conversation_type == "thread",
@@ -4730,31 +4721,10 @@ class Conversations:
             )
 
             result = []
-            for thread in threads:
-                # Count messages in thread
-                from DB import Message as MessageModel
-
-                message_count = (
-                    session.query(MessageModel)
-                    .filter(MessageModel.conversation_id == str(thread.id))
-                    .count()
-                )
-
-                # Get last message time
-                last_message = (
-                    session.query(MessageModel)
-                    .filter(MessageModel.conversation_id == str(thread.id))
-                    .order_by(MessageModel.timestamp.desc())
-                    .first()
-                )
-
-                created = convert_time(thread.created_at, user_id=user_id)
-                updated = convert_time(thread.updated_at, user_id=user_id)
-                last_msg_time = (
-                    convert_time(last_message.timestamp, user_id=user_id)
-                    if last_message
-                    else None
-                )
+            for thread, message_count, last_message_time in threads:
+                created = _convert_time_fast(thread.created_at)
+                updated = _convert_time_fast(thread.updated_at)
+                last_msg_time = _convert_time_fast(last_message_time)
 
                 result.append(
                     {
@@ -4779,7 +4749,7 @@ class Conversations:
                             if hasattr(updated, "isoformat")
                             else str(updated)
                         ),
-                        "message_count": message_count,
+                        "message_count": message_count or 0,
                         "last_message_at": (
                             last_msg_time.isoformat()
                             if last_msg_time and hasattr(last_msg_time, "isoformat")

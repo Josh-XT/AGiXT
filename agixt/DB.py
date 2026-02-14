@@ -6195,6 +6195,40 @@ def migrate_performance_indexes():
                         "ON conversation(company_id, conversation_type)"
                     )
                 )
+                # Index for sender_user_id (used in DM unread count queries)
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_sender_user_id "
+                        "ON message(sender_user_id)"
+                    )
+                )
+                # Compound index for participant access-control queries
+                # (user_id, conversation_id, status) covers can_speak, update_last_read, etc.
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conv_participant_user_conv_status "
+                        "ON conversation_participant(user_id, conversation_id, status)"
+                    )
+                )
+                # Foreign-key indexes for agent and chain tables
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_agent_setting_agent_id "
+                        "ON agent_setting(agent_id)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_agent_command_agent_id "
+                        "ON agent_command(agent_id)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_chain_step_chain_id "
+                        "ON chain_step(chain_id)"
+                    )
+                )
             else:
                 # PostgreSQL
                 session.execute(
@@ -6263,6 +6297,40 @@ def migrate_performance_indexes():
                     text(
                         "CREATE INDEX IF NOT EXISTS ix_conversation_company_type "
                         "ON conversation(company_id, conversation_type)"
+                    )
+                )
+                # Index for sender_user_id (used in DM unread count queries)
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_sender_user_id "
+                        "ON message(sender_user_id)"
+                    )
+                )
+                # Compound index for participant access-control queries
+                # (user_id, conversation_id, status) covers can_speak, update_last_read, etc.
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conv_participant_user_conv_status "
+                        "ON conversation_participant(user_id, conversation_id, status)"
+                    )
+                )
+                # Foreign-key indexes for agent and chain tables
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_agent_setting_agent_id "
+                        "ON agent_setting(agent_id)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_agent_command_agent_id "
+                        "ON agent_command(agent_id)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_chain_step_chain_id "
+                        "ON chain_step(chain_id)"
                     )
                 )
             session.commit()

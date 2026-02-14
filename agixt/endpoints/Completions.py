@@ -180,11 +180,12 @@ async def chat_completion(
                 conversation_name = get_conversation_name_by_id(
                     conversation_id=conversation_id, user_id=user_id
                 )
+        # Pre-fetch agents list once for model defaulting and @mention routing
+        all_agents = get_agents(user=user)
         if not prompt.model:
-            agents = get_agents(user=user)
             try:
                 prompt.model = (
-                    agents[0]["name"] if isinstance(agents[0], dict) else agents[0].name
+                    all_agents[0]["name"] if isinstance(all_agents[0], dict) else all_agents[0].name
                 )
             except Exception:
                 # Log without exposing exception details
@@ -196,7 +197,6 @@ async def chat_completion(
         # override the target agent and strip the mention from the message.
         if prompt.messages:
             try:
-                all_agents = get_agents(user=user)
                 mentioned_agent, cleaned_messages = parse_agent_mentions(
                     prompt.messages, all_agents
                 )
@@ -399,11 +399,12 @@ async def mcp_chat_completion(
                 conversation_name = get_conversation_name_by_id(
                     conversation_id=conversation_id, user_id=user_id
                 )
+        # Pre-fetch agents list once for model defaulting and @mention routing
+        all_agents = get_agents(user=user)
         if not prompt.model:
-            agents = get_agents(user=user)
             try:
                 prompt.model = (
-                    agents[0]["name"] if isinstance(agents[0], dict) else agents[0].name
+                    all_agents[0]["name"] if isinstance(all_agents[0], dict) else all_agents[0].name
                 )
             except Exception:
                 # Log without exposing exception details
@@ -414,7 +415,6 @@ async def mcp_chat_completion(
         # @mention agent routing for MCP endpoint
         if prompt.messages:
             try:
-                all_agents = get_agents(user=user)
                 mentioned_agent, cleaned_messages = parse_agent_mentions(
                     prompt.messages, all_agents
                 )

@@ -72,6 +72,7 @@ from ExtensionsHub import (
 )
 from SharedCache import shared_cache
 
+import time as _time
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -86,6 +87,87 @@ _user_id_cache_ttl = 60  # 60 seconds
 _token_validation_cache_ttl = 5  # 5 seconds
 _pat_validation_cache_ttl = 10  # 10 seconds
 _user_timezone_cache_ttl = 300  # 5 minutes (timezone rarely changes)
+_scope_cache_ttl = 3600  # 1 hour (scope definitions rarely change)
+
+# Module-level PriceService singleton (stateless, reads DB on each get_token_price call)
+_price_service_instance = None
+
+
+def _get_all_scope_names():
+    """Get all scope names, cached in SharedCache for 1 hour."""
+    cache_key = "all_scope_names"
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    session = get_session()
+    try:
+        names = {s.name for s in session.query(Scope).all()}
+        shared_cache.set(cache_key, names, ttl=_scope_cache_ttl)
+        return names
+    finally:
+        session.close()
+
+
+def _get_all_scopes_info():
+    """Get all scope definitions as list of dicts, cached in SharedCache for 1 hour."""
+    cache_key = "all_scopes_info"
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    session = get_session()
+    try:
+        scopes = session.query(Scope).all()
+        result = [
+            {
+                "id": str(s.id),
+                "name": s.name,
+                "resource": s.resource,
+                "action": s.action,
+                "description": s.description,
+                "category": s.category or "Other",
+                "is_system": s.is_system,
+            }
+            for s in scopes
+        ]
+        shared_cache.set(cache_key, result, ttl=_scope_cache_ttl)
+        return result
+    finally:
+        session.close()
+
+
+def _get_price_service() -> PriceService:
+    """Get or create a singleton PriceService instance."""
+    global _price_service_instance
+    if _price_service_instance is None:
+        _price_service_instance = PriceService()
+    return _price_service_instance
+
+
+# Module-level cached pricing config from ExtensionsHub
+_cached_pricing_config = None
+_cached_pricing_config_time: float = 0
+_PRICING_CONFIG_TTL: float = 120  # 2 minutes
+
+
+def _get_cached_pricing_config():
+    """Get pricing config from ExtensionsHub with TTL caching.
+    Avoids constructing ExtensionsHub() + reading pricing.json on every call.
+    """
+    global _cached_pricing_config, _cached_pricing_config_time
+
+    now = _time.time()
+    if (
+        _cached_pricing_config is not None
+        and now - _cached_pricing_config_time < _PRICING_CONFIG_TTL
+    ):
+        return _cached_pricing_config
+
+    from ExtensionsHub import ExtensionsHub
+
+    hub = ExtensionsHub()
+    _cached_pricing_config = hub.get_pricing_config()
+    _cached_pricing_config_time = now
+    return _cached_pricing_config
 
 
 def hash_pat_token(token: str) -> str:
@@ -1422,40 +1504,14 @@ class MagicalAuth:
         encryption_key = os.getenv("AGIXT_API_KEY", "")
         self.link = getenv("APP_URI")
         self.encryption_key = encryption_key
-        token = (
-            str(token)
-            .replace("%2B", "+")
-            .replace("%2F", "/")
-            .replace("%3D", "=")
-            .replace("%20", " ")
-            .replace("%3A", ":")
-            .replace("%3F", "?")
-            .replace("%26", "&")
-            .replace("%23", "#")
-            .replace("%3B", ";")
-            .replace("%40", "@")
-            .replace("%21", "!")
-            .replace("%24", "$")
-            .replace("%27", "'")
-            .replace("%28", "(")
-            .replace("%29", ")")
-            .replace("%2A", "*")
-            .replace("%2C", ",")
-            .replace("%3B", ";")
-            .replace("%5B", "[")
-            .replace("%5D", "]")
-            .replace("%7B", "{")
-            .replace("%7D", "}")
-            .replace("%7C", "|")
-            .replace("%5C", "\\")
-            .replace("%5E", "^")
-            .replace("%60", "`")
-            .replace("%7E", "~")
-            .replace("Bearer ", "")
-            .replace("bearer ", "")
-            if token
-            else None
-        )
+        if token:
+            token = str(token)
+            if token.startswith("Bearer ") or token.startswith("bearer "):
+                token = token.replace("Bearer ", "").replace("bearer ", "")
+            if "%" in token:
+                token = urllib.parse.unquote(token)
+        else:
+            token = None
         try:
             # Decode jwt
             decoded = jwt.decode(
@@ -2111,10 +2167,7 @@ class MagicalAuth:
 
             # === 5. Billing check (fast, synchronous) ===
             # First, check the pricing model from extensions hub
-            from ExtensionsHub import ExtensionsHub
-
-            hub = ExtensionsHub()
-            pricing_config = hub.get_pricing_config()
+            pricing_config = _get_cached_pricing_config()
             pricing_model = (
                 pricing_config.get("pricing_model") if pricing_config else "per_token"
             )
@@ -2125,7 +2178,7 @@ class MagicalAuth:
             ]
 
             wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
-            price_service = PriceService()
+            price_service = _get_price_service()
             try:
                 token_price = price_service.get_token_price()
             except Exception:
@@ -2261,8 +2314,7 @@ class MagicalAuth:
             # All scopes for super admin
             all_scopes = None
             if is_super_admin:
-                all_scopes_query = session.query(Scope).all()
-                all_scopes = {s.name for s in all_scopes_query}
+                all_scopes = _get_all_scope_names()
 
             # Pre-fetch custom role scopes for this user across all companies
             custom_scopes_query = (
@@ -3659,15 +3711,12 @@ class MagicalAuth:
             True = company can add users/locations
             False = company cannot add users/locations (limit reached or no balance)
         """
-        from ExtensionsHub import ExtensionsHub
-
         # Check if billing is enabled
-        price_service = PriceService()
+        price_service = _get_price_service()
         token_price = price_service.get_token_price()
 
         # Get pricing config to determine billing model
-        hub = ExtensionsHub()
-        pricing_config = hub.get_pricing_config()
+        pricing_config = _get_cached_pricing_config()
         pricing_model = (
             pricing_config.get("pricing_model") if pricing_config else "per_token"
         )
@@ -3804,8 +3853,7 @@ class MagicalAuth:
                 all_company_ids.add(root_id)
 
         # Get pricing model
-        hub = ExtensionsHub()
-        pricing_config = hub.get_pricing_config()
+        pricing_config = _get_cached_pricing_config()
         pricing_model = (
             pricing_config.get("pricing_model") if pricing_config else "per_token"
         )
@@ -3850,7 +3898,7 @@ class MagicalAuth:
         Super admins (role 0) are exempt from billing checks.
         """
         # Check if billing is enabled
-        price_service = PriceService()
+        price_service = _get_price_service()
         token_price = price_service.get_token_price()
         billing_enabled = token_price > 0
 
@@ -3957,7 +4005,7 @@ class MagicalAuth:
             )
 
             # Determine if paywall is enabled for this instance
-            price_service = PriceService()
+            price_service = _get_price_service()
             try:
                 token_price = price_service.get_token_price()
             except Exception:
@@ -4704,7 +4752,7 @@ class MagicalAuth:
 
             # Get billing config
             wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
-            price_service = PriceService()
+            price_service = _get_price_service()
             try:
                 token_price = price_service.get_token_price()
             except Exception:
@@ -4907,7 +4955,7 @@ class MagicalAuth:
         wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
 
         # Determine if billing is enabled globally (token price > 0)
-        price_service = PriceService()
+        price_service = _get_price_service()
         try:
             token_price = price_service.get_token_price()
         except Exception:
@@ -5612,7 +5660,7 @@ class MagicalAuth:
 
         try:
             # Check if billing is enabled
-            price_service = PriceService()
+            price_service = _get_price_service()
             token_price = price_service.get_token_price()
             billing_enabled = token_price > 0
 
@@ -5670,29 +5718,24 @@ class MagicalAuth:
                     )
                     session.add(usage)
 
-            # Still track per-user for analytics (existing logic)
-            counts = self.get_token_counts()
-            current_input_tokens = int(counts["input_tokens"])
-            current_output_tokens = int(counts["output_tokens"])
-            updated_input_tokens = current_input_tokens + input_tokens
-            updated_output_tokens = current_output_tokens + output_tokens
+            # Track per-user for analytics — inline to avoid extra session from get_token_counts()
             user_preferences = (
                 session.query(UserPreferences)
                 .filter(UserPreferences.user_id == self.user_id)
                 .all()
             )
-            if not user_preferences:
-                user_input_tokens = None
-                user_output_tokens = None
-            else:
-                user_input_tokens = next(
-                    (x for x in user_preferences if x.pref_key == "input_tokens"),
-                    None,
-                )
-                user_output_tokens = next(
-                    (x for x in user_preferences if x.pref_key == "output_tokens"),
-                    None,
-                )
+            user_input_tokens = next(
+                (x for x in user_preferences if x.pref_key == "input_tokens"),
+                None,
+            )
+            user_output_tokens = next(
+                (x for x in user_preferences if x.pref_key == "output_tokens"),
+                None,
+            )
+            current_input_tokens = int(user_input_tokens.pref_value) if user_input_tokens else 0
+            current_output_tokens = int(user_output_tokens.pref_value) if user_output_tokens else 0
+            updated_input_tokens = current_input_tokens + input_tokens
+            updated_output_tokens = current_output_tokens + output_tokens
             # Update input tokens
             if user_input_tokens is None:
                 user_input_tokens = UserPreferences(
@@ -5863,19 +5906,29 @@ class MagicalAuth:
             session.close()
 
     def get_user_companies(self) -> List[str]:
-        """Get list of company IDs that the user has access to"""
+        """Get list of company IDs that the user has access to (cached 10s)"""
+        cache_key = f"user_companies_list:{self.user_id}"
+        cached = shared_cache.get(cache_key)
+        if cached is not None:
+            return cached
         session = get_session()
-        user_companies = (
-            session.query(UserCompany).filter(UserCompany.user_id == self.user_id).all()
-        )
-        response = [str(uc.company_id) for uc in user_companies]
-        session.close()
-        return response
+        try:
+            user_companies = (
+                session.query(UserCompany)
+                .filter(UserCompany.user_id == self.user_id)
+                .all()
+            )
+            response = [str(uc.company_id) for uc in user_companies]
+            shared_cache.set(cache_key, response, ttl=10)
+            return response
+        finally:
+            session.close()
 
     def get_accessible_company_ids(self, include_children: bool = True) -> List[str]:
         """
         Get list of all company IDs that the user has access to, including child companies
         where the user is an admin of the parent company.
+        Cached for 60s to avoid repeated DB hits on hot paths.
 
         Args:
             include_children: If True, include child companies where user is admin of parent.
@@ -5883,29 +5936,34 @@ class MagicalAuth:
         Returns:
             List of company IDs the user can access.
         """
+        cache_key = f"accessible_companies:{self.user_id}:{include_children}"
+        cached = shared_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         # Start with direct company memberships
         direct_companies = self.get_user_companies()
 
         if not include_children:
+            shared_cache.set(cache_key, direct_companies, ttl=60)
             return direct_companies
 
         accessible = set(direct_companies)
 
         with get_session() as db:
-            # For each company where user is admin (role_id <= 1), add all child companies
-            admin_company_ids = []
-            for company_id in direct_companies:
-                user_company = (
-                    db.query(UserCompany)
-                    .filter(
-                        UserCompany.user_id == self.user_id,
-                        UserCompany.company_id == company_id,
-                    )
-                    .first()
+            # Single query to get role_id for all direct companies at once
+            user_company_roles = (
+                db.query(UserCompany.company_id, UserCompany.role_id)
+                .filter(
+                    UserCompany.user_id == self.user_id,
+                    UserCompany.company_id.in_(direct_companies),
                 )
-                # Role 0 = super admin, Role 1 = company admin
-                if user_company and user_company.role_id <= 1:
-                    admin_company_ids.append(company_id)
+                .all()
+            )
+            # Role 0 = super admin, Role 1 = company admin
+            admin_company_ids = [
+                str(uc.company_id) for uc in user_company_roles if uc.role_id <= 1
+            ]
 
             # Get all child companies recursively for admin companies
             def get_child_companies(parent_id: str, visited: set) -> List[str]:
@@ -5929,7 +5987,9 @@ class MagicalAuth:
                 child_ids = get_child_companies(admin_company_id, visited)
                 accessible.update(child_ids)
 
-        return list(accessible)
+        result = list(accessible)
+        shared_cache.set(cache_key, result, ttl=60)
+        return result
 
     def can_access_company(self, company_id: str) -> bool:
         """
@@ -7120,10 +7180,7 @@ class MagicalAuth:
                         )
 
                     # For per_location billing, check location limit before creating child company
-                    from ExtensionsHub import ExtensionsHub
-
-                    hub = ExtensionsHub()
-                    pricing_config = hub.get_pricing_config()
+                    pricing_config = _get_cached_pricing_config()
                     pricing_model = (
                         pricing_config.get("pricing_model")
                         if pricing_config
@@ -8314,42 +8371,27 @@ class MagicalAuth:
 
         user_scopes = self.get_user_scopes()
 
-        from DB import Scope, default_scopes
+        # Use cached scope definitions
+        all_scopes_info = _get_all_scopes_info()
 
-        session = get_session()
-        try:
-            # Get all scope definitions
-            all_scopes = session.query(Scope).all()
+        available_scopes = []
+        categories = {}
 
-            available_scopes = []
-            categories = {}
+        for scope_info in all_scopes_info:
+            # Check if user has this scope (including wildcard matching)
+            if self.has_scope(scope_info["name"]):
+                available_scopes.append(scope_info)
 
-            for scope in all_scopes:
-                # Check if user has this scope (including wildcard matching)
-                if self.has_scope(scope.name):
-                    scope_info = {
-                        "id": str(scope.id),
-                        "name": scope.name,
-                        "resource": scope.resource,
-                        "action": scope.action,
-                        "description": scope.description,
-                        "category": scope.category or "Other",
-                        "is_system": scope.is_system,
-                    }
-                    available_scopes.append(scope_info)
+                # Group by category
+                cat = scope_info["category"]
+                if cat not in categories:
+                    categories[cat] = []
+                categories[cat].append(scope_info)
 
-                    # Group by category
-                    cat = scope.category or "Other"
-                    if cat not in categories:
-                        categories[cat] = []
-                    categories[cat].append(scope_info)
-
-            return {
-                "scopes": available_scopes,
-                "categories": categories,
-            }
-        finally:
-            session.close()
+        return {
+            "scopes": available_scopes,
+            "categories": categories,
+        }
 
     def get_available_agents_for_token_creation(self) -> list:
         """

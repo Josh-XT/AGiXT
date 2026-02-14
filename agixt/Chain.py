@@ -20,7 +20,7 @@ from DB import (
     CompanyChainStepArgument,
     UserChainOverride,
 )
-from Globals import getenv, DEFAULT_USER
+from Globals import getenv, DEFAULT_USER, get_default_user_id
 from Prompts import Prompts
 from Extensions import Extensions
 from MagicalAuth import get_user_id, get_user_company_id
@@ -43,10 +43,9 @@ class Chain:
     def get_chain(self, chain_name):
         session = get_session()
         chain_name = chain_name.replace("%20", " ")
-        user_data = session.query(User).filter(User.id == self.user_id).first()
         chain_db = (
             session.query(ChainDB)
-            .filter(ChainDB.user_id == user_data.id, ChainDB.name == chain_name)
+            .filter(ChainDB.user_id == self.user_id, ChainDB.name == chain_name)
             .first()
         )
         if chain_db is None:
@@ -166,23 +165,26 @@ class Chain:
 
     def get_global_chains(self):
         session = get_session()
-        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+        default_uid = get_default_user_id()
         global_chains = (
-            session.query(ChainDB).filter(ChainDB.user_id == user_data.id).all()
-        )
-        chains = session.query(ChainDB).filter(ChainDB.user_id == self.user_id).all()
-        chain_list = []
-        for chain in global_chains:
-            if chain in chains:
-                continue
-            chain_list.append(
-                {
-                    "name": chain.name,
-                    "description": chain.description,
-                    "steps": chain.steps,
-                    "runs": chain.runs,
-                }
-            )
+            session.query(ChainDB).filter(ChainDB.user_id == default_uid).all()
+        ) if default_uid else []
+        user_chain_names = {
+            c.name
+            for c in session.query(ChainDB.name)
+            .filter(ChainDB.user_id == self.user_id)
+            .all()
+        }
+        chain_list = [
+            {
+                "name": chain.name,
+                "description": chain.description,
+                "steps": chain.steps,
+                "runs": chain.runs,
+            }
+            for chain in global_chains
+            if chain.name not in user_chain_names
+        ]
         session.close()
         return chain_list
 
@@ -441,18 +443,16 @@ class Chain:
         )
         if not chain:
             # Check if it is a global
-            chain = (
-                session.query(ChainDB)
-                .filter(
-                    ChainDB.name == chain_name,
-                    ChainDB.user_id
-                    == session.query(User)
-                    .filter(User.email == DEFAULT_USER)
+            default_uid = get_default_user_id()
+            if default_uid:
+                chain = (
+                    session.query(ChainDB)
+                    .filter(
+                        ChainDB.name == chain_name,
+                        ChainDB.user_id == default_uid,
+                    )
                     .first()
-                    .id,
                 )
-                .first()
-            )
         if not chain:
             logging.error(f"Chain {chain_name} not found.")
             return
@@ -462,18 +462,16 @@ class Chain:
             .first()
         )
         if not agent:
-            agent = (
-                session.query(Agent)
-                .filter(
-                    Agent.name == agent_name,
-                    Agent.user_id
-                    == session.query(User)
-                    .filter(User.email == DEFAULT_USER)
+            default_uid = get_default_user_id()
+            if default_uid:
+                agent = (
+                    session.query(Agent)
+                    .filter(
+                        Agent.name == agent_name,
+                        Agent.user_id == default_uid,
+                    )
                     .first()
-                    .id,
                 )
-                .first()
-            )
         if "prompt_category" in prompt:
             prompt_category = prompt["prompt_category"]
         else:
@@ -495,11 +493,7 @@ class Chain:
                     session.query(Prompt)
                     .filter(
                         Prompt.name == prompt["prompt_name"],
-                        Prompt.user_id
-                        == session.query(User)
-                        .filter(User.email == DEFAULT_USER)
-                        .first()
-                        .id,
+                        Prompt.user_id == get_default_user_id(),
                     )
                     .first()
                 )
@@ -521,11 +515,7 @@ class Chain:
                     session.query(ChainDB)
                     .filter(
                         ChainDB.name == prompt[argument_key],
-                        ChainDB.user_id
-                        == session.query(User)
-                        .filter(User.email == DEFAULT_USER)
-                        .first()
-                        .id,
+                        ChainDB.user_id == get_default_user_id(),
                     )
                     .first()
                 )
@@ -634,13 +624,13 @@ class Chain:
             .filter(Agent.name == agent_name, Agent.user_id == self.user_id)
             .first()
         )
-        default_user = session.query(User).filter(User.email == DEFAULT_USER).first()
+        default_uid = get_default_user_id()
         # Fallback to default user agent if not found for current user
         if not agent:
-            if default_user:
+            if default_uid:
                 agent = (
                     session.query(Agent)
-                    .filter(Agent.name == agent_name, Agent.user_id == default_user.id)
+                    .filter(Agent.name == agent_name, Agent.user_id == default_uid)
                     .first()
                 )
         if not agent:
@@ -908,12 +898,12 @@ class Chain:
     def get_steps(self, chain_name):
         session = get_session()
         chain_name = chain_name.replace("%20", " ")
-        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+        default_uid = get_default_user_id()
         chain_db = (
             session.query(ChainDB)
-            .filter(ChainDB.user_id == user_data.id, ChainDB.name == chain_name)
+            .filter(ChainDB.user_id == default_uid, ChainDB.name == chain_name)
             .first()
-        )
+        ) if default_uid else None
         if chain_db is None:
             chain_db = (
                 session.query(ChainDB)
@@ -1524,15 +1514,16 @@ class Chain:
 
         if chain_db is None:
             # Try global chains
-            user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
-            chain_db = (
-                session.query(ChainDB)
-                .filter(
-                    ChainDB.id == chain_id,
-                    ChainDB.user_id == user_data.id,
+            default_uid = get_default_user_id()
+            if default_uid:
+                chain_db = (
+                    session.query(ChainDB)
+                    .filter(
+                        ChainDB.id == chain_id,
+                        ChainDB.user_id == default_uid,
+                    )
+                    .first()
                 )
-                .first()
-            )
 
         if chain_db is None:
             session.close()
@@ -1726,15 +1717,16 @@ class Chain:
 
         if chain_db is None:
             # Try global chains
-            user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
-            chain_db = (
-                session.query(ChainDB)
-                .filter(
-                    ChainDB.id == chain_id,
-                    ChainDB.user_id == user_data.id,
+            default_uid = get_default_user_id()
+            if default_uid:
+                chain_db = (
+                    session.query(ChainDB)
+                    .filter(
+                        ChainDB.id == chain_id,
+                        ChainDB.user_id == default_uid,
+                    )
+                    .first()
                 )
-                .first()
-            )
 
         if chain_db is None:
             session.close()
@@ -1957,10 +1949,10 @@ class Chain:
             }
 
         # 4. Legacy global chains from DEFAULT_USER
-        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
-        if user_data and user_data.id != self.user_id:
+        default_uid = get_default_user_id()
+        if default_uid and default_uid != str(self.user_id):
             global_chains = (
-                session.query(ChainDB).filter(ChainDB.user_id == user_data.id).all()
+                session.query(ChainDB).filter(ChainDB.user_id == default_uid).all()
             )
             for chain in global_chains:
                 if chain.name not in chains_dict:
@@ -2045,11 +2037,11 @@ class Chain:
             return result
 
         # 4. Try legacy DEFAULT_USER chain
-        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
-        if user_data:
+        default_uid = get_default_user_id()
+        if default_uid:
             legacy_chain = (
                 session.query(ChainDB)
-                .filter(ChainDB.user_id == user_data.id, ChainDB.name == chain_name)
+                .filter(ChainDB.user_id == default_uid, ChainDB.name == chain_name)
                 .first()
             )
             if legacy_chain:

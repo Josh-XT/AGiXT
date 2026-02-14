@@ -6,7 +6,7 @@ import hashlib
 from inspect import signature, Parameter
 import logging
 import inspect
-from Globals import getenv, DEFAULT_USER
+from Globals import getenv, DEFAULT_USER, get_default_user_id
 from MagicalAuth import get_user_id, get_sso_credentials
 from InternalClient import InternalClient
 from Prompts import Prompts
@@ -314,6 +314,27 @@ def invalidate_extension_cache():
     except Exception as e:
         logging.debug(f"Could not invalidate hub path cache: {e}")
 
+    # Invalidate the find_extension_files() TTL cache in ExtensionsHub
+    try:
+        from ExtensionsHub import invalidate_find_extension_files_cache
+
+        invalidate_find_extension_files_cache()
+        logging.debug("ExtensionsHub find_extension_files cache invalidated")
+    except Exception as e:
+        logging.debug(f"Could not invalidate find_extension_files cache: {e}")
+
+    # Invalidate the AI provider class cache in Agent.py
+    try:
+        from Agent import _ai_provider_classes_cache
+
+        import Agent
+
+        Agent._ai_provider_classes_cache = None
+        Agent._ai_provider_classes_cache_time = 0
+        logging.debug("AI provider classes cache invalidated")
+    except Exception as e:
+        logging.debug(f"Could not invalidate AI provider classes cache: {e}")
+
     # Reset router registration flag to force re-registration with hub extensions
     try:
         import app
@@ -353,8 +374,8 @@ class Extensions:
         self.user = user
         self.user_id = get_user_id(self.user)
         self.prompts = Prompts(user=self.user)
-        self.chains = self.get_chains()
-        self.chains_with_args = self.get_chains_with_args()
+        self._chains = None
+        self._chains_with_args = None
         if agent_config != None:
             if "commands" not in self.agent_config:
                 self.agent_config["commands"] = {}
@@ -367,6 +388,26 @@ class Extensions:
             }
         self.commands = self.load_commands()
         self.available_commands = self.get_available_commands()
+
+    @property
+    def chains(self):
+        if self._chains is None:
+            self._chains = self.get_chains()
+        return self._chains
+
+    @chains.setter
+    def chains(self, value):
+        self._chains = value
+
+    @property
+    def chains_with_args(self):
+        if self._chains_with_args is None:
+            self._chains_with_args = self.get_chains_with_args()
+        return self._chains_with_args
+
+    @chains_with_args.setter
+    def chains_with_args(self, value):
+        self._chains_with_args = value
 
     async def execute_chain(self, **kwargs):
         chain_name = kwargs.get("chain_name", "")
@@ -440,12 +481,12 @@ class Extensions:
     def get_chain(self, chain_name):
         session = get_session()
         chain_name = chain_name.replace("%20", " ")
-        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+        default_uid = get_default_user_id()
         chain_db = (
             session.query(ChainDB)
-            .filter(ChainDB.user_id == user_data.id, ChainDB.name == chain_name)
+            .filter(ChainDB.user_id == default_uid, ChainDB.name == chain_name)
             .first()
-        )
+        ) if default_uid else None
         if chain_db is None:
             chain_db = (
                 session.query(ChainDB)
@@ -582,8 +623,7 @@ class Extensions:
         # Batch load all chains data in one go
         session = get_session()
         try:
-            user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
-            default_user_id = user_data.id if user_data else None
+            default_uid = get_default_user_id()
 
             # Get all chains we need
             chain_names = self.chains
@@ -592,7 +632,7 @@ class Extensions:
                 .filter(
                     ChainDB.name.in_(chain_names),
                     (ChainDB.user_id == self.user_id)
-                    | (ChainDB.user_id == default_user_id),
+                    | (ChainDB.user_id == default_uid),
                 )
                 .all()
             )

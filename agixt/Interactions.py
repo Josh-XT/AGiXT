@@ -443,12 +443,13 @@ class Interactions:
     ):
         self.ApiClient = ApiClient
         self.user = user
-        self.auth = MagicalAuth(token=impersonate_user(email=self.user))
-        self.user_id = self.auth.user_id
         self.uri = getenv("AGIXT_URI")
         if agent_name != "":
             self.agent_name = agent_name
             self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
+            # Reuse auth from Agent to avoid redundant JWT encode/decode
+            self.auth = self.agent.auth
+            self.user_id = self.agent.user_id
             self.websearch = Websearch(
                 collection_number=collection_id,
                 agent=self.agent,
@@ -466,6 +467,9 @@ class Interactions:
         else:
             self.agent_name = ""
             self.agent = None
+            # Fallback: create auth when no agent
+            self.auth = MagicalAuth(token=impersonate_user(email=self.user))
+            self.user_id = self.auth.user_id
             self.websearch = None
             self.agent_memory = None
             self.outputs = f"{self.uri}/outputs"

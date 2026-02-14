@@ -742,16 +742,13 @@ async def new_conversation_v1(
     conversation_id = c.get_conversation_id()
 
     # Notify user of new conversation via websocket
+    _agent_id = c.get_agent_id(auth.user_id)
     asyncio.create_task(
         notify_user_conversation_created(
             user_id=auth.user_id,
             conversation_id=conversation_id,
             conversation_name=history.conversation_name,
-            agent_id=(
-                str(c.get_agent_id(auth.user_id))
-                if c.get_agent_id(auth.user_id)
-                else None
-            ),
+            agent_id=str(_agent_id) if _agent_id else None,
         )
     )
 

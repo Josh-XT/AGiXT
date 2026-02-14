@@ -18,6 +18,16 @@ import httpx
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 
+# Module-level shared httpx client for outgoing webhooks
+_webhook_http_client = None
+
+
+def _get_webhook_http_client():
+    global _webhook_http_client
+    if _webhook_http_client is None:
+        _webhook_http_client = httpx.AsyncClient(timeout=30)
+    return _webhook_http_client
+
 from DB import (
     WebhookIncoming,
     WebhookOutgoing,
@@ -551,10 +561,13 @@ class WebhookEventEmitter:
                 headers["X-Webhook-Signature"] = signature
 
             # Send HTTP request
-            async with httpx.AsyncClient(timeout=webhook.timeout) as client:
-                response = await client.post(
-                    webhook.target_url, json=payload, headers=headers
-                )
+            client = _get_webhook_http_client()
+            response = await client.post(
+                webhook.target_url,
+                json=payload,
+                headers=headers,
+                timeout=webhook.timeout,
+            )
 
             processing_time = int((time.time() - start_time) * 1000)
 
