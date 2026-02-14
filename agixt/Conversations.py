@@ -3331,7 +3331,11 @@ class Conversations:
         if not conversation_id:
             session.close()
             return ""
-        conversation = session.query(Conversation).filter(Conversation.id == conversation_id).first()
+        conversation = (
+            session.query(Conversation)
+            .filter(Conversation.id == conversation_id)
+            .first()
+        )
         if not conversation:
             session.close()
             return ""
@@ -3346,7 +3350,11 @@ class Conversations:
         if not conversation_id:
             session.close()
             return ""
-        result = session.query(Conversation.summary).filter(Conversation.id == conversation_id).scalar()
+        result = (
+            session.query(Conversation.summary)
+            .filter(Conversation.id == conversation_id)
+            .scalar()
+        )
         session.close()
         return result or ""
 
@@ -3356,7 +3364,11 @@ class Conversations:
         if not conversation_id:
             session.close()
             return 0
-        result = session.query(Conversation.attachment_count).filter(Conversation.id == conversation_id).scalar()
+        result = (
+            session.query(Conversation.attachment_count)
+            .filter(Conversation.id == conversation_id)
+            .scalar()
+        )
         session.close()
         return result or 0
 
@@ -3366,7 +3378,11 @@ class Conversations:
         if not conversation_id:
             session.close()
             return 0
-        conversation = session.query(Conversation).filter(Conversation.id == conversation_id).first()
+        conversation = (
+            session.query(Conversation)
+            .filter(Conversation.id == conversation_id)
+            .first()
+        )
         if not conversation:
             session.close()
             return 0
@@ -3381,7 +3397,11 @@ class Conversations:
         if not conversation_id:
             session.close()
             return 0
-        conversation = session.query(Conversation).filter(Conversation.id == conversation_id).first()
+        conversation = (
+            session.query(Conversation)
+            .filter(Conversation.id == conversation_id)
+            .first()
+        )
         if not conversation:
             session.close()
             return 0

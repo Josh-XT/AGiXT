@@ -971,7 +971,9 @@ async def get_company_usage(
         # Convert to dict for JSON serialization
         # Batch-fetch all users to avoid N+1
         user_ids = list({record.user_id for record in usage_records})
-        users = session.query(User).filter(User.id.in_(user_ids)).all() if user_ids else []
+        users = (
+            session.query(User).filter(User.id.in_(user_ids)).all() if user_ids else []
+        )
         users_by_id = {str(u.id): u.email for u in users}
 
         result = []

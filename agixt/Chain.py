@@ -332,9 +332,7 @@ class Chain:
 
         # 3. User-level chains (add or override company and server)
         user_names = (
-            session.query(ChainDB.name)
-            .filter(ChainDB.user_id == self.user_id)
-            .all()
+            session.query(ChainDB.name).filter(ChainDB.user_id == self.user_id).all()
         )
         chains_set.update(name for (name,) in user_names)
 
@@ -575,11 +573,7 @@ class Chain:
         # Batch-load all arguments by name
         arg_names = list(prompt_arguments.keys())
         if arg_names:
-            args = (
-                session.query(Argument)
-                .filter(Argument.name.in_(arg_names))
-                .all()
-            )
+            args = session.query(Argument).filter(Argument.name.in_(arg_names)).all()
             args_by_name = {a.name: a for a in args}
         else:
             args_by_name = {}
@@ -795,11 +789,7 @@ class Chain:
         # Batch-load all arguments by name
         arg_names = list(cleaned_prompt_args.keys())
         if arg_names:
-            args = (
-                session.query(Argument)
-                .filter(Argument.name.in_(arg_names))
-                .all()
-            )
+            args = session.query(Argument).filter(Argument.name.in_(arg_names)).all()
             args_by_name = {a.name: a for a in args}
         else:
             args_by_name = {}
@@ -1004,17 +994,21 @@ class Chain:
             # Batch-load all responses for all steps in one query (eliminates N+1)
             step_ids = [step.id for step in chain_steps]
             all_responses = (
-                session.query(ChainStepResponse)
-                .filter(
-                    ChainStepResponse.chain_step_id.in_(step_ids),
-                    ChainStepResponse.chain_run_id == chain_run_id,
+                (
+                    session.query(ChainStepResponse)
+                    .filter(
+                        ChainStepResponse.chain_step_id.in_(step_ids),
+                        ChainStepResponse.chain_run_id == chain_run_id,
+                    )
+                    .order_by(
+                        ChainStepResponse.chain_step_id,
+                        ChainStepResponse.timestamp,
+                    )
+                    .all()
                 )
-                .order_by(
-                    ChainStepResponse.chain_step_id,
-                    ChainStepResponse.timestamp,
-                )
-                .all()
-            ) if step_ids else []
+                if step_ids
+                else []
+            )
 
             # Group responses by step_id
             responses_by_step = defaultdict(list)
@@ -1131,11 +1125,7 @@ class Chain:
         steps = steps["steps"] if "steps" in steps else steps
 
         # Pre-load all agents for this user to avoid per-step agent queries
-        user_agents = (
-            session.query(Agent)
-            .filter(Agent.user_id == self.user_id)
-            .all()
-        )
+        user_agents = session.query(Agent).filter(Agent.user_id == self.user_id).all()
         agents_by_name = {a.name: a for a in user_agents}
         fallback_agent = user_agents[0] if user_agents else None
 
@@ -1644,9 +1634,7 @@ class Chain:
 
         prompts_map = {}
         if target_prompt_ids:
-            prms = (
-                session.query(Prompt).filter(Prompt.id.in_(target_prompt_ids)).all()
-            )
+            prms = session.query(Prompt).filter(Prompt.id.in_(target_prompt_ids)).all()
             prompts_map = {p.id: p.name for p in prms}
 
         # Batch-load all arguments for all steps in one query
@@ -1658,9 +1646,9 @@ class Chain:
         )
         args_by_step = defaultdict(dict)
         for argument, chain_step_argument in all_args:
-            args_by_step[chain_step_argument.chain_step_id][argument.name] = (
-                chain_step_argument.value
-            )
+            args_by_step[chain_step_argument.chain_step_id][
+                argument.name
+            ] = chain_step_argument.value
 
         chain_steps = []
         for step in steps:

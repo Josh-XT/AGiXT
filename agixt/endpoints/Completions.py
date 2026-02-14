@@ -88,7 +88,9 @@ def parse_agent_mentions(messages, available_agents):
         mentioned = match.group(1)
         canonical = agent_names_lower.get(mentioned.lower())
         if canonical:
-            cleaned_content = (content[: match.start()] + content[match.end() :]).strip()
+            cleaned_content = (
+                content[: match.start()] + content[match.end() :]
+            ).strip()
             new_messages = list(messages)
             new_messages[last_user_idx] = {**msg, "content": cleaned_content}
             return canonical, new_messages
@@ -102,7 +104,9 @@ def parse_agent_mentions(messages, available_agents):
         )
         match = unquoted_pattern.search(content)
         if match:
-            cleaned_content = (content[: match.start()] + content[match.end() :]).strip()
+            cleaned_content = (
+                content[: match.start()] + content[match.end() :]
+            ).strip()
             new_messages = list(messages)
             new_messages[last_user_idx] = {**msg, "content": cleaned_content}
             return agent_name, new_messages
@@ -227,11 +231,7 @@ async def chat_completion(
                                 a
                                 for a in all_agents
                                 if (
-                                    (
-                                        a["name"]
-                                        if isinstance(a, dict)
-                                        else a.name
-                                    )
+                                    (a["name"] if isinstance(a, dict) else a.name)
                                     == mentioned_agent
                                 )
                             ),
@@ -241,9 +241,7 @@ async def chat_completion(
                             agent_company = (
                                 mentioned_agent_data["company_id"]
                                 if isinstance(mentioned_agent_data, dict)
-                                else getattr(
-                                    mentioned_agent_data, "company_id", None
-                                )
+                                else getattr(mentioned_agent_data, "company_id", None)
                             )
                             if agent_company and str(agent_company) != str(
                                 _conv_obj.company_id
@@ -289,10 +287,7 @@ async def chat_completion(
                             status_code=400,
                             detail="Cannot trigger agent response in a user-to-user DM with no agent participants.",
                         )
-                elif (
-                    _conv_obj.conversation_type == "thread"
-                    and _conv_obj.parent_id
-                ):
+                elif _conv_obj.conversation_type == "thread" and _conv_obj.parent_id:
                     _dm_session = get_session()
                     _parent_conv = (
                         _dm_session.query(Conversation)
@@ -444,11 +439,7 @@ async def mcp_chat_completion(
                                 a
                                 for a in all_agents
                                 if (
-                                    (
-                                        a["name"]
-                                        if isinstance(a, dict)
-                                        else a.name
-                                    )
+                                    (a["name"] if isinstance(a, dict) else a.name)
                                     == mentioned_agent
                                 )
                             ),
@@ -458,9 +449,7 @@ async def mcp_chat_completion(
                             agent_company = (
                                 mentioned_agent_data["company_id"]
                                 if isinstance(mentioned_agent_data, dict)
-                                else getattr(
-                                    mentioned_agent_data, "company_id", None
-                                )
+                                else getattr(mentioned_agent_data, "company_id", None)
                             )
                             if agent_company and str(agent_company) != str(
                                 _conv_obj.company_id
@@ -502,10 +491,7 @@ async def mcp_chat_completion(
                             status_code=400,
                             detail="Cannot trigger agent response in a user-to-user DM with no agent participants.",
                         )
-                elif (
-                    _conv_obj.conversation_type == "thread"
-                    and _conv_obj.parent_id
-                ):
+                elif _conv_obj.conversation_type == "thread" and _conv_obj.parent_id:
                     _dm_session = get_session()
                     _parent_conv = (
                         _dm_session.query(Conversation)

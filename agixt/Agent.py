@@ -2207,9 +2207,7 @@ class Agent:
                 wallet_settings_by_name[setting.name] = []
             wallet_settings_by_name[setting.name].append(setting)
 
-        all_wallet_addresses = wallet_settings_by_name.get(
-            "SOLANA_WALLET_ADDRESS", []
-        )
+        all_wallet_addresses = wallet_settings_by_name.get("SOLANA_WALLET_ADDRESS", [])
         all_private_keys = wallet_settings_by_name.get("SOLANA_WALLET_API_KEY", [])
         all_passphrases = wallet_settings_by_name.get(
             "SOLANA_WALLET_PASSPHRASE_API_KEY", []
@@ -3215,9 +3213,7 @@ class Agent:
             }
 
             # Batch-load all Commands that match the command names being set
-            command_names = [
-                cn for cn in new_config.keys() if cn and cn.strip() != ""
-            ]
+            command_names = [cn for cn in new_config.keys() if cn and cn.strip() != ""]
             if command_names:
                 matched_commands = (
                     session.query(Command)

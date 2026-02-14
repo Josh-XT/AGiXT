@@ -55,8 +55,12 @@ _RE_THINKING_OPEN = re.compile(r"<thinking>", re.IGNORECASE)
 _RE_THINKING_CLOSE = re.compile(r"</thinking>", re.IGNORECASE)
 _RE_REFLECTION_OPEN = re.compile(r"<reflection>", re.IGNORECASE)
 _RE_REFLECTION_CLOSE = re.compile(r"</reflection>", re.IGNORECASE)
-_RE_CLOSING_TAG = re.compile(r"</(thinking|reflection|step|execute|output)>\s*$", re.IGNORECASE)
-_RE_TOOL_CALL = re.compile(r"<name>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*</name>", re.IGNORECASE)
+_RE_CLOSING_TAG = re.compile(
+    r"</(thinking|reflection|step|execute|output)>\s*$", re.IGNORECASE
+)
+_RE_TOOL_CALL = re.compile(
+    r"<name>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*</name>", re.IGNORECASE
+)
 _RE_STEP_TAG = re.compile(r"<step>(.*?)</step>", re.DOTALL | re.IGNORECASE)
 _RE_REWARD_TAG = re.compile(r"<reward>(.*?)</reward>", re.DOTALL | re.IGNORECASE)
 _RE_COUNT_TAG = re.compile(r"<count>(.*?)</count>", re.DOTALL | re.IGNORECASE)
@@ -65,14 +69,20 @@ _RE_EXECUTE_TAG = re.compile(r"<execute>.*?</execute>", re.DOTALL | re.IGNORECAS
 _RE_OUTPUT_TAG = re.compile(r"<output>.*?</output>", re.DOTALL)
 _RE_NAME_TAG = re.compile(r"<name>.*?</name>", re.DOTALL)
 _RE_THINKING_BLOCK = re.compile(r"<thinking>.*?</thinking>", re.DOTALL | re.IGNORECASE)
-_RE_REFLECTION_BLOCK = re.compile(r"<reflection>.*?</reflection>", re.DOTALL | re.IGNORECASE)
+_RE_REFLECTION_BLOCK = re.compile(
+    r"<reflection>.*?</reflection>", re.DOTALL | re.IGNORECASE
+)
 _RE_MULTI_NEWLINE = re.compile(r"\n\s*\n\s*\n")
 _RE_TRIPLE_NEWLINE = re.compile(r"\n{3,}")
 _RE_CUSTOM_FORMAT = re.compile(r"(?<!{){([^{}\n]+)}(?!})")
 _RE_DOT_SPACE = re.compile(r"\. ")
 _RE_OUTPUT_BLOCK = re.compile(r"<output>(.*?)</output>", re.DOTALL | re.IGNORECASE)
-_RE_THINKING_CONTENT = re.compile(r"<thinking>(.*?)</thinking>", re.DOTALL | re.IGNORECASE)
-_RE_REFLECTION_CONTENT = re.compile(r"<reflection>(.*?)</reflection>", re.DOTALL | re.IGNORECASE)
+_RE_THINKING_CONTENT = re.compile(
+    r"<thinking>(.*?)</thinking>", re.DOTALL | re.IGNORECASE
+)
+_RE_REFLECTION_CONTENT = re.compile(
+    r"<reflection>(.*?)</reflection>", re.DOTALL | re.IGNORECASE
+)
 _RE_REWARD_CONTENT = re.compile(r"<reward>(.*?)</reward>", re.DOTALL | re.IGNORECASE)
 _RE_COUNT_CONTENT = re.compile(r"<count>(.*?)</count>", re.DOTALL | re.IGNORECASE)
 _RE_FILE_BACKTICK = re.compile(r"`([^`]+\.[a-zA-Z0-9]+)`")
@@ -173,12 +183,12 @@ def extract_top_level_answer(response: str) -> str:
 
         # Check if this answer is at top level (not inside thinking/reflection)
         text_before = response[:open_pos]
-        thinking_depth = len(
-            _RE_THINKING_OPEN.findall(text_before)
-        ) - len(_RE_THINKING_CLOSE.findall(text_before))
-        reflection_depth = len(
-            _RE_REFLECTION_OPEN.findall(text_before)
-        ) - len(_RE_REFLECTION_CLOSE.findall(text_before))
+        thinking_depth = len(_RE_THINKING_OPEN.findall(text_before)) - len(
+            _RE_THINKING_CLOSE.findall(text_before)
+        )
+        reflection_depth = len(_RE_REFLECTION_OPEN.findall(text_before)) - len(
+            _RE_REFLECTION_CLOSE.findall(text_before)
+        )
 
         if thinking_depth == 0 and reflection_depth == 0:
             answer_opens.append(match)
@@ -348,12 +358,12 @@ def has_complete_answer(response: str) -> bool:
         text_before = response[:answer_open_pos]
 
         # Count open/close tags before this position
-        thinking_depth = len(
-            _RE_THINKING_OPEN.findall(text_before)
-        ) - len(_RE_THINKING_CLOSE.findall(text_before))
-        reflection_depth = len(
-            _RE_REFLECTION_OPEN.findall(text_before)
-        ) - len(_RE_REFLECTION_CLOSE.findall(text_before))
+        thinking_depth = len(_RE_THINKING_OPEN.findall(text_before)) - len(
+            _RE_THINKING_CLOSE.findall(text_before)
+        )
+        reflection_depth = len(_RE_REFLECTION_OPEN.findall(text_before)) - len(
+            _RE_REFLECTION_CLOSE.findall(text_before)
+        )
 
         # If this answer open is inside thinking/reflection, skip it
         if thinking_depth > 0 or reflection_depth > 0:
@@ -469,12 +479,12 @@ def is_inside_top_level_answer(response: str, position: int = None) -> bool:
 
         # Check if this answer open is at top level (not inside thinking/reflection)
         text_before = text_to_check[:open_pos]
-        thinking_depth = len(
-            _RE_THINKING_OPEN.findall(text_before)
-        ) - len(_RE_THINKING_CLOSE.findall(text_before))
-        reflection_depth = len(
-            _RE_REFLECTION_OPEN.findall(text_before)
-        ) - len(_RE_REFLECTION_CLOSE.findall(text_before))
+        thinking_depth = len(_RE_THINKING_OPEN.findall(text_before)) - len(
+            _RE_THINKING_CLOSE.findall(text_before)
+        )
+        reflection_depth = len(_RE_REFLECTION_OPEN.findall(text_before)) - len(
+            _RE_REFLECTION_CLOSE.findall(text_before)
+        )
         if thinking_depth == 0 and reflection_depth == 0:
             answer_open_positions.append(open_pos)
 
@@ -1135,18 +1145,10 @@ You have access to context management commands to reduce token usage:
             # Also check for unclosed thinking tags
             if not is_inside_thinking:
                 text_before = response[:step_start]
-                thinking_opens = len(
-                    _RE_THINKING_OPEN.findall(text_before)
-                )
-                thinking_closes = len(
-                    _RE_THINKING_CLOSE.findall(text_before)
-                )
-                reflection_opens = len(
-                    _RE_REFLECTION_OPEN.findall(text_before)
-                )
-                reflection_closes = len(
-                    _RE_REFLECTION_CLOSE.findall(text_before)
-                )
+                thinking_opens = len(_RE_THINKING_OPEN.findall(text_before))
+                thinking_closes = len(_RE_THINKING_CLOSE.findall(text_before))
+                reflection_opens = len(_RE_REFLECTION_OPEN.findall(text_before))
+                reflection_closes = len(_RE_REFLECTION_CLOSE.findall(text_before))
                 if (
                     thinking_opens > thinking_closes
                     or reflection_opens > reflection_closes
@@ -1156,12 +1158,8 @@ You have access to context management commands to reduce token usage:
             # Only process if outside thinking tags and not inside answer
             if not is_inside_thinking:
                 # Check if inside answer block
-                answer_opens = len(
-                    _RE_ANSWER_OPEN.findall(response[:step_start])
-                )
-                answer_closes = len(
-                    _RE_ANSWER_CLOSE.findall(response[:step_start])
-                )
+                answer_opens = len(_RE_ANSWER_OPEN.findall(response[:step_start]))
+                answer_closes = len(_RE_ANSWER_CLOSE.findall(response[:step_start]))
                 if answer_opens > answer_closes:
                     continue  # Skip steps inside answer blocks
 
@@ -1204,12 +1202,8 @@ You have access to context management commands to reduce token usage:
 
             if not is_inside_container:
                 # Check if inside answer block
-                answer_opens = len(
-                    _RE_ANSWER_OPEN.findall(response[:reward_start])
-                )
-                answer_closes = len(
-                    _RE_ANSWER_CLOSE.findall(response[:reward_start])
-                )
+                answer_opens = len(_RE_ANSWER_OPEN.findall(response[:reward_start]))
+                answer_closes = len(_RE_ANSWER_CLOSE.findall(response[:reward_start]))
                 if answer_opens > answer_closes:
                     continue
 
@@ -1314,9 +1308,7 @@ You have access to context management commands to reduce token usage:
 
             return f"<output>{chr(10).join(compressed_lines)}</output>"
 
-        compressed = _RE_OUTPUT_BLOCK.sub(
-            compress_output, compressed
-        )
+        compressed = _RE_OUTPUT_BLOCK.sub(compress_output, compressed)
 
         # 2. Compress <thinking> blocks - keep the essence but not verbose detail
 
@@ -2903,8 +2895,12 @@ Example: If user says "list my files", use:
 
                 # Incremental tag depth tracking — only scan the new token
                 token_lower = token.lower()
-                _thinking_depth += token_lower.count("<thinking>") - token_lower.count("</thinking>")
-                _reflection_depth += token_lower.count("<reflection>") - token_lower.count("</reflection>")
+                _thinking_depth += token_lower.count("<thinking>") - token_lower.count(
+                    "</thinking>"
+                )
+                _reflection_depth += token_lower.count(
+                    "<reflection>"
+                ) - token_lower.count("</reflection>")
                 in_thinking_or_reflection = _thinking_depth > 0 or _reflection_depth > 0
 
                 # Use is_inside_top_level_answer for proper answer detection
@@ -2913,9 +2909,7 @@ Example: If user says "list my files", use:
 
                 # Check for execute tag completion - allow commands inside thinking, reflection, and answer blocks
                 # Execute tags should be processed regardless of nesting to support agentic workflows
-                for match in re.finditer(
-                    _RE_EXECUTE_TAG, full_response
-                ):
+                for match in re.finditer(_RE_EXECUTE_TAG, full_response):
                     execute_end = match.end()
                     # Note: We no longer skip execute tags inside thinking/reflection blocks
                     # The agent may legitimately execute commands while thinking through a problem
@@ -3116,8 +3110,12 @@ Example: If user says "list my files", use:
                     text_before = full_response[:step_start]
                     text_before_lower = text_before.lower()
                     if (
-                        text_before_lower.count("<thinking>") - text_before_lower.count("</thinking>") > 0
-                        or text_before_lower.count("<reflection>") - text_before_lower.count("</reflection>") > 0
+                        text_before_lower.count("<thinking>")
+                        - text_before_lower.count("</thinking>")
+                        > 0
+                        or text_before_lower.count("<reflection>")
+                        - text_before_lower.count("</reflection>")
+                        > 0
                     ):
                         continue  # Skip steps inside thinking/reflection
 

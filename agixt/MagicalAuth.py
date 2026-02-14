@@ -5052,20 +5052,28 @@ class MagicalAuth:
                         # Batch-fetch all company admin preferences in one query
                         company_ids = [uc.company_id for uc in user_companies]
                         admin_rows = (
-                            session.query(
-                                User.id, User.email,
-                                UserPreferences.pref_key, UserPreferences.pref_value,
-                                UserCompany.company_id,
+                            (
+                                session.query(
+                                    User.id,
+                                    User.email,
+                                    UserPreferences.pref_key,
+                                    UserPreferences.pref_value,
+                                    UserCompany.company_id,
+                                )
+                                .join(UserCompany, User.id == UserCompany.user_id)
+                                .outerjoin(
+                                    UserPreferences, User.id == UserPreferences.user_id
+                                )
+                                .filter(
+                                    UserCompany.company_id.in_(company_ids),
+                                    UserCompany.role_id <= 2,
+                                )
+                                .all()
                             )
-                            .join(UserCompany, User.id == UserCompany.user_id)
-                            .outerjoin(UserPreferences, User.id == UserPreferences.user_id)
-                            .filter(
-                                UserCompany.company_id.in_(company_ids),
-                                UserCompany.role_id <= 2,
-                            )
-                            .all()
-                        ) if company_ids else []
-                        # Group into {admin_id: {email, prefs}} 
+                            if company_ids
+                            else []
+                        )
+                        # Group into {admin_id: {email, prefs}}
                         admins_data = {}
                         for uid, email, pkey, pval, cid in admin_rows:
                             if uid not in admins_data:
@@ -5074,12 +5082,12 @@ class MagicalAuth:
                                 admins_data[uid]["prefs"][pkey] = pval
                         for admin_info in admins_data.values():
                             if "stripe_id" in admin_info["prefs"]:
-                                user_preferences["stripe_id"] = admin_info["prefs"]["stripe_id"]
-                                relevant_subscriptions = (
-                                    self.get_subscribed_products(
-                                        api_key,
-                                        admin_info["email"],
-                                    )
+                                user_preferences["stripe_id"] = admin_info["prefs"][
+                                    "stripe_id"
+                                ]
+                                relevant_subscriptions = self.get_subscribed_products(
+                                    api_key,
+                                    admin_info["email"],
                                 )
                                 if relevant_subscriptions:
                                     has_active_subscription = True
