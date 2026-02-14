@@ -31,7 +31,7 @@ import json
 import asyncio
 
 # Pre-compiled regex for @mention extraction
-_RE_QUOTED_MENTION = re.compile(r'@["\u201c]([^"\u201d]+)["\u201d]')
+_RE_QUOTED_MENTION = re.compile(r'@["\u201c]([^"\u201c\u201d"]+)["\u201d]')
 _RE_UNQUOTED_MENTION = re.compile(r"@(\S+)")
 
 
