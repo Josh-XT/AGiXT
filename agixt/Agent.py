@@ -4027,9 +4027,7 @@ class Agent:
             for s in all_wallet_settings:
                 wallet_by_name.setdefault(s.name, []).append(s)
             all_private_keys = wallet_by_name.get("SOLANA_WALLET_API_KEY", [])
-            all_passphrases = wallet_by_name.get(
-                "SOLANA_WALLET_PASSPHRASE_API_KEY", []
-            )
+            all_passphrases = wallet_by_name.get("SOLANA_WALLET_PASSPHRASE_API_KEY", [])
             all_addresses = wallet_by_name.get("SOLANA_WALLET_ADDRESS", [])
 
             # Clean up duplicates - keep only the first one with a value, or first one if none have values
