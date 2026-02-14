@@ -2960,7 +2960,8 @@ async def notify_conversation_participants_message_added(
 ):
     """Notify ALL participants of a conversation when a new message is added.
     This ensures DM recipients and group channel members get notifications.
-    Also sends targeted 'mention' and 'reply' notifications to @mentioned and replied-to users."""
+    Also sends targeted 'mention' and 'reply' notifications to @mentioned and replied-to users.
+    """
     try:
         from DB import get_session, ConversationParticipant
         import re
@@ -2992,7 +2993,9 @@ async def notify_conversation_participants_message_added(
         uid_pattern = re.compile(r"\[uid:([0-9a-f-]{36})\]")
         for match in uid_pattern.finditer(message):
             uid = match.group(1)
-            if uid != sender_user_id:  # Don't notify sender about replying to themselves
+            if (
+                uid != sender_user_id
+            ):  # Don't notify sender about replying to themselves
                 replied_to_user_ids.add(uid)
 
         with get_session() as session:
