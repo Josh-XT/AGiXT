@@ -2932,8 +2932,35 @@ async def notify_user_message_added(
     role: str,
 ):
     """Notify user when a new message is added to any conversation."""
-    # Truncate message for notification (keep first 100 chars)
-    preview = message[:100] + "..." if len(message) > 100 else message
+    # Build clean notification preview: resolve mentions, strip metadata
+    import re
+    from DB import get_session, User
+
+    preview = message
+    try:
+        with get_session() as session:
+            # Resolve <@userId> mentions
+            mention_re = re.compile(r"<@([0-9a-f-]{36})>")
+            uids = set(mention_re.findall(preview))
+            if uids:
+                uid_to_name = {}
+                users = session.query(User).filter(User.id.in_(list(uids))).all()
+                for u in users:
+                    first = getattr(u, "first_name", "") or ""
+                    last = getattr(u, "last_name", "") or ""
+                    uid_to_name[str(u.id)] = f"{first} {last}".strip() or "User"
+                preview = mention_re.sub(
+                    lambda m: f"@{uid_to_name.get(m.group(1), 'User')}", preview
+                )
+            # Strip metadata tags and markdown bold
+            preview = re.sub(r"\[ref:[^\]]+\]", "", preview)
+            preview = re.sub(r"\[uid:[^\]]+\]", "", preview)
+            preview = preview.replace("**", "")
+            preview = re.sub(r"\s+", " ", preview).strip()
+    except Exception:
+        pass
+    if len(preview) > 100:
+        preview = preview[:100] + "..."
     await user_notification_manager.broadcast_to_user(
         user_id,
         {
@@ -2966,12 +2993,57 @@ async def notify_conversation_participants_message_added(
         from DB import get_session, ConversationParticipant, User, Conversation
         import re
 
-        preview = message[:100] + "..." if len(message) > 100 else message
+        # Build a clean preview: resolve <@userId> mentions, strip metadata tags
+        def clean_notification_preview(raw: str, session) -> str:
+            """Clean raw message text for notification previews."""
+            text = raw
+            # Strip reply blockquote lines (> **Author** said: ... > quoted)
+            if text.startswith("> **"):
+                lines = text.split("\n")
+                i = 0
+                if re.match(r"^> \*\*.+\*\* said:", lines[0]):
+                    i = 1
+                while i < len(lines) and (lines[i].startswith("> ") or lines[i] == ">"):
+                    i += 1
+                # Skip blank separator
+                if i < len(lines) and lines[i].strip() == "":
+                    i += 1
+                actual = "\n".join(lines[i:]).strip()
+                if actual:
+                    text = actual
+            # Resolve <@userId> to display names
+            mention_re = re.compile(r"<@([0-9a-f-]{36})>")
+            uids_in_text = set(mention_re.findall(text))
+            if uids_in_text:
+                uid_to_name = {}
+                users = (
+                    session.query(User).filter(User.id.in_(list(uids_in_text))).all()
+                )
+                for u in users:
+                    first = getattr(u, "first_name", "") or ""
+                    last = getattr(u, "last_name", "") or ""
+                    uid_to_name[str(u.id)] = f"{first} {last}".strip() or "User"
+                text = mention_re.sub(
+                    lambda m: f"@{uid_to_name.get(m.group(1), 'User')}", text
+                )
+            # Strip [ref:...] and [uid:...] metadata tags
+            text = re.sub(r"\[ref:[^\]]+\]", "", text)
+            text = re.sub(r"\[uid:[^\]]+\]", "", text)
+            # Strip markdown bold from remaining text
+            text = text.replace("**", "")
+            # Collapse whitespace
+            text = re.sub(r"\s+", " ", text).strip()
+            # Truncate
+            if len(text) > 100:
+                text = text[:100] + "..."
+            return text
 
         # Look up sender display name and conversation's company_id
         sender_name = "Someone"
         company_id = None
         with get_session() as session:
+            preview = clean_notification_preview(message, session)
+
             sender = session.query(User).filter(User.id == sender_user_id).first()
             if sender:
                 first = getattr(sender, "first_name", "") or ""
