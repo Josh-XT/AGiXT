@@ -779,11 +779,17 @@ class Conversations:
         finally:
             session.close()
 
-    def get_conversations_with_detail(self):
+    def get_conversations_with_detail(self, limit=None, offset=0):
         """
         OPTIMIZED: Single query to get all conversation details with notifications
         and last message timestamps in one batch instead of N+1 queries.
         Also includes DM conversations where the user is a participant (not just owner).
+
+        Args:
+            limit: Optional max number of conversations to return. When set, only
+                   the top N conversations (by updated_at desc) are processed for
+                   expensive batch operations (unread counts, DM names, agent roles).
+            offset: Skip this many conversations before applying limit.
         """
         session = get_session()
         user_id = self._user_id
@@ -888,6 +894,17 @@ class Conversations:
             )
 
         conversations = main_conversations + dm_threads
+
+        # Apply early pagination BEFORE expensive batch queries.
+        # Sort by last_message_time (or conversation updated_at as fallback) descending,
+        # then slice to limit+offset. This avoids computing unread counts, DM names,
+        # and agent roles for conversations that won't be returned.
+        if limit is not None and limit > 0:
+            conversations.sort(
+                key=lambda pair: pair[1] or pair[0].updated_at or "",
+                reverse=True,
+            )
+            conversations = conversations[offset : offset + limit]
 
         # Batch-fetch participant records for this user to get last_read_at
         all_conv_ids = [str(c.id) for c, _ in conversations]

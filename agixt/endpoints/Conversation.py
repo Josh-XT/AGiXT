@@ -634,15 +634,12 @@ async def get_conversations(
     offset: int = 0,
 ):
     c = Conversations(user=user)
-    conversations = c.get_conversations_with_detail()
+    # Pass limit/offset to the core method so expensive batch queries
+    # (unread counts, DM names, agent roles) are only computed for the
+    # paginated subset instead of all conversations.
+    conversations = c.get_conversations_with_detail(limit=limit, offset=offset)
     if not conversations:
         conversations = {}
-    # Apply pagination if limit is specified
-    # The dict is already sorted by updated_at descending from get_conversations_with_detail
-    if limit is not None and limit > 0:
-        keys = list(conversations.keys())
-        paginated_keys = keys[offset : offset + limit]
-        conversations = {k: conversations[k] for k in paginated_keys}
     return {
         "conversations": conversations,
     }
