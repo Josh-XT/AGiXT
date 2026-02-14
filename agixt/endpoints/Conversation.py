@@ -2953,8 +2953,8 @@ async def notify_user_message_added(
                     lambda m: f"@{uid_to_name.get(m.group(1), 'User')}", preview
                 )
             # Strip metadata tags and markdown bold
-            preview = re.sub(r"\[ref:[^\]]+\]", "", preview)
-            preview = re.sub(r"\[uid:[^\]]+\]", "", preview)
+            preview = re.sub(r"\[ref:[^\[\]]+\]", "", preview)
+            preview = re.sub(r"\[uid:[^\[\]]+\]", "", preview)
             preview = preview.replace("**", "")
             preview = re.sub(r"\s+", " ", preview).strip()
     except Exception:
@@ -3027,8 +3027,8 @@ async def notify_conversation_participants_message_added(
                     lambda m: f"@{uid_to_name.get(m.group(1), 'User')}", text
                 )
             # Strip [ref:...] and [uid:...] metadata tags
-            text = re.sub(r"\[ref:[^\]]+\]", "", text)
-            text = re.sub(r"\[uid:[^\]]+\]", "", text)
+            text = re.sub(r"\[ref:[^\[\]]+\]", "", text)
+            text = re.sub(r"\[uid:[^\[\]]+\]", "", text)
             # Strip markdown bold from remaining text
             text = text.replace("**", "")
             # Collapse whitespace
