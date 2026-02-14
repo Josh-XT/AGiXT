@@ -65,9 +65,7 @@ def embed(input: List[str]) -> List[Union[Sequence[float], Sequence[int]]]:
         _onnx_tokenizer.enable_truncation(max_length=256)
         _onnx_tokenizer.enable_padding(pad_id=0, pad_token="[PAD]", length=256)
     if _onnx_model is None:
-        _onnx_model = InferenceSession(
-            os.path.join(os.getcwd(), "onnx", "model.onnx")
-        )
+        _onnx_model = InferenceSession(os.path.join(os.getcwd(), "onnx", "model.onnx"))
     tokenizer = _onnx_tokenizer
     model = _onnx_model
     all_embeddings = []

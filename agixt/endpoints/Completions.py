@@ -185,7 +185,9 @@ async def chat_completion(
         if not prompt.model:
             try:
                 prompt.model = (
-                    all_agents[0]["name"] if isinstance(all_agents[0], dict) else all_agents[0].name
+                    all_agents[0]["name"]
+                    if isinstance(all_agents[0], dict)
+                    else all_agents[0].name
                 )
             except Exception:
                 # Log without exposing exception details
@@ -404,7 +406,9 @@ async def mcp_chat_completion(
         if not prompt.model:
             try:
                 prompt.model = (
-                    all_agents[0]["name"] if isinstance(all_agents[0], dict) else all_agents[0].name
+                    all_agents[0]["name"]
+                    if isinstance(all_agents[0], dict)
+                    else all_agents[0].name
                 )
             except Exception:
                 # Log without exposing exception details

@@ -68,6 +68,7 @@ def _get_user_company_ids(user_id: str) -> list:
     finally:
         session.close()
 
+
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
@@ -768,9 +769,7 @@ class Conversations:
             except:
                 agent_id = None
             if not agent_id:
-                agent = (
-                    session.query(Agent).filter(Agent.user_id == user_id).first()
-                )
+                agent = session.query(Agent).filter(Agent.user_id == user_id).first()
                 try:
                     agent_id = str(agent.id)
                 except:
@@ -3693,12 +3692,8 @@ class Conversations:
                 return []
 
             # Batch-fetch all conversations and users in 2 queries
-            conv_ids = list(
-                set(s.shared_conversation_id for s in active_shares)
-            )
-            user_ids = list(
-                set(s.shared_by_user_id for s in active_shares)
-            )
+            conv_ids = list(set(s.shared_conversation_id for s in active_shares))
+            user_ids = list(set(s.shared_by_user_id for s in active_shares))
 
             convs_map = {}
             if conv_ids:
@@ -3711,9 +3706,7 @@ class Conversations:
 
             users_map = {}
             if user_ids:
-                users = (
-                    session.query(User).filter(User.id.in_(user_ids)).all()
-                )
+                users = session.query(User).filter(User.id.in_(user_ids)).all()
                 users_map = {str(u.id): u for u in users}
 
             result = []

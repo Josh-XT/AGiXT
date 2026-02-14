@@ -483,10 +483,14 @@ class Extensions:
         chain_name = chain_name.replace("%20", " ")
         default_uid = get_default_user_id()
         chain_db = (
-            session.query(ChainDB)
-            .filter(ChainDB.user_id == default_uid, ChainDB.name == chain_name)
-            .first()
-        ) if default_uid else None
+            (
+                session.query(ChainDB)
+                .filter(ChainDB.user_id == default_uid, ChainDB.name == chain_name)
+                .first()
+            )
+            if default_uid
+            else None
+        )
         if chain_db is None:
             chain_db = (
                 session.query(ChainDB)

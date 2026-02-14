@@ -101,7 +101,9 @@ class Prompts:
         For internal prompts, server level is always used.
         Results are cached for 60s to avoid repeated DB queries on hot paths.
         """
-        cache_key = f"prompt:{self.user_id}:{self.company_id}:{prompt_category}:{prompt_name}"
+        cache_key = (
+            f"prompt:{self.user_id}:{self.company_id}:{prompt_category}:{prompt_name}"
+        )
         cached = shared_cache.get(cache_key)
         if cached is not None:
             return cached
@@ -563,13 +565,17 @@ class Prompts:
         # Must be a user category
         default_uid = get_default_user_id()
         global_prompts = (
-            session.query(Prompt)
-            .filter(
-                Prompt.user_id == default_uid,
-                Prompt.prompt_category_id == category_id,
+            (
+                session.query(Prompt)
+                .filter(
+                    Prompt.user_id == default_uid,
+                    Prompt.prompt_category_id == category_id,
+                )
+                .all()
             )
-            .all()
-        ) if default_uid else []
+            if default_uid
+            else []
+        )
         user_prompts = (
             session.query(Prompt)
             .filter(

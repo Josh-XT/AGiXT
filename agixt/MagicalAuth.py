@@ -5732,8 +5732,12 @@ class MagicalAuth:
                 (x for x in user_preferences if x.pref_key == "output_tokens"),
                 None,
             )
-            current_input_tokens = int(user_input_tokens.pref_value) if user_input_tokens else 0
-            current_output_tokens = int(user_output_tokens.pref_value) if user_output_tokens else 0
+            current_input_tokens = (
+                int(user_input_tokens.pref_value) if user_input_tokens else 0
+            )
+            current_output_tokens = (
+                int(user_output_tokens.pref_value) if user_output_tokens else 0
+            )
             updated_input_tokens = current_input_tokens + input_tokens
             updated_output_tokens = current_output_tokens + output_tokens
             # Update input tokens

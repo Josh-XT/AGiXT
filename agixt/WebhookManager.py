@@ -28,6 +28,7 @@ def _get_webhook_http_client():
         _webhook_http_client = httpx.AsyncClient(timeout=30)
     return _webhook_http_client
 
+
 from DB import (
     WebhookIncoming,
     WebhookOutgoing,

@@ -39,7 +39,13 @@ from SharedCache import (
     get_cached_sso_providers,
     invalidate_sso_providers_cache as shared_invalidate_sso_providers,
 )
-from Globals import getenv, get_tokens, DEFAULT_SETTINGS, DEFAULT_USER, get_default_user_id
+from Globals import (
+    getenv,
+    get_tokens,
+    DEFAULT_SETTINGS,
+    DEFAULT_USER,
+    get_default_user_id,
+)
 from MagicalAuth import MagicalAuth, get_user_id
 from Conversations import get_conversation_id_by_name
 from middleware import log_silenced_exception
@@ -610,7 +616,10 @@ def _get_provider_setting_keys():
     import time
 
     now = time.time()
-    if _provider_setting_keys_cache and now - _provider_setting_keys_time < _PROVIDER_SETTING_KEYS_TTL:
+    if (
+        _provider_setting_keys_cache
+        and now - _provider_setting_keys_time < _PROVIDER_SETTING_KEYS_TTL
+    ):
         return _provider_setting_keys_cache
 
     from Extensions import _get_extension_metadata_cache
@@ -927,7 +936,7 @@ class AIProviderManager:
 
     def _discover_providers(self):
         """Discover all configured AI Provider extensions by their CATEGORY attribute.
-        
+
         Uses cached AI provider class discovery to avoid repeated filesystem walks
         and module imports. Only the per-agent instantiation + configured check
         happens on each call.
@@ -1356,8 +1365,8 @@ def delete_agent(agent_name=None, agent_id=None, user=DEFAULT_USER):
         )
 
         # Delete associated chain step arguments, responses, and steps in bulk
-        chain_step_ids = (
-            session.query(ChainStep.id).filter(ChainStep.agent_id == agent.id)
+        chain_step_ids = session.query(ChainStep.id).filter(
+            ChainStep.agent_id == agent.id
         )
         session.query(ChainStepArgument).filter(
             ChainStepArgument.chain_step_id.in_(chain_step_ids)
@@ -1375,8 +1384,8 @@ def delete_agent(agent_name=None, agent_id=None, user=DEFAULT_USER):
         )
 
         # Delete associated agent provider settings and providers in bulk
-        agent_provider_ids = (
-            session.query(AgentProvider.id).filter(AgentProvider.agent_id == agent.id)
+        agent_provider_ids = session.query(AgentProvider.id).filter(
+            AgentProvider.agent_id == agent.id
         )
         session.query(AgentProviderSetting).filter(
             AgentProviderSetting.agent_provider_id.in_(agent_provider_ids)
