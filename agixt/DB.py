@@ -6165,6 +6165,13 @@ def migrate_performance_indexes():
                         "ON user_preferences(user_id, pref_key)"
                     )
                 )
+                # Index for participant lookup by user_id (access-control checks)
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conv_participant_user_id "
+                        "ON conversation_participant(user_id)"
+                    )
+                )
             else:
                 # PostgreSQL
                 session.execute(
@@ -6207,6 +6214,12 @@ def migrate_performance_indexes():
                     text(
                         "CREATE INDEX IF NOT EXISTS ix_user_prefs_user_key "
                         "ON user_preferences(user_id, pref_key)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conv_participant_user_id "
+                        "ON conversation_participant(user_id)"
                     )
                 )
             session.commit()

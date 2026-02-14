@@ -605,10 +605,10 @@ def _resolve_conversation_workspace(
 )
 async def get_conversations_list(user=Depends(verify_api_key)):
     c = Conversations(user=user)
-    conversations = c.get_conversations()
-    if conversations is None:
-        conversations = []
     conversations_with_ids = c.get_conversations_with_ids()
+    conversations = (
+        list(conversations_with_ids.values()) if conversations_with_ids else []
+    )
     return {
         "conversations": conversations,
         "conversations_with_ids": conversations_with_ids,
@@ -886,13 +886,14 @@ async def add_message_v1(
     )
     if not conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    # Create single Conversations instance for reuse across operations
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
     # Check speaking permissions for USER messages in group channels
     if log_interaction.role.upper() == "USER":
-        c = Conversations(
-            conversation_name=conversation_name,
-            user=user,
-            conversation_id=conversation_id,
-        )
         if not c.can_speak(str(auth.user_id)):
             raise HTTPException(
                 status_code=403,
@@ -906,23 +907,14 @@ async def add_message_v1(
         try:
             from Conversations import extract_data_urls_to_workspace
 
-            conv_obj = Conversations(
-                conversation_name=conversation_name,
-                user=user,
-                conversation_id=conversation_id,
-            )
-            agent_id = conv_obj.get_agent_id(str(auth.user_id)) or "default"
+            agent_id = c.get_agent_id(str(auth.user_id)) or "default"
             stored_message = extract_data_urls_to_workspace(
                 stored_message, agent_id, conversation_id
             )
         except Exception as e:
             logging.warning(f"Failed to extract data URLs from channel message: {e}")
 
-    interaction_id = Conversations(
-        conversation_name=conversation_name,
-        user=user,
-        conversation_id=conversation_id,
-    ).log_interaction(
+    interaction_id = c.log_interaction(
         message=stored_message,
         role=log_interaction.role,
         sender_user_id=(
@@ -1309,9 +1301,15 @@ async def get_reactions(
             .filter(MessageReaction.message_id == message_id)
             .all()
         )
+        # Batch-fetch all users at once instead of N+1 individual queries
+        user_ids = list({r.user_id for r in reactions if r.user_id})
+        users_by_id = {}
+        if user_ids:
+            users = session.query(User).filter(User.id.in_(user_ids)).all()
+            users_by_id = {str(u.id): u for u in users}
         result = []
         for r in reactions:
-            u = session.query(User).filter(User.id == r.user_id).first()
+            u = users_by_id.get(str(r.user_id))
             result.append(
                 {
                     "id": str(r.id),
@@ -2476,6 +2474,7 @@ async def conversation_stream(
         updated_message_ids_this_cycle = set()
         last_check_time = datetime.now()
         last_heartbeat_time = datetime.now()
+        last_rename_check_time = datetime.now()
 
         # Main streaming loop
         while True:
@@ -2637,32 +2636,38 @@ async def conversation_stream(
                     websocket
                 )
 
-                # Check for conversation rename
-                current_name = c.get_current_name_from_db()
-                if current_name and current_name != last_known_name:
-                    old_name = last_known_name
-                    last_known_name = current_name
-                    # Update the conversation object's name as well
-                    c.conversation_name = current_name
-                    await websocket.send_text(
-                        json.dumps(
-                            {
-                                "type": "conversation_renamed",
-                                "data": {
-                                    "conversation_id": (
-                                        str(conversation_id)
-                                        if conversation_id
-                                        else None
-                                    ),
-                                    "old_name": old_name,
-                                    "new_name": current_name,
-                                },
-                            }
+                # Check for conversation rename (throttled to every 15 seconds)
+                current_time = datetime.now()
+                time_since_rename_check = (
+                    current_time - last_rename_check_time
+                ).total_seconds()
+                if time_since_rename_check >= 15:
+                    last_rename_check_time = current_time
+                    current_name = c.get_current_name_from_db()
+                    if current_name and current_name != last_known_name:
+                        old_name = last_known_name
+                        last_known_name = current_name
+                        # Update the conversation object's name as well
+                        c.conversation_name = current_name
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "conversation_renamed",
+                                    "data": {
+                                        "conversation_id": (
+                                            str(conversation_id)
+                                            if conversation_id
+                                            else None
+                                        ),
+                                        "old_name": old_name,
+                                        "new_name": current_name,
+                                    },
+                                }
+                            )
                         )
-                    )
-                    logging.info(
-                        f"WebSocket: Sent conversation_renamed event '{old_name}' -> '{current_name}'"
-                    )
+                        logging.info(
+                            f"WebSocket: Sent conversation_renamed event '{old_name}' -> '{current_name}'"
+                        )
 
                 # Update tracking
                 last_message_count = changes["current_count"]
@@ -3038,9 +3043,10 @@ async def notify_conversation_participants_message_added(
                 text = text[:100] + "..."
             return text
 
-        # Look up sender display name and conversation's company_id
+        # Look up sender display name, conversation's company_id, and participants in one session
         sender_name = "Someone"
         company_id = None
+        participant_user_ids = []
         with get_session() as session:
             preview = clean_notification_preview(message, session)
 
@@ -3057,6 +3063,18 @@ async def notify_conversation_participants_message_added(
             )
             if conv and conv.company_id:
                 company_id = str(conv.company_id)
+
+            # Get all active participants in same session
+            participants = (
+                session.query(ConversationParticipant)
+                .filter(
+                    ConversationParticipant.conversation_id == conversation_id,
+                    ConversationParticipant.participant_type == "user",
+                    ConversationParticipant.status == "active",
+                )
+                .all()
+            )
+            participant_user_ids = [str(p.user_id) for p in participants if p.user_id]
 
         notification_data = {
             "type": "message_added",
@@ -3090,18 +3108,6 @@ async def notify_conversation_participants_message_added(
                 uid != sender_user_id
             ):  # Don't notify sender about replying to themselves
                 replied_to_user_ids.add(uid)
-
-        with get_session() as session:
-            participants = (
-                session.query(ConversationParticipant)
-                .filter(
-                    ConversationParticipant.conversation_id == conversation_id,
-                    ConversationParticipant.participant_type == "user",
-                    ConversationParticipant.status == "active",
-                )
-                .all()
-            )
-            participant_user_ids = [str(p.user_id) for p in participants if p.user_id]
 
         # Notify all participants with the base message_added notification
         for user_id in participant_user_ids:
