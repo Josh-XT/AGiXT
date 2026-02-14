@@ -1246,6 +1246,7 @@ class ThreadResponse(BaseModel):
     updated_at: Optional[str] = None
     message_count: int = 0
     last_message_at: Optional[str] = None
+    locked: bool = False
 
 
 class ThreadListResponse(BaseModel):

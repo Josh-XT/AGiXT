@@ -2959,9 +2959,11 @@ async def notify_conversation_participants_message_added(
     role: str,
 ):
     """Notify ALL participants of a conversation when a new message is added.
-    This ensures DM recipients and group channel members get notifications."""
+    This ensures DM recipients and group channel members get notifications.
+    Also sends targeted 'mention' and 'reply' notifications to @mentioned and replied-to users."""
     try:
         from DB import get_session, ConversationParticipant
+        import re
 
         preview = message[:100] + "..." if len(message) > 100 else message
         notification_data = {
@@ -2977,6 +2979,22 @@ async def notify_conversation_participants_message_added(
             },
         }
 
+        # Parse @mentions: <@userId> format
+        mentioned_user_ids = set()
+        mention_pattern = re.compile(r"<@([0-9a-f-]{36})>")
+        for match in mention_pattern.finditer(message):
+            uid = match.group(1)
+            if uid != sender_user_id:  # Don't notify sender about their own mentions
+                mentioned_user_ids.add(uid)
+
+        # Parse reply-to: [uid:userId] format
+        replied_to_user_ids = set()
+        uid_pattern = re.compile(r"\[uid:([0-9a-f-]{36})\]")
+        for match in uid_pattern.finditer(message):
+            uid = match.group(1)
+            if uid != sender_user_id:  # Don't notify sender about replying to themselves
+                replied_to_user_ids.add(uid)
+
         with get_session() as session:
             participants = (
                 session.query(ConversationParticipant)
@@ -2989,11 +3007,46 @@ async def notify_conversation_participants_message_added(
             )
             participant_user_ids = [str(p.user_id) for p in participants if p.user_id]
 
-        # Notify all participants (including sender for their own SWR cache updates)
+        # Notify all participants with the base message_added notification
         for user_id in participant_user_ids:
             await user_notification_manager.broadcast_to_user(
                 user_id, notification_data
             )
+
+        # Send targeted mention notifications to @mentioned users
+        for uid in mentioned_user_ids:
+            mention_notification = {
+                "type": "mention",
+                "data": {
+                    "conversation_id": conversation_id,
+                    "conversation_name": conversation_name,
+                    "message_id": message_id,
+                    "message_preview": preview,
+                    "role": role,
+                    "sender_user_id": sender_user_id,
+                    "timestamp": datetime.now().isoformat(),
+                },
+            }
+            await user_notification_manager.broadcast_to_user(uid, mention_notification)
+
+        # Send targeted reply notifications to replied-to users
+        for uid in replied_to_user_ids:
+            if uid not in mentioned_user_ids:  # Don't double-notify if also mentioned
+                reply_notification = {
+                    "type": "reply",
+                    "data": {
+                        "conversation_id": conversation_id,
+                        "conversation_name": conversation_name,
+                        "message_id": message_id,
+                        "message_preview": preview,
+                        "role": role,
+                        "sender_user_id": sender_user_id,
+                        "timestamp": datetime.now().isoformat(),
+                    },
+                }
+                await user_notification_manager.broadcast_to_user(
+                    uid, reply_notification
+                )
     except Exception as e:
         logging.warning(f"Failed to notify conversation participants: {e}")
         # Fallback: at least notify the sender
@@ -4197,5 +4250,70 @@ async def update_channel(
         session.rollback()
         logging.error(f"Error updating channel: {e}")
         raise HTTPException(status_code=500, detail="Failed to update channel")
+    finally:
+        session.close()
+
+
+@app.put(
+    "/v1/conversation/{conversation_id}/lock",
+    summary="Lock or Unlock a Conversation/Thread",
+    description="Locks or unlocks a conversation or thread. When locked, only owners and admins can send messages. Useful for closing threads.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def lock_conversation(
+    conversation_id: str,
+    body: dict,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    from DB import get_session, Conversation, ConversationParticipant
+
+    session = get_session()
+    try:
+        conversation = (
+            session.query(Conversation)
+            .filter(Conversation.id == conversation_id)
+            .first()
+        )
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        # Only owners and admins can lock/unlock
+        participant = (
+            session.query(ConversationParticipant)
+            .filter(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.user_id == auth.user_id,
+                ConversationParticipant.status == "active",
+            )
+            .first()
+        )
+        if not participant or participant.role not in ("owner", "admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="Only owners and admins can lock/unlock conversations",
+            )
+
+        locked = body.get("locked", True)
+        conversation.locked = locked
+        session.commit()
+        return {
+            "id": str(conversation.id),
+            "locked": conversation.locked,
+            "message": f"Conversation {'locked' if locked else 'unlocked'} successfully",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error locking conversation: {e}")
+        raise HTTPException(status_code=500, detail="Failed to lock conversation")
     finally:
         session.close()

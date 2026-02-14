@@ -1626,6 +1626,9 @@ class Conversation(Base):
         Boolean, nullable=False, default=False
     )  # If True, only explicitly invited users can join; if False, all company members auto-join
     description = Column(Text, nullable=True, default=None)  # Channel topic/description
+    locked = Column(
+        Boolean, nullable=False, default=False
+    )  # If True, only admins/owners can send messages (used to close/lock threads)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     user_id = Column(
@@ -4173,6 +4176,7 @@ def migrate_conversation_table():
             columns_to_add = [
                 ("pin_order", "INTEGER"),
                 ("category", "VARCHAR"),
+                ("locked", "BOOLEAN DEFAULT 0" if DATABASE_TYPE == "sqlite" else "BOOLEAN DEFAULT FALSE"),
             ]
 
             if DATABASE_TYPE == "sqlite":

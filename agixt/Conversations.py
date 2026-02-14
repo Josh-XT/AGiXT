@@ -1070,6 +1070,7 @@ class Conversations:
                 "parent_id": (
                     str(conversation.parent_id) if conversation.parent_id else None
                 ),
+                "locked": getattr(conversation, "locked", False) or False,
             }
 
         # Sort by updated_at descending (most recent first)
@@ -4063,8 +4064,9 @@ class Conversations:
         """
         Check if a user can speak (send messages) in this conversation.
         Users with 'observer' participant role cannot speak.
+        Locked threads only allow owner/admin to speak.
         Returns True if the user can speak, False if they are muted/observer.
-        Non-group conversations always allow speaking.
+        Non-group conversations always allow speaking (unless locked).
         If user has no participant record, allow speaking (they may be the owner).
         """
         conversation_id = self.get_conversation_id()
@@ -4077,7 +4079,26 @@ class Conversations:
                 .filter(Conversation.id == conversation_id)
                 .first()
             )
-            if not conversation or conversation.conversation_type != "group":
+            if not conversation:
+                return True
+
+            # Check if conversation is locked (closed thread)
+            if getattr(conversation, "locked", False):
+                # Only owners and admins can speak in locked conversations
+                participant = (
+                    session.query(ConversationParticipant)
+                    .filter(
+                        ConversationParticipant.conversation_id == conversation_id,
+                        ConversationParticipant.user_id == user_id,
+                        ConversationParticipant.status == "active",
+                    )
+                    .first()
+                )
+                if not participant or participant.role not in ("owner", "admin"):
+                    return False
+                return True
+
+            if conversation.conversation_type != "group":
                 return True
             participant = (
                 session.query(ConversationParticipant)
@@ -4666,6 +4687,7 @@ class Conversations:
                             if last_msg_time and hasattr(last_msg_time, "isoformat")
                             else str(last_msg_time) if last_msg_time else None
                         ),
+                        "locked": getattr(thread, "locked", False) or False,
                     }
                 )
 
