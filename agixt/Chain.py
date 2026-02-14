@@ -339,6 +339,77 @@ class Chain:
         session.close()
         return list(chains_set)
 
+    def get_chains_with_metadata(self):
+        """
+        Get all chains with id, name, and description in a single query set.
+        Used by the /v1/chains endpoint to avoid N+1 get_chain() calls.
+        Returns list of dicts with 'id', 'name', 'description' keys.
+        User chains override company, which override server chains of the same name.
+        """
+        session = get_session()
+        chains_dict = {}  # name -> {id, name, description}
+
+        # 1. Server-level chains (non-internal only)
+        server_chains = (
+            session.query(ServerChain.id, ServerChain.name, ServerChain.description)
+            .filter(ServerChain.is_internal == False)
+            .all()
+        )
+        for chain_id, name, desc in server_chains:
+            chains_dict[name] = {
+                "id": str(chain_id),
+                "name": name,
+                "description": desc or "",
+            }
+
+        # 2. Company-level chains (override server)
+        if self.company_id:
+            company_chains = (
+                session.query(
+                    CompanyChain.id, CompanyChain.name, CompanyChain.description
+                )
+                .filter(CompanyChain.company_id == self.company_id)
+                .all()
+            )
+            for chain_id, name, desc in company_chains:
+                chains_dict[name] = {
+                    "id": str(chain_id),
+                    "name": name,
+                    "description": desc or "",
+                }
+
+        # 3. User-level chains (override company and server)
+        user_chains = (
+            session.query(ChainDB.id, ChainDB.name, ChainDB.description)
+            .filter(ChainDB.user_id == self.user_id)
+            .all()
+        )
+        for chain_id, name, desc in user_chains:
+            chains_dict[name] = {
+                "id": str(chain_id),
+                "name": name,
+                "description": desc or "",
+            }
+
+        # 4. Legacy global chains from DEFAULT_USER
+        default_uid = get_default_user_id()
+        if default_uid and default_uid != str(self.user_id):
+            global_chains = (
+                session.query(ChainDB.id, ChainDB.name, ChainDB.description)
+                .filter(ChainDB.user_id == default_uid)
+                .all()
+            )
+            for chain_id, name, desc in global_chains:
+                if name not in chains_dict:
+                    chains_dict[name] = {
+                        "id": str(chain_id),
+                        "name": name,
+                        "description": desc or "",
+                    }
+
+        session.close()
+        return list(chains_dict.values())
+
     def add_chain(self, chain_name, description=""):
         session = get_session()
         # Check if a chain with this name already exists for this user
@@ -591,7 +662,7 @@ class Chain:
                 value=str(argument_value),
             )
             session.add(chain_step_argument)
-            session.commit()
+        session.commit()
         session.close()
 
     def update_step(self, chain_name, step_number, agent_name, prompt_type, prompt):
@@ -765,7 +836,7 @@ class Chain:
                 if command:
                     chain_step.target_command_id = command.id  # Re-set it here
 
-        session.commit()  # Commit the primary ChainStep updates first
+        session.flush()  # Flush step updates before deleting old args
 
         # Clean up any invalid argument keys before saving
         keys_to_remove = [
@@ -784,7 +855,7 @@ class Chain:
         session.query(ChainStepArgument).filter(
             ChainStepArgument.chain_step_id == str(chain_step.id)
         ).delete()
-        session.commit()  # Commit deletion
+        session.flush()  # Flush deletion before adding new args
 
         # Batch-load all arguments by name
         arg_names = list(cleaned_prompt_args.keys())
@@ -935,12 +1006,33 @@ class Chain:
         return chain_steps
 
     def get_step(self, chain_name, step_number):
-        steps = self.get_steps(chain_name=chain_name)
-        chain_step = None
-        for step in steps:
-            if step.step_number == step_number:
-                chain_step = step
-                break
+        session = get_session()
+        chain_name = chain_name.replace("%20", " ")
+        chain_db = (
+            session.query(ChainDB)
+            .filter(ChainDB.name == chain_name, ChainDB.user_id == self.user_id)
+            .first()
+        )
+        if not chain_db:
+            default_uid = get_default_user_id()
+            if default_uid:
+                chain_db = (
+                    session.query(ChainDB)
+                    .filter(ChainDB.name == chain_name, ChainDB.user_id == default_uid)
+                    .first()
+                )
+        if not chain_db:
+            session.close()
+            return None
+        chain_step = (
+            session.query(ChainStep)
+            .filter(
+                ChainStep.chain_id == chain_db.id,
+                ChainStep.step_number == step_number,
+            )
+            .first()
+        )
+        session.close()
         return chain_step
 
     def move_step(self, chain_name, current_step_number, new_step_number):
@@ -1232,13 +1324,13 @@ class Chain:
                 target_prompt_id=target_id if prompt_type == "prompt" else None,
             )
             session.add(chain_step)
-            session.commit()
+            session.flush()  # Flush to get chain_step.id
             for argument_name, argument_value in prompt_arguments.items():
                 argument = args_by_name.get(argument_name)
                 if not argument:
                     argument = Argument(name=argument_name)
                     session.add(argument)
-                    session.commit()
+                    session.flush()  # Flush to get argument.id
                     args_by_name[argument_name] = argument
 
                 chain_step_argument = ChainStepArgument(
@@ -1247,7 +1339,7 @@ class Chain:
                     value=argument_value,
                 )
                 session.add(chain_step_argument)
-                session.commit()
+        session.commit()  # Single commit for all steps and arguments
         session.close()
         return f"Imported chain: {chain_name}"
 
@@ -1503,18 +1595,16 @@ class Chain:
             return []
         prompt_args = []
         args = []
+        prompts = Prompts(user=self.user)
+        extensions = Extensions()
         for step in steps:
             try:
                 prompt = step["prompt"]
                 if "prompt_name" in prompt:
-                    prompt_text = Prompts(user=self.user).get_prompt(
-                        prompt_name=prompt["prompt_name"]
-                    )
-                    args = Prompts(user=self.user).get_prompt_args(
-                        prompt_text=prompt_text
-                    )
+                    prompt_text = prompts.get_prompt(prompt_name=prompt["prompt_name"])
+                    args = prompts.get_prompt_args(prompt_text=prompt_text)
                 elif "command_name" in prompt:
-                    args = Extensions().get_command_args(
+                    args = extensions.get_command_args(
                         command_name=prompt["command_name"]
                     )
                 elif "chain_name" in prompt:
@@ -2246,7 +2336,7 @@ class Chain:
                 target_prompt_id=source_step.target_prompt_id,
             )
             session.add(new_step)
-            session.commit()
+            session.flush()  # Flush to get new_step.id
 
             # Copy step arguments
             source_args = (
@@ -2261,7 +2351,6 @@ class Chain:
                     value=source_arg.value,
                 )
                 session.add(new_arg)
-            session.commit()
 
         # Track the override
         override = UserChainOverride(
@@ -2489,8 +2578,18 @@ class Chain:
             for k, v in prompt.items()
             if k != argument_key and k != "prompt_category"
         }
+        # Batch-load all arguments by name
+        if prompt_args:
+            arg_objs = (
+                session.query(Argument)
+                .filter(Argument.name.in_(list(prompt_args.keys())))
+                .all()
+            )
+            args_by_name = {a.name: a for a in arg_objs}
+        else:
+            args_by_name = {}
         for arg_name, arg_value in prompt_args.items():
-            argument = session.query(Argument).filter(Argument.name == arg_name).first()
+            argument = args_by_name.get(arg_name)
             if argument:
                 step_arg = ServerChainStepArgument(
                     chain_step_id=step.id,
@@ -2720,7 +2819,7 @@ class Chain:
                 target_prompt_id=user_step.target_prompt_id,
             )
             session.add(company_step)
-            session.commit()
+            session.flush()  # Flush to get company_step.id
 
             # Copy step arguments
             user_args = (
@@ -2836,8 +2935,18 @@ class Chain:
             for k, v in prompt.items()
             if k != argument_key and k != "prompt_category"
         }
+        # Batch-load all arguments by name
+        if prompt_args:
+            arg_objs = (
+                session.query(Argument)
+                .filter(Argument.name.in_(list(prompt_args.keys())))
+                .all()
+            )
+            args_by_name = {a.name: a for a in arg_objs}
+        else:
+            args_by_name = {}
         for arg_name, arg_value in prompt_args.items():
-            argument = session.query(Argument).filter(Argument.name == arg_name).first()
+            argument = args_by_name.get(arg_name)
             if argument:
                 step_arg = CompanyChainStepArgument(
                     chain_step_id=step.id,

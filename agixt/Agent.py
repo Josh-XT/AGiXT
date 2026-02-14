@@ -1271,29 +1271,20 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
             .all()
         )
 
-        for extension in core_extensions:
-            # Get all commands from this extension
-            extension_commands = (
+        # Batch-load ALL commands from core extensions in one query
+        core_extension_ids = [ext.id for ext in core_extensions]
+        if core_extension_ids:
+            all_core_commands = (
                 session.query(Command)
-                .filter(Command.extension_id == extension.id)
+                .filter(Command.extension_id.in_(core_extension_ids))
                 .all()
             )
-            # Enable all commands from these extensions
-            for command in extension_commands:
-                # Check if agent command already exists (from commands parameter)
-                existing_agent_command = (
-                    session.query(AgentCommand)
-                    .filter(
-                        AgentCommand.agent_id == agent.id,
-                        AgentCommand.command_id == command.id,
-                    )
-                    .first()
+            # For a newly created agent, no AgentCommands exist yet
+            for command in all_core_commands:
+                agent_command = AgentCommand(
+                    agent_id=agent.id, command_id=command.id, state=True
                 )
-                if not existing_agent_command:
-                    agent_command = AgentCommand(
-                        agent_id=agent.id, command_id=command.id, state=True
-                    )
-                    session.add(agent_command)
+                session.add(agent_command)
 
     # Handle any additional commands passed in the commands parameter
     if commands:
@@ -2714,24 +2705,8 @@ class Agent:
         import tempfile
         import shutil
 
-        def sanitize_path_component(component: str) -> str:
-            """Sanitize a path component to prevent path traversal attacks"""
-            if not component or not isinstance(component, str):
-                raise ValueError("Invalid path component")
-            sanitized = re.sub(r"[^a-zA-Z0-9_-]", "", str(component))
-            if (
-                not sanitized
-                or sanitized
-                != component.replace("-", "").replace("_", "").replace(" ", "")
-                or ".." in component
-            ):
-                sanitized = re.sub(r"[^a-zA-Z0-9-]", "", str(component))
-            if not sanitized:
-                raise ValueError("Invalid path component after sanitization")
-            return sanitized
-
-        safe_agent_id = sanitize_path_component(self.agent_id)
-        safe_conversation_id = sanitize_path_component(conversation_id)
+        safe_agent_id = Agent.sanitize_path_component(self.agent_id)
+        safe_conversation_id = Agent.sanitize_path_component(conversation_id)
 
         with tempfile.TemporaryDirectory() as temp_base:
             secure_filename = f"image_{timestamp}.png"
@@ -2806,29 +2781,10 @@ class Agent:
             # CodeQL ultra-safe pattern: Complete data flow isolation
             import tempfile
             import shutil
-            import re
 
             # Validate agent_id and conversation_id to prevent path traversal
-            def sanitize_path_component(component: str) -> str:
-                """Sanitize a path component to prevent path traversal attacks"""
-                if not component or not isinstance(component, str):
-                    raise ValueError("Invalid path component")
-                # Only allow alphanumeric characters, hyphens, and underscores
-                sanitized = re.sub(r"[^a-zA-Z0-9_-]", "", str(component))
-                if (
-                    not sanitized
-                    or sanitized
-                    != component.replace("-", "").replace("_", "").replace(" ", "")
-                    or ".." in component
-                ):
-                    # UUID format should be alphanumeric with hyphens
-                    sanitized = re.sub(r"[^a-zA-Z0-9-]", "", str(component))
-                if not sanitized:
-                    raise ValueError("Invalid path component after sanitization")
-                return sanitized
-
-            safe_agent_id = sanitize_path_component(self.agent_id)
-            safe_conversation_id = sanitize_path_component(conversation_id)
+            safe_agent_id = Agent.sanitize_path_component(self.agent_id)
+            safe_conversation_id = Agent.sanitize_path_component(conversation_id)
 
             # Create secure temporary directory completely isolated from user input
             with tempfile.TemporaryDirectory() as temp_base:
@@ -3597,9 +3553,6 @@ class Agent:
         Raises:
             ValueError: If the component contains invalid characters
         """
-        import re
-        import os
-
         if not component or not isinstance(component, str):
             raise ValueError("Path component must be a non-empty string")
 
@@ -4056,33 +4009,28 @@ class Agent:
                         detail=f"Agent '{self.agent_name}' not found for this user.",
                     )
 
-            # Get ALL wallet settings for this agent (to handle duplicates)
-            all_private_keys = (
+            # Get ALL wallet settings for this agent in a single query
+            wallet_setting_names = [
+                "SOLANA_WALLET_API_KEY",
+                "SOLANA_WALLET_PASSPHRASE_API_KEY",
+                "SOLANA_WALLET_ADDRESS",
+            ]
+            all_wallet_settings = (
                 session.query(AgentSettingModel)
                 .filter(
                     AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_API_KEY",
+                    AgentSettingModel.name.in_(wallet_setting_names),
                 )
                 .all()
             )
-
-            all_passphrases = (
-                session.query(AgentSettingModel)
-                .filter(
-                    AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_PASSPHRASE_API_KEY",
-                )
-                .all()
+            wallet_by_name = {}
+            for s in all_wallet_settings:
+                wallet_by_name.setdefault(s.name, []).append(s)
+            all_private_keys = wallet_by_name.get("SOLANA_WALLET_API_KEY", [])
+            all_passphrases = wallet_by_name.get(
+                "SOLANA_WALLET_PASSPHRASE_API_KEY", []
             )
-
-            all_addresses = (
-                session.query(AgentSettingModel)
-                .filter(
-                    AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_ADDRESS",
-                )
-                .all()
-            )
+            all_addresses = wallet_by_name.get("SOLANA_WALLET_ADDRESS", [])
 
             # Clean up duplicates - keep only the first one with a value, or first one if none have values
             def cleanup_duplicates(settings_list):
