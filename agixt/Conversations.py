@@ -4527,11 +4527,12 @@ class Conversations:
                     notification_mode = (
                         getattr(participant, "notification_mode", None) or "all"
                     )
+                notification_count = 0
                 if notification_mode == "none":
                     # User muted this channel — never show notification dot
                     has_notifications = False
                 elif participant and participant.last_read_at:
-                    unread_count = (
+                    notification_count = (
                         session.query(Message)
                         .filter(
                             Message.conversation_id == conv_id,
@@ -4542,18 +4543,18 @@ class Conversations:
                         )
                         .count()
                     )
-                    has_notifications = unread_count > 0
+                    has_notifications = notification_count > 0
                 else:
                     # Check notify flag as fallback
-                    has_notifications = (
+                    notification_count = (
                         session.query(Message)
                         .filter(
                             Message.conversation_id == conv_id,
                             Message.notify == True,
                         )
                         .count()
-                        > 0
                     )
+                    has_notifications = notification_count > 0
 
                 # Count participants
                 participant_count = (
@@ -4590,6 +4591,7 @@ class Conversations:
                         conversation.updated_at, user_id=user_id
                     ),
                     "has_notifications": has_notifications,
+                    "notification_count": notification_count,
                     "summary": conversation.summary or "None available",
                     "attachment_count": conversation.attachment_count or 0,
                     "pin_order": conversation.pin_order,

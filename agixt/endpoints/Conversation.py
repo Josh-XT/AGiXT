@@ -2963,10 +2963,29 @@ async def notify_conversation_participants_message_added(
     Also sends targeted 'mention' and 'reply' notifications to @mentioned and replied-to users.
     """
     try:
-        from DB import get_session, ConversationParticipant
+        from DB import get_session, ConversationParticipant, User, Conversation
         import re
 
         preview = message[:100] + "..." if len(message) > 100 else message
+
+        # Look up sender display name and conversation's company_id
+        sender_name = "Someone"
+        company_id = None
+        with get_session() as session:
+            sender = session.query(User).filter(User.id == sender_user_id).first()
+            if sender:
+                first = getattr(sender, "first_name", "") or ""
+                last = getattr(sender, "last_name", "") or ""
+                sender_name = f"{first} {last}".strip() or "Someone"
+            # Look up company_id from the conversation
+            conv = (
+                session.query(Conversation)
+                .filter(Conversation.id == conversation_id)
+                .first()
+            )
+            if conv and conv.company_id:
+                company_id = str(conv.company_id)
+
         notification_data = {
             "type": "message_added",
             "data": {
@@ -2976,6 +2995,8 @@ async def notify_conversation_participants_message_added(
                 "message_preview": preview,
                 "role": role,
                 "sender_user_id": sender_user_id,
+                "sender_name": sender_name,
+                "company_id": company_id,
                 "timestamp": datetime.now().isoformat(),
             },
         }
@@ -3027,6 +3048,8 @@ async def notify_conversation_participants_message_added(
                     "message_preview": preview,
                     "role": role,
                     "sender_user_id": sender_user_id,
+                    "sender_name": sender_name,
+                    "company_id": company_id,
                     "timestamp": datetime.now().isoformat(),
                 },
             }
@@ -3044,6 +3067,8 @@ async def notify_conversation_participants_message_added(
                         "message_preview": preview,
                         "role": role,
                         "sender_user_id": sender_user_id,
+                        "sender_name": sender_name,
+                        "company_id": company_id,
                         "timestamp": datetime.now().isoformat(),
                     },
                 }
