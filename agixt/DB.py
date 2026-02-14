@@ -4176,7 +4176,14 @@ def migrate_conversation_table():
             columns_to_add = [
                 ("pin_order", "INTEGER"),
                 ("category", "VARCHAR"),
-                ("locked", "BOOLEAN DEFAULT 0" if DATABASE_TYPE == "sqlite" else "BOOLEAN DEFAULT FALSE"),
+                (
+                    "locked",
+                    (
+                        "BOOLEAN DEFAULT 0"
+                        if DATABASE_TYPE == "sqlite"
+                        else "BOOLEAN DEFAULT FALSE"
+                    ),
+                ),
             ]
 
             if DATABASE_TYPE == "sqlite":
