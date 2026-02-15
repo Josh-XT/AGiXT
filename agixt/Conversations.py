@@ -1162,9 +1162,7 @@ class Conversations:
                 "created_at": _convert_time_fast(conversation.created_at),
                 "updated_at": _convert_time_fast(effective_updated_at),
                 "has_notifications": has_notifications,
-                "summary": (
-                    conversation.summary if conversation.summary else "None available"
-                ),
+                "summary": conversation.summary or None,
                 "attachment_count": conversation.attachment_count or 0,
                 "pin_order": conversation.pin_order,
                 "parent_id": (
@@ -3952,6 +3950,105 @@ class Conversations:
         session = get_session()
         user_id = self._user_id
         try:
+            # For DM conversations, check if one already exists between the
+            # same participants to avoid creating duplicates.
+            if conversation_type == "dm":
+                from sqlalchemy import func
+
+                # Find DM conversations where the current user is a participant
+                user_dm_ids = (
+                    session.query(ConversationParticipant.conversation_id)
+                    .join(
+                        Conversation,
+                        Conversation.id == ConversationParticipant.conversation_id,
+                    )
+                    .filter(
+                        ConversationParticipant.user_id == user_id,
+                        ConversationParticipant.status == "active",
+                        Conversation.conversation_type == "dm",
+                    )
+                    .subquery()
+                )
+
+                # Check for existing DM with the same agent(s)
+                if agents:
+                    for agent_name in agents:
+                        agent = (
+                            session.query(Agent)
+                            .filter(Agent.name == agent_name)
+                            .first()
+                        )
+                        if agent:
+                            existing = (
+                                session.query(Conversation)
+                                .join(
+                                    ConversationParticipant,
+                                    ConversationParticipant.conversation_id
+                                    == Conversation.id,
+                                )
+                                .filter(
+                                    Conversation.id.in_(user_dm_ids),
+                                    ConversationParticipant.agent_id == str(agent.id),
+                                    ConversationParticipant.status == "active",
+                                )
+                                .first()
+                            )
+                            if existing:
+                                session.close()
+                                return {
+                                    "id": str(existing.id),
+                                    "name": existing.name,
+                                    "conversation_type": existing.conversation_type,
+                                    "company_id": (
+                                        str(existing.company_id)
+                                        if existing.company_id
+                                        else None
+                                    ),
+                                    "parent_id": (
+                                        str(existing.parent_id)
+                                        if existing.parent_id
+                                        else None
+                                    ),
+                                    "parent_message_id": (
+                                        str(existing.parent_message_id)
+                                        if existing.parent_message_id
+                                        else None
+                                    ),
+                                }
+                else:
+                    # User-to-user DM: look for existing DMs by conversation
+                    # name pattern. The name is set by the frontend as
+                    # "DM-{targetName}" so we match on the same name + creator.
+                    existing = (
+                        session.query(Conversation)
+                        .filter(
+                            Conversation.id.in_(user_dm_ids),
+                            Conversation.name == self.conversation_name,
+                            Conversation.conversation_type == "dm",
+                        )
+                        .first()
+                    )
+                    if existing:
+                        session.close()
+                        return {
+                            "id": str(existing.id),
+                            "name": existing.name,
+                            "conversation_type": existing.conversation_type,
+                            "company_id": (
+                                str(existing.company_id)
+                                if existing.company_id
+                                else None
+                            ),
+                            "parent_id": (
+                                str(existing.parent_id) if existing.parent_id else None
+                            ),
+                            "parent_message_id": (
+                                str(existing.parent_message_id)
+                                if existing.parent_message_id
+                                else None
+                            ),
+                        }
+
             conversation = Conversation(
                 name=self.conversation_name,
                 user_id=user_id,
@@ -4627,7 +4724,7 @@ class Conversations:
                     "updated_at": _convert_time_fast(conversation.updated_at),
                     "has_notifications": has_notifications,
                     "notification_count": notification_count,
-                    "summary": conversation.summary or "None available",
+                    "summary": conversation.summary or None,
                     "attachment_count": conversation.attachment_count or 0,
                     "pin_order": conversation.pin_order,
                     "participant_count": part_count_map.get(conv_id, 0),

@@ -2814,14 +2814,24 @@ class MagicalAuth:
         self.email = email.lower()
         session = get_session()
         # Only consider active users as "existing" - inactive users can re-register
+        # Check by email first, then fall back to username
         user = (
             session.query(User)
             .filter(User.email == self.email, User.is_active == True)
             .first()
         )
         if not user:
-            self.send_email_code()
-            self.send_sms_code()
+            # Try finding by username
+            user = (
+                session.query(User)
+                .filter(User.username == self.email, User.is_active == True)
+                .first()
+            )
+        if not user:
+            # Only send verification codes if identifier looks like an email
+            if "@" in self.email:
+                self.send_email_code()
+                self.send_sms_code()
             session.close()
             return False
         session.close()
@@ -2829,11 +2839,14 @@ class MagicalAuth:
 
     def user_exists_any(self, email: str) -> bool:
         """
-        Check if a user exists with this email, regardless of active status.
+        Check if a user exists with this email or username, regardless of active status.
         """
         self.email = email.lower()
         session = get_session()
         user = session.query(User).filter(User.email == self.email).first()
+        if not user:
+            # Fall back to username lookup
+            user = session.query(User).filter(User.username == self.email).first()
         session.close()
         return user is not None
 
@@ -3989,8 +4002,12 @@ class MagicalAuth:
             # Generate or validate username
             username = getattr(new_user, "username", None)
             if not username:
-                # Auto-generate username from email
-                base_username = self.email.split("@")[0]
+                # Auto-generate username from email or identifier
+                if "@" in self.email:
+                    base_username = self.email.split("@")[0]
+                else:
+                    # Non-email identifier (username-based registration)
+                    base_username = self.email
                 username = base_username
                 counter = 1
                 while session.query(User).filter(User.username == username).first():
