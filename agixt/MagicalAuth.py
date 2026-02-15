@@ -2811,6 +2811,7 @@ class MagicalAuth:
             .replace("%60", "`")
             .replace("%7E", "~")
         )
+        original_input = email.strip()
         self.email = email.lower()
         session = get_session()
         # Only consider active users as "existing" - inactive users can re-register
@@ -2821,10 +2822,10 @@ class MagicalAuth:
             .first()
         )
         if not user:
-            # Try finding by username
+            # Try finding by username (case-sensitive, use original input)
             user = (
                 session.query(User)
-                .filter(User.username == self.email, User.is_active == True)
+                .filter(User.username == original_input, User.is_active == True)
                 .first()
             )
         if not user:
@@ -2841,12 +2842,13 @@ class MagicalAuth:
         """
         Check if a user exists with this email or username, regardless of active status.
         """
+        original_input = email.strip()
         self.email = email.lower()
         session = get_session()
         user = session.query(User).filter(User.email == self.email).first()
         if not user:
-            # Fall back to username lookup
-            user = session.query(User).filter(User.username == self.email).first()
+            # Fall back to username lookup (case-sensitive, use original input)
+            user = session.query(User).filter(User.username == original_input).first()
         session.close()
         return user is not None
 

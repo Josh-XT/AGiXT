@@ -506,6 +506,28 @@ def get_conversation_id_by_name(conversation_name, user_id, create_if_missing=Tr
                 .first()
             )
     if not conversation:
+        # Fallback: conversations where user is a participant (handles DMs without company_id)
+        participant_conv = (
+            session.query(ConversationParticipant)
+            .join(
+                Conversation,
+                Conversation.id == ConversationParticipant.conversation_id,
+            )
+            .filter(
+                ConversationParticipant.user_id == user_id,
+                ConversationParticipant.participant_type == "user",
+                ConversationParticipant.status == "active",
+                Conversation.name == conversation_name,
+            )
+            .first()
+        )
+        if participant_conv:
+            conversation = (
+                session.query(Conversation)
+                .filter(Conversation.id == participant_conv.conversation_id)
+                .first()
+            )
+    if not conversation:
         if not create_if_missing:
             session.close()
             # Clear any stale cache entry
@@ -3035,16 +3057,29 @@ class Conversations:
     def update_message_by_id(self, message_id, new_message):
         session = get_session()
         user_id = self._user_id
-        conversation = (
-            session.query(Conversation)
-            .filter(
-                Conversation.name == self.conversation_name,
-                Conversation.user_id == user_id,
+        conversation = None
+
+        # If we already have a conversation_id, use it directly (most reliable)
+        if self.conversation_id:
+            conversation = (
+                session.query(Conversation)
+                .filter(Conversation.id == self.conversation_id)
+                .first()
             )
-            .first()
-        )
+
+        # Fallback 1: lookup by name + user ownership
         if not conversation:
-            # Fallback: check group conversations accessible via company membership
+            conversation = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.name == self.conversation_name,
+                    Conversation.user_id == user_id,
+                )
+                .first()
+            )
+
+        # Fallback 2: group conversations accessible via company membership
+        if not conversation:
             company_ids = _get_user_company_ids(user_id)
             if company_ids:
                 conversation = (
@@ -3059,7 +3094,31 @@ class Conversations:
                     .first()
                 )
 
+        # Fallback 3: conversations where user is a participant (handles DMs without company_id)
         if not conversation:
+            participant_conv = (
+                session.query(ConversationParticipant)
+                .filter(
+                    ConversationParticipant.user_id == user_id,
+                    ConversationParticipant.participant_type == "user",
+                    ConversationParticipant.status == "active",
+                )
+                .first()
+            )
+            if participant_conv:
+                conversation = (
+                    session.query(Conversation)
+                    .filter(
+                        Conversation.id == participant_conv.conversation_id,
+                        Conversation.name == self.conversation_name,
+                    )
+                    .first()
+                )
+
+        if not conversation:
+            logging.warning(
+                f"update_message_by_id: conversation not found for name={self.conversation_name}, id={self.conversation_id}, user={user_id}"
+            )
             session.close()
             return
 
@@ -3073,6 +3132,9 @@ class Conversations:
         )
 
         if not message:
+            logging.warning(
+                f"update_message_by_id: message {message_id} not found in conversation {conversation.id}"
+            )
             session.close()
             return
 

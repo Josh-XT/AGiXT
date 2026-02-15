@@ -1631,15 +1631,18 @@ async def update_by_id(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     auth = MagicalAuth(token=authorization)
+    resolved_conversation_id = None
     try:
-        conversation_id = uuid.UUID(history.conversation_name)
+        resolved_conversation_id = str(uuid.UUID(history.conversation_name))
         history.conversation_name = get_conversation_name_by_id(
-            conversation_id=str(conversation_id), user_id=auth.user_id
+            conversation_id=resolved_conversation_id, user_id=auth.user_id
         )
-    except:
-        conversation_id = None
+    except (ValueError, AttributeError):
+        pass
     Conversations(
-        conversation_name=history.conversation_name, user=user
+        conversation_name=history.conversation_name,
+        user=user,
+        conversation_id=resolved_conversation_id,
     ).update_message_by_id(
         message_id=message_id,
         new_message=history.new_message,
