@@ -5,7 +5,6 @@ import logging
 import asyncio
 from typing import Dict, List, Any, Optional
 from urllib.parse import urljoin
-import base64
 from fastapi import APIRouter, Request, Header, HTTPException, Depends
 from pydantic import BaseModel
 from MagicalAuth import MagicalAuth, verify_api_key  # type: ignore
@@ -166,7 +165,7 @@ class stripe_payments(Extensions):
         - STRIPE_CLIENT_ID: For OAuth flows
         - STRIPE_CLIENT_SECRET: For OAuth flows
         """
-        self.secret_key = getenv("STRIPE_SECRET_KEY", "")
+        self.secret_key = getenv("STRIPE_SECRET_KEY", "") or getenv("STRIPE_API_KEY", "")
         self.publishable_key = getenv("STRIPE_PUBLISHABLE_KEY", "")
         self.base_url = "https://api.stripe.com/v1"
         self.user_id = kwargs.get("user_id", kwargs.get("user", "default"))
@@ -231,7 +230,7 @@ class stripe_payments(Extensions):
         )
         async def webhook(request: Request):
             """Stripe webhook endpoint for handling subscription events"""
-            if getenv("STRIPE_WEBHOOK_SECRET") == "":
+            if not getenv("STRIPE_WEBHOOK_SECRET"):
                 raise HTTPException(status_code=404, detail="Webhook not configured")
 
             session = get_session()
@@ -239,17 +238,17 @@ class stripe_payments(Extensions):
                 event = None
                 data = None
                 webhook_data = (await request.body()).decode("utf-8")
-                logging.info(f"Webhook data: {webhook_data}")
+                logging.debug(f"Webhook received: {len(webhook_data)} bytes")
 
                 try:
                     event = stripe_lib.Webhook.construct_event(
-                        payload=(await request.body()).decode("utf-8"),
+                        payload=webhook_data,
                         sig_header=request.headers.get("stripe-signature"),
                         secret=getenv("STRIPE_WEBHOOK_SECRET"),
                     )
                     data = event["data"]["object"]
                 except stripe_lib.error.SignatureVerificationError as e:
-                    logging.debug(f"Webhook signature verification failed: {str(e)}.")
+                    logging.warning(f"Webhook signature verification failed: {str(e)}.")
                     session.close()
                     raise HTTPException(
                         status_code=400, detail="Webhook signature verification failed."
@@ -258,8 +257,225 @@ class stripe_payments(Extensions):
                 logging.debug(f"Stripe Webhook Event of type {event['type']} received")
 
                 if event and event["type"] == "checkout.session.completed":
+                    session_data = data
+
+                    # Route subscription checkouts to the plan/addon activation handler
+                    if session_data.get("mode") == "subscription":
+                        metadata = session_data.get("metadata", {})
+                        checkout_type = metadata.get("type", "")
+                        company_id = metadata.get("company_id")
+                        amount_usd = float(metadata.get("amount_usd", 0))
+                        subscription_id = session_data.get("subscription")
+                        plan_id = metadata.get("plan_id")
+
+                        if company_id and subscription_id:
+                            from ExtensionsHub import ExtensionsHub
+                            from datetime import datetime, timezone
+
+                            # Idempotency: skip if this subscription is already recorded
+                            existing = (
+                                session.query(Company)
+                                .filter(
+                                    Company.id == company_id,
+                                    Company.stripe_subscription_id == subscription_id,
+                                )
+                                .first()
+                            )
+                            if existing:
+                                logging.info(
+                                    f"Subscription {subscription_id} already active for company {company_id}, skipping duplicate webhook"
+                                )
+                                session.close()
+                                return {"success": "true"}
+
+                            hub = ExtensionsHub()
+                            pricing_config = hub.get_pricing_config()
+                            app_name = (
+                                pricing_config.get("app_name")
+                                if pricing_config
+                                else None
+                            )
+                            if not app_name:
+                                app_name = getenv("APP_NAME") or "AGiXT"
+
+                            pricing_model = (
+                                pricing_config.get("pricing_model")
+                                if pricing_config
+                                else "per_token"
+                            )
+
+                            company = (
+                                session.query(Company)
+                                .filter(Company.id == company_id)
+                                .first()
+                            )
+                            if company:
+                                company.auto_topup_enabled = True
+                                company.auto_topup_amount_usd = amount_usd
+                                company.stripe_subscription_id = subscription_id
+                                company.app_name = app_name
+                                company.last_subscription_billing_date = (
+                                    datetime.now(timezone.utc)
+                                )
+
+                                # Handle tiered plan activation
+                                if pricing_model == "tiered_plan" and plan_id:
+                                    from MagicalAuth import MagicalAuth
+                                    auth = MagicalAuth()
+                                    auth.set_company_plan(
+                                        company_id=str(company.id),
+                                        plan_id=plan_id,
+                                    )
+                                    logging.info(
+                                        f"Tiered plan {plan_id} activated for {app_name} company {company_id}: ${amount_usd}/month"
+                                    )
+
+                                elif pricing_model == "per_bed" and plan_id:
+                                    try:
+                                        bed_count = int(plan_id)
+                                        company.bed_limit = bed_count
+                                        company.plan_id = f"per_bed_{bed_count}"
+                                    except ValueError:
+                                        company.plan_id = plan_id
+                                    logging.info(
+                                        f"Per-bed plan activated for {app_name} company {company_id}: {plan_id} beds, ${amount_usd}/month"
+                                    )
+
+                                # Handle addon subscription
+                                elif checkout_type == "addon_subscription":
+                                    # Idempotency: check if we've already processed this checkout session
+                                    checkout_session_id = session_data.get("id", "")
+                                    existing_txn = (
+                                        session.query(PaymentTransaction)
+                                        .filter(
+                                            PaymentTransaction.reference_code == f"ADDON_{checkout_session_id[:30]}",
+                                        )
+                                        .first()
+                                    )
+                                    if existing_txn:
+                                        logging.info(
+                                            f"Addon checkout {checkout_session_id} already processed, skipping duplicate"
+                                        )
+                                    else:
+                                        addon_count = int(metadata.get("addon_count", 1))
+                                        company.addon_users = (company.addon_users or 0) + addon_count
+                                        company.addon_devices = (company.addon_devices or 0) + (addon_count * 100)
+                                        company.addon_tokens = (company.addon_tokens or 0) + (addon_count * 10_000_000)
+                                        company.addon_storage_bytes = (company.addon_storage_bytes or 0) + (addon_count * 2 * 1024 * 1024 * 1024)
+
+                                        # Record transaction for idempotency
+                                        addon_txn = PaymentTransaction(
+                                            user_id=None,
+                                            company_id=str(company.id),
+                                            seat_count=0,
+                                            token_amount=0,
+                                            payment_method="stripe_checkout",
+                                            currency="USD",
+                                            network="stripe",
+                                            amount_usd=amount_usd,
+                                            amount_currency=amount_usd,
+                                            exchange_rate=1.0,
+                                            stripe_payment_intent_id=f"addon_{checkout_session_id}",
+                                            status="completed",
+                                            reference_code=f"ADDON_{checkout_session_id[:30]}",
+                                            app_name=app_name,
+                                            metadata_json=json.dumps({
+                                                "type": "addon_subscription",
+                                                "addon_count": addon_count,
+                                            }),
+                                        )
+                                        session.add(addon_txn)
+                                        logging.info(
+                                            f"Addon subscription activated for {app_name} company {company_id}: {addon_count} addons"
+                                        )
+
+                                else:
+                                    logging.info(
+                                        f"Subscription activated for {app_name} company {company_id}: ${amount_usd}/month"
+                                    )
+
+                        session.commit()
+                        session.close()
+                        return {"success": "true"}
+
+                    # Handle one-time payment checkout (e.g. token topup)
+                    if session_data.get("mode") == "payment":
+                        metadata = session_data.get("metadata", {})
+                        checkout_type = metadata.get("type", "")
+
+                        if checkout_type == "token_topup":
+                            company_id = metadata.get("company_id")
+                            token_amount = int(metadata.get("token_amount", 0))
+                            token_millions = int(metadata.get("token_millions", 0))
+                            price_per_million = float(metadata.get("price_per_million", 5.0))
+                            amount_usd = token_millions * price_per_million
+
+                            if company_id and token_amount > 0:
+                                # Idempotency: check if this checkout session
+                                # was already processed before crediting tokens
+                                topup_ref = f"TOPUP_{session_data.get('id', 'unknown')[:20]}"
+                                existing_topup = (
+                                    session.query(PaymentTransaction)
+                                    .filter(
+                                        PaymentTransaction.reference_code == topup_ref,
+                                    )
+                                    .first()
+                                )
+                                if existing_topup:
+                                    logging.info(
+                                        f"Token topup already processed for checkout {session_data.get('id')}, skipping duplicate"
+                                    )
+                                    session.close()
+                                    return {"success": "true"}
+
+                                # Create payment transaction record FIRST for idempotency
+                                # (add_tokens_to_company opens its own session/commit)
+                                payment_intent_id = session_data.get("payment_intent", "unknown")
+                                transaction = PaymentTransaction(
+                                    user_id=None,
+                                    company_id=str(company_id),
+                                    seat_count=0,
+                                    token_amount=token_amount,
+                                    payment_method="stripe_checkout",
+                                    currency="USD",
+                                    network="stripe",
+                                    amount_usd=amount_usd,
+                                    amount_currency=amount_usd,
+                                    exchange_rate=1.0,
+                                    stripe_payment_intent_id=payment_intent_id,
+                                    status="completed",
+                                    reference_code=topup_ref,
+                                    app_name=getenv("APP_NAME") or "AGiXT",
+                                    metadata_json=json.dumps({
+                                        "type": "token_topup",
+                                        "token_millions": token_millions,
+                                        "price_per_million": price_per_million,
+                                    }),
+                                )
+                                session.add(transaction)
+                                session.commit()
+
+                                # Now credit tokens (resolves root parent company)
+                                from MagicalAuth import MagicalAuth
+
+                                auth = MagicalAuth()
+                                auth.add_tokens_to_company(
+                                    company_id=company_id,
+                                    token_amount=token_amount,
+                                    amount_usd=amount_usd,
+                                )
+
+                                logging.info(
+                                    f"Token topup: Credited {token_amount} tokens (${amount_usd}) to company {company_id}"
+                                )
+
+                        session.commit()
+                        session.close()
+                        return {"success": "true"}
+
+                    # Legacy one-time checkout flow
                     logging.debug("Checkout session completed.")
-                    email = data["customer_details"]["email"]
+                    email = data.get("customer_details", {}).get("email")
                     user = session.query(User).filter_by(email=email).first()
                     stripe_id = data["customer"]
                     status = data["payment_status"]
@@ -451,6 +667,22 @@ class stripe_payments(Extensions):
                 elif event and event["type"] == "customer.subscription.deleted":
                     logging.debug("Customer Subscription cancelled.")
                     customer_id = data["customer"]
+                    subscription_id = data.get("id")
+
+                    # Clean up Company subscription fields
+                    if subscription_id:
+                        company = (
+                            session.query(Company)
+                            .filter(Company.stripe_subscription_id == subscription_id)
+                            .first()
+                        )
+                        if company:
+                            company.stripe_subscription_id = None
+                            company.auto_topup_enabled = False
+                            company.auto_topup_amount_usd = None
+                            logging.info(
+                                f"Cleared subscription data for company {company.id} on cancellation"
+                            )
 
                     # Find users with this customer ID
                     stripe_prefs = (
@@ -501,22 +733,36 @@ class stripe_payments(Extensions):
                     logging.debug("Payment Intent succeeded.")
                     payment_intent_id = data["id"]
 
-                    # Find the payment transaction
+                    # Find the payment transaction (with row lock to prevent double-crediting)
                     transaction = (
                         session.query(PaymentTransaction)
                         .filter(
                             PaymentTransaction.stripe_payment_intent_id
                             == payment_intent_id
                         )
+                        .with_for_update()
                         .first()
                     )
 
                     if transaction:
+                        # Skip if already processed (idempotency guard)
+                        if transaction.status == "completed":
+                            logging.info(
+                                f"Payment intent {payment_intent_id} already processed, skipping"
+                            )
+                            session.close()
+                            return {"success": "true"}
+
                         # Update transaction status
                         transaction.status = "completed"
 
                         # If this is a token purchase, credit the company
                         if transaction.token_amount and transaction.company_id:
+                            # Commit status FIRST so idempotency guard
+                            # catches retries if add_tokens_to_company
+                            # succeeds but later code fails
+                            session.commit()
+
                             from MagicalAuth import MagicalAuth
 
                             auth = MagicalAuth()
@@ -643,59 +889,28 @@ class stripe_payments(Extensions):
                     session.close()
                     return {"success": "true"}
 
-                elif event and event["type"] == "checkout.session.completed":
-                    # Check if this is an auto top-up subscription checkout
-                    session_data = data
-                    if session_data.get("mode") == "subscription":
-                        metadata = session_data.get("metadata", {})
-                        if metadata.get("type") == "auto_topup_subscription":
-                            company_id = metadata.get("company_id")
-                            amount_usd = float(metadata.get("amount_usd", 0))
-                            subscription_id = session_data.get("subscription")
-
-                            if company_id and subscription_id:
-                                # Get app name for tracking
-                                from ExtensionsHub import ExtensionsHub
-                                from datetime import datetime
-
-                                hub = ExtensionsHub()
-                                pricing_config = hub.get_pricing_config()
-                                app_name = (
-                                    pricing_config.get("app_name")
-                                    if pricing_config
-                                    else None
-                                )
-                                if not app_name:
-                                    app_name = getenv("APP_NAME") or "AGiXT"
-
-                                # Update company with subscription info
-                                company = (
-                                    session.query(Company)
-                                    .filter(Company.id == company_id)
-                                    .first()
-                                )
-                                if company:
-                                    company.auto_topup_enabled = True
-                                    company.auto_topup_amount_usd = amount_usd
-                                    company.stripe_subscription_id = subscription_id
-                                    company.app_name = app_name
-                                    company.last_subscription_billing_date = (
-                                        datetime.now()
-                                    )
-                                    logging.info(
-                                        f"Auto top-up subscription activated for {app_name} company {company_id}: ${amount_usd}/month"
-                                    )
-
-                    session.commit()
-                    session.close()
-                    return {"success": "true"}
-
                 elif event and event["type"] == "invoice.payment_succeeded":
                     # Handle successful subscription invoice payment
                     invoice = data
                     subscription_id = invoice.get("subscription")
+                    invoice_id = invoice.get("id", "unknown")
 
                     if subscription_id:
+                        # Idempotency check: skip if we already processed this invoice
+                        existing_txn = (
+                            session.query(PaymentTransaction)
+                            .filter(
+                                PaymentTransaction.stripe_payment_intent_id == invoice_id
+                            )
+                            .first()
+                        )
+                        if existing_txn and existing_txn.status == "completed":
+                            logging.info(
+                                f"Invoice {invoice_id} already processed, skipping"
+                            )
+                            session.close()
+                            return {"success": "true"}
+
                         # Find company with this subscription
                         company = (
                             session.query(Company)
@@ -711,7 +926,7 @@ class stripe_payments(Extensions):
                             if amount_usd > 0:
                                 # Get per-app pricing from extension hub
                                 from ExtensionsHub import ExtensionsHub
-                                from datetime import datetime
+                                from datetime import datetime, timezone
 
                                 hub = ExtensionsHub()
                                 pricing_config = hub.get_pricing_config()
@@ -782,7 +997,7 @@ class stripe_payments(Extensions):
                                     # Update company's app tracking and billing date
                                     company.app_name = app_name
                                     company.last_subscription_billing_date = (
-                                        datetime.now()
+                                        datetime.now(timezone.utc)
                                     )
 
                                     # Create payment transaction record
@@ -802,7 +1017,7 @@ class stripe_payments(Extensions):
                                         status="completed",
                                         reference_code=f"SUB_{subscription_id[:20]}_{invoice_id[:20]}",
                                         app_name=app_name,
-                                        metadata=(
+                                        metadata_json=json.dumps(
                                             {
                                                 "credits_applied": credits_applied,
                                                 "net_charge": amount_usd
@@ -839,6 +1054,46 @@ class stripe_payments(Extensions):
                                         logging.warning(
                                             f"Failed to send Discord subscription notification: {e}"
                                         )
+
+                                elif pricing_model in ["tiered_plan", "per_bed"]:
+                                    # Tiered plan / per-bed renewal: reset usage for the new period
+                                    from datetime import timezone as tz
+
+                                    company.tokens_used_this_period = 0
+                                    company.current_period_start = datetime.now(tz.utc)
+                                    company.app_name = app_name
+                                    company.last_subscription_billing_date = (
+                                        datetime.now(tz.utc)
+                                    )
+
+                                    # Create payment transaction record
+                                    invoice_id = invoice.get("id", "unknown")
+                                    transaction = PaymentTransaction(
+                                        user_id=None,
+                                        company_id=str(company.id),
+                                        seat_count=0,
+                                        token_amount=0,
+                                        payment_method="stripe_subscription",
+                                        currency="USD",
+                                        network="stripe",
+                                        amount_usd=amount_usd,
+                                        amount_currency=amount_usd,
+                                        exchange_rate=1.0,
+                                        stripe_payment_intent_id=invoice_id,
+                                        status="completed",
+                                        reference_code=f"SUB_{subscription_id[:20]}_{invoice_id[:20]}",
+                                        app_name=app_name,
+                                        metadata_json=json.dumps({
+                                            "pricing_model": pricing_model,
+                                            "plan_id": company.plan_id,
+                                            "renewal": True,
+                                        }),
+                                    )
+                                    session.add(transaction)
+
+                                    logging.info(
+                                        f"Tiered plan renewal for {app_name}: ${amount_usd} charged, usage reset for company {company.id} (plan: {company.plan_id})"
+                                    )
                                 else:
                                     # Token-based billing - add tokens to balance
                                     token_price_per_million = float(
@@ -852,21 +1107,13 @@ class stripe_payments(Extensions):
                                     )
                                     tokens = int(token_millions * 1_000_000)
 
-                                    # Credit tokens to company
-                                    company.token_balance = (
-                                        company.token_balance or 0
-                                    ) + tokens
-                                    company.token_balance_usd = (
-                                        company.token_balance_usd or 0.0
-                                    ) + amount_usd
-
                                     # Update company's app tracking
                                     company.app_name = app_name
                                     company.last_subscription_billing_date = (
-                                        datetime.now()
+                                        datetime.now(timezone.utc)
                                     )
 
-                                    # Create payment transaction record with app_name
+                                    # Create payment transaction record FIRST for idempotency
                                     invoice_id = invoice.get("id", "unknown")
                                     transaction = PaymentTransaction(
                                         user_id=None,
@@ -885,6 +1132,17 @@ class stripe_payments(Extensions):
                                         app_name=app_name,
                                     )
                                     session.add(transaction)
+                                    session.commit()
+
+                                    # Credit tokens via root parent resolution
+                                    from MagicalAuth import MagicalAuth
+
+                                    auth = MagicalAuth()
+                                    auth.add_tokens_to_company(
+                                        company_id=str(company.id),
+                                        token_amount=tokens,
+                                        amount_usd=amount_usd,
+                                    )
 
                                     logging.info(
                                         f"Auto top-up for {app_name}: Credited {tokens} tokens (${amount_usd}) to company {company.id}"
@@ -908,10 +1166,171 @@ class stripe_payments(Extensions):
 
                         if company:
                             logging.warning(
-                                f"Auto top-up payment failed for company {company.id}"
+                                f"Payment failed for company {company.id} (subscription {subscription_id})"
                             )
-                            # Optionally notify or take action on payment failure
 
+                            # Create a failed payment transaction record for audit trail
+                            invoice_id = invoice.get("id", "unknown")
+                            amount_cents = invoice.get("amount_due", 0)
+                            amount_usd = amount_cents / 100.0
+
+                            # Idempotency: skip if already recorded
+                            existing_failed = (
+                                session.query(PaymentTransaction)
+                                .filter(
+                                    PaymentTransaction.stripe_payment_intent_id
+                                    == f"failed_{invoice_id}"
+                                )
+                                .first()
+                            )
+                            if existing_failed:
+                                logging.debug(
+                                    f"Failed invoice {invoice_id} already recorded, skipping"
+                                )
+                                session.close()
+                                return {"success": "true"}
+
+                            failed_txn = PaymentTransaction(
+                                user_id=None,
+                                company_id=str(company.id),
+                                seat_count=0,
+                                token_amount=0,
+                                payment_method="stripe_subscription",
+                                currency="USD",
+                                network="stripe",
+                                amount_usd=amount_usd,
+                                amount_currency=amount_usd,
+                                exchange_rate=1.0,
+                                stripe_payment_intent_id=f"failed_{invoice_id}",
+                                status="failed",
+                                reference_code=f"FAILED_{invoice_id[:30]}",
+                                app_name=getenv("APP_NAME") or "AGiXT",
+                                metadata_json=json.dumps({
+                                    "failure_reason": invoice.get("last_finalization_error", {}).get("message", "Payment failed") if isinstance(invoice.get("last_finalization_error"), dict) else "Payment failed",
+                                }),
+                            )
+                            session.add(failed_txn)
+
+                    session.commit()
+                    session.close()
+                    return {"success": "true"}
+
+                elif event and event["type"] == "charge.refunded":
+                    # Handle refund — deduct tokens that were credited for this payment
+                    charge = data
+                    payment_intent_id = charge.get("payment_intent")
+                    amount_refunded_cents = charge.get("amount_refunded", 0)
+                    amount_refunded_usd = amount_refunded_cents / 100.0
+
+                    if payment_intent_id:
+                        # Find the original completed transaction (with row lock)
+                        original_txn = (
+                            session.query(PaymentTransaction)
+                            .filter(
+                                PaymentTransaction.stripe_payment_intent_id
+                                == payment_intent_id,
+                                PaymentTransaction.status == "completed",
+                            )
+                            .with_for_update()
+                            .first()
+                        )
+
+                        if original_txn and original_txn.company_id:
+                            # Idempotency — skip if refund already recorded
+                            charge_id = charge.get("id", "unknown")
+                            existing_refund = (
+                                session.query(PaymentTransaction)
+                                .filter(
+                                    PaymentTransaction.reference_code
+                                    == f"REFUND_{charge_id[:25]}",
+                                    PaymentTransaction.status == "refunded",
+                                )
+                                .first()
+                            )
+                            if existing_refund:
+                                logging.debug(
+                                    f"Refund already processed for charge {charge_id}"
+                                )
+                                session.close()
+                                return {"success": "true"}
+
+                            # Calculate proportional token clawback
+                            tokens_to_deduct = 0
+                            if (
+                                original_txn.token_amount
+                                and original_txn.amount_usd
+                                and original_txn.amount_usd > 0
+                            ):
+                                refund_ratio = min(
+                                    amount_refunded_usd / original_txn.amount_usd,
+                                    1.0,
+                                )
+                                tokens_to_deduct = int(
+                                    original_txn.token_amount * refund_ratio
+                                )
+
+                            # Deduct tokens from company balance
+                            if tokens_to_deduct > 0:
+                                company = (
+                                    session.query(Company)
+                                    .filter(
+                                        Company.id == original_txn.company_id
+                                    )
+                                    .first()
+                                )
+                                if company:
+                                    company.token_balance = max(
+                                        0,
+                                        (company.token_balance or 0)
+                                        - tokens_to_deduct,
+                                    )
+                                    company.token_balance_usd = max(
+                                        0,
+                                        (company.token_balance_usd or 0)
+                                        - amount_refunded_usd,
+                                    )
+
+                            # Record refund transaction
+                            # Use charge_id (not payment_intent_id) to avoid
+                            # unique constraint violation with the original txn
+                            refund_txn = PaymentTransaction(
+                                user_id=original_txn.user_id,
+                                company_id=original_txn.company_id,
+                                seat_count=0,
+                                token_amount=(
+                                    -tokens_to_deduct if tokens_to_deduct else 0
+                                ),
+                                payment_method="stripe_refund",
+                                currency="USD",
+                                network="stripe",
+                                amount_usd=-amount_refunded_usd,
+                                amount_currency=-amount_refunded_usd,
+                                exchange_rate=1.0,
+                                stripe_payment_intent_id=f"refund_{charge_id}",
+                                status="refunded",
+                                reference_code=f"REFUND_{charge_id[:25]}",
+                                app_name=getenv("APP_NAME") or "AGiXT",
+                                metadata_json=json.dumps({
+                                    "original_reference": original_txn.reference_code,
+                                    "tokens_deducted": tokens_to_deduct,
+                                    "refund_amount_usd": amount_refunded_usd,
+                                }),
+                            )
+                            session.add(refund_txn)
+
+                            logging.info(
+                                f"Refund processed: ${amount_refunded_usd} refunded, "
+                                f"{tokens_to_deduct} tokens deducted from "
+                                f"company {original_txn.company_id}"
+                            )
+                        else:
+                            logging.warning(
+                                f"Refund received for payment_intent "
+                                f"{payment_intent_id} but no matching "
+                                f"completed transaction found"
+                            )
+
+                    session.commit()
                     session.close()
                     return {"success": "true"}
 
@@ -923,7 +1342,10 @@ class stripe_payments(Extensions):
                 logging.error(f"Error processing webhook: {str(e)}")
                 session.rollback()
                 session.close()
-                return {"success": "false"}
+                raise HTTPException(
+                    status_code=500,
+                    detail="Webhook processing error",
+                )
 
         @self.router.get(
             "/v1/products", response_model=List[dict], tags=["Subscription"]
@@ -1115,7 +1537,7 @@ class stripe_payments(Extensions):
                 self.headers["Authorization"] = f"Bearer {token}"
 
                 # Test the token by fetching account info
-                response = self._make_request("GET", "/account")
+                response = self._make_request("/account", method="GET")
                 return response.get("id") is not None
         except Exception as e:
             logging.error(f"Error verifying Stripe user: {str(e)}")
@@ -1124,6 +1546,8 @@ class stripe_payments(Extensions):
 
     def _format_amount(self, amount: int, currency: str = "usd") -> str:
         """Format Stripe amount (cents) to human readable format"""
+        if amount is None:
+            amount = 0
         if currency.lower() in ["jpy", "krw"]:  # Zero-decimal currencies
             return f"{amount} {currency.upper()}"
         else:

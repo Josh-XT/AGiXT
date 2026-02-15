@@ -453,6 +453,51 @@ class Company(Base):
     trial_domain = Column(
         String, nullable=True, default=None
     )  # The email domain that qualified for trial credits
+    # Tiered plan tracking
+    plan_id = Column(
+        String, nullable=True, default=None
+    )  # Current plan tier ID (e.g., "starter", "team_5", "enterprise_100")
+    device_limit = Column(
+        Integer, nullable=True, default=None
+    )  # Maximum devices allowed by plan
+    device_count = Column(
+        Integer, nullable=False, default=0
+    )  # Current registered device count
+    storage_limit_bytes = Column(
+        Integer, nullable=True, default=None
+    )  # Maximum storage in bytes from plan
+    storage_used_bytes = Column(
+        Integer, nullable=False, default=0
+    )  # Current storage used in bytes
+    monthly_token_limit = Column(
+        Integer, nullable=True, default=None
+    )  # Tokens included per billing period
+    tokens_used_this_period = Column(
+        Integer, nullable=False, default=0
+    )  # Tokens used in current billing period
+    current_period_start = Column(
+        DateTime, nullable=True, default=None
+    )  # Start of current billing period
+    # Plan addon tracking (only for enterprise_100 plan)
+    addon_users = Column(
+        Integer, nullable=False, default=0
+    )  # Additional users from $10/mo addon
+    addon_devices = Column(
+        Integer, nullable=False, default=0
+    )  # Additional devices from addons
+    addon_tokens = Column(
+        Integer, nullable=False, default=0
+    )  # Additional monthly tokens from addons
+    addon_storage_bytes = Column(
+        Integer, nullable=False, default=0
+    )  # Additional storage from addons in bytes
+    # NurseXT bed-based billing
+    bed_count = Column(
+        Integer, nullable=True, default=None
+    )  # Number of licensed beds (NurseXT only)
+    bed_limit = Column(
+        Integer, nullable=True, default=None
+    )  # Maximum beds allowed (NurseXT only)
     # MFA settings
     mfa_required = Column(
         Boolean, nullable=False, default=False
@@ -3757,6 +3802,21 @@ def migrate_company_table():
                 ("trial_credits_granted", "REAL"),
                 ("trial_credits_granted_at", "TIMESTAMP"),
                 ("trial_domain", "TEXT"),
+                # Tiered plan tracking
+                ("plan_id", "TEXT"),
+                ("device_limit", "INTEGER"),
+                ("device_count", "INTEGER DEFAULT 0"),
+                ("storage_limit_bytes", "INTEGER"),
+                ("storage_used_bytes", "INTEGER DEFAULT 0"),
+                ("monthly_token_limit", "INTEGER"),
+                ("tokens_used_this_period", "INTEGER DEFAULT 0"),
+                ("current_period_start", "TIMESTAMP"),
+                ("addon_users", "INTEGER DEFAULT 0"),
+                ("addon_devices", "INTEGER DEFAULT 0"),
+                ("addon_tokens", "INTEGER DEFAULT 0"),
+                ("addon_storage_bytes", "INTEGER DEFAULT 0"),
+                ("bed_count", "INTEGER"),
+                ("bed_limit", "INTEGER"),
             ]
 
             if DATABASE_TYPE == "sqlite":
@@ -3811,6 +3871,26 @@ def migrate_company_table():
                             pg_column_def = "TIMESTAMP"
                         elif column_name == "trial_credits_granted":
                             pg_column_def = "DOUBLE PRECISION"
+                        elif column_name in (
+                            "device_count",
+                            "storage_used_bytes",
+                            "tokens_used_this_period",
+                            "addon_users",
+                            "addon_devices",
+                            "addon_tokens",
+                            "addon_storage_bytes",
+                        ):
+                            pg_column_def = "INTEGER DEFAULT 0"
+                        elif column_name in (
+                            "device_limit",
+                            "storage_limit_bytes",
+                            "monthly_token_limit",
+                            "bed_count",
+                            "bed_limit",
+                        ):
+                            pg_column_def = "INTEGER"
+                        elif column_name == "current_period_start":
+                            pg_column_def = "TIMESTAMP"
                         else:
                             pg_column_def = "TEXT"
 

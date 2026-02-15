@@ -3717,62 +3717,316 @@ class MagicalAuth:
         finally:
             session.close()
 
-    def check_user_limit(self, company_id: str) -> bool:
-        """Check if a company can add more users based on billing model.
+    def _get_billing_company(self, company_id: str, session=None):
+        """Get the billing company (root parent) for a given company.
 
-        For seat-based billing:
-            - per_user (XT Systems): Checks if current user count < user_limit (paid seats)
-            - per_capacity (NurseXT): user_limit represents paid beds - doesn't limit users
-            - per_location (UltraEstimate): Checks if child company count < user_limit (paid locations)
-
-        For token-based billing (per_token):
-            - Checks if company has a positive token balance
-
-        Returns:
-            True = company can add users/locations
-            False = company cannot add users/locations (limit reached or no balance)
+        Child companies inherit billing from their root parent company.
+        Returns (company, billing_company, session, close_session) tuple.
         """
-        # Check if billing is enabled
-        price_service = _get_price_service()
-        token_price = price_service.get_token_price()
+        close_session = False
+        if session is None:
+            session = get_session()
+            close_session = True
 
-        # Get pricing config to determine billing model
+        company = session.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            if close_session:
+                session.close()
+            raise HTTPException(status_code=404, detail="Company not found")
+
+        root_company_id = self.get_root_parent_company(company_id, session=session)
+        if str(root_company_id) != str(company_id):
+            billing_company = (
+                session.query(Company).filter(Company.id == root_company_id).first()
+            )
+            if not billing_company:
+                billing_company = company
+        else:
+            billing_company = company
+
+        return company, billing_company, session, close_session
+
+    def _get_plan_tier(self, plan_id: str, pricing_config: dict) -> dict:
+        """Get the tier configuration for a given plan_id from pricing config."""
+        if not pricing_config or not plan_id:
+            return {}
+        for tier in pricing_config.get("tiers", []):
+            if tier.get("id") == plan_id:
+                return tier
+        return {}
+
+    def get_plan_limits(self, company_id: str) -> dict:
+        """Get current plan limits and usage for a company.
+
+        Returns dict with plan info, limits, and current usage for enforcement and display.
+        """
         pricing_config = _get_cached_pricing_config()
         pricing_model = (
             pricing_config.get("pricing_model") if pricing_config else "per_token"
         )
 
-        # Check if billing is disabled
+        session = get_session()
+        try:
+            company, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
+
+            if pricing_model == "tiered_plan":
+                plan_id = billing_company.plan_id
+                tier = self._get_plan_tier(plan_id, pricing_config)
+                limits = tier.get("limits", {})
+
+                # Calculate effective limits including addons
+                user_limit = (limits.get("users") or 0) + (billing_company.addon_users or 0)
+                device_limit = (limits.get("devices") or 0) + (billing_company.addon_devices or 0)
+                token_limit = (limits.get("tokens") or 0) + (billing_company.addon_tokens or 0)
+                storage_limit_gb = (limits.get("storage_gb") or 0)
+                storage_limit_bytes = storage_limit_gb * 1024 * 1024 * 1024 + (billing_company.addon_storage_bytes or 0)
+
+                # Get current usage - count across all companies under billing org
+                billing_company_id = str(billing_company.id)
+                all_company_ids = [billing_company_id]
+
+                def _get_children(parent_id, visited=None):
+                    if visited is None:
+                        visited = set()
+                    if parent_id in visited:
+                        return []
+                    visited.add(parent_id)
+                    children = (
+                        session.query(Company)
+                        .filter(Company.company_id == parent_id)
+                        .all()
+                    )
+                    result = []
+                    for child in children:
+                        child_id = str(child.id)
+                        result.append(child_id)
+                        result.extend(_get_children(child_id, visited))
+                    return result
+
+                all_company_ids.extend(_get_children(billing_company_id))
+
+                current_users = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.company_id.in_(all_company_ids))
+                    .count()
+                )
+
+                return {
+                    "pricing_model": "tiered_plan",
+                    "plan_id": plan_id,
+                    "plan_name": tier.get("name", "Unknown"),
+                    "plan_price": tier.get("price", 0),
+                    "limits": {
+                        "users": user_limit,
+                        "devices": device_limit,
+                        "tokens_per_month": token_limit,
+                        "storage_bytes": storage_limit_bytes,
+                        "storage_gb": round(storage_limit_bytes / (1024 * 1024 * 1024), 2),
+                    },
+                    "usage": {
+                        "users": current_users,
+                        "devices": billing_company.device_count or 0,
+                        "tokens_this_period": billing_company.tokens_used_this_period or 0,
+                        "storage_bytes": billing_company.storage_used_bytes or 0,
+                        "storage_gb": round((billing_company.storage_used_bytes or 0) / (1024 * 1024 * 1024), 2),
+                    },
+                    "addons": {
+                        "users": billing_company.addon_users or 0,
+                        "devices": billing_company.addon_devices or 0,
+                        "tokens": billing_company.addon_tokens or 0,
+                        "storage_bytes": billing_company.addon_storage_bytes or 0,
+                    },
+                    "period_start": (
+                        billing_company.current_period_start.isoformat()
+                        if billing_company.current_period_start
+                        else None
+                    ),
+                    "warnings": self._get_limit_warnings(billing_company, user_limit, device_limit, token_limit, storage_limit_bytes, current_user_count=current_users),
+                }
+
+            elif pricing_model == "per_bed":
+                bed_count = billing_company.bed_count or 0
+                bed_limit = billing_company.bed_limit or 0
+                return {
+                    "pricing_model": "per_bed",
+                    "limits": {
+                        "beds": bed_limit,
+                    },
+                    "usage": {
+                        "beds": bed_count,
+                    },
+                    "price_per_bed": pricing_config.get("price_per_unit", 10.0),
+                    "monthly_cost": bed_limit * pricing_config.get("price_per_unit", 10.0),
+                    "warnings": [],
+                }
+
+            else:
+                # Legacy per_token / per_user / per_capacity / per_location
+                return {
+                    "pricing_model": pricing_model,
+                    "token_balance": billing_company.token_balance or 0,
+                    "token_balance_usd": billing_company.token_balance_usd or 0,
+                    "warnings": [],
+                }
+        finally:
+            session.close()
+
+    def _get_limit_warnings(self, company, user_limit, device_limit, token_limit, storage_limit_bytes, current_user_count=None) -> list:
+        """Generate warnings for limits approaching capacity (>80% usage)."""
+        warnings = []
+        threshold = 0.8
+
+        # User limit warnings
+        if current_user_count is not None and user_limit:
+            if current_user_count >= user_limit:
+                warnings.append({
+                    "type": "user_limit_reached",
+                    "message": f"User limit reached ({current_user_count}/{user_limit}). Upgrade your plan or remove users.",
+                    "severity": "error",
+                })
+            elif current_user_count >= user_limit * threshold:
+                remaining = user_limit - current_user_count
+                warnings.append({
+                    "type": "user_limit_approaching",
+                    "message": f"Approaching user limit ({current_user_count}/{user_limit}). {remaining} user(s) remaining.",
+                    "severity": "warning",
+                })
+
+        device_count = company.device_count or 0
+        if device_limit and device_count >= device_limit:
+            warnings.append({
+                "type": "device_limit_reached",
+                "message": f"Device limit reached ({device_count}/{device_limit}). Upgrade your plan or remove unused devices.",
+                "severity": "error",
+            })
+        elif device_limit and device_count >= device_limit * threshold:
+            warnings.append({
+                "type": "device_limit_approaching",
+                "message": f"Approaching device limit ({device_count}/{device_limit}). Consider upgrading your plan.",
+                "severity": "warning",
+            })
+
+        tokens_used = company.tokens_used_this_period or 0
+        if token_limit and tokens_used >= token_limit:
+            warnings.append({
+                "type": "token_limit_reached",
+                "message": f"Monthly token limit reached. Purchase additional tokens at $5/1M or upgrade your plan.",
+                "severity": "error",
+            })
+        elif token_limit and tokens_used >= token_limit * threshold:
+            remaining = token_limit - tokens_used
+            warnings.append({
+                "type": "token_limit_approaching",
+                "message": f"Approaching monthly token limit ({tokens_used:,}/{token_limit:,}). {remaining:,} tokens remaining.",
+                "severity": "warning",
+            })
+
+        storage_used = company.storage_used_bytes or 0
+        if storage_limit_bytes and storage_used >= storage_limit_bytes:
+            warnings.append({
+                "type": "storage_limit_reached",
+                "message": "Storage limit reached. Upgrade your plan, use your own S3 storage, or remove unused files.",
+                "severity": "error",
+            })
+        elif storage_limit_bytes and storage_used >= storage_limit_bytes * threshold:
+            remaining_gb = round((storage_limit_bytes - storage_used) / (1024 * 1024 * 1024), 2)
+            warnings.append({
+                "type": "storage_limit_approaching",
+                "message": f"Approaching storage limit ({remaining_gb}GB remaining). Consider upgrading or using your own S3 storage.",
+                "severity": "warning",
+            })
+
+        return warnings
+
+    def check_user_limit(self, company_id: str) -> bool:
+        """Check if a company can add more users based on billing model.
+
+        For tiered_plan billing: checks user count against plan tier user limit + addons
+        For per_bed billing: no user limit (users are unlimited, billing is per bed)
+        For per_user (legacy): checks current user count < user_limit
+        For per_capacity (legacy): unlimited users
+        For per_location (legacy): checks child company count < user_limit
+        For per_token: checks positive token balance
+
+        Returns:
+            True = company can add users
+            False = company cannot add users (limit reached)
+        """
+        # Check if billing is enabled
+        price_service = _get_price_service()
+        token_price = price_service.get_token_price()
+
+        pricing_config = _get_cached_pricing_config()
+        pricing_model = (
+            pricing_config.get("pricing_model") if pricing_config else "per_token"
+        )
+
         billing_enabled = token_price > 0 or (
             pricing_config and pricing_config.get("tiers")
         )
-
         if not billing_enabled:
-            # Billing is disabled, allow all operations
             return True
 
         session = get_session()
         try:
-            company = session.query(Company).filter(Company.id == company_id).first()
-            if not company:
-                raise HTTPException(status_code=404, detail="Company not found")
+            company, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
 
-            # Get the root parent company for billing purposes
-            # Child companies consume from their root parent
-            root_company_id = self.get_root_parent_company(company_id, session=session)
-            if str(root_company_id) != str(company_id):
-                billing_company = (
-                    session.query(Company).filter(Company.id == root_company_id).first()
+            if pricing_model == "tiered_plan":
+                plan_id = billing_company.plan_id
+                if not plan_id:
+                    # No plan assigned - check trial credits
+                    return (billing_company.token_balance_usd or 0) > 0
+
+                tier = self._get_plan_tier(plan_id, pricing_config)
+                limits = tier.get("limits", {})
+                user_limit = (limits.get("users") or 0) + (billing_company.addon_users or 0)
+
+                # Count users across all companies under the billing org
+                billing_company_id = str(billing_company.id)
+                all_company_ids = [billing_company_id]
+
+                # Get child companies recursively
+                def _get_children(parent_id, visited=None):
+                    if visited is None:
+                        visited = set()
+                    if parent_id in visited:
+                        return []
+                    visited.add(parent_id)
+                    children = (
+                        session.query(Company)
+                        .filter(Company.company_id == parent_id)
+                        .all()
+                    )
+                    result = []
+                    for child in children:
+                        child_id = str(child.id)
+                        result.append(child_id)
+                        result.extend(_get_children(child_id, visited))
+                    return result
+
+                all_company_ids.extend(_get_children(billing_company_id))
+
+                current_users = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.company_id.in_(all_company_ids))
+                    .count()
                 )
-                if not billing_company:
-                    billing_company = company
-            else:
-                billing_company = company
+                # user_limit of 0 means no explicit limit set — treat as unlimited
+                if user_limit <= 0:
+                    return True
+                return current_users < user_limit
 
-            # user_limit represents paid capacity on root parent company
+            elif pricing_model == "per_bed":
+                # NurseXT: no user limit, billing is per bed
+                return True
+
+            # Legacy billing models
             paid_limit = billing_company.user_limit or 0
 
-            # For per_user billing (XT Systems): count users against paid seats
             if pricing_model == "per_user":
                 current_user_count = (
                     session.query(UserCompany)
@@ -3781,43 +4035,283 @@ class MagicalAuth:
                 )
                 if current_user_count < paid_limit:
                     return True
-                # Fallback to token balance
                 if billing_company.token_balance and billing_company.token_balance > 0:
                     return True
                 return False
 
-            # For per_capacity billing (NurseXT): beds are declared capacity, not user limit
-            # Users are unlimited - the capacity (beds) is just what they pay for
             elif pricing_model == "per_capacity":
-                # Check they have paid for some capacity or have token balance
                 if paid_limit > 0:
                     return True
                 if billing_company.token_balance and billing_company.token_balance > 0:
                     return True
                 return False
 
-            # For per_location billing (UltraEstimate): count child companies as locations
             elif pricing_model == "per_location":
-                # Count child companies under the root parent (each child = 1 location)
                 child_company_count = (
                     session.query(Company)
                     .filter(Company.company_id == billing_company.id)
                     .count()
                 )
-                # The root company itself counts as 1 location
                 total_locations = child_company_count + 1
                 if total_locations <= paid_limit:
                     return True
-                # Fallback to token balance
                 if billing_company.token_balance and billing_company.token_balance > 0:
                     return True
                 return False
 
-            # For token-based billing, check root parent company's token balance
+            # Token-based billing
             if billing_company.token_balance and billing_company.token_balance > 0:
                 return True
-
             return False
+        finally:
+            session.close()
+
+    def check_device_limit(self, company_id: str) -> dict:
+        """Check if a company can register more devices.
+
+        Returns dict with can_add (bool), current count, limit, and message.
+        """
+        pricing_config = _get_cached_pricing_config()
+        pricing_model = (
+            pricing_config.get("pricing_model") if pricing_config else "per_token"
+        )
+
+        if pricing_model != "tiered_plan":
+            return {"can_add": True, "current": 0, "limit": None, "message": "No device limits"}
+
+        session = get_session()
+        try:
+            _, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
+            plan_id = billing_company.plan_id
+            tier = self._get_plan_tier(plan_id, pricing_config)
+            limits = tier.get("limits", {})
+
+            device_limit = (limits.get("devices") or 0) + (billing_company.addon_devices or 0)
+            device_count = billing_company.device_count or 0
+
+            can_add = device_count < device_limit if device_limit else True
+
+            return {
+                "can_add": can_add,
+                "current": device_count,
+                "limit": device_limit,
+                "message": (
+                    f"Device limit reached ({device_count}/{device_limit}). Upgrade your plan to add more devices."
+                    if not can_add
+                    else f"{device_count}/{device_limit} devices used"
+                ),
+            }
+        finally:
+            session.close()
+
+    def check_storage_limit(self, company_id: str, additional_bytes: int = 0) -> dict:
+        """Check if a company can use more storage.
+
+        Args:
+            company_id: The company ID
+            additional_bytes: How many bytes would be added
+
+        Returns dict with can_add (bool), current usage, limit, and message.
+        """
+        pricing_config = _get_cached_pricing_config()
+        pricing_model = (
+            pricing_config.get("pricing_model") if pricing_config else "per_token"
+        )
+
+        if pricing_model != "tiered_plan":
+            return {"can_add": True, "used_bytes": 0, "limit_bytes": None, "message": "No storage limits"}
+
+        session = get_session()
+        try:
+            _, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
+            plan_id = billing_company.plan_id
+            tier = self._get_plan_tier(plan_id, pricing_config)
+            limits = tier.get("limits", {})
+
+            storage_limit_gb = limits.get("storage_gb") or 0
+            storage_limit_bytes = storage_limit_gb * 1024 * 1024 * 1024 + (billing_company.addon_storage_bytes or 0)
+            storage_used = billing_company.storage_used_bytes or 0
+
+            can_add = (storage_used + additional_bytes) <= storage_limit_bytes if storage_limit_bytes else True
+
+            return {
+                "can_add": can_add,
+                "used_bytes": storage_used,
+                "limit_bytes": storage_limit_bytes,
+                "used_gb": round(storage_used / (1024 * 1024 * 1024), 2),
+                "limit_gb": round(storage_limit_bytes / (1024 * 1024 * 1024), 2),
+                "message": (
+                    "Storage limit reached. Upgrade your plan or use your own S3 storage."
+                    if not can_add
+                    else f"{round(storage_used / (1024 * 1024 * 1024), 2)}GB / {round(storage_limit_bytes / (1024 * 1024 * 1024), 2)}GB used"
+                ),
+            }
+        finally:
+            session.close()
+
+    def increment_device_count(self, company_id: str, count: int = 1) -> dict:
+        """Increment the device count for a company, checking limits atomically.
+
+        Returns result dict with success status and current count.
+        """
+        session = get_session()
+        try:
+            _, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
+
+            if count > 0:
+                current = billing_company.device_count or 0
+                limit = (billing_company.device_limit or 0) + (billing_company.addon_devices or 0)
+                if limit and current + count > limit:
+                    raise HTTPException(
+                        status_code=402,
+                        detail=f"Device limit reached ({current}/{limit}). Upgrade your plan for more devices.",
+                    )
+
+            billing_company.device_count = (billing_company.device_count or 0) + count
+            if billing_company.device_count < 0:
+                billing_company.device_count = 0
+            session.commit()
+            return {
+                "success": True,
+                "device_count": billing_company.device_count,
+            }
+        finally:
+            session.close()
+
+    def update_storage_usage(self, company_id: str, bytes_delta: int) -> dict:
+        """Update storage usage for a company atomically.
+
+        Args:
+            company_id: The company ID
+            bytes_delta: Positive to add, negative to remove
+
+        Returns result dict with success status and current usage.
+        """
+        session = get_session()
+        try:
+            _, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
+
+            if bytes_delta > 0:
+                current = billing_company.storage_used_bytes or 0
+                limit = (billing_company.storage_limit_bytes or 0) + (billing_company.addon_storage_bytes or 0)
+                if limit and current + bytes_delta > limit:
+                    raise HTTPException(
+                        status_code=402,
+                        detail=f"Storage limit reached ({round(current / (1024 * 1024 * 1024), 2)}GB / {round(limit / (1024 * 1024 * 1024), 2)}GB). Upgrade your plan for more storage.",
+                    )
+
+            billing_company.storage_used_bytes = (billing_company.storage_used_bytes or 0) + bytes_delta
+            if billing_company.storage_used_bytes < 0:
+                billing_company.storage_used_bytes = 0
+            session.commit()
+            return {
+                "success": True,
+                "storage_used_bytes": billing_company.storage_used_bytes,
+                "storage_used_gb": round(billing_company.storage_used_bytes / (1024 * 1024 * 1024), 2),
+            }
+        finally:
+            session.close()
+
+    def set_company_plan(self, company_id: str, plan_id: str) -> dict:
+        """Set or change a company's plan tier.
+
+        Updates the plan_id and syncs limits from the pricing config.
+        Resets token period tracking when plan changes.
+        """
+        pricing_config = _get_cached_pricing_config()
+        pricing_model = (
+            pricing_config.get("pricing_model") if pricing_config else "per_token"
+        )
+
+        if pricing_model not in ("tiered_plan", "per_bed"):
+            raise HTTPException(
+                status_code=400,
+                detail="Plan management is only available for tiered or per-bed pricing models",
+            )
+
+        session = get_session()
+        try:
+            _, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
+
+            if pricing_model == "tiered_plan":
+                tier = self._get_plan_tier(plan_id, pricing_config)
+                if not tier:
+                    raise HTTPException(status_code=400, detail=f"Invalid plan ID: {plan_id}")
+
+                old_plan_id = billing_company.plan_id
+                limits = tier.get("limits", {})
+                billing_company.plan_id = plan_id
+                billing_company.device_limit = limits.get("devices")
+                billing_company.monthly_token_limit = limits.get("tokens")
+                billing_company.storage_limit_bytes = (limits.get("storage_gb") or 0) * 1024 * 1024 * 1024
+                billing_company.user_limit = limits.get("users")
+
+                # Clear addon fields when moving to a plan that doesn't support addons
+                new_tier_supports_addons = bool(
+                    pricing_config
+                    and any(
+                        plan_id in (addon.get("available_on") or [])
+                        for addon in (pricing_config.get("addons") or [])
+                    )
+                )
+                if not new_tier_supports_addons and (
+                    billing_company.addon_users
+                    or billing_company.addon_devices
+                    or billing_company.addon_tokens
+                    or billing_company.addon_storage_bytes
+                ):
+                    billing_company.addon_users = 0
+                    billing_company.addon_devices = 0
+                    billing_company.addon_tokens = 0
+                    billing_company.addon_storage_bytes = 0
+
+                # Only reset period tracking when plan actually changes
+                if old_plan_id != plan_id:
+                    billing_company.tokens_used_this_period = 0
+                    billing_company.current_period_start = datetime.now(timezone.utc)
+
+                session.commit()
+                return {
+                    "success": True,
+                    "plan_id": plan_id,
+                    "plan_name": tier.get("name"),
+                    "limits": limits,
+                }
+
+            elif pricing_model == "per_bed":
+                # For per_bed, plan_id is the bed count as string
+                try:
+                    bed_count = int(plan_id)
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="For NurseXT, plan_id should be the bed count")
+
+                min_beds = pricing_config.get("min_units", 5)
+                if bed_count < min_beds:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Minimum bed count is {min_beds}",
+                    )
+
+                billing_company.bed_limit = bed_count
+                billing_company.plan_id = f"per_bed_{bed_count}"
+                session.commit()
+                return {
+                    "success": True,
+                    "plan_id": f"per_bed_{bed_count}",
+                    "bed_limit": bed_count,
+                    "monthly_cost": bed_count * pricing_config.get("price_per_unit", 10.0),
+                }
+
         finally:
             session.close()
 
@@ -3848,8 +4342,10 @@ class MagicalAuth:
         return False
 
     def _has_sufficient_token_balance(self, session, user_companies) -> bool:
-        """Check if any of the user's companies (or their root parents) have a positive token balance or valid subscription.
+        """Check if any of the user's companies (or their root parents) have sufficient billing status.
 
+        For tiered_plan billing: checks active subscription or trial credits
+        For per_bed billing: checks active subscription or trial credits
         For token-based billing: checks token_balance > 0
         For seat-based billing: checks token_balance_usd > 0 (trial credits) or active subscription
 
@@ -3878,9 +4374,50 @@ class MagicalAuth:
         pricing_model = (
             pricing_config.get("pricing_model") if pricing_config else "per_token"
         )
-        is_seat_based = pricing_model in ["per_user", "per_capacity", "per_location"]
 
-        if is_seat_based:
+        if pricing_model == "tiered_plan":
+            # For tiered plan billing, check:
+            # 1. Has a plan_id set (trial or paid)
+            # 2. Trial credits (token_balance_usd > 0) 
+            # 3. Active subscription (stripe_subscription_id exists and auto_topup_enabled)
+            # 4. Token balance > 0 (from topups or included tokens)
+            company_with_plan = (
+                session.query(Company)
+                .filter(Company.id.in_(list(all_company_ids)))
+                .filter(
+                    (Company.plan_id != None)  # Has a plan assigned
+                    & (
+                        (Company.token_balance_usd > 0)  # Has trial credits
+                        | (Company.token_balance > 0)  # Has token balance
+                        | (
+                            (Company.stripe_subscription_id != None)
+                            & (Company.auto_topup_enabled == True)
+                        )  # Has active subscription
+                    )
+                )
+                .first()
+            )
+            if company_with_plan:
+                return True
+        elif pricing_model == "per_bed":
+            # For NurseXT bed-based billing, check:
+            # 1. Trial credits (token_balance_usd > 0)
+            # 2. Active subscription 
+            company_with_billing = (
+                session.query(Company)
+                .filter(Company.id.in_(list(all_company_ids)))
+                .filter(
+                    (Company.token_balance_usd > 0)  # Has trial credits
+                    | (
+                        (Company.stripe_subscription_id != None)
+                        & (Company.auto_topup_enabled == True)
+                    )  # Has subscription
+                )
+                .first()
+            )
+            if company_with_billing:
+                return True
+        elif pricing_model in ["per_user", "per_capacity", "per_location"]:
             # For seat-based billing, check:
             # 1. Trial credits (token_balance_usd > 0)
             # 2. Active subscription (stripe_subscription_id exists and auto_topup_enabled)
@@ -5694,6 +6231,12 @@ class MagicalAuth:
             token_price = price_service.get_token_price()
             billing_enabled = token_price > 0
 
+            # Get pricing model
+            pricing_config = _get_cached_pricing_config()
+            pricing_model = (
+                pricing_config.get("pricing_model") if pricing_config else "per_token"
+            )
+
             # Get user's company
             user_company = (
                 session.query(UserCompany)
@@ -5701,7 +6244,7 @@ class MagicalAuth:
                 .first()
             )
 
-            if user_company and billing_enabled:
+            if user_company and (billing_enabled or pricing_model == "tiered_plan"):
                 user_direct_company = (
                     session.query(Company)
                     .filter(Company.id == user_company.company_id)
@@ -5710,12 +6253,10 @@ class MagicalAuth:
 
                 if user_direct_company:
                     # Get the root parent company for billing purposes
-                    # Child companies consume tokens from their root parent
                     root_company_id = self.get_root_parent_company(
                         str(user_direct_company.id), session=session
                     )
 
-                    # If user's company is a child, get the root parent for billing
                     if str(root_company_id) != str(user_direct_company.id):
                         billing_company = (
                             session.query(Company)
@@ -5726,19 +6267,63 @@ class MagicalAuth:
                         billing_company = user_direct_company
 
                     if billing_company:
-                        # Check if billing company has sufficient balance
-                        if billing_company.token_balance < total_tokens:
-                            session.close()
-                            raise HTTPException(
-                                status_code=402,
-                                detail="Insufficient token balance. Please top up your company's token balance.",
-                            )
+                        if pricing_model == "tiered_plan":
+                            # For tiered plans: check period reset, then track usage
+                            # Reset period if needed (billing cycle anniversary)
+                            now = datetime.now(timezone.utc)
+                            period_start = billing_company.current_period_start
+                            if period_start:
+                                from dateutil.relativedelta import relativedelta
+                                if now >= period_start + relativedelta(months=1):
+                                    billing_company.tokens_used_this_period = 0
+                                    billing_company.current_period_start = now
+                            else:
+                                billing_company.current_period_start = now
 
-                        # Deduct from billing (root parent) company balance
-                        billing_company.token_balance -= total_tokens
-                        billing_company.tokens_used_total += total_tokens
+                            # Track period token usage
+                            billing_company.tokens_used_this_period = (
+                                billing_company.tokens_used_this_period or 0
+                            ) + total_tokens
 
-                    # Record usage for audit trail (against user's direct company)
+                            # Check if plan's monthly allowance is exhausted
+                            plan_id = billing_company.plan_id
+                            tier = self._get_plan_tier(plan_id, pricing_config)
+                            limits = tier.get("limits", {})
+                            plan_token_limit = (limits.get("tokens") or 0) + (billing_company.addon_tokens or 0)
+
+                            tokens_used = billing_company.tokens_used_this_period or 0
+
+                            if plan_token_limit and tokens_used > plan_token_limit:
+                                # Over the plan's included allowance — use purchased topup tokens
+                                overage = tokens_used - plan_token_limit
+                                if billing_company.token_balance and billing_company.token_balance > 0:
+                                    # Deduct only the overage portion from topup balance
+                                    deduction = min(total_tokens, overage, billing_company.token_balance)
+                                    billing_company.token_balance -= deduction
+                                    if billing_company.token_balance < 0:
+                                        billing_company.token_balance = 0
+                                elif billing_enabled:
+                                    # Over limit and no topup balance
+                                    if (billing_company.token_balance_usd or 0) <= 0:
+                                        raise HTTPException(
+                                            status_code=402,
+                                            detail="Monthly token limit exceeded. Purchase additional tokens ($5/1M) or upgrade your plan.",
+                                        )
+                        else:
+                            # Legacy token-based billing
+                            if (billing_company.token_balance or 0) < total_tokens:
+                                session.close()
+                                raise HTTPException(
+                                    status_code=402,
+                                    detail="Insufficient token balance. Please top up your company's token balance.",
+                                )
+                            billing_company.token_balance -= total_tokens
+
+                        billing_company.tokens_used_total = (
+                            billing_company.tokens_used_total or 0
+                        ) + total_tokens
+
+                    # Record usage for audit trail
                     usage = CompanyTokenUsage(
                         company_id=user_direct_company.id,
                         user_id=self.user_id,
@@ -5926,15 +6511,27 @@ class MagicalAuth:
     def add_tokens_to_company(
         self, company_id: str, token_amount: int, amount_usd: float
     ):
-        """Add tokens to company balance after successful payment"""
+        """Add tokens to billing (root parent) company balance after successful payment.
+
+        Resolves the root parent company so tokens are credited to the same
+        entity that increase_token_counts deducts from.
+        """
+        if token_amount <= 0 or amount_usd < 0:
+            raise HTTPException(
+                status_code=400, detail="Token amount must be positive"
+            )
         session = get_session()
         try:
-            company = session.query(Company).filter(Company.id == company_id).first()
-            if not company:
-                raise HTTPException(status_code=404, detail="Company not found")
+            _, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
 
-            company.token_balance += token_amount
-            company.token_balance_usd += amount_usd
+            billing_company.token_balance = (
+                billing_company.token_balance or 0
+            ) + token_amount
+            billing_company.token_balance_usd = (
+                billing_company.token_balance_usd or 0
+            ) + amount_usd
             session.commit()
         finally:
             session.close()

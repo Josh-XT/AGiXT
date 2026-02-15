@@ -188,7 +188,12 @@ class ExtensionsHub:
                         # Verify the pricing config matches the current app
                         # or return the first one found if no APP_NAME match
                         config_app_name = config.get("app_name", "")
-                        if config_app_name == app_name or app_name in ["AGiXT", ""]:
+                        config_app_names = config.get("app_names", [])
+                        if (
+                            config_app_name == app_name
+                            or app_name in config_app_names
+                            or app_name in ["AGiXT", ""]
+                        ):
                             self._pricing_config_cache = config
                             return config
                 except json.JSONDecodeError as e:
