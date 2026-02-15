@@ -88,15 +88,22 @@ class PlanCheckoutRequest(BaseModel):
     """Request to subscribe to a plan tier"""
 
     company_id: str
-    plan_id: str = Field(..., description="Plan tier ID (e.g., 'starter', 'team_5') or bed count for NurseXT")
-    billing_interval: str = Field("month", description="Billing interval: 'month' or 'year'")
+    plan_id: str = Field(
+        ...,
+        description="Plan tier ID (e.g., 'starter', 'team_5') or bed count for NurseXT",
+    )
+    billing_interval: str = Field(
+        "month", description="Billing interval: 'month' or 'year'"
+    )
 
 
 class TokenTopupPlanRequest(BaseModel):
     """Request to add tokens to a tiered plan"""
 
     company_id: str
-    token_millions: int = Field(..., ge=1, description="Number of millions of tokens to purchase (minimum 1M)")
+    token_millions: int = Field(
+        ..., ge=1, description="Number of millions of tokens to purchase (minimum 1M)"
+    )
 
 
 class AddonRequest(BaseModel):
@@ -124,14 +131,21 @@ class UpdateCompanyRequest(BaseModel):
 class ChangeUserRoleRequest(BaseModel):
     """Request to change a user's role in a company (super admin only)"""
 
-    role_id: int = Field(..., ge=0, le=3, description="New role ID (0=Super Admin, 1=Admin, 2=Manager, 3=User)")
+    role_id: int = Field(
+        ...,
+        ge=0,
+        le=3,
+        description="New role ID (0=Super Admin, 1=Admin, 2=Manager, 3=User)",
+    )
 
 
 class AssignUserToCompanyRequest(BaseModel):
     """Request to assign a user to a company (super admin only)"""
 
     user_email: str = Field(..., description="Email address of the user to assign")
-    role_id: int = Field(3, ge=0, le=3, description="Role ID (0=Super Admin, 1=Admin, 2=Manager, 3=User)")
+    role_id: int = Field(
+        3, ge=0, le=3, description="Role ID (0=Super Admin, 1=Admin, 2=Manager, 3=User)"
+    )
 
 
 class ImpersonateUserRequest(BaseModel):
@@ -466,9 +480,7 @@ async def create_token_topup_crypto(
         return invoice
     except Exception as e:
         logging.error(f"Error creating crypto invoice: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to create crypto invoice"
-        )
+        raise HTTPException(status_code=500, detail="Failed to create crypto invoice")
 
 
 @app.post(
@@ -526,9 +538,7 @@ async def create_token_topup_stripe(
         return payment_intent
     except Exception as e:
         logging.error(f"Error creating Stripe payment intent: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to create payment intent"
-        )
+        raise HTTPException(status_code=500, detail="Failed to create payment intent")
 
 
 @app.post(
@@ -665,15 +675,15 @@ async def confirm_stripe_payment(
     except stripe_lib.error.StripeError as e:
         session.rollback()
         logging.error(f"Stripe API error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Payment processing error. Please try again.")
+        raise HTTPException(
+            status_code=500, detail="Payment processing error. Please try again."
+        )
     except HTTPException:
         raise
     except Exception as e:
         session.rollback()
         logging.error(f"Error confirming payment: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to confirm payment"
-        )
+        raise HTTPException(status_code=500, detail="Failed to confirm payment")
     finally:
         session.close()
 
@@ -853,15 +863,15 @@ async def confirm_stripe_payment_general(
     except stripe_lib.error.StripeError as e:
         session.rollback()
         logging.error(f"Stripe API error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Payment processing error. Please try again.")
+        raise HTTPException(
+            status_code=500, detail="Payment processing error. Please try again."
+        )
     except HTTPException:
         raise
     except Exception as e:
         session.rollback()
         logging.error(f"Error confirming payment: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to confirm payment"
-        )
+        raise HTTPException(status_code=500, detail="Failed to confirm payment")
     finally:
         session.close()
 
@@ -942,7 +952,12 @@ async def get_payment_transactions(
         if status:
             query = query.filter(PaymentTransaction.status == status)
 
-        transactions = query.order_by(desc(PaymentTransaction.created_at)).offset(offset).limit(limit).all()
+        transactions = (
+            query.order_by(desc(PaymentTransaction.created_at))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
 
         # Convert to dict for JSON serialization
         result = []
@@ -1222,9 +1237,7 @@ async def setup_auto_topup(
         return result
     except Exception as e:
         logging.error(f"Error creating auto top-up subscription: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to create subscription"
-        )
+        raise HTTPException(status_code=500, detail="Failed to create subscription")
 
 
 @app.put(
@@ -1299,9 +1312,7 @@ async def update_auto_topup(
             return result
     except Exception as e:
         logging.error(f"Error updating auto top-up: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to update subscription"
-        )
+        raise HTTPException(status_code=500, detail="Failed to update subscription")
 
 
 @app.delete(
@@ -1338,9 +1349,7 @@ async def cancel_auto_topup(
         return result
     except Exception as e:
         logging.error(f"Error cancelling auto top-up: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to cancel subscription"
-        )
+        raise HTTPException(status_code=500, detail="Failed to cancel subscription")
 
 
 # ============================================================================
@@ -1429,9 +1438,7 @@ async def create_plan_checkout(
         return result
     except Exception as e:
         logging.error(f"Error creating plan checkout: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to create checkout"
-        )
+        raise HTTPException(status_code=500, detail="Failed to create checkout")
 
 
 @app.post(
@@ -1477,9 +1484,7 @@ async def purchase_token_topup(
         return result
     except Exception as e:
         logging.error(f"Error creating token topup: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to create token topup"
-        )
+        raise HTTPException(status_code=500, detail="Failed to create token topup")
 
 
 @app.post(
@@ -1529,9 +1534,7 @@ async def purchase_addon(
         return result
     except Exception as e:
         logging.error(f"Error creating addon checkout: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to create addon checkout"
-        )
+        raise HTTPException(status_code=500, detail="Failed to create addon checkout")
 
 
 @app.get(
@@ -1687,9 +1690,13 @@ async def issue_company_credits(
         # Re-fetch company to get updated balances
         session2 = get_session()
         try:
-            company_record = session2.query(Company).filter(Company.id == company).first()
+            company_record = (
+                session2.query(Company).filter(Company.id == company).first()
+            )
             new_balance_tokens = company_record.token_balance if company_record else 0
-            new_balance_usd = company_record.token_balance_usd if company_record else 0.0
+            new_balance_usd = (
+                company_record.token_balance_usd if company_record else 0.0
+            )
         finally:
             session2.close()
 
@@ -1711,9 +1718,7 @@ async def issue_company_credits(
     except Exception as e:
         session.rollback()
         logging.error(f"Error issuing credits to company {company}: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to issue credits"
-        )
+        raise HTTPException(status_code=500, detail="Failed to issue credits")
     finally:
         session.close()
 
@@ -1880,9 +1885,13 @@ async def admin_issue_credits(
         # Re-fetch company to get updated balances
         session2 = get_session()
         try:
-            company_record = session2.query(Company).filter(Company.id == request.company_id).first()
+            company_record = (
+                session2.query(Company).filter(Company.id == request.company_id).first()
+            )
             new_balance_tokens = company_record.token_balance if company_record else 0
-            new_balance_usd = company_record.token_balance_usd if company_record else 0.0
+            new_balance_usd = (
+                company_record.token_balance_usd if company_record else 0.0
+            )
         finally:
             session2.close()
 
@@ -1906,9 +1915,7 @@ async def admin_issue_credits(
     except Exception as e:
         session.rollback()
         logging.error(f"Error issuing admin credits: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to issue credits"
-        )
+        raise HTTPException(status_code=500, detail="Failed to issue credits")
     finally:
         session.close()
 
@@ -1942,7 +1949,9 @@ async def set_super_admin(
     agixt_api_key = os.getenv("AGIXT_API_KEY", "")
     provided_key = str(authorization).replace("Bearer ", "").replace("bearer ", "")
 
-    is_api_key_auth = bool(agixt_api_key) and hmac.compare_digest(provided_key, agixt_api_key)
+    is_api_key_auth = bool(agixt_api_key) and hmac.compare_digest(
+        provided_key, agixt_api_key
+    )
     is_super_admin_auth = False
     # Check if it's a JWT from a super admin
     if not is_api_key_auth:
@@ -2002,9 +2011,7 @@ async def set_super_admin(
     except Exception as e:
         session.rollback()
         logging.error(f"Error setting super admin: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to set super admin"
-        )
+        raise HTTPException(status_code=500, detail="Failed to set super admin")
     finally:
         session.close()
 
@@ -2097,9 +2104,7 @@ async def admin_delete_company(
     except Exception as e:
         session.rollback()
         logging.error(f"Error deleting company: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to delete company"
-        )
+        raise HTTPException(status_code=500, detail="Failed to delete company")
     finally:
         session.close()
 
@@ -2164,9 +2169,7 @@ async def admin_delete_user(
     except Exception as e:
         session.rollback()
         logging.error(f"Error deactivating user: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to deactivate user"
-        )
+        raise HTTPException(status_code=500, detail="Failed to deactivate user")
     finally:
         session.close()
 
@@ -2295,10 +2298,13 @@ async def admin_assign_user_to_company(
             raise HTTPException(status_code=404, detail="Company not found")
 
         # Find user by email
-        user = session.query(User).filter(User.email == request.user_email.lower()).first()
+        user = (
+            session.query(User).filter(User.email == request.user_email.lower()).first()
+        )
         if not user:
             raise HTTPException(
-                status_code=404, detail=f"User with email '{request.user_email}' not found"
+                status_code=404,
+                detail=f"User with email '{request.user_email}' not found",
             )
 
         role_id = request.role_id
@@ -2368,9 +2374,7 @@ async def admin_assign_user_to_company(
     except Exception as e:
         session.rollback()
         logging.error(f"Error assigning user to company: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to assign user to company"
-        )
+        raise HTTPException(status_code=500, detail="Failed to assign user to company")
     finally:
         session.close()
 
@@ -2486,9 +2490,7 @@ async def admin_get_server_stats(
         raise
     except Exception as e:
         logging.error(f"Error getting server stats: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to get server stats"
-        )
+        raise HTTPException(status_code=500, detail="Failed to get server stats")
     finally:
         session.close()
 
@@ -2569,9 +2571,7 @@ async def admin_create_company(
     except Exception as e:
         session.rollback()
         logging.error(f"Error creating company: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to create company"
-        )
+        raise HTTPException(status_code=500, detail="Failed to create company")
     finally:
         session.close()
 
@@ -2614,7 +2614,9 @@ async def admin_update_company(
         if request.name is not None:
             # Check name uniqueness if changing
             if request.name != company.name:
-                existing = session.query(Company).filter(Company.name == request.name).first()
+                existing = (
+                    session.query(Company).filter(Company.name == request.name).first()
+                )
                 if existing:
                     raise HTTPException(
                         status_code=400,
@@ -2666,9 +2668,7 @@ async def admin_update_company(
     except Exception as e:
         session.rollback()
         logging.error(f"Error updating company: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to update company"
-        )
+        raise HTTPException(status_code=500, detail="Failed to update company")
     finally:
         session.close()
 
@@ -2762,9 +2762,7 @@ async def admin_change_user_role(
     except Exception as e:
         session.rollback()
         logging.error(f"Error changing user role: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to change user role"
-        )
+        raise HTTPException(status_code=500, detail="Failed to change user role")
     finally:
         session.close()
 
@@ -2800,7 +2798,9 @@ async def admin_impersonate_user(
         from MagicalAuth import impersonate_user
 
         # Verify user exists
-        user = session.query(User).filter(User.email == request.user_email.lower()).first()
+        user = (
+            session.query(User).filter(User.email == request.user_email.lower()).first()
+        )
         if not user:
             raise HTTPException(
                 status_code=404,
@@ -2980,9 +2980,7 @@ async def admin_export_companies(
         raise
     except Exception as e:
         logging.error(f"Error exporting companies: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to export companies"
-        )
+        raise HTTPException(status_code=500, detail="Failed to export companies")
     finally:
         session.close()
 
@@ -3045,9 +3043,7 @@ async def admin_suspend_company(
     except Exception as e:
         session.rollback()
         logging.error(f"Error suspending company: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to suspend company"
-        )
+        raise HTTPException(status_code=500, detail="Failed to suspend company")
     finally:
         session.close()
 
@@ -3105,9 +3101,7 @@ async def admin_unsuspend_company(
     except Exception as e:
         session.rollback()
         logging.error(f"Error unsuspending company: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to unsuspend company"
-        )
+        raise HTTPException(status_code=500, detail="Failed to unsuspend company")
     finally:
         session.close()
 
@@ -3232,9 +3226,7 @@ async def admin_merge_companies(
     except Exception as e:
         session.rollback()
         logging.error(f"Error merging companies: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to merge companies"
-        )
+        raise HTTPException(status_code=500, detail="Failed to merge companies")
     finally:
         session.close()
 
@@ -3484,9 +3476,7 @@ async def admin_get_usage_analytics(
         raise
     except Exception as e:
         logging.error(f"Error getting usage analytics: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to get usage analytics"
-        )
+        raise HTTPException(status_code=500, detail="Failed to get usage analytics")
     finally:
         session.close()
 
@@ -3788,7 +3778,9 @@ async def admin_get_all_users_usage(
             except (ValueError, TypeError):
                 input_tokens = 0
             try:
-                output_tokens = int(row.output_tokens_str) if row.output_tokens_str else 0
+                output_tokens = (
+                    int(row.output_tokens_str) if row.output_tokens_str else 0
+                )
             except (ValueError, TypeError):
                 output_tokens = 0
             total_input += input_tokens
@@ -3840,9 +3832,7 @@ async def admin_get_all_users_usage(
         raise
     except Exception as e:
         logging.error(f"Error getting all users usage: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail="Failed to get all users usage"
-        )
+        raise HTTPException(status_code=500, detail="Failed to get all users usage")
     finally:
         session.close()
 
@@ -3886,9 +3876,7 @@ async def get_invoice_url(
 
         stripe_api_key = os.getenv("STRIPE_SECRET_KEY")
         if not stripe_api_key or stripe_api_key.lower() == "none":
-            raise HTTPException(
-                status_code=400, detail="Stripe is not configured"
-            )
+            raise HTTPException(status_code=400, detail="Stripe is not configured")
 
         import stripe as stripe_lib
 

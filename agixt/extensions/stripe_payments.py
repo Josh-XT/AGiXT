@@ -165,7 +165,9 @@ class stripe_payments(Extensions):
         - STRIPE_CLIENT_ID: For OAuth flows
         - STRIPE_CLIENT_SECRET: For OAuth flows
         """
-        self.secret_key = getenv("STRIPE_SECRET_KEY", "") or getenv("STRIPE_API_KEY", "")
+        self.secret_key = getenv("STRIPE_SECRET_KEY", "") or getenv(
+            "STRIPE_API_KEY", ""
+        )
         self.publishable_key = getenv("STRIPE_PUBLISHABLE_KEY", "")
         self.base_url = "https://api.stripe.com/v1"
         self.user_id = kwargs.get("user_id", kwargs.get("user", "default"))
@@ -314,13 +316,14 @@ class stripe_payments(Extensions):
                                 company.auto_topup_amount_usd = amount_usd
                                 company.stripe_subscription_id = subscription_id
                                 company.app_name = app_name
-                                company.last_subscription_billing_date = (
-                                    datetime.now(timezone.utc)
+                                company.last_subscription_billing_date = datetime.now(
+                                    timezone.utc
                                 )
 
                                 # Handle tiered plan activation
                                 if pricing_model == "tiered_plan" and plan_id:
                                     from MagicalAuth import MagicalAuth
+
                                     auth = MagicalAuth()
                                     auth.set_company_plan(
                                         company_id=str(company.id),
@@ -348,7 +351,8 @@ class stripe_payments(Extensions):
                                     existing_txn = (
                                         session.query(PaymentTransaction)
                                         .filter(
-                                            PaymentTransaction.reference_code == f"ADDON_{checkout_session_id[:30]}",
+                                            PaymentTransaction.reference_code
+                                            == f"ADDON_{checkout_session_id[:30]}",
                                         )
                                         .first()
                                     )
@@ -357,11 +361,21 @@ class stripe_payments(Extensions):
                                             f"Addon checkout {checkout_session_id} already processed, skipping duplicate"
                                         )
                                     else:
-                                        addon_count = int(metadata.get("addon_count", 1))
-                                        company.addon_users = (company.addon_users or 0) + addon_count
-                                        company.addon_devices = (company.addon_devices or 0) + (addon_count * 100)
-                                        company.addon_tokens = (company.addon_tokens or 0) + (addon_count * 10_000_000)
-                                        company.addon_storage_bytes = (company.addon_storage_bytes or 0) + (addon_count * 2 * 1024 * 1024 * 1024)
+                                        addon_count = int(
+                                            metadata.get("addon_count", 1)
+                                        )
+                                        company.addon_users = (
+                                            company.addon_users or 0
+                                        ) + addon_count
+                                        company.addon_devices = (
+                                            company.addon_devices or 0
+                                        ) + (addon_count * 100)
+                                        company.addon_tokens = (
+                                            company.addon_tokens or 0
+                                        ) + (addon_count * 10_000_000)
+                                        company.addon_storage_bytes = (
+                                            company.addon_storage_bytes or 0
+                                        ) + (addon_count * 2 * 1024 * 1024 * 1024)
 
                                         # Record transaction for idempotency
                                         addon_txn = PaymentTransaction(
@@ -379,10 +393,12 @@ class stripe_payments(Extensions):
                                             status="completed",
                                             reference_code=f"ADDON_{checkout_session_id[:30]}",
                                             app_name=app_name,
-                                            metadata_json=json.dumps({
-                                                "type": "addon_subscription",
-                                                "addon_count": addon_count,
-                                            }),
+                                            metadata_json=json.dumps(
+                                                {
+                                                    "type": "addon_subscription",
+                                                    "addon_count": addon_count,
+                                                }
+                                            ),
                                         )
                                         session.add(addon_txn)
                                         logging.info(
@@ -407,13 +423,17 @@ class stripe_payments(Extensions):
                             company_id = metadata.get("company_id")
                             token_amount = int(metadata.get("token_amount", 0))
                             token_millions = int(metadata.get("token_millions", 0))
-                            price_per_million = float(metadata.get("price_per_million", 5.0))
+                            price_per_million = float(
+                                metadata.get("price_per_million", 5.0)
+                            )
                             amount_usd = token_millions * price_per_million
 
                             if company_id and token_amount > 0:
                                 # Idempotency: check if this checkout session
                                 # was already processed before crediting tokens
-                                topup_ref = f"TOPUP_{session_data.get('id', 'unknown')[:20]}"
+                                topup_ref = (
+                                    f"TOPUP_{session_data.get('id', 'unknown')[:20]}"
+                                )
                                 existing_topup = (
                                     session.query(PaymentTransaction)
                                     .filter(
@@ -430,7 +450,9 @@ class stripe_payments(Extensions):
 
                                 # Create payment transaction record FIRST for idempotency
                                 # (add_tokens_to_company opens its own session/commit)
-                                payment_intent_id = session_data.get("payment_intent", "unknown")
+                                payment_intent_id = session_data.get(
+                                    "payment_intent", "unknown"
+                                )
                                 transaction = PaymentTransaction(
                                     user_id=None,
                                     company_id=str(company_id),
@@ -446,11 +468,13 @@ class stripe_payments(Extensions):
                                     status="completed",
                                     reference_code=topup_ref,
                                     app_name=getenv("APP_NAME") or "AGiXT",
-                                    metadata_json=json.dumps({
-                                        "type": "token_topup",
-                                        "token_millions": token_millions,
-                                        "price_per_million": price_per_million,
-                                    }),
+                                    metadata_json=json.dumps(
+                                        {
+                                            "type": "token_topup",
+                                            "token_millions": token_millions,
+                                            "price_per_million": price_per_million,
+                                        }
+                                    ),
                                 )
                                 session.add(transaction)
                                 session.commit()
@@ -900,7 +924,8 @@ class stripe_payments(Extensions):
                         existing_txn = (
                             session.query(PaymentTransaction)
                             .filter(
-                                PaymentTransaction.stripe_payment_intent_id == invoice_id
+                                PaymentTransaction.stripe_payment_intent_id
+                                == invoice_id
                             )
                             .first()
                         )
@@ -1083,11 +1108,13 @@ class stripe_payments(Extensions):
                                         status="completed",
                                         reference_code=f"SUB_{subscription_id[:20]}_{invoice_id[:20]}",
                                         app_name=app_name,
-                                        metadata_json=json.dumps({
-                                            "pricing_model": pricing_model,
-                                            "plan_id": company.plan_id,
-                                            "renewal": True,
-                                        }),
+                                        metadata_json=json.dumps(
+                                            {
+                                                "pricing_model": pricing_model,
+                                                "plan_id": company.plan_id,
+                                                "renewal": True,
+                                            }
+                                        ),
                                     )
                                     session.add(transaction)
 
@@ -1205,9 +1232,20 @@ class stripe_payments(Extensions):
                                 status="failed",
                                 reference_code=f"FAILED_{invoice_id[:30]}",
                                 app_name=getenv("APP_NAME") or "AGiXT",
-                                metadata_json=json.dumps({
-                                    "failure_reason": invoice.get("last_finalization_error", {}).get("message", "Payment failed") if isinstance(invoice.get("last_finalization_error"), dict) else "Payment failed",
-                                }),
+                                metadata_json=json.dumps(
+                                    {
+                                        "failure_reason": (
+                                            invoice.get(
+                                                "last_finalization_error", {}
+                                            ).get("message", "Payment failed")
+                                            if isinstance(
+                                                invoice.get("last_finalization_error"),
+                                                dict,
+                                            )
+                                            else "Payment failed"
+                                        ),
+                                    }
+                                ),
                             )
                             session.add(failed_txn)
 
@@ -1273,16 +1311,13 @@ class stripe_payments(Extensions):
                             if tokens_to_deduct > 0:
                                 company = (
                                     session.query(Company)
-                                    .filter(
-                                        Company.id == original_txn.company_id
-                                    )
+                                    .filter(Company.id == original_txn.company_id)
                                     .first()
                                 )
                                 if company:
                                     company.token_balance = max(
                                         0,
-                                        (company.token_balance or 0)
-                                        - tokens_to_deduct,
+                                        (company.token_balance or 0) - tokens_to_deduct,
                                     )
                                     company.token_balance_usd = max(
                                         0,
@@ -1310,11 +1345,13 @@ class stripe_payments(Extensions):
                                 status="refunded",
                                 reference_code=f"REFUND_{charge_id[:25]}",
                                 app_name=getenv("APP_NAME") or "AGiXT",
-                                metadata_json=json.dumps({
-                                    "original_reference": original_txn.reference_code,
-                                    "tokens_deducted": tokens_to_deduct,
-                                    "refund_amount_usd": amount_refunded_usd,
-                                }),
+                                metadata_json=json.dumps(
+                                    {
+                                        "original_reference": original_txn.reference_code,
+                                        "tokens_deducted": tokens_to_deduct,
+                                        "refund_amount_usd": amount_refunded_usd,
+                                    }
+                                ),
                             )
                             session.add(refund_txn)
 

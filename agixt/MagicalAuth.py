@@ -3777,11 +3777,19 @@ class MagicalAuth:
                 limits = tier.get("limits", {})
 
                 # Calculate effective limits including addons
-                user_limit = (limits.get("users") or 0) + (billing_company.addon_users or 0)
-                device_limit = (limits.get("devices") or 0) + (billing_company.addon_devices or 0)
-                token_limit = (limits.get("tokens") or 0) + (billing_company.addon_tokens or 0)
-                storage_limit_gb = (limits.get("storage_gb") or 0)
-                storage_limit_bytes = storage_limit_gb * 1024 * 1024 * 1024 + (billing_company.addon_storage_bytes or 0)
+                user_limit = (limits.get("users") or 0) + (
+                    billing_company.addon_users or 0
+                )
+                device_limit = (limits.get("devices") or 0) + (
+                    billing_company.addon_devices or 0
+                )
+                token_limit = (limits.get("tokens") or 0) + (
+                    billing_company.addon_tokens or 0
+                )
+                storage_limit_gb = limits.get("storage_gb") or 0
+                storage_limit_bytes = storage_limit_gb * 1024 * 1024 * 1024 + (
+                    billing_company.addon_storage_bytes or 0
+                )
 
                 # Get current usage - count across all companies under billing org
                 billing_company_id = str(billing_company.id)
@@ -3823,14 +3831,21 @@ class MagicalAuth:
                         "devices": device_limit,
                         "tokens_per_month": token_limit,
                         "storage_bytes": storage_limit_bytes,
-                        "storage_gb": round(storage_limit_bytes / (1024 * 1024 * 1024), 2),
+                        "storage_gb": round(
+                            storage_limit_bytes / (1024 * 1024 * 1024), 2
+                        ),
                     },
                     "usage": {
                         "users": current_users,
                         "devices": billing_company.device_count or 0,
-                        "tokens_this_period": billing_company.tokens_used_this_period or 0,
+                        "tokens_this_period": billing_company.tokens_used_this_period
+                        or 0,
                         "storage_bytes": billing_company.storage_used_bytes or 0,
-                        "storage_gb": round((billing_company.storage_used_bytes or 0) / (1024 * 1024 * 1024), 2),
+                        "storage_gb": round(
+                            (billing_company.storage_used_bytes or 0)
+                            / (1024 * 1024 * 1024),
+                            2,
+                        ),
                     },
                     "addons": {
                         "users": billing_company.addon_users or 0,
@@ -3843,7 +3858,14 @@ class MagicalAuth:
                         if billing_company.current_period_start
                         else None
                     ),
-                    "warnings": self._get_limit_warnings(billing_company, user_limit, device_limit, token_limit, storage_limit_bytes, current_user_count=current_users),
+                    "warnings": self._get_limit_warnings(
+                        billing_company,
+                        user_limit,
+                        device_limit,
+                        token_limit,
+                        storage_limit_bytes,
+                        current_user_count=current_users,
+                    ),
                 }
 
             elif pricing_model == "per_bed":
@@ -3858,7 +3880,8 @@ class MagicalAuth:
                         "beds": bed_count,
                     },
                     "price_per_bed": pricing_config.get("price_per_unit", 10.0),
-                    "monthly_cost": bed_limit * pricing_config.get("price_per_unit", 10.0),
+                    "monthly_cost": bed_limit
+                    * pricing_config.get("price_per_unit", 10.0),
                     "warnings": [],
                 }
 
@@ -3873,7 +3896,15 @@ class MagicalAuth:
         finally:
             session.close()
 
-    def _get_limit_warnings(self, company, user_limit, device_limit, token_limit, storage_limit_bytes, current_user_count=None) -> list:
+    def _get_limit_warnings(
+        self,
+        company,
+        user_limit,
+        device_limit,
+        token_limit,
+        storage_limit_bytes,
+        current_user_count=None,
+    ) -> list:
         """Generate warnings for limits approaching capacity (>80% usage)."""
         warnings = []
         threshold = 0.8
@@ -3881,62 +3912,80 @@ class MagicalAuth:
         # User limit warnings
         if current_user_count is not None and user_limit:
             if current_user_count >= user_limit:
-                warnings.append({
-                    "type": "user_limit_reached",
-                    "message": f"User limit reached ({current_user_count}/{user_limit}). Upgrade your plan or remove users.",
-                    "severity": "error",
-                })
+                warnings.append(
+                    {
+                        "type": "user_limit_reached",
+                        "message": f"User limit reached ({current_user_count}/{user_limit}). Upgrade your plan or remove users.",
+                        "severity": "error",
+                    }
+                )
             elif current_user_count >= user_limit * threshold:
                 remaining = user_limit - current_user_count
-                warnings.append({
-                    "type": "user_limit_approaching",
-                    "message": f"Approaching user limit ({current_user_count}/{user_limit}). {remaining} user(s) remaining.",
-                    "severity": "warning",
-                })
+                warnings.append(
+                    {
+                        "type": "user_limit_approaching",
+                        "message": f"Approaching user limit ({current_user_count}/{user_limit}). {remaining} user(s) remaining.",
+                        "severity": "warning",
+                    }
+                )
 
         device_count = company.device_count or 0
         if device_limit and device_count >= device_limit:
-            warnings.append({
-                "type": "device_limit_reached",
-                "message": f"Device limit reached ({device_count}/{device_limit}). Upgrade your plan or remove unused devices.",
-                "severity": "error",
-            })
+            warnings.append(
+                {
+                    "type": "device_limit_reached",
+                    "message": f"Device limit reached ({device_count}/{device_limit}). Upgrade your plan or remove unused devices.",
+                    "severity": "error",
+                }
+            )
         elif device_limit and device_count >= device_limit * threshold:
-            warnings.append({
-                "type": "device_limit_approaching",
-                "message": f"Approaching device limit ({device_count}/{device_limit}). Consider upgrading your plan.",
-                "severity": "warning",
-            })
+            warnings.append(
+                {
+                    "type": "device_limit_approaching",
+                    "message": f"Approaching device limit ({device_count}/{device_limit}). Consider upgrading your plan.",
+                    "severity": "warning",
+                }
+            )
 
         tokens_used = company.tokens_used_this_period or 0
         if token_limit and tokens_used >= token_limit:
-            warnings.append({
-                "type": "token_limit_reached",
-                "message": f"Monthly token limit reached. Purchase additional tokens at $5/1M or upgrade your plan.",
-                "severity": "error",
-            })
+            warnings.append(
+                {
+                    "type": "token_limit_reached",
+                    "message": f"Monthly token limit reached. Purchase additional tokens at $5/1M or upgrade your plan.",
+                    "severity": "error",
+                }
+            )
         elif token_limit and tokens_used >= token_limit * threshold:
             remaining = token_limit - tokens_used
-            warnings.append({
-                "type": "token_limit_approaching",
-                "message": f"Approaching monthly token limit ({tokens_used:,}/{token_limit:,}). {remaining:,} tokens remaining.",
-                "severity": "warning",
-            })
+            warnings.append(
+                {
+                    "type": "token_limit_approaching",
+                    "message": f"Approaching monthly token limit ({tokens_used:,}/{token_limit:,}). {remaining:,} tokens remaining.",
+                    "severity": "warning",
+                }
+            )
 
         storage_used = company.storage_used_bytes or 0
         if storage_limit_bytes and storage_used >= storage_limit_bytes:
-            warnings.append({
-                "type": "storage_limit_reached",
-                "message": "Storage limit reached. Upgrade your plan, use your own S3 storage, or remove unused files.",
-                "severity": "error",
-            })
+            warnings.append(
+                {
+                    "type": "storage_limit_reached",
+                    "message": "Storage limit reached. Upgrade your plan, use your own S3 storage, or remove unused files.",
+                    "severity": "error",
+                }
+            )
         elif storage_limit_bytes and storage_used >= storage_limit_bytes * threshold:
-            remaining_gb = round((storage_limit_bytes - storage_used) / (1024 * 1024 * 1024), 2)
-            warnings.append({
-                "type": "storage_limit_approaching",
-                "message": f"Approaching storage limit ({remaining_gb}GB remaining). Consider upgrading or using your own S3 storage.",
-                "severity": "warning",
-            })
+            remaining_gb = round(
+                (storage_limit_bytes - storage_used) / (1024 * 1024 * 1024), 2
+            )
+            warnings.append(
+                {
+                    "type": "storage_limit_approaching",
+                    "message": f"Approaching storage limit ({remaining_gb}GB remaining). Consider upgrading or using your own S3 storage.",
+                    "severity": "warning",
+                }
+            )
 
         return warnings
 
@@ -3983,7 +4032,9 @@ class MagicalAuth:
 
                 tier = self._get_plan_tier(plan_id, pricing_config)
                 limits = tier.get("limits", {})
-                user_limit = (limits.get("users") or 0) + (billing_company.addon_users or 0)
+                user_limit = (limits.get("users") or 0) + (
+                    billing_company.addon_users or 0
+                )
 
                 # Count users across all companies under the billing org
                 billing_company_id = str(billing_company.id)
@@ -4077,7 +4128,12 @@ class MagicalAuth:
         )
 
         if pricing_model != "tiered_plan":
-            return {"can_add": True, "current": 0, "limit": None, "message": "No device limits"}
+            return {
+                "can_add": True,
+                "current": 0,
+                "limit": None,
+                "message": "No device limits",
+            }
 
         session = get_session()
         try:
@@ -4088,7 +4144,9 @@ class MagicalAuth:
             tier = self._get_plan_tier(plan_id, pricing_config)
             limits = tier.get("limits", {})
 
-            device_limit = (limits.get("devices") or 0) + (billing_company.addon_devices or 0)
+            device_limit = (limits.get("devices") or 0) + (
+                billing_company.addon_devices or 0
+            )
             device_count = billing_company.device_count or 0
 
             can_add = device_count < device_limit if device_limit else True
@@ -4121,7 +4179,12 @@ class MagicalAuth:
         )
 
         if pricing_model != "tiered_plan":
-            return {"can_add": True, "used_bytes": 0, "limit_bytes": None, "message": "No storage limits"}
+            return {
+                "can_add": True,
+                "used_bytes": 0,
+                "limit_bytes": None,
+                "message": "No storage limits",
+            }
 
         session = get_session()
         try:
@@ -4133,10 +4196,16 @@ class MagicalAuth:
             limits = tier.get("limits", {})
 
             storage_limit_gb = limits.get("storage_gb") or 0
-            storage_limit_bytes = storage_limit_gb * 1024 * 1024 * 1024 + (billing_company.addon_storage_bytes or 0)
+            storage_limit_bytes = storage_limit_gb * 1024 * 1024 * 1024 + (
+                billing_company.addon_storage_bytes or 0
+            )
             storage_used = billing_company.storage_used_bytes or 0
 
-            can_add = (storage_used + additional_bytes) <= storage_limit_bytes if storage_limit_bytes else True
+            can_add = (
+                (storage_used + additional_bytes) <= storage_limit_bytes
+                if storage_limit_bytes
+                else True
+            )
 
             return {
                 "can_add": can_add,
@@ -4166,7 +4235,9 @@ class MagicalAuth:
 
             if count > 0:
                 current = billing_company.device_count or 0
-                limit = (billing_company.device_limit or 0) + (billing_company.addon_devices or 0)
+                limit = (billing_company.device_limit or 0) + (
+                    billing_company.addon_devices or 0
+                )
                 if limit and current + count > limit:
                     raise HTTPException(
                         status_code=402,
@@ -4201,21 +4272,27 @@ class MagicalAuth:
 
             if bytes_delta > 0:
                 current = billing_company.storage_used_bytes or 0
-                limit = (billing_company.storage_limit_bytes or 0) + (billing_company.addon_storage_bytes or 0)
+                limit = (billing_company.storage_limit_bytes or 0) + (
+                    billing_company.addon_storage_bytes or 0
+                )
                 if limit and current + bytes_delta > limit:
                     raise HTTPException(
                         status_code=402,
                         detail=f"Storage limit reached ({round(current / (1024 * 1024 * 1024), 2)}GB / {round(limit / (1024 * 1024 * 1024), 2)}GB). Upgrade your plan for more storage.",
                     )
 
-            billing_company.storage_used_bytes = (billing_company.storage_used_bytes or 0) + bytes_delta
+            billing_company.storage_used_bytes = (
+                billing_company.storage_used_bytes or 0
+            ) + bytes_delta
             if billing_company.storage_used_bytes < 0:
                 billing_company.storage_used_bytes = 0
             session.commit()
             return {
                 "success": True,
                 "storage_used_bytes": billing_company.storage_used_bytes,
-                "storage_used_gb": round(billing_company.storage_used_bytes / (1024 * 1024 * 1024), 2),
+                "storage_used_gb": round(
+                    billing_company.storage_used_bytes / (1024 * 1024 * 1024), 2
+                ),
             }
         finally:
             session.close()
@@ -4246,14 +4323,18 @@ class MagicalAuth:
             if pricing_model == "tiered_plan":
                 tier = self._get_plan_tier(plan_id, pricing_config)
                 if not tier:
-                    raise HTTPException(status_code=400, detail=f"Invalid plan ID: {plan_id}")
+                    raise HTTPException(
+                        status_code=400, detail=f"Invalid plan ID: {plan_id}"
+                    )
 
                 old_plan_id = billing_company.plan_id
                 limits = tier.get("limits", {})
                 billing_company.plan_id = plan_id
                 billing_company.device_limit = limits.get("devices")
                 billing_company.monthly_token_limit = limits.get("tokens")
-                billing_company.storage_limit_bytes = (limits.get("storage_gb") or 0) * 1024 * 1024 * 1024
+                billing_company.storage_limit_bytes = (
+                    (limits.get("storage_gb") or 0) * 1024 * 1024 * 1024
+                )
                 billing_company.user_limit = limits.get("users")
 
                 # Clear addon fields when moving to a plan that doesn't support addons
@@ -4293,7 +4374,10 @@ class MagicalAuth:
                 try:
                     bed_count = int(plan_id)
                 except ValueError:
-                    raise HTTPException(status_code=400, detail="For NurseXT, plan_id should be the bed count")
+                    raise HTTPException(
+                        status_code=400,
+                        detail="For NurseXT, plan_id should be the bed count",
+                    )
 
                 min_beds = pricing_config.get("min_units", 5)
                 if bed_count < min_beds:
@@ -4309,7 +4393,8 @@ class MagicalAuth:
                     "success": True,
                     "plan_id": f"per_bed_{bed_count}",
                     "bed_limit": bed_count,
-                    "monthly_cost": bed_count * pricing_config.get("price_per_unit", 10.0),
+                    "monthly_cost": bed_count
+                    * pricing_config.get("price_per_unit", 10.0),
                 }
 
         finally:
@@ -4378,7 +4463,7 @@ class MagicalAuth:
         if pricing_model == "tiered_plan":
             # For tiered plan billing, check:
             # 1. Has a plan_id set (trial or paid)
-            # 2. Trial credits (token_balance_usd > 0) 
+            # 2. Trial credits (token_balance_usd > 0)
             # 3. Active subscription (stripe_subscription_id exists and auto_topup_enabled)
             # 4. Token balance > 0 (from topups or included tokens)
             company_with_plan = (
@@ -4402,7 +4487,7 @@ class MagicalAuth:
         elif pricing_model == "per_bed":
             # For NurseXT bed-based billing, check:
             # 1. Trial credits (token_balance_usd > 0)
-            # 2. Active subscription 
+            # 2. Active subscription
             company_with_billing = (
                 session.query(Company)
                 .filter(Company.id.in_(list(all_company_ids)))
@@ -6273,7 +6358,17 @@ class MagicalAuth:
                             now = datetime.now(timezone.utc)
                             period_start = billing_company.current_period_start
                             if period_start:
+                                # Ensure period_start is timezone-aware for comparison
+                                if (
+                                    period_start.tzinfo is None
+                                    or period_start.tzinfo.utcoffset(period_start)
+                                    is None
+                                ):
+                                    period_start = period_start.replace(
+                                        tzinfo=timezone.utc
+                                    )
                                 from dateutil.relativedelta import relativedelta
+
                                 if now >= period_start + relativedelta(months=1):
                                     billing_company.tokens_used_this_period = 0
                                     billing_company.current_period_start = now
@@ -6289,16 +6384,25 @@ class MagicalAuth:
                             plan_id = billing_company.plan_id
                             tier = self._get_plan_tier(plan_id, pricing_config)
                             limits = tier.get("limits", {})
-                            plan_token_limit = (limits.get("tokens") or 0) + (billing_company.addon_tokens or 0)
+                            plan_token_limit = (limits.get("tokens") or 0) + (
+                                billing_company.addon_tokens or 0
+                            )
 
                             tokens_used = billing_company.tokens_used_this_period or 0
 
                             if plan_token_limit and tokens_used > plan_token_limit:
                                 # Over the plan's included allowance — use purchased topup tokens
                                 overage = tokens_used - plan_token_limit
-                                if billing_company.token_balance and billing_company.token_balance > 0:
+                                if (
+                                    billing_company.token_balance
+                                    and billing_company.token_balance > 0
+                                ):
                                     # Deduct only the overage portion from topup balance
-                                    deduction = min(total_tokens, overage, billing_company.token_balance)
+                                    deduction = min(
+                                        total_tokens,
+                                        overage,
+                                        billing_company.token_balance,
+                                    )
                                     billing_company.token_balance -= deduction
                                     if billing_company.token_balance < 0:
                                         billing_company.token_balance = 0
@@ -6517,9 +6621,7 @@ class MagicalAuth:
         entity that increase_token_counts deducts from.
         """
         if token_amount <= 0 or amount_usd < 0:
-            raise HTTPException(
-                status_code=400, detail="Token amount must be positive"
-            )
+            raise HTTPException(status_code=400, detail="Token amount must be positive")
         session = get_session()
         try:
             _, billing_company, session, _ = self._get_billing_company(

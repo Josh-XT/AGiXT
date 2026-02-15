@@ -270,7 +270,9 @@ class TrialService:
         # RFC 2606 reserved test domains - always grant trial credits (for testing)
         # These domains can never be real domains and are safe for testing
         test_domains = {"example.com", "example.org", "example.net"}
-        is_test_domain = domain.lower() in test_domains or domain.lower().endswith(".test")
+        is_test_domain = domain.lower() in test_domains or domain.lower().endswith(
+            ".test"
+        )
 
         # Check if this is a public email provider (gmail, outlook, etc.)
         # Public email providers skip domain uniqueness - each user gets their own trial
@@ -332,7 +334,9 @@ class TrialService:
 
         # RFC 2606 reserved test domains - skip domain tracking
         test_domains = {"example.com", "example.org", "example.net"}
-        is_test_domain = domain.lower() in test_domains or domain.lower().endswith(".test")
+        is_test_domain = domain.lower() in test_domains or domain.lower().endswith(
+            ".test"
+        )
 
         # Check if this is a public email provider (gmail, outlook, etc.)
         # Public providers skip domain tracking - each user is treated as individual
@@ -383,6 +387,7 @@ class TrialService:
                     session.flush()  # Force insert to catch unique constraint violation
                 except Exception as e:
                     from sqlalchemy.exc import IntegrityError
+
                     if isinstance(e, IntegrityError):
                         session.rollback()
                         return (
@@ -408,13 +413,15 @@ class TrialService:
             has_paid_subscription = (
                 company.stripe_subscription_id
                 and company.plan_id
-                and company.plan_id != pricing_config.get("trial", {}).get("plan_id", "starter")
+                and company.plan_id
+                != pricing_config.get("trial", {}).get("plan_id", "starter")
             )
 
             if pricing_model == "tiered_plan" and not has_paid_subscription:
                 trial_config = pricing_config.get("trial", {})
                 trial_plan_id = trial_config.get("plan_id", "starter")
                 from MagicalAuth import MagicalAuth
+
                 auth = MagicalAuth()
                 auth.set_company_plan(
                     company_id=company_id,
