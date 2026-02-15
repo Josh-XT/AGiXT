@@ -2051,24 +2051,16 @@ class Agent:
                 f"[Agent] Using AI Provider extensions: {self._ai_provider_manager.get_provider_names()}"
             )
             self.TTS_PROVIDER = (
-                True
-                if self._ai_provider_manager.has_service("tts")
-                else None
+                True if self._ai_provider_manager.has_service("tts") else None
             )
             self.TRANSCRIPTION_PROVIDER = (
-                True
-                if self._ai_provider_manager.has_service("transcription")
-                else None
+                True if self._ai_provider_manager.has_service("transcription") else None
             )
             self.TRANSLATION_PROVIDER = (
-                True
-                if self._ai_provider_manager.has_service("translation")
-                else None
+                True if self._ai_provider_manager.has_service("translation") else None
             )
             self.IMAGE_PROVIDER = (
-                True
-                if self._ai_provider_manager.has_service("image")
-                else None
+                True if self._ai_provider_manager.has_service("image") else None
             )
         return self._ai_provider_manager
 
@@ -2085,7 +2077,11 @@ class Agent:
                 agent_id=self.agent_id,
                 agent_config=self.AGENT_CONFIG,
                 ApiClient=self._ApiClient,
-                api_key=self._ApiClient.headers.get("Authorization") if self._ApiClient else None,
+                api_key=(
+                    self._ApiClient.headers.get("Authorization")
+                    if self._ApiClient
+                    else None
+                ),
                 user=self.user,
             )
         return self._extensions
