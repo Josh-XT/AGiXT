@@ -462,11 +462,12 @@ class Extensions:
         return enabled_commands
 
     def get_command_args(self, command_name: str):
-        extensions = self.get_extensions()
-        for extension in extensions:
-            for command in extension["commands"]:
-                if command["friendly_name"] == command_name:
-                    return command["command_args"]
+        # Use metadata cache directly instead of get_extensions() to avoid
+        # recursion: get_command_args → get_extensions → chains_with_args → get_chains_with_args → get_command_args
+        metadata = _get_extension_metadata_cache()
+        cmd_info = metadata.get("commands", {}).get(command_name)
+        if cmd_info:
+            return cmd_info.get("params", {})
         return {}
 
     def get_chains(self):
@@ -819,8 +820,9 @@ class Extensions:
             )
 
         # Add chains as commands
-        if hasattr(self, "chains_with_args") and self.chains_with_args:
-            for chain in self.chains_with_args:
+        # Use _chains_with_args directly to avoid triggering lazy load during load_commands()
+        if self._chains_with_args:
+            for chain in self._chains_with_args:
                 chain_name = chain["chain_name"]
                 commands.append(
                     (
@@ -1355,9 +1357,10 @@ class Extensions:
                 )
 
         # Add Custom Automation as an extension only if chains_with_args is initialized
-        if hasattr(self, "chains_with_args") and self.chains_with_args:
+        # Use _chains_with_args directly to avoid triggering lazy load during get_extensions()
+        if self._chains_with_args:
             chain_commands = []
-            for chain in self.chains_with_args:
+            for chain in self._chains_with_args:
                 chain_commands.append(
                     {
                         "friendly_name": chain["chain_name"],

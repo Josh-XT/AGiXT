@@ -1973,49 +1973,31 @@ class Agent:
         if early_company_id and str(early_company_id).lower() in ["none", "null", ""]:
             early_company_id = None
 
-        # Initialize AI Provider Manager to discover AI Provider extensions
-        self.ai_provider_manager = AIProviderManager(
-            agent_settings=self.PROVIDER_SETTINGS,
-            company_id=str(early_company_id) if early_company_id else None,
-        )
+        # Lazy-init AI Provider Manager — only needed for inference, not config/settings reads
+        self._ai_provider_manager = None
+        self._early_company_id = str(early_company_id) if early_company_id else None
 
         # Store ApiClient and token for provider access
         self._ApiClient = ApiClient
         self._token = token
 
-        # Set up service availability flags from AI Provider Manager
-        logging.debug(
-            f"[Agent] Using AI Provider extensions: {self.ai_provider_manager.get_provider_names()}"
-        )
-        self.PROVIDER = None  # Will use ai_provider_manager in inference methods
+        # Service availability flags — set lazily when ai_provider_manager is first accessed
+        self.PROVIDER = None
         self.VISION_PROVIDER = None
-        self.TTS_PROVIDER = (
-            True if self.ai_provider_manager.has_service("tts") else None
-        )  # Flag for availability
-        self.TRANSCRIPTION_PROVIDER = (
-            True if self.ai_provider_manager.has_service("transcription") else None
-        )
-        self.TRANSLATION_PROVIDER = (
-            True if self.ai_provider_manager.has_service("translation") else None
-        )
-        self.IMAGE_PROVIDER = (
-            True if self.ai_provider_manager.has_service("image") else None
-        )
+        self.TTS_PROVIDER = None
+        self.TRANSCRIPTION_PROVIDER = None
+        self.TRANSLATION_PROVIDER = None
+        self.IMAGE_PROVIDER = None
 
         try:
             self.max_input_tokens = int(self.AGENT_CONFIG["settings"]["MAX_TOKENS"])
         except Exception as e:
             self.max_input_tokens = 32000
         self.chunk_size = 256
-        self.extensions = Extensions(
-            agent_name=self.agent_name,
-            agent_id=self.agent_id,
-            agent_config=self.AGENT_CONFIG,
-            ApiClient=ApiClient,
-            api_key=ApiClient.headers.get("Authorization"),
-            user=self.user,
-        )
-        self.available_commands = self.extensions.get_available_commands()
+
+        # Lazy-init Extensions — only needed for command execution, not config reads
+        self._extensions = None
+        self._available_commands = None
 
         # CodeQL ultra-safe pattern: Create secure workspace directory
         base_workspace = "WORKSPACE"
@@ -2055,6 +2037,73 @@ class Agent:
                 self._company_agent = self.get_company_agent()
             self._company_agent_loaded = True
         return self._company_agent
+
+    @property
+    def ai_provider_manager(self):
+        """Lazy-init AI Provider Manager — only needed for inference, not config/settings reads."""
+        if self._ai_provider_manager is None:
+            self._ai_provider_manager = AIProviderManager(
+                agent_settings=self.PROVIDER_SETTINGS,
+                company_id=self._early_company_id,
+            )
+            # Set service availability flags now that provider manager is initialized
+            logging.debug(
+                f"[Agent] Using AI Provider extensions: {self._ai_provider_manager.get_provider_names()}"
+            )
+            self.TTS_PROVIDER = (
+                True
+                if self._ai_provider_manager.has_service("tts")
+                else None
+            )
+            self.TRANSCRIPTION_PROVIDER = (
+                True
+                if self._ai_provider_manager.has_service("transcription")
+                else None
+            )
+            self.TRANSLATION_PROVIDER = (
+                True
+                if self._ai_provider_manager.has_service("translation")
+                else None
+            )
+            self.IMAGE_PROVIDER = (
+                True
+                if self._ai_provider_manager.has_service("image")
+                else None
+            )
+        return self._ai_provider_manager
+
+    @ai_provider_manager.setter
+    def ai_provider_manager(self, value):
+        self._ai_provider_manager = value
+
+    @property
+    def extensions(self):
+        """Lazy-init Extensions — only needed for command execution, not config reads."""
+        if self._extensions is None:
+            self._extensions = Extensions(
+                agent_name=self.agent_name,
+                agent_id=self.agent_id,
+                agent_config=self.AGENT_CONFIG,
+                ApiClient=self._ApiClient,
+                api_key=self._ApiClient.headers.get("Authorization") if self._ApiClient else None,
+                user=self.user,
+            )
+        return self._extensions
+
+    @extensions.setter
+    def extensions(self, value):
+        self._extensions = value
+
+    @property
+    def available_commands(self):
+        """Lazy-load available commands from extensions."""
+        if self._available_commands is None:
+            self._available_commands = self.extensions.get_available_commands()
+        return self._available_commands
+
+    @available_commands.setter
+    def available_commands(self, value):
+        self._available_commands = value
 
     def get_company_agent(self):
         # Check for actual None or "None" string
