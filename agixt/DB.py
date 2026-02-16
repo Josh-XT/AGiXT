@@ -197,18 +197,20 @@ try:
     connection.close()  # Close test connection
     Base = declarative_base()
 
+    # Create session factory once at module level (not per-call)
+    _SessionFactory = sessionmaker(bind=engine, autoflush=False)
 except Exception as e:
     logging.error(f"Error connecting to database: {e}")
     Base = None
     engine = None
+    _SessionFactory = None
 
 
 from contextlib import contextmanager
 
 
 def get_session():
-    Session = sessionmaker(bind=engine, autoflush=False)
-    session = Session()
+    session = _SessionFactory()
     return session
 
 
@@ -451,10 +453,59 @@ class Company(Base):
     trial_domain = Column(
         String, nullable=True, default=None
     )  # The email domain that qualified for trial credits
+    # Tiered plan tracking
+    plan_id = Column(
+        String, nullable=True, default=None
+    )  # Current plan tier ID (e.g., "starter", "team_5", "enterprise_100")
+    device_limit = Column(
+        Integer, nullable=True, default=None
+    )  # Maximum devices allowed by plan
+    device_count = Column(
+        Integer, nullable=False, default=0
+    )  # Current registered device count
+    storage_limit_bytes = Column(
+        Integer, nullable=True, default=None
+    )  # Maximum storage in bytes from plan
+    storage_used_bytes = Column(
+        Integer, nullable=False, default=0
+    )  # Current storage used in bytes
+    monthly_token_limit = Column(
+        Integer, nullable=True, default=None
+    )  # Tokens included per billing period
+    tokens_used_this_period = Column(
+        Integer, nullable=False, default=0
+    )  # Tokens used in current billing period
+    current_period_start = Column(
+        DateTime, nullable=True, default=None
+    )  # Start of current billing period
+    # Plan addon tracking (only for enterprise_100 plan)
+    addon_users = Column(
+        Integer, nullable=False, default=0
+    )  # Additional users from $10/mo addon
+    addon_devices = Column(
+        Integer, nullable=False, default=0
+    )  # Additional devices from addons
+    addon_tokens = Column(
+        Integer, nullable=False, default=0
+    )  # Additional monthly tokens from addons
+    addon_storage_bytes = Column(
+        Integer, nullable=False, default=0
+    )  # Additional storage from addons in bytes
+    # NurseXT bed-based billing
+    bed_count = Column(
+        Integer, nullable=True, default=None
+    )  # Number of licensed beds (NurseXT only)
+    bed_limit = Column(
+        Integer, nullable=True, default=None
+    )  # Maximum beds allowed (NurseXT only)
     # MFA settings
     mfa_required = Column(
         Boolean, nullable=False, default=False
     )  # Whether MFA is required for all users in this company
+    # Group chat / Discord-like features
+    icon_url = Column(
+        String, nullable=True, default=None
+    )  # Group icon/avatar image URL (like Discord server icon)
     users = relationship("UserCompany", back_populates="company")
 
     @classmethod
@@ -509,6 +560,9 @@ class UserCompany(Base):
         nullable=False,
     )
     role_id = Column(Integer, ForeignKey("Role.id"), nullable=False, server_default="3")
+    sort_order = Column(
+        Integer, nullable=True, default=None
+    )  # User-defined display order for servers
 
     user = relationship("User", back_populates="user_companys")
     company = relationship("Company", back_populates="users")
@@ -559,6 +613,19 @@ class User(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     is_active = Column(Boolean, default=True)
     tos_accepted_at = Column(DateTime, nullable=True)
+    # Group chat / Discord-like features
+    avatar_url = Column(
+        String, nullable=True, default=None
+    )  # User avatar/profile image URL
+    last_seen = Column(
+        DateTime, nullable=True, default=None
+    )  # Last time the user was seen online
+    status_text = Column(
+        String(255), nullable=True, default=None
+    )  # Custom user status message (e.g., "In a meeting", "Busy")
+    status_mode = Column(
+        String(20), nullable=True, default="online"
+    )  # Presence mode: online, away, dnd, invisible
     user_companys = relationship("UserCompany", back_populates="user")
 
 
@@ -1579,6 +1646,36 @@ class Conversation(Base):
     pin_order = Column(
         Integer, nullable=True
     )  # NULL = unpinned, integer = pin position
+    # Group chat fields
+    conversation_type = Column(
+        String, nullable=False, default="private"
+    )  # 'private' (1:1 with agent), 'group' (multi-user channel), 'dm' (direct message), 'thread' (thread within a channel)
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id"),
+        nullable=True,
+    )  # The group/company this channel belongs to (null for DMs/private)
+    # Thread support: parent_id links a thread to its parent channel/conversation
+    parent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("conversation.id"),
+        nullable=True,
+    )  # For threads: the parent channel conversation
+    parent_message_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("message.id"),
+        nullable=True,
+    )  # For threads: the message that spawned this thread
+    category = Column(
+        String, nullable=True, default=None
+    )  # Channel category for grouping (e.g., "TEXT CHANNELS", "VOICE CHANNELS")
+    invite_only = Column(
+        Boolean, nullable=False, default=False
+    )  # If True, only explicitly invited users can join; if False, all company members auto-join
+    description = Column(Text, nullable=True, default=None)  # Channel topic/description
+    locked = Column(
+        Boolean, nullable=False, default=False
+    )  # If True, only admins/owners can send messages (used to close/lock threads)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     user_id = Column(
@@ -1587,6 +1684,14 @@ class Conversation(Base):
         nullable=True,
     )
     user = relationship("User", backref="conversation")
+    company = relationship("Company", backref="conversations")
+    participants = relationship(
+        "ConversationParticipant", back_populates="conversation"
+    )
+    # Thread relationships
+    parent = relationship(
+        "Conversation", remote_side=[id], backref="threads", foreign_keys=[parent_id]
+    )
 
 
 class ConversationShare(Base):
@@ -1655,6 +1760,96 @@ class Message(Base):
     )
     feedback_received = Column(Boolean, default=False)
     notify = Column(Boolean, default=False, nullable=False)
+    # Group chat: identify which user sent this message
+    sender_user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=True,
+    )  # The actual user who sent this message (null for legacy/agent messages)
+    sender_user = relationship("User", foreign_keys=[sender_user_id])
+    reactions = relationship(
+        "MessageReaction", back_populates="message", cascade="all, delete-orphan"
+    )
+    # Message pinning
+    pinned = Column(Boolean, default=False, nullable=False)
+    pinned_at = Column(DateTime, nullable=True)
+    pinned_by = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=True,
+    )
+
+
+class MessageReaction(Base):
+    """Stores emoji reactions on messages."""
+
+    __tablename__ = "message_reaction"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    message_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("message.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=False,
+    )
+    emoji = Column(String, nullable=False)  # The emoji character or shortcode
+    created_at = Column(DateTime, server_default=func.now())
+
+    message = relationship("Message", back_populates="reactions")
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class ConversationParticipant(Base):
+    """Tracks users and agents participating in group conversations."""
+
+    __tablename__ = "conversation_participant"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    conversation_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("conversation.id"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id"),
+        nullable=True,
+    )  # For user participants
+    agent_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("agent.id"),
+        nullable=True,
+    )  # For agent participants
+    participant_type = Column(
+        String, nullable=False, default="user"
+    )  # 'user' or 'agent'
+    role = Column(
+        String, nullable=False, default="member"
+    )  # 'owner', 'admin', 'member', 'observer'
+    notification_mode = Column(
+        String, nullable=False, default="all"
+    )  # 'all', 'mentions', 'none'
+    joined_at = Column(DateTime, server_default=func.now())
+    last_read_at = Column(DateTime, nullable=True)  # Last time user read messages
+    status = Column(
+        String, nullable=False, default="active"
+    )  # 'active', 'left', 'removed'
+
+    conversation = relationship("Conversation", back_populates="participants")
+    user = relationship("User", foreign_keys=[user_id])
+    agent = relationship("Agent", foreign_keys=[agent_id])
 
 
 class DiscardedContext(Base):
@@ -3607,6 +3802,21 @@ def migrate_company_table():
                 ("trial_credits_granted", "REAL"),
                 ("trial_credits_granted_at", "TIMESTAMP"),
                 ("trial_domain", "TEXT"),
+                # Tiered plan tracking
+                ("plan_id", "TEXT"),
+                ("device_limit", "INTEGER"),
+                ("device_count", "INTEGER DEFAULT 0"),
+                ("storage_limit_bytes", "INTEGER"),
+                ("storage_used_bytes", "INTEGER DEFAULT 0"),
+                ("monthly_token_limit", "INTEGER"),
+                ("tokens_used_this_period", "INTEGER DEFAULT 0"),
+                ("current_period_start", "TIMESTAMP"),
+                ("addon_users", "INTEGER DEFAULT 0"),
+                ("addon_devices", "INTEGER DEFAULT 0"),
+                ("addon_tokens", "INTEGER DEFAULT 0"),
+                ("addon_storage_bytes", "INTEGER DEFAULT 0"),
+                ("bed_count", "INTEGER"),
+                ("bed_limit", "INTEGER"),
             ]
 
             if DATABASE_TYPE == "sqlite":
@@ -3661,6 +3871,26 @@ def migrate_company_table():
                             pg_column_def = "TIMESTAMP"
                         elif column_name == "trial_credits_granted":
                             pg_column_def = "DOUBLE PRECISION"
+                        elif column_name in (
+                            "device_count",
+                            "storage_used_bytes",
+                            "tokens_used_this_period",
+                            "addon_users",
+                            "addon_devices",
+                            "addon_tokens",
+                            "addon_storage_bytes",
+                        ):
+                            pg_column_def = "INTEGER DEFAULT 0"
+                        elif column_name in (
+                            "device_limit",
+                            "storage_limit_bytes",
+                            "monthly_token_limit",
+                            "bed_count",
+                            "bed_limit",
+                        ):
+                            pg_column_def = "INTEGER"
+                        elif column_name == "current_period_start":
+                            pg_column_def = "TIMESTAMP"
                         else:
                             pg_column_def = "TEXT"
 
@@ -4027,6 +4257,15 @@ def migrate_conversation_table():
         with get_db_session() as session:
             columns_to_add = [
                 ("pin_order", "INTEGER"),
+                ("category", "VARCHAR"),
+                (
+                    "locked",
+                    (
+                        "BOOLEAN DEFAULT 0"
+                        if DATABASE_TYPE == "sqlite"
+                        else "BOOLEAN DEFAULT FALSE"
+                    ),
+                ),
             ]
 
             if DATABASE_TYPE == "sqlite":
@@ -5382,6 +5621,1013 @@ def migrate_auth_username_password():
         logging.error(f"Error migrating auth username/password: {e}")
 
 
+def migrate_group_chat_tables():
+    """
+    Migration for group chat / Discord-like functionality.
+
+    Adds:
+    - Company.icon_url: Group icon/avatar image URL
+    - User.avatar_url: User avatar/profile image URL
+    - Message.sender_user_id: FK to user who sent the message (for multi-user chats)
+    - Conversation.conversation_type: 'private', 'group', or 'dm'
+    - Conversation.company_id: FK to Company for group channels
+    - conversation_participant table: Tracks users/agents in group conversations
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            # ============================================
+            # Company table: add icon_url
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(Company)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "icon_url" not in existing_columns:
+                    session.execute(
+                        text("ALTER TABLE Company ADD COLUMN icon_url VARCHAR")
+                    )
+                    session.commit()
+                    logging.info("Added column icon_url to Company table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'Company' AND column_name = 'icon_url'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text('ALTER TABLE "Company" ADD COLUMN icon_url VARCHAR')
+                    )
+                    session.commit()
+                    logging.info("Added column icon_url to Company table")
+
+            # ============================================
+            # User table: add avatar_url
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(user)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "avatar_url" not in existing_columns:
+                    session.execute(
+                        text("ALTER TABLE user ADD COLUMN avatar_url VARCHAR")
+                    )
+                    session.commit()
+                    logging.info("Added column avatar_url to user table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'user' AND column_name = 'avatar_url'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text('ALTER TABLE "user" ADD COLUMN avatar_url VARCHAR')
+                    )
+                    session.commit()
+                    logging.info("Added column avatar_url to user table")
+
+            # ============================================
+            # User table: add last_seen
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(user)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "last_seen" not in existing_columns:
+                    session.execute(
+                        text("ALTER TABLE user ADD COLUMN last_seen DATETIME")
+                    )
+                    session.commit()
+                    logging.info("Added column last_seen to user table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'user' AND column_name = 'last_seen'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text('ALTER TABLE "user" ADD COLUMN last_seen TIMESTAMP')
+                    )
+                    session.commit()
+                    logging.info("Added column last_seen to user table")
+
+            # ============================================
+            # User table: add status_text
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(user)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "status_text" not in existing_columns:
+                    session.execute(
+                        text("ALTER TABLE user ADD COLUMN status_text VARCHAR(255)")
+                    )
+                    session.commit()
+                    logging.info("Added column status_text to user table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'user' AND column_name = 'status_text'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text('ALTER TABLE "user" ADD COLUMN status_text VARCHAR(255)')
+                    )
+                    session.commit()
+                    logging.info("Added column status_text to user table")
+
+            # ============================================
+            # User table: add status_mode
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(user)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "status_mode" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE user ADD COLUMN status_mode VARCHAR(20) DEFAULT 'online'"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column status_mode to user table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'user' AND column_name = 'status_mode'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            "ALTER TABLE \"user\" ADD COLUMN status_mode VARCHAR(20) DEFAULT 'online'"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column status_mode to user table")
+
+            # ============================================
+            # Message table: add sender_user_id
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(message)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "sender_user_id" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE message ADD COLUMN sender_user_id VARCHAR REFERENCES user(id)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column sender_user_id to message table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'message' AND column_name = 'sender_user_id'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            'ALTER TABLE "message" ADD COLUMN sender_user_id UUID REFERENCES "user"(id)'
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column sender_user_id to message table")
+
+            # ============================================
+            # Conversation table: add conversation_type and company_id
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(conversation)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "conversation_type" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN conversation_type VARCHAR DEFAULT 'private'"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column conversation_type to conversation table")
+
+                if "company_id" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN company_id VARCHAR REFERENCES Company(id)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column company_id to conversation table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'conversation' AND column_name = 'conversation_type'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN conversation_type VARCHAR DEFAULT 'private'"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column conversation_type to conversation table")
+
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'conversation' AND column_name = 'company_id'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            'ALTER TABLE conversation ADD COLUMN company_id UUID REFERENCES "Company"(id)'
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column company_id to conversation table")
+
+            # ============================================
+            # Create conversation_participant table
+            # ============================================
+            if DATABASE_TYPE == "sqlite":
+                session.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS conversation_participant (
+                            id VARCHAR PRIMARY KEY,
+                            conversation_id VARCHAR NOT NULL REFERENCES conversation(id),
+                            user_id VARCHAR REFERENCES user(id),
+                            agent_id VARCHAR REFERENCES agent(id),
+                            participant_type VARCHAR NOT NULL DEFAULT 'user',
+                            role VARCHAR NOT NULL DEFAULT 'member',
+                            joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            last_read_at DATETIME,
+                            status VARCHAR NOT NULL DEFAULT 'active'
+                        )
+                        """
+                    )
+                )
+                session.commit()
+
+                # Create index on conversation_id if it doesn't exist
+                try:
+                    session.execute(
+                        text(
+                            """
+                            CREATE INDEX IF NOT EXISTS ix_conversation_participant_conversation_id
+                            ON conversation_participant(conversation_id)
+                            """
+                        )
+                    )
+                    session.commit()
+                except Exception:
+                    pass
+            else:
+                # PostgreSQL
+                result = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables
+                        WHERE table_name = 'conversation_participant'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE conversation_participant (
+                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                conversation_id UUID NOT NULL REFERENCES conversation(id),
+                                user_id UUID REFERENCES "user"(id),
+                                agent_id UUID REFERENCES agent(id),
+                                participant_type VARCHAR NOT NULL DEFAULT 'user',
+                                role VARCHAR NOT NULL DEFAULT 'member',
+                                joined_at TIMESTAMP DEFAULT NOW(),
+                                last_read_at TIMESTAMP,
+                                status VARCHAR NOT NULL DEFAULT 'active'
+                            )
+                            """
+                        )
+                    )
+                    session.commit()
+
+                    # Create index
+                    try:
+                        session.execute(
+                            text(
+                                """
+                                CREATE INDEX ix_conversation_participant_conversation_id
+                                ON conversation_participant(conversation_id)
+                                """
+                            )
+                        )
+                        session.commit()
+                    except Exception:
+                        pass
+
+            # Add thread support columns to conversation table
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(conversation)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'conversation'
+                        """
+                    )
+                )
+                existing_columns = [row[0] for row in result.fetchall()]
+
+            if "parent_id" not in existing_columns:
+                if DATABASE_TYPE == "sqlite":
+                    session.execute(
+                        text("ALTER TABLE conversation ADD COLUMN parent_id VARCHAR")
+                    )
+                else:
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN parent_id UUID REFERENCES conversation(id)"
+                        )
+                    )
+                session.commit()
+                logging.info("Added column parent_id to conversation table")
+
+            if "parent_message_id" not in existing_columns:
+                if DATABASE_TYPE == "sqlite":
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN parent_message_id VARCHAR"
+                        )
+                    )
+                else:
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN parent_message_id UUID REFERENCES message(id)"
+                        )
+                    )
+                session.commit()
+                logging.info("Added column parent_message_id to conversation table")
+
+            if "category" not in existing_columns:
+                if DATABASE_TYPE == "sqlite":
+                    session.execute(
+                        text("ALTER TABLE conversation ADD COLUMN category VARCHAR")
+                    )
+                else:
+                    session.execute(
+                        text("ALTER TABLE conversation ADD COLUMN category VARCHAR")
+                    )
+                session.commit()
+                logging.info("Added column category to conversation table")
+
+            if "invite_only" not in existing_columns:
+                if DATABASE_TYPE == "sqlite":
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN invite_only BOOLEAN DEFAULT 0 NOT NULL"
+                        )
+                    )
+                else:
+                    session.execute(
+                        text(
+                            "ALTER TABLE conversation ADD COLUMN invite_only BOOLEAN DEFAULT FALSE NOT NULL"
+                        )
+                    )
+                session.commit()
+                logging.info("Added column invite_only to conversation table")
+
+            if "description" not in existing_columns:
+                if DATABASE_TYPE == "sqlite":
+                    session.execute(
+                        text("ALTER TABLE conversation ADD COLUMN description TEXT")
+                    )
+                else:
+                    session.execute(
+                        text("ALTER TABLE conversation ADD COLUMN description TEXT")
+                    )
+                session.commit()
+                logging.info("Added column description to conversation table")
+
+            logging.info("Group chat tables migration complete")
+
+    except Exception as e:
+        logging.error(f"Error migrating group chat tables: {e}")
+
+
+def migrate_message_pinning():
+    """Migration to add pinning columns to the message table."""
+    if engine is None:
+        return
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(message)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "pinned" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE message ADD COLUMN pinned BOOLEAN DEFAULT 0 NOT NULL"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column pinned to message table")
+
+                if "pinned_at" not in existing_columns:
+                    session.execute(
+                        text("ALTER TABLE message ADD COLUMN pinned_at DATETIME")
+                    )
+                    session.commit()
+                    logging.info("Added column pinned_at to message table")
+
+                if "pinned_by" not in existing_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE message ADD COLUMN pinned_by VARCHAR REFERENCES user(id)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Added column pinned_by to message table")
+            else:
+                for col_name, col_def in [
+                    ("pinned", "BOOLEAN DEFAULT FALSE NOT NULL"),
+                    ("pinned_at", "TIMESTAMP"),
+                    ("pinned_by", 'UUID REFERENCES "user"(id)'),
+                ]:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name FROM information_schema.columns
+                            WHERE table_name = 'message' AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": col_name},
+                    )
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "message" ADD COLUMN {col_name} {col_def}'
+                            )
+                        )
+                        session.commit()
+                        logging.info(f"Added column {col_name} to message table")
+
+            logging.info("Message pinning migration complete")
+    except Exception as e:
+        logging.debug(f"Message pinning migration completed or not needed: {e}")
+
+
+def migrate_message_reaction_table():
+    """Migration function to create the message_reaction table if it doesn't exist."""
+    if engine is None:
+        return
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(
+                    text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='message_reaction'"
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE message_reaction (
+                                id VARCHAR PRIMARY KEY,
+                                message_id VARCHAR NOT NULL REFERENCES message(id) ON DELETE CASCADE,
+                                user_id VARCHAR NOT NULL REFERENCES user(id),
+                                emoji VARCHAR NOT NULL,
+                                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_message_reaction_message_id ON message_reaction(message_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE UNIQUE INDEX IF NOT EXISTS ix_message_reaction_unique ON message_reaction(message_id, user_id, emoji)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created message_reaction table")
+            else:
+                result = session.execute(
+                    text(
+                        """
+                        SELECT table_name FROM information_schema.tables
+                        WHERE table_name = 'message_reaction'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE message_reaction (
+                                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                                message_id UUID NOT NULL REFERENCES message(id) ON DELETE CASCADE,
+                                user_id UUID NOT NULL REFERENCES "user"(id),
+                                emoji VARCHAR NOT NULL,
+                                created_at TIMESTAMP DEFAULT NOW()
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX ix_message_reaction_message_id ON message_reaction(message_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE UNIQUE INDEX ix_message_reaction_unique ON message_reaction(message_id, user_id, emoji)"
+                        )
+                    )
+                    session.commit()
+                    logging.info("Created message_reaction table")
+    except Exception as e:
+        logging.debug(f"message_reaction table migration completed or not needed: {e}")
+
+
+def migrate_performance_indexes():
+    """Add performance indexes on message and conversation tables for fast lookups."""
+    if engine is None:
+        return
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                # Composite index for the main message query pattern:
+                # WHERE conversation_id = ? ORDER BY timestamp ASC
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_conv_timestamp "
+                        "ON message(conversation_id, timestamp)"
+                    )
+                )
+                # Index for notify update: WHERE conversation_id = ? AND notify = 1
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_conv_notify "
+                        "ON message(conversation_id, notify)"
+                    )
+                )
+                # Index for updated_at queries in WebSocket polling
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_conv_updated_at "
+                        "ON message(conversation_id, updated_at)"
+                    )
+                )
+                # Index for conversation lookup by user
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_user_id "
+                        "ON conversation(user_id)"
+                    )
+                )
+                # Composite index for conversation lookup by name + user
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_name_user "
+                        "ON conversation(name, user_id)"
+                    )
+                )
+                # Index for group conversation lookup by company
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_company_id "
+                        "ON conversation(company_id)"
+                    )
+                )
+                # Index for participant status filter
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conv_participant_conv_status "
+                        "ON conversation_participant(conversation_id, status)"
+                    )
+                )
+                # Index for UserPreferences timezone lookup
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_user_prefs_user_key "
+                        "ON user_preferences(user_id, pref_key)"
+                    )
+                )
+                # Index for participant lookup by user_id (access-control checks)
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conv_participant_user_id "
+                        "ON conversation_participant(user_id)"
+                    )
+                )
+                # Index for thread lookups by parent conversation
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_parent_id "
+                        "ON conversation(parent_id)"
+                    )
+                )
+                # Composite index for group/DM access-control queries
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_company_type "
+                        "ON conversation(company_id, conversation_type)"
+                    )
+                )
+                # Index for sender_user_id (used in DM unread count queries)
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_sender_user_id "
+                        "ON message(sender_user_id)"
+                    )
+                )
+                # Compound index for participant access-control queries
+                # (user_id, conversation_id, status) covers can_speak, update_last_read, etc.
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conv_participant_user_conv_status "
+                        "ON conversation_participant(user_id, conversation_id, status)"
+                    )
+                )
+                # Foreign-key indexes for agent and chain tables
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_agent_setting_agent_id "
+                        "ON agent_setting(agent_id)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_agent_command_agent_id "
+                        "ON agent_command(agent_id)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_chain_step_chain_id "
+                        "ON chain_step(chain_id)"
+                    )
+                )
+            else:
+                # PostgreSQL
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_conv_timestamp "
+                        "ON message(conversation_id, timestamp)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_conv_notify "
+                        "ON message(conversation_id, notify)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_conv_updated_at "
+                        "ON message(conversation_id, updated_at)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_user_id "
+                        "ON conversation(user_id)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_name_user "
+                        "ON conversation(name, user_id)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_company_id "
+                        "ON conversation(company_id)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conv_participant_conv_status "
+                        "ON conversation_participant(conversation_id, status)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_user_prefs_user_key "
+                        "ON user_preferences(user_id, pref_key)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conv_participant_user_id "
+                        "ON conversation_participant(user_id)"
+                    )
+                )
+                # Index for thread lookups by parent conversation
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_parent_id "
+                        "ON conversation(parent_id)"
+                    )
+                )
+                # Composite index for group/DM access-control queries
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_company_type "
+                        "ON conversation(company_id, conversation_type)"
+                    )
+                )
+                # Index for sender_user_id (used in DM unread count queries)
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_sender_user_id "
+                        "ON message(sender_user_id)"
+                    )
+                )
+                # Compound index for participant access-control queries
+                # (user_id, conversation_id, status) covers can_speak, update_last_read, etc.
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conv_participant_user_conv_status "
+                        "ON conversation_participant(user_id, conversation_id, status)"
+                    )
+                )
+                # Foreign-key indexes for agent and chain tables
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_agent_setting_agent_id "
+                        "ON agent_setting(agent_id)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_agent_command_agent_id "
+                        "ON agent_command(agent_id)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_chain_step_chain_id "
+                        "ON chain_step(chain_id)"
+                    )
+                )
+            session.commit()
+            logging.info("Performance indexes migration complete")
+    except Exception as e:
+        logging.debug(f"Performance indexes migration completed or not needed: {e}")
+
+
+def migrate_extract_data_urls_from_messages():
+    """
+    One-time migration to extract inline base64 data URLs from existing messages
+    and save them as workspace files. This prevents massive base64 strings from
+    being stored in the DB and loaded into the DOM, which causes severe performance
+    issues (especially for video files which can be 10MB+ of base64).
+
+    Also fixes any previously-extracted URLs that used the hashed agent folder name
+    instead of the raw agent UUID in the /outputs/ path.
+
+    This migration is idempotent: it only processes messages that still contain
+    base64 data URLs. Once extracted, the message content is updated to reference
+    /outputs/ URLs instead, so subsequent runs will skip already-processed messages.
+    """
+    if engine is None:
+        return
+
+    try:
+        import re
+        import hashlib as _hashlib
+
+        with get_db_session() as session:
+            # Phase 1: Fix any previously-extracted URLs that used hashed agent folder
+            # Pattern: /outputs/agent_<hex16>/ should be /outputs/<raw-uuid>/
+            messages_with_hashed_urls = (
+                session.query(Message)
+                .filter(Message.content.like("%/outputs/agent_%"))
+                .all()
+            )
+            fixed_urls = 0
+            if messages_with_hashed_urls:
+                # Build a reverse map: hash -> raw agent_id
+                agents = session.query(Agent).all()
+                hash_to_uuid = {}
+                for agent in agents:
+                    agent_hash = _hashlib.sha256(str(agent.id).encode()).hexdigest()[
+                        :16
+                    ]
+                    hash_to_uuid[f"agent_{agent_hash}"] = str(agent.id)
+
+                for msg in messages_with_hashed_urls:
+                    new_content = msg.content
+                    for hashed_name, raw_uuid in hash_to_uuid.items():
+                        if f"/outputs/{hashed_name}/" in new_content:
+                            new_content = new_content.replace(
+                                f"/outputs/{hashed_name}/",
+                                f"/outputs/{raw_uuid}/",
+                            )
+                    if new_content != msg.content:
+                        msg.content = new_content
+                        fixed_urls += 1
+
+                if fixed_urls > 0:
+                    session.commit()
+                    logging.info(
+                        f"Fixed {fixed_urls} messages with hashed agent folder URLs"
+                    )
+
+            # Phase 2: Extract inline base64 data URLs to workspace files
+            messages_with_data_urls = (
+                session.query(Message)
+                .filter(
+                    Message.content.like("%data:%"),
+                    Message.content.like("%base64,%"),
+                )
+                .all()
+            )
+
+            if not messages_with_data_urls:
+                logging.debug(
+                    "No messages with inline data URLs found, skipping extraction"
+                )
+                return
+
+            logging.info(
+                f"Found {len(messages_with_data_urls)} messages with inline data URLs to extract"
+            )
+
+            # Build a cache of user_id -> default agent_id
+            agent_cache = {}
+            processed = 0
+            errors = 0
+
+            for msg in messages_with_data_urls:
+                try:
+                    # Get the conversation to find the user_id
+                    conversation = (
+                        session.query(Conversation)
+                        .filter_by(id=msg.conversation_id)
+                        .first()
+                    )
+                    if not conversation:
+                        continue
+
+                    user_id = str(conversation.user_id)
+
+                    # Get agent_id for this user (cached)
+                    if user_id not in agent_cache:
+                        agent = (
+                            session.query(Agent)
+                            .filter(Agent.user_id == user_id)
+                            .first()
+                        )
+                        agent_cache[user_id] = str(agent.id) if agent else "default"
+
+                    agent_id = agent_cache[user_id]
+                    conversation_id = str(msg.conversation_id)
+
+                    # Import and call the extraction function
+                    from Conversations import extract_data_urls_to_workspace
+
+                    new_content = extract_data_urls_to_workspace(
+                        msg.content, agent_id, conversation_id
+                    )
+
+                    if new_content != msg.content:
+                        msg.content = new_content
+                        processed += 1
+
+                except Exception as e:
+                    errors += 1
+                    logging.warning(
+                        f"Failed to extract data URLs from message {msg.id}: {e}"
+                    )
+
+            if processed > 0:
+                session.commit()
+                logging.info(
+                    f"Extracted data URLs from {processed} messages "
+                    f"({errors} errors)"
+                )
+            else:
+                logging.debug("No data URLs needed extraction")
+
+    except Exception as e:
+        logging.error(f"Error in migrate_extract_data_urls_from_messages: {e}")
+
+
+def migrate_backfill_channel_participants():
+    """
+    Backfill ConversationParticipant records for company members who were added
+    to a company AFTER non-invite-only group channels were created.
+    Previously, add_user_to_company_channels wasn't called when users joined a company,
+    so existing members may be missing from channels.
+    """
+    if engine is None:
+        return
+    try:
+        with get_db_session() as session:
+            # Find all non-invite-only group channels
+            channels = (
+                session.query(Conversation)
+                .filter(
+                    Conversation.conversation_type == "group",
+                    Conversation.invite_only == False,
+                    Conversation.company_id.isnot(None),
+                )
+                .all()
+            )
+
+            if not channels:
+                logging.info("No group channels found for participant backfill")
+                return
+
+            added_count = 0
+            for channel in channels:
+                channel_id = str(channel.id)
+                company_id = channel.company_id
+
+                # Get all company members
+                company_users = (
+                    session.query(UserCompany.user_id)
+                    .filter(UserCompany.company_id == company_id)
+                    .all()
+                )
+                company_user_ids = {str(row[0]) for row in company_users}
+
+                # Get existing participants for this channel
+                existing_participants = (
+                    session.query(ConversationParticipant.user_id)
+                    .filter(
+                        ConversationParticipant.conversation_id == channel_id,
+                        ConversationParticipant.user_id.isnot(None),
+                    )
+                    .all()
+                )
+                existing_user_ids = {str(row[0]) for row in existing_participants}
+
+                # Add missing members
+                missing_user_ids = company_user_ids - existing_user_ids
+                for user_id in missing_user_ids:
+                    participant = ConversationParticipant(
+                        conversation_id=channel_id,
+                        user_id=user_id,
+                        participant_type="user",
+                        role="member",
+                        status="active",
+                    )
+                    session.add(participant)
+                    added_count += 1
+
+            session.commit()
+            logging.info(
+                f"Channel participant backfill complete: added {added_count} missing participant records"
+            )
+    except Exception as e:
+        logging.error(f"Error during channel participant backfill: {e}")
+
+
 # Server configuration definitions
 # These define all configurable settings and their metadata
 SERVER_CONFIG_DEFINITIONS = [
@@ -6563,8 +7809,15 @@ def decrypt_config_value(encrypted_value: str) -> str:
         f = Fernet(key)
         return f.decrypt(encrypted_value.encode()).decode()
     except Exception:
-        # If decryption fails, return empty string (value may not be encrypted)
-        return encrypted_value
+        # If decryption fails, the encryption key has likely changed.
+        # Return empty string so callers treat this as "not configured"
+        # rather than leaking the raw Fernet ciphertext to external APIs.
+        logging.warning(
+            "Failed to decrypt sensitive config value. "
+            "The AGIXT_API_KEY may have changed since this value was encrypted. "
+            "Please re-save the setting to re-encrypt it with the current key."
+        )
+        return ""
 
 
 def get_server_config(name: str, default: str = None) -> str:
@@ -6916,3 +8169,105 @@ def seed_server_chains():
 
     if seeded_count > 0:
         logging.info(f"Server chains: {seeded_count} seeded")
+
+
+def migrate_conversation_participant_notification_mode():
+    """
+    Migration function to add notification_mode column to conversation_participant table.
+    Supports 'all' (default), 'mentions', or 'none' (muted).
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            columns_to_add = [
+                ("notification_mode", "VARCHAR DEFAULT 'all'"),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(
+                    text("PRAGMA table_info(conversation_participant)")
+                )
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f"ALTER TABLE conversation_participant ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
+            else:
+                # PostgreSQL
+                for column_name, column_def in columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name FROM information_schema.columns 
+                            WHERE table_name = 'conversation_participant' AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    )
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f"ALTER TABLE conversation_participant ADD COLUMN {column_name} {column_def}"
+                            )
+                        )
+                        session.commit()
+    except Exception as e:
+        logging.debug(
+            f"conversation_participant table migration completed or not needed: {e}"
+        )
+
+
+def migrate_user_company_sort_order():
+    """
+    Migration function to add sort_order column to UserCompany table.
+    Allows users to reorder their server list like Discord.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            columns_to_add = [
+                ("sort_order", "INTEGER"),
+            ]
+
+            if DATABASE_TYPE == "sqlite":
+                result = session.execute(text("PRAGMA table_info(UserCompany)"))
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                for column_name, column_def in columns_to_add:
+                    if column_name not in existing_columns:
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "UserCompany" ADD COLUMN {column_name} {column_def}'
+                            )
+                        )
+                        session.commit()
+            else:
+                # PostgreSQL
+                for column_name, column_def in columns_to_add:
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT column_name FROM information_schema.columns 
+                            WHERE table_name = 'UserCompany' AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    )
+                    if not result.fetchone():
+                        session.execute(
+                            text(
+                                f'ALTER TABLE "UserCompany" ADD COLUMN {column_name} {column_def}'
+                            )
+                        )
+                        session.commit()
+    except Exception as e:
+        logging.debug(f"UserCompany sort_order migration completed or not needed: {e}")

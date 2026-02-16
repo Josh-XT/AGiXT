@@ -128,6 +128,8 @@ class ResponseCacheManager:
         ],  # Bulk command toggle
         # Conversation mutations
         "POST:/v1/conversation": ["conversation"],
+        "PUT:/v1/conversation": ["conversation"],
+        "PATCH:/v1/conversation": ["conversation"],
         "DELETE:/v1/conversation": ["conversation"],
         # Company mutations
         "POST:/v1/company": ["company"],

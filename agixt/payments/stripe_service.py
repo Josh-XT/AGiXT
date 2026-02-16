@@ -14,7 +14,7 @@ from .pricing import PriceService
 
 
 class StripePaymentService:
-    """Wrapper around Stripe PaymentIntent for seat-based billing."""
+    """Wrapper around Stripe for tiered plan, per-bed, seat-based, and token-based billing."""
 
     def __init__(self, price_service: Optional[PriceService] = None) -> None:
         self.price_service = price_service or PriceService()
@@ -393,11 +393,12 @@ class StripePaymentService:
         company_id: str,
         amount_usd: float,
         user_email: Optional[str] = None,
+        plan_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Create a monthly auto top-up subscription for a company.
+        """Create a monthly subscription for a company.
 
-        This creates a Stripe Checkout session for setting up a recurring monthly payment.
-        The subscription will top up the company's token balance each month.
+        For tiered_plan and per_bed pricing: creates a subscription for the plan amount.
+        For token-based pricing: creates a monthly auto top-up subscription.
         """
         if not self.api_key or self.api_key.lower() == "none":
             raise HTTPException(
@@ -425,8 +426,10 @@ class StripePaymentService:
             # Create checkout session for subscription
             checkout_session = await self._create_subscription_checkout_async(
                 customer_id=customer_id,
-                amount_cents=int(amount_usd * 100),
+                amount_cents=int(Decimal(str(amount_usd)) * Decimal("100")),
                 company_id=company_id,
+                plan_id=plan_id,
+                plan_name=plan_id,  # Will be resolved in the checkout method
             )
 
             return {
@@ -434,14 +437,26 @@ class StripePaymentService:
                 "session_id": checkout_session.get("id"),
                 "amount_usd": amount_usd,
                 "company_id": company_id,
+                "plan_id": plan_id,
             }
         finally:
             session.close()
 
     async def _create_subscription_checkout_async(
-        self, *, customer_id: str, amount_cents: int, company_id: str
+        self,
+        *,
+        customer_id: str,
+        amount_cents: int,
+        company_id: str,
+        plan_id: str = None,
+        plan_name: str = None,
+        billing_interval: str = "month",
     ) -> Dict[str, Any]:
-        """Create a Stripe checkout session for a subscription"""
+        """Create a Stripe checkout session for a subscription.
+
+        Args:
+            billing_interval: 'month' or 'year'
+        """
         import stripe
         from ExtensionsHub import ExtensionsHub
 
@@ -460,12 +475,39 @@ class StripePaymentService:
         if not app_name:
             app_name = getenv("APP_NAME") or "AGiXT"
 
+        pricing_model = (
+            pricing_config.get("pricing_model") if pricing_config else "per_token"
+        )
+
+        # Build product description based on pricing model
+        interval_label = "Annual" if billing_interval == "year" else "Monthly"
+        if pricing_model == "tiered_plan" and plan_name:
+            product_name = f"{app_name} {plan_name} Plan ({interval_label})"
+            product_description = f"{plan_name} plan for {app_name}"
+        elif pricing_model == "per_bed":
+            product_name = f"{app_name} Subscription ({interval_label})"
+            product_description = f"Per-bed subscription for {app_name}"
+        else:
+            product_name = f"{app_name} {interval_label} Subscription"
+            product_description = f"{interval_label} subscription for {app_name}"
+
         def _create_checkout() -> Dict[str, Any]:
-            # Create a price for this specific amount
-            # Using price_data for dynamic pricing
-            # Build thank-you page URL with subscription data for conversion tracking
             amount_usd = amount_cents / 100
             success_params = f"method=subscription&amount={amount_usd}"
+            if plan_id:
+                success_params += f"&plan_id={plan_id}"
+
+            metadata = {
+                "company_id": str(company_id),
+                "type": "auto_topup_subscription",
+                "amount_usd": str(amount_usd),
+                "app_name": app_name,
+                "pricing_model": pricing_model,
+                "billing_interval": billing_interval,
+            }
+            if plan_id:
+                metadata["plan_id"] = plan_id
+
             checkout = stripe.checkout.Session.create(
                 customer=customer_id,
                 mode="subscription",
@@ -476,30 +518,20 @@ class StripePaymentService:
                         "price_data": {
                             "currency": "usd",
                             "product_data": {
-                                "name": f"{app_name} Monthly Subscription",
-                                "description": f"Monthly subscription for {app_name}",
+                                "name": product_name,
+                                "description": product_description,
                             },
                             "unit_amount": amount_cents,
                             "recurring": {
-                                "interval": "month",
+                                "interval": billing_interval,
                             },
                         },
                         "quantity": 1,
                     }
                 ],
-                metadata={
-                    "company_id": str(company_id),
-                    "type": "auto_topup_subscription",
-                    "amount_usd": str(amount_cents / 100),
-                    "app_name": app_name,
-                },
+                metadata=metadata,
                 subscription_data={
-                    "metadata": {
-                        "company_id": str(company_id),
-                        "type": "auto_topup_subscription",
-                        "amount_usd": str(amount_cents / 100),
-                        "app_name": app_name,
-                    },
+                    "metadata": metadata,
                 },
             )
             return checkout
@@ -507,19 +539,24 @@ class StripePaymentService:
         return await asyncio.to_thread(_create_checkout)
 
     async def get_auto_topup_status(self, *, company_id: str) -> Dict[str, Any]:
-        """Get the auto top-up subscription status for a company.
+        """Get the subscription status for a company.
+
+        For tiered_plan pricing:
+        - Returns plan_id, plan limits, and usage
+        - Includes addon info
+
+        For per_bed pricing (NurseXT):
+        - Returns bed count and monthly cost
 
         For seat-based pricing models (per_user, per_capacity, per_location):
         - Returns user_limit as seat_count (paid capacity)
-        - Returns actual_user_count (actual users in company)
-        - Calculates amount_usd based on actual seat count × price per unit
-        - Includes trial status if trial credits were granted
+        - Returns actual_user_count
 
         For token-based pricing:
         - Returns stored auto_topup_amount_usd
         """
         from DB import UserCompany
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
         from ExtensionsHub import ExtensionsHub
 
         session = get_session()
@@ -542,26 +579,53 @@ class StripePaymentService:
                 "per_location",
             ]
 
-            # Get actual user count for seat-based billing
-            actual_user_count = 0
-            if is_seat_based:
-                actual_user_count = (
-                    session.query(UserCompany)
-                    .filter(UserCompany.company_id == company_id)
-                    .count()
+            # Get actual user count
+            actual_user_count = (
+                session.query(UserCompany)
+                .filter(UserCompany.company_id == company_id)
+                .count()
+            )
+
+            # Build base result
+            if pricing_model == "tiered_plan":
+                plan_id = company.plan_id
+                tier = {}
+                if plan_id and pricing_config:
+                    for t in pricing_config.get("tiers", []):
+                        if t.get("id") == plan_id:
+                            tier = t
+                            break
+
+                limits = tier.get("limits", {})
+                user_limit = (limits.get("users") or 0) + (company.addon_users or 0)
+                device_limit = (limits.get("devices") or 0) + (
+                    company.addon_devices or 0
+                )
+                token_limit = (limits.get("tokens") or 0) + (company.addon_tokens or 0)
+                storage_gb = limits.get("storage_gb") or 0
+                storage_limit_bytes = storage_gb * 1024 * 1024 * 1024 + (
+                    company.addon_storage_bytes or 0
                 )
 
-            # For seat-based billing, calculate amount from actual seat count
-            if is_seat_based:
+                amount_usd = tier.get("price", 0)
+                seat_count = user_limit
+            elif pricing_model == "per_bed":
+                bed_limit = company.bed_limit or 0
+                price_per_bed = (
+                    pricing_config.get("price_per_unit", 10.0)
+                    if pricing_config
+                    else 10.0
+                )
+                amount_usd = bed_limit * price_per_bed
+                seat_count = bed_limit
+            elif is_seat_based:
                 seat_count = company.user_limit or 1
-                # Get price per unit from pricing config
                 price_per_unit = 75.0
                 if pricing_config and pricing_config.get("tiers"):
                     price_per_unit = float(
                         pricing_config["tiers"][0].get("price_per_unit", 75)
                     )
-                calculated_amount = seat_count * price_per_unit
-                amount_usd = calculated_amount
+                amount_usd = seat_count * price_per_unit
             else:
                 seat_count = 0
                 amount_usd = company.auto_topup_amount_usd
@@ -569,20 +633,24 @@ class StripePaymentService:
             # Check trial status
             trial_info = None
             if company.trial_credits_granted and company.trial_credits_granted_at:
-                # Get trial config for duration (using hub already initialized above)
                 trial_config = pricing_config.get("trial", {}) if pricing_config else {}
-                trial_days = trial_config.get("days")  # None means no time limit
+                trial_days = trial_config.get("days")
 
-                # Calculate trial end and days remaining only if there's a time limit
                 if trial_days is not None:
                     trial_end = company.trial_credits_granted_at + timedelta(
                         days=trial_days
                     )
-                    is_trial_active = datetime.utcnow() < trial_end
-                    days_remaining = max(0, (trial_end - datetime.utcnow()).days)
+                    is_trial_active = (
+                        datetime.now(timezone.utc).replace(tzinfo=None) < trial_end
+                    )
+                    days_remaining = max(
+                        0,
+                        (
+                            trial_end - datetime.now(timezone.utc).replace(tzinfo=None)
+                        ).days,
+                    )
                     trial_end_str = trial_end.isoformat()
                 else:
-                    # No time limit - credits last until used
                     is_trial_active = (company.token_balance_usd or 0) > 0
                     days_remaining = None
                     trial_end_str = None
@@ -606,6 +674,7 @@ class StripePaymentService:
                 "subscription_status": None,
                 "next_billing_date": None,
                 "app_name": company.app_name,
+                "pricing_model": pricing_model,
                 "last_billing_date": (
                     company.last_subscription_billing_date.isoformat()
                     if company.last_subscription_billing_date
@@ -613,6 +682,48 @@ class StripePaymentService:
                 ),
                 "trial": trial_info,
             }
+
+            # Add tiered plan details
+            if pricing_model == "tiered_plan":
+                result["plan"] = {
+                    "id": company.plan_id,
+                    "name": tier.get("name", "None"),
+                    "price": tier.get("price", 0),
+                    "limits": {
+                        "users": user_limit,
+                        "devices": device_limit,
+                        "tokens_per_month": token_limit,
+                        "storage_gb": round(
+                            storage_limit_bytes / (1024 * 1024 * 1024), 2
+                        ),
+                    },
+                    "usage": {
+                        "users": actual_user_count,
+                        "devices": company.device_count or 0,
+                        "tokens_this_period": company.tokens_used_this_period or 0,
+                        "storage_gb": round(
+                            (company.storage_used_bytes or 0) / (1024 * 1024 * 1024), 2
+                        ),
+                    },
+                    "addons": {
+                        "users": company.addon_users or 0,
+                        "devices": company.addon_devices or 0,
+                        "tokens": company.addon_tokens or 0,
+                        "storage_bytes": company.addon_storage_bytes or 0,
+                    },
+                }
+            elif pricing_model == "per_bed":
+                result["plan"] = {
+                    "id": company.plan_id,
+                    "bed_limit": company.bed_limit or 0,
+                    "bed_count": company.bed_count or 0,
+                    "price_per_bed": (
+                        pricing_config.get("price_per_unit", 10.0)
+                        if pricing_config
+                        else 10.0
+                    ),
+                    "monthly_cost": amount_usd,
+                }
 
             # If there's an active subscription, get more details from Stripe
             if company.stripe_subscription_id and self.api_key:
@@ -626,21 +737,8 @@ class StripePaymentService:
                             result["next_billing_date"] = datetime.fromtimestamp(
                                 subscription["current_period_end"]
                             ).isoformat()
-
-                        # For seat-based, also get quantity from Stripe subscription if available
-                        if is_seat_based and subscription.get("items"):
-                            items = subscription["items"].get("data", [])
-                            if items:
-                                stripe_quantity = items[0].get("quantity", 1)
-                                # If Stripe quantity differs from user_limit, log warning
-                                if stripe_quantity != seat_count:
-                                    import logging
-
-                                    logging.warning(
-                                        f"Stripe subscription quantity ({stripe_quantity}) differs from user_limit ({seat_count}) for company {company_id}"
-                                    )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.debug(f"Could not fetch Stripe subscription details: {e}")
 
             return result
         finally:
@@ -661,6 +759,368 @@ class StripePaymentService:
                 return None
 
         return await asyncio.to_thread(_get_subscription)
+
+    async def create_plan_checkout(
+        self,
+        *,
+        company_id: str,
+        plan_id: str,
+        user_email: Optional[str] = None,
+        billing_interval: str = "month",
+    ) -> Dict[str, Any]:
+        """Create a Stripe checkout session for a specific plan tier.
+
+        For tiered_plan pricing: looks up the tier price and creates a subscription.
+        For per_bed pricing: calculates price based on bed count (plan_id = bed count string).
+
+        Args:
+            billing_interval: 'month' or 'year'. Annual pricing applies discount if configured.
+        """
+        if not self.api_key or self.api_key.lower() == "none":
+            raise HTTPException(
+                status_code=400, detail="Stripe API key is not configured"
+            )
+
+        from ExtensionsHub import ExtensionsHub
+
+        hub = ExtensionsHub()
+        pricing_config = hub.get_pricing_config()
+        if not pricing_config:
+            raise HTTPException(
+                status_code=400, detail="No pricing configuration found"
+            )
+
+        pricing_model = pricing_config.get("pricing_model", "per_token")
+
+        if pricing_model == "tiered_plan":
+            # Find the tier
+            tier = None
+            for t in pricing_config.get("tiers", []):
+                if t.get("id") == plan_id:
+                    tier = t
+                    break
+
+            if not tier:
+                raise HTTPException(
+                    status_code=400, detail=f"Invalid plan ID: {plan_id}"
+                )
+
+            amount_usd = float(tier.get("price", 0))
+            if amount_usd <= 0:
+                raise HTTPException(
+                    status_code=400, detail="Plan has no price configured"
+                )
+
+            plan_name = tier.get("name", plan_id)
+
+            # Apply annual discount if applicable
+            if billing_interval == "year":
+                contracts = pricing_config.get("contracts", {})
+                annual_discount = float(contracts.get("annual_discount_percent", 0))
+                if annual_discount > 0:
+                    amount_usd = amount_usd * 12 * (1 - annual_discount / 100)
+                else:
+                    amount_usd = amount_usd * 12  # No discount, just 12x monthly
+
+        elif pricing_model == "per_bed":
+            try:
+                bed_count = int(plan_id)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="For NurseXT, plan_id should be the bed count",
+                )
+
+            min_beds = pricing_config.get("min_units", 5)
+            if bed_count < min_beds:
+                raise HTTPException(
+                    status_code=400, detail=f"Minimum bed count is {min_beds}"
+                )
+
+            price_per_bed = float(pricing_config.get("price_per_unit", 10.0))
+            amount_usd = bed_count * price_per_bed
+            plan_name = f"{bed_count} Beds"
+
+            # Apply annual pricing for per-bed
+            if billing_interval == "year":
+                contracts = pricing_config.get("contracts", {})
+                annual_discount = float(contracts.get("annual_discount_percent", 0))
+                if annual_discount > 0:
+                    amount_usd = amount_usd * 12 * (1 - annual_discount / 100)
+                else:
+                    amount_usd = amount_usd * 12
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Plan checkout only available for tiered or per-bed pricing",
+            )
+
+        session = get_session()
+        try:
+            company = session.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+
+            customer_id = await self.get_or_create_company_customer(
+                company_id=company_id,
+                company_name=company.name or f"Company {company_id}",
+                email=user_email or company.email,
+            )
+
+            # If already has a subscription, cancel old one first
+            if company.stripe_subscription_id:
+                try:
+                    await self._cancel_subscription_async(
+                        company.stripe_subscription_id
+                    )
+                except Exception as e:
+                    logging.warning(
+                        f"Failed to cancel old subscription {company.stripe_subscription_id} for company {company_id}: {e}"
+                    )
+
+            checkout_session = await self._create_subscription_checkout_async(
+                customer_id=customer_id,
+                amount_cents=int(Decimal(str(amount_usd)) * Decimal("100")),
+                company_id=company_id,
+                plan_id=plan_id,
+                plan_name=plan_name,
+                billing_interval=billing_interval,
+            )
+
+            return {
+                "checkout_url": checkout_session.get("url"),
+                "session_id": checkout_session.get("id"),
+                "amount_usd": amount_usd,
+                "company_id": company_id,
+                "plan_id": plan_id,
+                "plan_name": plan_name,
+            }
+        finally:
+            session.close()
+
+    async def create_token_topup_checkout(
+        self,
+        *,
+        company_id: str,
+        token_millions: int,
+        user_email: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a one-time Stripe checkout session for token top-up.
+
+        For tiered plans: allows purchasing additional tokens at $5/1M.
+        Returns a checkout_url that the user is redirected to.
+        """
+        if not self.api_key or self.api_key.lower() == "none":
+            raise HTTPException(
+                status_code=400, detail="Stripe API key is not configured"
+            )
+
+        if token_millions < 1:
+            raise HTTPException(status_code=400, detail="Minimum purchase is 1M tokens")
+
+        from ExtensionsHub import ExtensionsHub
+
+        hub = ExtensionsHub()
+        pricing_config = hub.get_pricing_config()
+
+        # Get token topup price
+        price_per_million = 5.0  # Default
+        if pricing_config:
+            addons = pricing_config.get("addons", {})
+            topup = addons.get("token_topup", {})
+            price_per_million = float(topup.get("price_per_million", 5.0))
+
+        amount_usd = token_millions * price_per_million
+        token_amount = token_millions * 1_000_000
+
+        session = get_session()
+        try:
+            company = session.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+
+            customer_id = await self.get_or_create_company_customer(
+                company_id=company_id,
+                company_name=company.name or f"Company {company_id}",
+                email=user_email or company.email,
+            )
+
+            app_name = (
+                (pricing_config.get("app_name") if pricing_config else None)
+                or getenv("APP_NAME")
+                or "AGiXT"
+            )
+
+            import stripe
+
+            stripe.api_key = self.api_key
+
+            return_url = (
+                getenv("BILLING_PORTAL_RETURN_URL")
+                or getenv("APP_URI")
+                or "https://agixt.com"
+            )
+
+            def _create_checkout():
+                return stripe.checkout.Session.create(
+                    customer=customer_id,
+                    mode="payment",
+                    success_url=f"{return_url}/thank-you?method=topup&tokens={token_millions}M",
+                    cancel_url=f"{return_url}/billing?topup=cancelled",
+                    line_items=[
+                        {
+                            "price_data": {
+                                "currency": "usd",
+                                "product_data": {
+                                    "name": f"{app_name} Token Top-up",
+                                    "description": f"{token_millions}M tokens",
+                                },
+                                "unit_amount": int(price_per_million * 100),
+                            },
+                            "quantity": token_millions,
+                        }
+                    ],
+                    metadata={
+                        "company_id": str(company_id),
+                        "type": "token_topup",
+                        "token_amount": str(token_amount),
+                        "token_millions": str(token_millions),
+                        "price_per_million": str(price_per_million),
+                    },
+                )
+
+            checkout = await asyncio.to_thread(_create_checkout)
+
+            return {
+                "checkout_url": checkout.get("url"),
+                "session_id": checkout.get("id"),
+                "amount_usd": amount_usd,
+                "token_amount": token_amount,
+                "token_millions": token_millions,
+                "company_id": company_id,
+            }
+        finally:
+            session.close()
+
+    async def create_addon_checkout(
+        self,
+        *,
+        company_id: str,
+        addon_count: int = 1,
+        user_email: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a checkout for user/resource addons (Enterprise Plus only).
+
+        Each addon adds: 1 user, 100 devices, 10M tokens, 2GB storage for $10/month.
+        """
+        if not self.api_key or self.api_key.lower() == "none":
+            raise HTTPException(
+                status_code=400, detail="Stripe API key is not configured"
+            )
+
+        from ExtensionsHub import ExtensionsHub
+
+        hub = ExtensionsHub()
+        pricing_config = hub.get_pricing_config()
+        if not pricing_config:
+            raise HTTPException(
+                status_code=400, detail="No pricing configuration found"
+            )
+
+        # Verify billing company is on enterprise_100 plan
+        session = get_session()
+        try:
+            company = session.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+
+            # Resolve billing company (root parent)
+            from MagicalAuth import MagicalAuth
+
+            auth = MagicalAuth()
+            root_company_id = auth.get_root_parent_company(
+                str(company.id), session=session
+            )
+            if str(root_company_id) != str(company.id):
+                billing_company = (
+                    session.query(Company).filter(Company.id == root_company_id).first()
+                )
+            else:
+                billing_company = company
+
+            if not billing_company or billing_company.plan_id != "enterprise_100":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Addons are only available for the Enterprise Plus plan",
+                )
+
+            addons_config = pricing_config.get("addons", {}).get("user_addon", {})
+            price_per_addon = float(addons_config.get("price", 10.0))
+            amount_usd = addon_count * price_per_addon
+
+            customer_id = await self.get_or_create_company_customer(
+                company_id=company_id,
+                company_name=company.name or f"Company {company_id}",
+                email=user_email or company.email,
+            )
+
+            app_name = pricing_config.get("app_name") or getenv("APP_NAME") or "AGiXT"
+
+            import stripe
+
+            stripe.api_key = self.api_key
+
+            return_url = (
+                getenv("BILLING_PORTAL_RETURN_URL")
+                or getenv("APP_URI")
+                or "https://agixt.com"
+            )
+
+            def _create_addon_checkout():
+                return stripe.checkout.Session.create(
+                    customer=customer_id,
+                    mode="subscription",
+                    success_url=f"{return_url}/thank-you?method=addon&count={addon_count}",
+                    cancel_url=f"{return_url}/billing?addon=cancelled",
+                    line_items=[
+                        {
+                            "price_data": {
+                                "currency": "usd",
+                                "product_data": {
+                                    "name": f"{app_name} Resource Addon",
+                                    "description": f"Adds {addon_count} user(s), {addon_count * 100} devices, {addon_count * 10}M tokens, {addon_count * 2}GB storage per month",
+                                },
+                                "unit_amount": int(price_per_addon * 100),
+                                "recurring": {"interval": "month"},
+                            },
+                            "quantity": addon_count,
+                        }
+                    ],
+                    metadata={
+                        "company_id": str(billing_company.id),
+                        "type": "addon_subscription",
+                        "addon_count": str(addon_count),
+                    },
+                    subscription_data={
+                        "metadata": {
+                            "company_id": str(billing_company.id),
+                            "type": "addon_subscription",
+                            "addon_count": str(addon_count),
+                        },
+                    },
+                )
+
+            checkout = await asyncio.to_thread(_create_addon_checkout)
+
+            return {
+                "checkout_url": checkout.get("url"),
+                "session_id": checkout.get("id"),
+                "amount_usd": amount_usd,
+                "addon_count": addon_count,
+                "company_id": company_id,
+            }
+        finally:
+            session.close()
 
     async def cancel_auto_topup_subscription(
         self, *, company_id: str
@@ -824,8 +1284,10 @@ class StripePaymentService:
                     await self._cancel_subscription_async(
                         company.stripe_subscription_id
                     )
-                except Exception:
-                    pass  # Ignore errors canceling old subscription
+                except Exception as e:
+                    logging.warning(
+                        f"Failed to cancel old subscription {company.stripe_subscription_id} for company {company_id}: {e}"
+                    )
 
             # Create new subscription with updated amount
             result = await self.create_auto_topup_subscription(
@@ -834,74 +1296,6 @@ class StripePaymentService:
             )
 
             return result
-        finally:
-            session.close()
-
-    def process_subscription_payment(
-        self, *, subscription_id: str, invoice_id: str, amount_usd: float
-    ) -> Dict[str, Any]:
-        """Process a successful subscription payment - credit tokens to company.
-
-        This is called from the webhook handler when invoice.payment_succeeded event is received.
-        """
-        session = get_session()
-        try:
-            # Find the company with this subscription
-            company = (
-                session.query(Company)
-                .filter(Company.stripe_subscription_id == subscription_id)
-                .first()
-            )
-
-            if not company:
-                return {
-                    "success": False,
-                    "message": "Company not found for subscription",
-                }
-
-            # Calculate tokens based on amount
-            token_price_per_million = float(
-                getenv("TOKEN_PRICE_PER_MILLION_USD", "0.50")
-            )
-            if token_price_per_million <= 0:
-                token_price_per_million = 0.50  # Default fallback
-
-            token_millions = amount_usd / token_price_per_million
-            tokens = int(token_millions * 1_000_000)
-
-            # Credit tokens to company
-            company.token_balance = (company.token_balance or 0) + tokens
-            company.token_balance_usd = (company.token_balance_usd or 0.0) + amount_usd
-
-            # Create payment transaction record
-            transaction = PaymentTransaction(
-                user_id=None,
-                company_id=str(company.id),
-                seat_count=0,
-                token_amount=tokens,
-                payment_method="stripe_subscription",
-                currency="USD",
-                network="stripe",
-                amount_usd=amount_usd,
-                amount_currency=amount_usd,
-                exchange_rate=1.0,
-                stripe_payment_intent_id=invoice_id,  # Store invoice ID for reference
-                status="completed",
-                reference_code=f"SUB_{subscription_id}_{invoice_id}",
-            )
-            session.add(transaction)
-            session.commit()
-
-            return {
-                "success": True,
-                "company_id": str(company.id),
-                "tokens_credited": tokens,
-                "amount_usd": amount_usd,
-                "reference_code": transaction.reference_code,
-            }
-        except Exception as e:
-            session.rollback()
-            return {"success": False, "message": str(e)}
         finally:
             session.close()
 
@@ -928,7 +1322,7 @@ class StripePaymentService:
         """
         import stripe
         import logging
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
         if not self.api_key or self.api_key.lower() == "none":
             return {
@@ -952,10 +1346,11 @@ class StripePaymentService:
             else "per_token"
         )
         is_seat_based = pricing_model in ["per_user", "per_capacity", "per_location"]
+        is_plan_based = pricing_model in ["tiered_plan", "per_bed"]
 
         try:
             # Look back 7 days for unprocessed payments
-            since = int((datetime.utcnow() - timedelta(days=7)).timestamp())
+            since = int((datetime.now(timezone.utc) - timedelta(days=7)).timestamp())
 
             # 1. Check for subscription invoices
             if company_id:
@@ -1006,7 +1401,7 @@ class StripePaymentService:
                                     tokens = 0
                                     credits_applied = 0.0
 
-                                    if is_seat_based:
+                                    if is_seat_based or is_plan_based:
                                         # Seat-based billing: update billing dates, apply credits
                                         # Check if credits available to apply
                                         available_credits = (
@@ -1025,14 +1420,8 @@ class StripePaymentService:
 
                                         # Update billing dates
                                         company.last_subscription_billing_date = (
-                                            datetime.utcnow()
+                                            datetime.now(timezone.utc)
                                         )
-                                        if invoice.lines and invoice.lines.data:
-                                            line = invoice.lines.data[0]
-                                            if line.period and line.period.end:
-                                                company.next_subscription_billing_date = datetime.fromtimestamp(
-                                                    line.period.end
-                                                )
 
                                         transaction = PaymentTransaction(
                                             user_id=None,
@@ -1047,11 +1436,13 @@ class StripePaymentService:
                                             exchange_rate=1.0,
                                             stripe_payment_intent_id=invoice.id,
                                             status="completed",
-                                            reference_code=f"SYNC_SUB_{company.stripe_subscription_id[:20]}",
-                                            metadata={
-                                                "credits_applied": credits_applied,
-                                                "pricing_model": pricing_model,
-                                            },
+                                            reference_code=f"SYNC_SUB_{company.stripe_subscription_id[:12]}_{invoice.id[:12]}",
+                                            metadata_json=json.dumps(
+                                                {
+                                                    "credits_applied": credits_applied,
+                                                    "pricing_model": pricing_model,
+                                                }
+                                            ),
                                         )
                                         session.add(transaction)
                                         synced.append(
@@ -1067,7 +1458,7 @@ class StripePaymentService:
                                             f"Synced seat-based subscription payment: ${amount_usd} (${credits_applied:.2f} credits applied) for company {company_id}"
                                         )
                                     else:
-                                        # Token-based billing: add tokens to balance
+                                        # Token-based billing: add tokens via root parent resolution
                                         token_price = float(
                                             getenv(
                                                 "TOKEN_PRICE_PER_MILLION_USD", "0.50"
@@ -1078,13 +1469,6 @@ class StripePaymentService:
                                         tokens = int(
                                             (amount_usd / token_price) * 1_000_000
                                         )
-
-                                        company.token_balance = (
-                                            company.token_balance or 0
-                                        ) + tokens
-                                        company.token_balance_usd = (
-                                            company.token_balance_usd or 0.0
-                                        ) + amount_usd
 
                                         transaction = PaymentTransaction(
                                             user_id=None,
@@ -1099,9 +1483,21 @@ class StripePaymentService:
                                             exchange_rate=1.0,
                                             stripe_payment_intent_id=invoice.id,
                                             status="completed",
-                                            reference_code=f"SYNC_SUB_{company.stripe_subscription_id[:20]}",
+                                            reference_code=f"SYNC_SUB_{company.stripe_subscription_id[:12]}_{invoice.id[:12]}",
                                         )
                                         session.add(transaction)
+                                        session.commit()
+
+                                        # Credit tokens via root parent resolution
+                                        from MagicalAuth import MagicalAuth
+
+                                        auth = MagicalAuth()
+                                        auth.add_tokens_to_company(
+                                            company_id=str(company.id),
+                                            token_amount=tokens,
+                                            amount_usd=amount_usd,
+                                        )
+
                                         synced.append(
                                             {
                                                 "type": "subscription",
@@ -1179,7 +1575,7 @@ class StripePaymentService:
                                         PaymentTransaction.company_id
                                         == str(company.id),
                                         PaymentTransaction.reference_code.like(
-                                            f"SYNC_SUB_{subscription_id[:20]}%"
+                                            f"SYNC_SUB_{subscription_id[:12]}%"
                                         ),
                                     )
                                     .first()
@@ -1199,21 +1595,18 @@ class StripePaymentService:
                                 company.auto_topup_amount_usd = amount_usd
                                 company.stripe_subscription_id = subscription_id
 
-                                # Credit initial tokens
-                                if amount_usd > 0:
+                                # Credit initial tokens (only for token-based pricing)
+                                if (
+                                    amount_usd > 0
+                                    and not is_seat_based
+                                    and not is_plan_based
+                                ):
                                     token_price = float(
                                         getenv("TOKEN_PRICE_PER_MILLION_USD", "0.50")
                                     )
                                     if token_price <= 0:
                                         token_price = 0.50
                                     tokens = int((amount_usd / token_price) * 1_000_000)
-
-                                    company.token_balance = (
-                                        company.token_balance or 0
-                                    ) + tokens
-                                    company.token_balance_usd = (
-                                        company.token_balance_usd or 0.0
-                                    ) + amount_usd
 
                                     transaction = PaymentTransaction(
                                         user_id=None,
@@ -1231,6 +1624,18 @@ class StripePaymentService:
                                         reference_code=f"SYNC_CHECKOUT_{cs.id[:20]}",
                                     )
                                     session.add(transaction)
+                                    session.commit()
+
+                                    # Credit tokens via root parent resolution
+                                    from MagicalAuth import MagicalAuth
+
+                                    auth = MagicalAuth()
+                                    auth.add_tokens_to_company(
+                                        company_id=str(company.id),
+                                        token_amount=tokens,
+                                        amount_usd=amount_usd,
+                                    )
+
                                     synced.append(
                                         {
                                             "type": "subscription_checkout",
@@ -1242,23 +1647,53 @@ class StripePaymentService:
                                     logging.info(
                                         f"Synced subscription checkout: ${amount_usd} -> {tokens} tokens for company {cs_company_id}"
                                     )
+                                elif amount_usd > 0:
+                                    # Seat/plan-based: record transaction without token credit
+                                    company.last_subscription_billing_date = (
+                                        datetime.now(timezone.utc)
+                                    )
+                                    transaction = PaymentTransaction(
+                                        user_id=None,
+                                        company_id=str(company.id),
+                                        seat_count=company.user_limit or 1,
+                                        token_amount=0,
+                                        payment_method="stripe_subscription",
+                                        currency="USD",
+                                        network="stripe",
+                                        amount_usd=amount_usd,
+                                        amount_currency=amount_usd,
+                                        exchange_rate=1.0,
+                                        stripe_payment_intent_id=cs.id,
+                                        status="completed",
+                                        reference_code=f"SYNC_CHECKOUT_{cs.id[:20]}",
+                                        metadata_json=json.dumps(
+                                            {
+                                                "pricing_model": pricing_model,
+                                            }
+                                        ),
+                                    )
+                                    session.add(transaction)
+                                    synced.append(
+                                        {
+                                            "type": "subscription_checkout",
+                                            "session_id": cs.id,
+                                            "amount_usd": amount_usd,
+                                            "tokens": 0,
+                                        }
+                                    )
+                                    logging.info(
+                                        f"Synced {pricing_model} subscription checkout: ${amount_usd} for company {cs_company_id}"
+                                    )
 
                         # Handle one-time token purchase checkout
-                        elif (
-                            cs.mode == "payment"
-                            and metadata.get("type") == "token_purchase"
+                        elif cs.mode == "payment" and metadata.get("type") in (
+                            "token_purchase",
+                            "token_topup",
                         ):
                             amount_usd = float(metadata.get("amount_usd", 0))
                             token_amount = int(metadata.get("token_amount", 0))
 
                             if amount_usd > 0 and token_amount > 0:
-                                company.token_balance = (
-                                    company.token_balance or 0
-                                ) + token_amount
-                                company.token_balance_usd = (
-                                    company.token_balance_usd or 0.0
-                                ) + amount_usd
-
                                 transaction = PaymentTransaction(
                                     user_id=None,
                                     company_id=str(company.id),
@@ -1275,6 +1710,18 @@ class StripePaymentService:
                                     reference_code=f"SYNC_TOKEN_{cs.id[:20]}",
                                 )
                                 session.add(transaction)
+                                session.commit()
+
+                                # Credit tokens via root parent resolution
+                                from MagicalAuth import MagicalAuth
+
+                                auth = MagicalAuth()
+                                auth.add_tokens_to_company(
+                                    company_id=str(company.id),
+                                    token_amount=token_amount,
+                                    amount_usd=amount_usd,
+                                )
+
                                 synced.append(
                                     {
                                         "type": "token_purchase",

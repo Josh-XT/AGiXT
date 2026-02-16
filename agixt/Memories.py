@@ -2,6 +2,8 @@ import logging
 import os
 import asyncio
 import sys
+import base64
+from hashlib import sha256
 from DB import (
     Memory,
     Agent,
@@ -36,22 +38,38 @@ logging.basicConfig(
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
+# Module-level singletons to avoid reloading models on every call
+_spacy_nlp = None
+
 
 def nlp(text):
-    try:
-        sp = spacy.load("en_core_web_sm")
-    except:
-        spacy.cli.download("en_core_web_sm")
-        sp = spacy.load("en_core_web_sm")
-    sp.max_length = 99999999999999999999999
-    return sp(text)
+    global _spacy_nlp
+    if _spacy_nlp is None:
+        try:
+            _spacy_nlp = spacy.load("en_core_web_sm")
+        except:
+            spacy.cli.download("en_core_web_sm")
+            _spacy_nlp = spacy.load("en_core_web_sm")
+        _spacy_nlp.max_length = 99999999999999999999999
+    return _spacy_nlp(text)
+
+
+_onnx_tokenizer = None
+_onnx_model = None
 
 
 def embed(input: List[str]) -> List[Union[Sequence[float], Sequence[int]]]:
-    tokenizer = Tokenizer.from_file(os.path.join(os.getcwd(), "onnx", "tokenizer.json"))
-    tokenizer.enable_truncation(max_length=256)
-    tokenizer.enable_padding(pad_id=0, pad_token="[PAD]", length=256)
-    model = InferenceSession(os.path.join(os.getcwd(), "onnx", "model.onnx"))
+    global _onnx_tokenizer, _onnx_model
+    if _onnx_tokenizer is None:
+        _onnx_tokenizer = Tokenizer.from_file(
+            os.path.join(os.getcwd(), "onnx", "tokenizer.json")
+        )
+        _onnx_tokenizer.enable_truncation(max_length=256)
+        _onnx_tokenizer.enable_padding(pad_id=0, pad_token="[PAD]", length=256)
+    if _onnx_model is None:
+        _onnx_model = InferenceSession(os.path.join(os.getcwd(), "onnx", "model.onnx"))
+    tokenizer = _onnx_tokenizer
+    model = _onnx_model
     all_embeddings = []
     for i in range(0, len(input), 32):
         batch = input[i : i + 32]
@@ -205,9 +223,6 @@ def hash_user_id(user: str, length: int = 8) -> str:
     Returns:
         str: Short, consistent hash of the user ID
     """
-    from hashlib import sha256
-    import base64
-
     # Generate hash of the user identifier
     hash_obj = sha256(user.encode())
     hash_bytes = hash_obj.digest()[:6]  # Take first 6 bytes

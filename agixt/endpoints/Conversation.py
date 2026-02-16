@@ -19,7 +19,7 @@ from Conversations import (
     get_conversation_id_by_name,
     get_conversation_name_by_message_id,
 )
-from DB import Message, Agent as DBAgent, User
+from DB import Message, MessageReaction, Agent as DBAgent, User
 from XT import AGiXT
 from middleware import log_silenced_exception
 from Models import (
@@ -47,6 +47,16 @@ from Models import (
     ConversationShareResponse,
     SharedConversationListResponse,
     SharedConversationResponse,
+    CreateGroupConversationModel,
+    AddParticipantModel,
+    UpdateParticipantRoleModel,
+    UpdateChannelModel,
+    UpdateNotificationSettingsModel,
+    NotificationSettingsResponse,
+    GroupConversationListResponse,
+    ThreadListResponse,
+    AddReactionModel,
+    MessageReactionsResponse,
 )
 import json
 import uuid
@@ -67,6 +77,7 @@ workspace_manager = WorkspaceManager()
 
 # Redis pub/sub channel for cross-worker WebSocket broadcasts
 REDIS_BROADCAST_CHANNEL = "agixt:ws:broadcast"
+REDIS_USER_NOTIFY_CHANNEL = "agixt:ws:user_notify"
 
 
 def _get_redis_client():
@@ -107,8 +118,9 @@ class ConversationMessageBroadcaster:
     def __init__(self):
         # Maps conversation_id -> set of active WebSocket connections
         self.active_connections: Dict[str, Set[WebSocket]] = {}
-        # Maps conversation_id -> set of message IDs that were broadcasted (to avoid duplicate sends via polling)
-        self.broadcasted_message_ids: Dict[str, Set[str]] = {}
+        # Per-connection tracking of message IDs received via broadcast
+        # Maps (conversation_id, websocket_id) -> set of message IDs
+        self._connection_broadcasted_ids: Dict[int, Set[str]] = {}
         self._lock = asyncio.Lock()
         # Store reference to main event loop for cross-thread broadcasting
         self._main_loop = None
@@ -203,8 +215,9 @@ class ConversationMessageBroadcaster:
         async with self._lock:
             if conversation_id not in self.active_connections:
                 self.active_connections[conversation_id] = set()
-                self.broadcasted_message_ids[conversation_id] = set()
             self.active_connections[conversation_id].add(websocket)
+            # Initialize per-connection broadcast tracking
+            self._connection_broadcasted_ids[id(websocket)] = set()
             logging.debug(
                 f"Conversation {conversation_id}: WebSocket connected. Total: {len(self.active_connections[conversation_id])}"
             )
@@ -216,12 +229,11 @@ class ConversationMessageBroadcaster:
                 self.active_connections[conversation_id].discard(websocket)
                 if not self.active_connections[conversation_id]:
                     del self.active_connections[conversation_id]
-                    # Clean up broadcasted IDs when no more connections
-                    if conversation_id in self.broadcasted_message_ids:
-                        del self.broadcasted_message_ids[conversation_id]
                 logging.debug(
                     f"Conversation {conversation_id}: WebSocket disconnected."
                 )
+            # Clean up per-connection broadcast tracking
+            self._connection_broadcasted_ids.pop(id(websocket), None)
 
     def publish_to_redis(
         self, conversation_id: str, event_type: str, message_data: dict
@@ -261,10 +273,7 @@ class ConversationMessageBroadcaster:
             if conversation_id not in self.active_connections:
                 return 0
             connections = list(self.active_connections[conversation_id])
-            # Track broadcasted message IDs
             message_id = message_data.get("id")
-            if message_id and conversation_id in self.broadcasted_message_ids:
-                self.broadcasted_message_ids[conversation_id].add(str(message_id))
 
         sent_count = 0
         for connection in connections:
@@ -278,6 +287,11 @@ class ConversationMessageBroadcaster:
                     )
                 )
                 sent_count += 1
+                # Track per-connection that this message was broadcast
+                if message_id:
+                    ws_id = id(connection)
+                    if ws_id in self._connection_broadcasted_ids:
+                        self._connection_broadcasted_ids[ws_id].add(str(message_id))
             except Exception as e:
                 logging.debug(f"Failed to send to WebSocket: {e}")
                 connections_to_remove.append(connection)
@@ -313,6 +327,11 @@ class ConversationMessageBroadcaster:
             f"broadcast_message_event called: conv={conversation_id}, type={event_type}"
         )
 
+        # Mark conversation updated in SharedCache so poll loops can skip DB queries
+        from Conversations import mark_conversation_updated
+
+        mark_conversation_updated(conversation_id)
+
         # Try to publish to Redis for cross-worker distribution
         if self.publish_to_redis(conversation_id, event_type, message_data):
             # Redis will handle distribution to all workers including this one
@@ -327,10 +346,7 @@ class ConversationMessageBroadcaster:
                 )
                 return 0
             connections = list(self.active_connections[conversation_id])
-            # Track broadcasted message IDs to prevent duplicate sends via polling
             message_id = message_data.get("id")
-            if message_id and conversation_id in self.broadcasted_message_ids:
-                self.broadcasted_message_ids[conversation_id].add(str(message_id))
             logging.debug(
                 f"broadcast_message_event: found {len(connections)} connections"
             )
@@ -347,6 +363,11 @@ class ConversationMessageBroadcaster:
                     )
                 )
                 sent_count += 1
+                # Track per-connection that this message was broadcast
+                if message_id:
+                    ws_id = id(connection)
+                    if ws_id in self._connection_broadcasted_ids:
+                        self._connection_broadcasted_ids[ws_id].add(str(message_id))
                 logging.debug(
                     f"broadcast_message_event: sent to connection {sent_count}/{len(connections)}"
                 )
@@ -365,16 +386,20 @@ class ConversationMessageBroadcaster:
 
         return sent_count
 
-    def was_broadcasted(self, conversation_id: str, message_id: str) -> bool:
-        """Check if a message was already sent via broadcast (to avoid duplicate polling sends)."""
-        if conversation_id not in self.broadcasted_message_ids:
+    def was_broadcasted_for_connection(
+        self, websocket: WebSocket, message_id: str
+    ) -> bool:
+        """Check if a message was already sent to this specific connection via broadcast."""
+        ws_id = id(websocket)
+        if ws_id not in self._connection_broadcasted_ids:
             return False
-        return str(message_id) in self.broadcasted_message_ids[conversation_id]
+        return str(message_id) in self._connection_broadcasted_ids[ws_id]
 
-    def clear_broadcasted_ids(self, conversation_id: str):
-        """Clear the broadcasted IDs for a conversation (call after processing poll cycle)."""
-        if conversation_id in self.broadcasted_message_ids:
-            self.broadcasted_message_ids[conversation_id].clear()
+    def clear_broadcasted_ids_for_connection(self, websocket: WebSocket):
+        """Clear the broadcasted IDs for a specific connection (call after processing poll cycle)."""
+        ws_id = id(websocket)
+        if ws_id in self._connection_broadcasted_ids:
+            self._connection_broadcasted_ids[ws_id].clear()
 
     def has_listeners(self, conversation_id: str) -> bool:
         """Check if a conversation has active WebSocket listeners."""
@@ -382,6 +407,48 @@ class ConversationMessageBroadcaster:
             conversation_id in self.active_connections
             and len(self.active_connections[conversation_id]) > 0
         )
+
+    async def broadcast_typing_event(
+        self,
+        conversation_id: str,
+        typing_data: dict,
+        exclude_websocket: WebSocket = None,
+    ):
+        """
+        Broadcast a typing indicator to all WebSocket connections for a conversation,
+        excluding the sender's connection.
+        """
+        connections_to_remove = []
+        async with self._lock:
+            if conversation_id not in self.active_connections:
+                return 0
+            connections = list(self.active_connections[conversation_id])
+
+        sent_count = 0
+        for connection in connections:
+            if connection is exclude_websocket:
+                continue
+            try:
+                await connection.send_text(
+                    json.dumps(
+                        {
+                            "type": "typing_indicator",
+                            "data": typing_data,
+                        }
+                    )
+                )
+                sent_count += 1
+            except Exception as e:
+                logging.debug(f"Failed to send typing indicator: {e}")
+                connections_to_remove.append(connection)
+
+        if connections_to_remove:
+            async with self._lock:
+                for conn in connections_to_remove:
+                    if conversation_id in self.active_connections:
+                        self.active_connections[conversation_id].discard(conn)
+
+        return sent_count
 
 
 # Global conversation message broadcaster instance
@@ -392,15 +459,91 @@ class UserNotificationManager:
     """
     Manages WebSocket connections for user-level notifications.
     Allows broadcasting events to all connections for a specific user.
+    Uses Redis pub/sub for cross-worker distribution when multiple uvicorn
+    workers are running, so a notification published from any worker reaches
+    the WebSocket connection regardless of which worker holds it.
     """
 
     def __init__(self):
         # Maps user_id -> set of active WebSocket connections
         self.active_connections: Dict[str, Set[WebSocket]] = {}
         self._lock = asyncio.Lock()
+        # Redis pub/sub for cross-worker broadcasting
+        self._redis_publisher = None
+        self._redis_subscriber = None
+        self._subscriber_thread = None
+        self._subscriber_running = False
+        self._main_loop = None
+
+    def set_main_loop(self, loop):
+        """Set the main event loop reference for cross-thread broadcasts."""
+        self._main_loop = loop
+        self._start_redis_subscriber()
+
+    def _start_redis_subscriber(self):
+        """Start the Redis pub/sub subscriber in a background thread."""
+        if self._subscriber_running:
+            return
+
+        self._redis_publisher = _get_redis_client()
+        if self._redis_publisher is None:
+            logging.info(
+                "UserNotificationManager: Redis not available, cross-worker notifications disabled"
+            )
+            return
+
+        self._redis_subscriber = _get_redis_client()
+        if self._redis_subscriber is None:
+            return
+
+        self._subscriber_running = True
+        self._subscriber_thread = threading.Thread(
+            target=self._redis_subscriber_loop,
+            daemon=True,
+            name="redis-user-notify-subscriber",
+        )
+        self._subscriber_thread.start()
+        logging.info("UserNotificationManager: Redis subscriber started")
+
+    def _redis_subscriber_loop(self):
+        """Background thread that listens for Redis pub/sub messages."""
+        try:
+            pubsub = self._redis_subscriber.pubsub()
+            pubsub.subscribe(REDIS_USER_NOTIFY_CHANNEL)
+
+            for message in pubsub.listen():
+                if not self._subscriber_running:
+                    break
+                if message["type"] != "message":
+                    continue
+                try:
+                    data = json.loads(message["data"])
+                    user_id = data.get("user_id")
+                    notification = data.get("notification")
+                    if user_id and notification:
+                        if self._main_loop is not None:
+                            asyncio.run_coroutine_threadsafe(
+                                self._local_broadcast_to_user(user_id, notification),
+                                self._main_loop,
+                            )
+                except json.JSONDecodeError:
+                    logging.debug(
+                        "UserNotificationManager: Invalid JSON in Redis message"
+                    )
+                except Exception as e:
+                    logging.debug(
+                        f"UserNotificationManager: Error processing Redis message: {e}"
+                    )
+        except Exception as e:
+            logging.warning(f"UserNotificationManager: Redis subscriber error: {e}")
+        finally:
+            self._subscriber_running = False
 
     async def connect(self, websocket: WebSocket, user_id: str):
         """Register a new WebSocket connection for a user."""
+        if self._main_loop is None:
+            self._main_loop = asyncio.get_running_loop()
+            self._start_redis_subscriber()
         async with self._lock:
             if user_id not in self.active_connections:
                 self.active_connections[user_id] = set()
@@ -419,7 +562,36 @@ class UserNotificationManager:
                 logging.debug(f"User {user_id} disconnected.")
 
     async def broadcast_to_user(self, user_id: str, message: dict):
-        """Broadcast a message to all connections for a specific user."""
+        """Broadcast a message to all connections for a specific user.
+        Uses Redis pub/sub so every worker can deliver to its local connections."""
+        if self._publish_to_redis(user_id, message):
+            return  # Redis will distribute to all workers including this one
+
+        # Fallback: local-only broadcast when Redis is unavailable
+        await self._local_broadcast_to_user(user_id, message)
+
+    def _publish_to_redis(self, user_id: str, message: dict) -> bool:
+        """Publish a user notification to Redis for cross-worker distribution."""
+        # Lazily initialize Redis publisher on first broadcast attempt
+        if self._redis_publisher is None:
+            self._redis_publisher = _get_redis_client()
+        if self._redis_publisher is None:
+            return False
+        try:
+            payload = json.dumps(
+                {
+                    "user_id": user_id,
+                    "notification": make_json_serializable(message),
+                }
+            )
+            self._redis_publisher.publish(REDIS_USER_NOTIFY_CHANNEL, payload)
+            return True
+        except Exception as e:
+            logging.warning(f"UserNotificationManager: Failed to publish to Redis: {e}")
+            return False
+
+    async def _local_broadcast_to_user(self, user_id: str, message: dict):
+        """Broadcast to local WebSocket connections only (called from Redis subscriber or fallback)."""
         connections_to_remove = []
         async with self._lock:
             if user_id not in self.active_connections:
@@ -513,7 +685,11 @@ def _resolve_conversation_workspace(
         if conversation_id is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
-    conversation = Conversations(conversation_name=conversation_name, user=user)
+    conversation = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
     agent_id = conversation.get_agent_id(auth.user_id)
     if not agent_id:
         raise HTTPException(
@@ -540,10 +716,10 @@ def _resolve_conversation_workspace(
 )
 async def get_conversations_list(user=Depends(verify_api_key)):
     c = Conversations(user=user)
-    conversations = c.get_conversations()
-    if conversations is None:
-        conversations = []
     conversations_with_ids = c.get_conversations_with_ids()
+    conversations = (
+        list(conversations_with_ids.values()) if conversations_with_ids else []
+    )
     return {
         "conversations": conversations,
         "conversations_with_ids": conversations_with_ids,
@@ -554,19 +730,53 @@ async def get_conversations_list(user=Depends(verify_api_key)):
     "/v1/conversations",
     response_model=ConversationDetailResponse,
     summary="Get Detailed Conversations List",
-    description="Retrieves a detailed list of conversations including metadata such as creation date, update date, and notification status.",
+    description="Retrieves a detailed list of conversations including metadata such as creation date, update date, and notification status. Supports optional limit/offset for pagination.",
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
-async def get_conversations(user=Depends(verify_api_key)):
+async def get_conversations(
+    user=Depends(verify_api_key),
+    limit: int = None,
+    offset: int = 0,
+):
     c = Conversations(user=user)
-    conversations = c.get_conversations_with_detail()
+    # Pass limit/offset to the core method so expensive batch queries
+    # (unread counts, DM names, agent roles) are only computed for the
+    # paginated subset instead of all conversations.
+    conversations = c.get_conversations_with_detail(limit=limit, offset=offset)
     if not conversations:
         conversations = {}
-    # Output: {"conversations": { "conversation_id": { "name": "conversation_name", "created_at": "datetime", "updated_at": "datetime" } } }
     return {
         "conversations": conversations,
     }
+
+
+class SearchMessagesRequest(BaseModel):
+    query: str
+    conversation_types: Optional[List[str]] = None
+    company_id: Optional[str] = None
+    limit: Optional[int] = 50
+
+
+@app.post(
+    "/v1/conversations/search",
+    summary="Search Messages",
+    description="Search message content across all conversations the user has access to, with optional filters for conversation type and company.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def search_messages(
+    body: SearchMessagesRequest,
+    user=Depends(verify_api_key),
+):
+    c = Conversations(user=user)
+    results = c.search_messages(
+        query=body.query,
+        conversation_types=body.conversation_types,
+        company_id=body.company_id,
+        limit=body.limit or 50,
+    )
+    return {"results": results}
 
 
 @app.get(
@@ -581,23 +791,39 @@ async def get_conversation_history(
     conversation_id: str,
     user=Depends(verify_api_key),
     authorization: str = Header(None),
+    limit: int = 100,
+    page: int = 1,
 ):
     auth = MagicalAuth(token=authorization)
     if conversation_id == "-":
         conversation_id = get_conversation_id_by_name(
             conversation_name="-", user_id=auth.user_id
         )
-    conversation_name = get_conversation_name_by_id(
-        conversation_id=conversation_id, user_id=auth.user_id
-    )
+    # Skip redundant get_conversation_name_by_id() — get_conversation() already
+    # resolves the conversation via conversation_id with its own fallback logic.
     conversation_history = Conversations(
-        conversation_name=conversation_name, user=user
-    ).get_conversation()
+        conversation_name="-",
+        user=user,
+        conversation_id=conversation_id,
+    ).get_conversation(limit=limit, page=page)
     if conversation_history is None:
-        conversation_history = []
+        conversation_history = {
+            "interactions": [],
+            "total": 0,
+            "page": page,
+            "limit": limit,
+        }
+    total = conversation_history.get("total")
+    resp_page = conversation_history.get("page")
+    resp_limit = conversation_history.get("limit")
     if "interactions" in conversation_history:
         conversation_history = conversation_history["interactions"]
-    return {"conversation_history": conversation_history}
+    return {
+        "conversation_history": conversation_history,
+        "total": total,
+        "page": resp_page,
+        "limit": resp_limit,
+    }
 
 
 @app.post(
@@ -619,16 +845,13 @@ async def new_conversation_v1(
     conversation_id = c.get_conversation_id()
 
     # Notify user of new conversation via websocket
+    _agent_id = c.get_agent_id(auth.user_id)
     asyncio.create_task(
         notify_user_conversation_created(
             user_id=auth.user_id,
             conversation_id=conversation_id,
             conversation_name=history.conversation_name,
-            agent_id=(
-                str(c.get_agent_id(auth.user_id))
-                if c.get_agent_id(auth.user_id)
-                else None
-            ),
+            agent_id=str(_agent_id) if _agent_id else None,
         )
     )
 
@@ -662,7 +885,11 @@ async def delete_conversation_v1(
     )
     if not conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    Conversations(conversation_name=conversation_name, user=user).delete_conversation()
+    Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    ).delete_conversation()
 
     # Notify user of deleted conversation via websocket
     asyncio.create_task(
@@ -701,7 +928,9 @@ async def rename_conversation_v1(
     if not old_conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
     Conversations(
-        conversation_name=old_conversation_name, user=user
+        conversation_name=old_conversation_name,
+        user=user,
+        conversation_id=conversation_id,
     ).rename_conversation(new_name=rename_model.new_conversation_name)
 
     # Notify user of renamed conversation via websocket
@@ -771,26 +1000,281 @@ async def add_message_v1(
     )
     if not conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    interaction_id = Conversations(
-        conversation_name=conversation_name, user=user
-    ).log_interaction(
-        message=log_interaction.message,
+    # Create single Conversations instance for reuse across operations
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
+    # Check speaking permissions for USER messages in group channels
+    if log_interaction.role.upper() == "USER":
+        if not c.can_speak(str(auth.user_id)):
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to speak in this channel",
+            )
+
+    # Extract base64 data URLs to workspace files before storing/broadcasting
+    # This prevents massive base64 strings from bloating the DB, DOM, and WebSocket payloads
+    stored_message = log_interaction.message
+    if "data:" in stored_message and "base64," in stored_message:
+        try:
+            from Conversations import extract_data_urls_to_workspace
+
+            agent_id = c.get_agent_id(str(auth.user_id)) or "default"
+            stored_message = extract_data_urls_to_workspace(
+                stored_message, agent_id, conversation_id
+            )
+        except Exception as e:
+            logging.warning(f"Failed to extract data URLs from channel message: {e}")
+
+    interaction_id = c.log_interaction(
+        message=stored_message,
         role=log_interaction.role,
+        sender_user_id=(
+            str(auth.user_id) if log_interaction.role.upper() == "USER" else None
+        ),
     )
 
-    # Notify user of new message via websocket
+    # Build sender object for broadcast (so other users see correct avatar/name)
+    # verify_api_key returns a string (email), not a dict, so we must look up
+    # the user's full profile from the DB to populate name/avatar fields.
+    sender_data = None
+    if log_interaction.role.upper() == "USER":
+        try:
+            from DB import get_session, User
+
+            with get_session() as sender_session:
+                sender_user = (
+                    sender_session.query(User).filter(User.id == auth.user_id).first()
+                )
+                if sender_user:
+                    sender_data = {
+                        "id": str(auth.user_id),
+                        "email": sender_user.email or "",
+                        "first_name": sender_user.first_name or "",
+                        "last_name": sender_user.last_name or "",
+                        "avatar_url": getattr(sender_user, "avatar_url", None),
+                    }
+                else:
+                    # Fallback: use what we have from auth
+                    sender_data = {
+                        "id": str(auth.user_id),
+                        "email": auth.email or "",
+                        "first_name": "",
+                        "last_name": "",
+                        "avatar_url": None,
+                    }
+        except Exception as e:
+            logging.warning(f"Failed to build sender data for broadcast: {e}")
+
+    # Notify all conversation participants of the new message via user-level websocket
     asyncio.create_task(
-        notify_user_message_added(
-            user_id=auth.user_id,
+        notify_conversation_participants_message_added(
+            sender_user_id=str(auth.user_id),
             conversation_id=conversation_id,
             conversation_name=conversation_name,
             message_id=str(interaction_id),
-            message=log_interaction.message,
+            message=stored_message,
             role=log_interaction.role,
         )
     )
 
+    # Broadcast to conversation-level WebSocket so other users see the message
+    asyncio.create_task(
+        conversation_message_broadcaster.broadcast_message_event(
+            conversation_id=conversation_id,
+            event_type="message_added",
+            message_data={
+                "id": str(interaction_id),
+                "role": log_interaction.role,
+                "message": stored_message,
+                "conversation_id": conversation_id,
+                "timestamp": datetime.now().isoformat(),
+                "sender_user_id": (
+                    str(auth.user_id)
+                    if log_interaction.role.upper() == "USER"
+                    else None
+                ),
+                "sender": sender_data,
+            },
+        )
+    )
+
+    # If message contains audio file references, schedule background transcription
+    # Find audio links using imperative O(n) parsing instead of regex to avoid
+    # polynomial backtracking (CodeQL: polynomial regular expression).
+    _audio_extensions = {".webm", ".wav", ".mp3", ".ogg", ".m4a", ".aac", ".flac"}
+    audio_matches = []
+    _pos = 0
+    _msg_len = len(stored_message)
+    while _pos < _msg_len:
+        _bracket_start = stored_message.find("[", _pos)
+        if _bracket_start == -1:
+            break
+        _bracket_end = stored_message.find("]", _bracket_start + 1)
+        if _bracket_end == -1:
+            break
+        if _bracket_end + 1 < _msg_len and stored_message[_bracket_end + 1] == "(":
+            _paren_end = stored_message.find(")", _bracket_end + 2)
+            if _paren_end != -1:
+                _alt = stored_message[_bracket_start + 1 : _bracket_end]
+                _url = stored_message[_bracket_end + 2 : _paren_end]
+                if _url.startswith(("http://", "https://", "/outputs/")) and any(
+                    _url.lower().endswith(ext) for ext in _audio_extensions
+                ):
+                    audio_matches.append((_alt, _url))
+                _pos = _paren_end + 1
+                continue
+        _pos = _bracket_end + 1
+    if audio_matches:
+        asyncio.create_task(
+            _transcribe_channel_audio(
+                conversation_id=conversation_id,
+                conversation_name=conversation_name,
+                message_id=str(interaction_id),
+                stored_message=stored_message,
+                audio_matches=audio_matches,
+                user=user,
+                user_id=str(auth.user_id),
+            )
+        )
+
     return ResponseMessage(message=str(interaction_id))
+
+
+async def _transcribe_channel_audio(
+    conversation_id: str,
+    conversation_name: str,
+    message_id: str,
+    stored_message: str,
+    audio_matches: list,
+    user: str,
+    user_id: str,
+):
+    """
+    Background task to transcribe audio files in channel messages.
+    Updates the message with transcription text after processing.
+    """
+    try:
+        from Globals import getenv
+
+        agixt_uri = getenv("AGIXT_URI")
+        working_directory = getenv("WORKING_DIRECTORY")
+        original_message = stored_message
+
+        for alt_text, audio_url in audio_matches:
+            try:
+                # Convert the URL to a local file path
+                # URL format: {AGIXT_URI}/outputs/agent_{hash}/{conversation_id}/{filename}
+                # or /outputs/agent_{hash}/{conversation_id}/{filename}
+                audio_path = None
+                if audio_url.startswith(agixt_uri):
+                    path_part = audio_url[len(agixt_uri) :]
+                elif audio_url.startswith("/outputs/"):
+                    path_part = audio_url
+                else:
+                    continue
+
+                # Convert /outputs/... to a path under the working directory
+                # Split into components and sanitize each with os.path.basename
+                # to prevent path traversal (CodeQL-recognized sanitizer)
+                relative = path_part.replace("/outputs/", "", 1)
+                relative_parts = relative.replace("\\", "/").split("/")
+                safe_parts = [
+                    os.path.basename(p)
+                    for p in relative_parts
+                    if p and p not in (".", "..")
+                ]
+                if not safe_parts:
+                    continue
+                candidate_path = os.path.join(working_directory, *safe_parts)
+                # Normalize and validate the path stays within workspace root
+                workspace_root = os.path.realpath(working_directory)
+                audio_path = os.path.realpath(candidate_path)
+                if os.path.commonpath([workspace_root, audio_path]) != workspace_root:
+                    logging.warning(
+                        f"Skipping audio transcription for path outside workspace: {audio_path}"
+                    )
+                    continue
+
+                if not os.path.exists(audio_path):
+                    logging.warning(
+                        f"Audio file not found for transcription: {audio_path}"
+                    )
+                    continue
+
+                # Get the default agent for transcription
+                conv_obj = Conversations(
+                    conversation_name=conversation_name,
+                    user=user,
+                    conversation_id=conversation_id,
+                )
+                agent_id = conv_obj.get_agent_id(user_id)
+                if not agent_id:
+                    logging.warning("No agent found for audio transcription")
+                    continue
+
+                agent_obj = Agent(user=user, agent_name=None)
+                # Get the actual agent by ID
+                from DB import get_session, Agent as DBAgentModel
+
+                session = get_session()
+                db_agent = (
+                    session.query(DBAgentModel)
+                    .filter(DBAgentModel.id == agent_id)
+                    .first()
+                )
+                if db_agent:
+                    agent_obj = Agent(user=user, agent_name=db_agent.name)
+                session.close()
+
+                # Transcribe the audio
+                transcription = await agent_obj.transcribe_audio(audio_path=audio_path)
+                if not transcription or len(transcription.strip()) < 1:
+                    continue
+
+                # Update the stored message to include transcription below the audio
+                audio_link = f"[{alt_text}]({audio_url})"
+                updated_message = stored_message.replace(
+                    audio_link,
+                    f"{audio_link}\n\n> **Transcription:** {transcription.strip()}",
+                )
+                stored_message = updated_message
+
+            except Exception as e:
+                logging.warning(f"Failed to transcribe audio in channel message: {e}")
+                continue
+
+        # If no transcription was added, skip the update
+        if stored_message == original_message:
+            return
+
+        # Update message in DB
+        conv_obj = Conversations(
+            conversation_name=conversation_name,
+            user=user,
+            conversation_id=conversation_id,
+        )
+        conv_obj.update_message_by_id(
+            message_id=message_id,
+            new_message=stored_message,
+        )
+
+        # Broadcast the update via WebSocket
+        await conversation_message_broadcaster.broadcast_message_event(
+            conversation_id=conversation_id,
+            event_type="message_updated",
+            message_data={
+                "id": message_id,
+                "message": stored_message,
+                "conversation_id": conversation_id,
+                "timestamp": datetime.now().isoformat(),
+            },
+        )
+
+    except Exception as e:
+        logging.warning(f"Background audio transcription failed: {e}")
 
 
 @app.put(
@@ -818,7 +1302,11 @@ async def update_message_v1(
     )
     if not conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    Conversations(conversation_name=conversation_name, user=user).update_message_by_id(
+    Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    ).update_message_by_id(
         message_id=message_id,
         new_message=update_model.new_message,
     )
@@ -849,10 +1337,229 @@ async def delete_message_v1(
     )
     if not conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    Conversations(conversation_name=conversation_name, user=user).delete_message_by_id(
+    Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    ).delete_message_by_id(
         message_id=message_id,
     )
+    # Mark conversation updated so WebSocket poll loops detect the deletion
+    from Conversations import mark_conversation_updated
+
+    mark_conversation_updated(conversation_id)
     return ResponseMessage(message="Message deleted.")
+
+
+# ============================================
+# Message Reactions
+# ============================================
+
+
+@app.post(
+    "/v1/conversation/{conversation_id}/message/{message_id}/reactions",
+    response_model=ResponseMessage,
+    summary="Add Reaction to Message",
+    description="Adds an emoji reaction to a message. If the user already reacted with the same emoji, it toggles (removes) it.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def add_reaction(
+    conversation_id: str,
+    message_id: str,
+    body: AddReactionModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    from DB import get_session
+
+    auth = MagicalAuth(token=authorization)
+    session = get_session()
+    try:
+        # Check if user already reacted with same emoji — toggle off
+        existing = (
+            session.query(MessageReaction)
+            .filter(
+                MessageReaction.message_id == message_id,
+                MessageReaction.user_id == str(auth.user_id),
+                MessageReaction.emoji == body.emoji,
+            )
+            .first()
+        )
+        if existing:
+            session.delete(existing)
+            session.commit()
+            return ResponseMessage(message="Reaction removed.")
+
+        reaction = MessageReaction(
+            message_id=message_id,
+            user_id=str(auth.user_id),
+            emoji=body.emoji,
+        )
+        session.add(reaction)
+        session.commit()
+        return ResponseMessage(message="Reaction added.")
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+@app.get(
+    "/v1/conversation/{conversation_id}/message/{message_id}/reactions",
+    response_model=MessageReactionsResponse,
+    summary="Get Reactions for Message",
+    description="Gets all emoji reactions for a specific message.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_reactions(
+    conversation_id: str,
+    message_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> MessageReactionsResponse:
+    from DB import get_session
+
+    auth = MagicalAuth(token=authorization)
+    session = get_session()
+    try:
+        reactions = (
+            session.query(MessageReaction)
+            .filter(MessageReaction.message_id == message_id)
+            .all()
+        )
+        # Batch-fetch all users at once instead of N+1 individual queries
+        user_ids = list({r.user_id for r in reactions if r.user_id})
+        users_by_id = {}
+        if user_ids:
+            users = session.query(User).filter(User.id.in_(user_ids)).all()
+            users_by_id = {str(u.id): u for u in users}
+        result = []
+        for r in reactions:
+            u = users_by_id.get(str(r.user_id))
+            result.append(
+                {
+                    "id": str(r.id),
+                    "emoji": r.emoji,
+                    "user_id": str(r.user_id),
+                    "user_email": u.email if u else None,
+                    "user_first_name": u.first_name if u else None,
+                    "created_at": str(r.created_at) if r.created_at else None,
+                }
+            )
+        return MessageReactionsResponse(reactions=result)
+    finally:
+        session.close()
+
+
+@app.delete(
+    "/v1/conversation/{conversation_id}/message/{message_id}/reactions/{emoji}",
+    response_model=ResponseMessage,
+    summary="Remove Reaction from Message",
+    description="Removes a specific emoji reaction from a message for the current user.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def remove_reaction(
+    conversation_id: str,
+    message_id: str,
+    emoji: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    from DB import get_session
+
+    auth = MagicalAuth(token=authorization)
+    session = get_session()
+    try:
+        reaction = (
+            session.query(MessageReaction)
+            .filter(
+                MessageReaction.message_id == message_id,
+                MessageReaction.user_id == str(auth.user_id),
+                MessageReaction.emoji == emoji,
+            )
+            .first()
+        )
+        if not reaction:
+            raise HTTPException(status_code=404, detail="Reaction not found")
+        session.delete(reaction)
+        session.commit()
+        return ResponseMessage(message="Reaction removed.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        session.close()
+
+
+# ============================================
+# Message Pinning
+# ============================================
+
+
+@app.put(
+    "/v1/conversation/{conversation_id}/message/{message_id}/pin",
+    response_model=ResponseMessage,
+    summary="Toggle Pin Message",
+    description="Toggles the pinned state of a message. Pinned messages can be viewed via the pinned messages endpoint.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def toggle_pin_message(
+    conversation_id: str,
+    message_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+) -> ResponseMessage:
+    auth = MagicalAuth(token=authorization)
+    try:
+        conversation_name = get_conversation_name_by_id(
+            conversation_id=conversation_id, user_id=auth.user_id
+        )
+    except:
+        conversation_name = conversation_id
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
+    result = c.toggle_pin_message(message_id=message_id)
+    pinned = result.get("pinned", False)
+    return ResponseMessage(
+        message=f"Message {'pinned' if pinned else 'unpinned'} successfully."
+    )
+
+
+@app.get(
+    "/v1/conversation/{conversation_id}/pins",
+    summary="Get Pinned Messages",
+    description="Returns all pinned messages in a conversation.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_pinned_messages(
+    conversation_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    try:
+        conversation_name = get_conversation_name_by_id(
+            conversation_id=conversation_id, user_id=auth.user_id
+        )
+    except:
+        conversation_name = conversation_id
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
+    return c.get_pinned_messages()
 
 
 @app.get(
@@ -877,7 +1584,9 @@ async def get_conversation_history(
     except:
         conversation_id = None
     conversation_history = Conversations(
-        conversation_name=history.conversation_name, user=user
+        conversation_name=history.conversation_name,
+        user=user,
+        conversation_id=str(conversation_id) if conversation_id else None,
     ).get_conversation(
         limit=history.limit,
         page=history.page,
@@ -913,7 +1622,9 @@ async def get_conversation_data(
     except:
         conversation_id = None
     conversation_history = Conversations(
-        conversation_name=conversation_name, user=user
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=str(conversation_id) if conversation_id else None,
     ).get_conversation(limit=limit, page=page)
     if conversation_history is None:
         conversation_history = []
@@ -1033,15 +1744,18 @@ async def update_by_id(
     authorization: str = Header(None),
 ) -> ResponseMessage:
     auth = MagicalAuth(token=authorization)
+    resolved_conversation_id = None
     try:
-        conversation_id = uuid.UUID(history.conversation_name)
+        resolved_conversation_id = str(uuid.UUID(history.conversation_name))
         history.conversation_name = get_conversation_name_by_id(
-            conversation_id=str(conversation_id), user_id=auth.user_id
+            conversation_id=resolved_conversation_id, user_id=auth.user_id
         )
-    except:
-        conversation_id = None
+    except (ValueError, AttributeError):
+        pass
     Conversations(
-        conversation_name=history.conversation_name, user=user
+        conversation_name=history.conversation_name,
+        user=user,
+        conversation_id=resolved_conversation_id,
     ).update_message_by_id(
         message_id=message_id,
         new_message=history.new_message,
@@ -1527,7 +2241,9 @@ async def fork_conversation(
     except:
         conversation_id = None
     new_conversation_name = Conversations(
-        conversation_name=conversation_name, user=user
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=str(conversation_id) if conversation_id else None,
     ).fork_conversation(message_id=fork.message_id)
     return ResponseMessage(message=f"Forked conversation to {new_conversation_name}")
 
@@ -1552,7 +2268,9 @@ async def forkconversation(
     except:
         conversation_id = None
     new_conversation_name = Conversations(
-        conversation_name=conversation_name, user=user
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=str(conversation_id) if conversation_id else None,
     ).fork_conversation(message_id=str(message_id))
     return ResponseMessage(message=f"Forked conversation to {new_conversation_name}")
 
@@ -1583,7 +2301,11 @@ async def get_tts(
         conversation_name = get_conversation_name_by_id(
             conversation_id=conversation_id, user_id=auth.user_id
         )
-    c = Conversations(conversation_name=conversation_name, user=user)
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
     message = c.get_message_by_id(message_id=message_id)
     agent_name = c.get_last_agent_name()
     ApiClient = get_api_client(authorization=authorization)
@@ -1638,7 +2360,11 @@ async def stop_conversation(
 
     if success:
         # Log the stop action to the conversation
-        c = Conversations(conversation_name=conversation_name, user=user)
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=user,
+            conversation_id=conversation_id,
+        )
         c.log_interaction(
             message="[ACTIVITY][INFO] Conversation stopped by user.",
             role="SYSTEM",
@@ -1795,8 +2521,16 @@ async def conversation_stream(
         )
 
         # Get initial conversation history
+        # Respect client-requested limit (via ?limit= query param), defaulting to 50.
+        # The SWR HTTP endpoint already fetches 50 messages for display; loading
+        # hundreds/thousands here was the primary cause of slow DM loading.
         try:
-            initial_history = c.get_conversation()
+            ws_limit_str = websocket.query_params.get("limit", "50")
+            try:
+                ws_limit = max(1, min(int(ws_limit_str), 200))  # Clamp 1-200
+            except (ValueError, TypeError):
+                ws_limit = 50
+            initial_history = c.get_conversation(limit=ws_limit)
 
             messages = []
             if initial_history is None:
@@ -1823,7 +2557,13 @@ async def conversation_stream(
                     make_json_serializable(msg) for msg in messages
                 ]
                 await websocket.send_text(
-                    json.dumps({"type": "initial_data", "data": serializable_messages})
+                    json.dumps(
+                        {
+                            "type": "initial_data",
+                            "data": serializable_messages,
+                            "conversation_id": conversation_id,
+                        }
+                    )
                 )
 
         except Exception as e:
@@ -1866,15 +2606,19 @@ async def conversation_stream(
         updated_message_ids_this_cycle = set()
         last_check_time = datetime.now()
         last_heartbeat_time = datetime.now()
+        last_rename_check_time = datetime.now()
+
+        # Adaptive poll interval: grows from 0.5s to 3s when idle, resets on activity
+        poll_interval = 0.5
+        consecutive_empty_polls = 0
 
         # Main streaming loop
         while True:
             try:
-                # Use wait_for with a timeout to check for incoming messages
-                # Increased to 0.5s to reduce CPU usage while still being responsive
+                # Use wait_for with adaptive timeout
                 try:
                     message_data = await asyncio.wait_for(
-                        websocket.receive_json(), timeout=0.5
+                        websocket.receive_json(), timeout=poll_interval
                     )
 
                     # Handle incoming messages
@@ -1887,6 +2631,33 @@ async def conversation_stream(
                                     "timestamp": datetime.now().isoformat(),
                                 }
                             )
+                        )
+                    elif message_data.get("type") == "typing":
+                        # Broadcast typing indicator to other connections in this conversation
+                        typing_data = {
+                            "user_id": str(auth.user_id),
+                            "email": str(user),
+                            "first_name": "",
+                            "last_name": "",
+                            "timestamp": datetime.now().isoformat(),
+                        }
+                        # Get user details from DB
+                        try:
+                            from DB import get_session
+
+                            with get_session() as session:
+                                db_user = (
+                                    session.query(User)
+                                    .filter(User.id == auth.user_id)
+                                    .first()
+                                )
+                                if db_user:
+                                    typing_data["first_name"] = db_user.first_name or ""
+                                    typing_data["last_name"] = db_user.last_name or ""
+                        except Exception:
+                            pass
+                        await conversation_message_broadcaster.broadcast_typing_event(
+                            conversation_id, typing_data, exclude_websocket=websocket
                         )
 
                 except asyncio.TimeoutError:
@@ -1936,8 +2707,11 @@ async def conversation_stream(
                     if message_id and message_id in previous_message_ids:
                         continue
                     # Skip if this was already sent via broadcast
-                    if message_id and conversation_message_broadcaster.was_broadcasted(
-                        conversation_id, message_id
+                    if (
+                        message_id
+                        and conversation_message_broadcaster.was_broadcasted_for_connection(
+                            websocket, message_id
+                        )
                     ):
                         logging.debug(
                             f"WebSocket: Skipping broadcasted new message {message_id}"
@@ -1968,8 +2742,11 @@ async def conversation_stream(
                         )
                         continue
                     # Skip if this was already sent via broadcast
-                    if message_id and conversation_message_broadcaster.was_broadcasted(
-                        conversation_id, message_id
+                    if (
+                        message_id
+                        and conversation_message_broadcaster.was_broadcasted_for_connection(
+                            websocket, message_id
+                        )
                     ):
                         logging.debug(
                             f"WebSocket: Skipping broadcasted updated message {message_id}"
@@ -1988,40 +2765,64 @@ async def conversation_stream(
                         )
                     )
 
-                # Reset per-cycle tracking and clear broadcasted IDs
+                # Reset per-cycle tracking and clear broadcasted IDs for this connection
                 updated_message_ids_this_cycle.clear()
-                conversation_message_broadcaster.clear_broadcasted_ids(conversation_id)
+                conversation_message_broadcaster.clear_broadcasted_ids_for_connection(
+                    websocket
+                )
 
-                # Check for conversation rename
-                current_name = c.get_current_name_from_db()
-                if current_name and current_name != last_known_name:
-                    old_name = last_known_name
-                    last_known_name = current_name
-                    # Update the conversation object's name as well
-                    c.conversation_name = current_name
-                    await websocket.send_text(
-                        json.dumps(
-                            {
-                                "type": "conversation_renamed",
-                                "data": {
-                                    "conversation_id": (
-                                        str(conversation_id)
-                                        if conversation_id
-                                        else None
-                                    ),
-                                    "old_name": old_name,
-                                    "new_name": current_name,
-                                },
-                            }
+                # Check for conversation rename (throttled to every 15 seconds)
+                current_time = datetime.now()
+                time_since_rename_check = (
+                    current_time - last_rename_check_time
+                ).total_seconds()
+                if time_since_rename_check >= 15:
+                    last_rename_check_time = current_time
+                    current_name = c.get_current_name_from_db()
+                    if current_name and current_name != last_known_name:
+                        old_name = last_known_name
+                        last_known_name = current_name
+                        # Update the conversation object's name as well
+                        c.conversation_name = current_name
+                        await websocket.send_text(
+                            json.dumps(
+                                {
+                                    "type": "conversation_renamed",
+                                    "data": {
+                                        "conversation_id": (
+                                            str(conversation_id)
+                                            if conversation_id
+                                            else None
+                                        ),
+                                        "old_name": old_name,
+                                        "new_name": current_name,
+                                    },
+                                }
+                            )
                         )
-                    )
-                    logging.info(
-                        f"WebSocket: Sent conversation_renamed event '{old_name}' -> '{current_name}'"
-                    )
+                        logging.info(
+                            f"WebSocket: Sent conversation_renamed event '{old_name}' -> '{current_name}'"
+                        )
 
                 # Update tracking
                 last_message_count = changes["current_count"]
                 last_check_time = datetime.now()
+
+                # Adaptive poll interval: grow when idle, shrink on activity
+                has_changes = (
+                    changes["new_messages"]
+                    or changes["updated_messages"]
+                    or changes["deleted_ids"]
+                )
+                if has_changes:
+                    # Activity detected — reset to fast polling
+                    consecutive_empty_polls = 0
+                    poll_interval = 0.5
+                else:
+                    # No changes — gradually increase poll interval (0.5 → 1 → 1.5 → 2 → 2.5 → 3s)
+                    consecutive_empty_polls += 1
+                    if consecutive_empty_polls >= 4:
+                        poll_interval = min(poll_interval + 0.5, 3.0)
 
                 # Send heartbeat every 30 seconds to keep connection alive
                 current_time = datetime.now()
@@ -2287,8 +3088,35 @@ async def notify_user_message_added(
     role: str,
 ):
     """Notify user when a new message is added to any conversation."""
-    # Truncate message for notification (keep first 100 chars)
-    preview = message[:100] + "..." if len(message) > 100 else message
+    # Build clean notification preview: resolve mentions, strip metadata
+    import re
+    from DB import get_session, User
+
+    preview = message
+    try:
+        with get_session() as session:
+            # Resolve <@userId> mentions
+            mention_re = re.compile(r"<@([0-9a-f-]{36})>")
+            uids = set(mention_re.findall(preview))
+            if uids:
+                uid_to_name = {}
+                users = session.query(User).filter(User.id.in_(list(uids))).all()
+                for u in users:
+                    first = getattr(u, "first_name", "") or ""
+                    last = getattr(u, "last_name", "") or ""
+                    uid_to_name[str(u.id)] = f"{first} {last}".strip() or "User"
+                preview = mention_re.sub(
+                    lambda m: f"@{uid_to_name.get(m.group(1), 'User')}", preview
+                )
+            # Strip metadata tags and markdown bold
+            preview = re.sub(r"\[ref:[^\[\]]+\]", "", preview)
+            preview = re.sub(r"\[uid:[^\[\]]+\]", "", preview)
+            preview = preview.replace("**", "")
+            preview = re.sub(r"\s+", " ", preview).strip()
+    except Exception:
+        pass
+    if len(preview) > 100:
+        preview = preview[:100] + "..."
     await user_notification_manager.broadcast_to_user(
         user_id,
         {
@@ -2303,6 +3131,196 @@ async def notify_user_message_added(
             },
         },
     )
+
+
+async def notify_conversation_participants_message_added(
+    sender_user_id: str,
+    conversation_id: str,
+    conversation_name: str,
+    message_id: str,
+    message: str,
+    role: str,
+):
+    """Notify ALL participants of a conversation when a new message is added.
+    This ensures DM recipients and group channel members get notifications.
+    Also sends targeted 'mention' and 'reply' notifications to @mentioned and replied-to users.
+    """
+    try:
+        from DB import get_session, ConversationParticipant, User, Conversation
+        import re
+
+        # Build a clean preview: resolve <@userId> mentions, strip metadata tags
+        def clean_notification_preview(raw: str, session) -> str:
+            """Clean raw message text for notification previews."""
+            text = raw
+            # Strip reply blockquote lines (> **Author** said: ... > quoted)
+            if text.startswith("> **"):
+                lines = text.split("\n")
+                i = 0
+                if re.match(r"^> \*\*.+\*\* said:", lines[0]):
+                    i = 1
+                while i < len(lines) and (lines[i].startswith("> ") or lines[i] == ">"):
+                    i += 1
+                # Skip blank separator
+                if i < len(lines) and lines[i].strip() == "":
+                    i += 1
+                actual = "\n".join(lines[i:]).strip()
+                if actual:
+                    text = actual
+            # Resolve <@userId> to display names
+            mention_re = re.compile(r"<@([0-9a-f-]{36})>")
+            uids_in_text = set(mention_re.findall(text))
+            if uids_in_text:
+                uid_to_name = {}
+                users = (
+                    session.query(User).filter(User.id.in_(list(uids_in_text))).all()
+                )
+                for u in users:
+                    first = getattr(u, "first_name", "") or ""
+                    last = getattr(u, "last_name", "") or ""
+                    uid_to_name[str(u.id)] = f"{first} {last}".strip() or "User"
+                text = mention_re.sub(
+                    lambda m: f"@{uid_to_name.get(m.group(1), 'User')}", text
+                )
+            # Strip [ref:...] and [uid:...] metadata tags
+            text = re.sub(r"\[ref:[^\[\]]+\]", "", text)
+            text = re.sub(r"\[uid:[^\[\]]+\]", "", text)
+            # Strip markdown bold from remaining text
+            text = text.replace("**", "")
+            # Collapse whitespace
+            text = re.sub(r"\s+", " ", text).strip()
+            # Truncate
+            if len(text) > 100:
+                text = text[:100] + "..."
+            return text
+
+        # Look up sender display name, conversation's company_id, and participants in one session
+        sender_name = "Someone"
+        company_id = None
+        participant_user_ids = []
+        with get_session() as session:
+            preview = clean_notification_preview(message, session)
+
+            sender = session.query(User).filter(User.id == sender_user_id).first()
+            if sender:
+                first = getattr(sender, "first_name", "") or ""
+                last = getattr(sender, "last_name", "") or ""
+                sender_name = f"{first} {last}".strip() or "Someone"
+            # Look up company_id from the conversation
+            conv = (
+                session.query(Conversation)
+                .filter(Conversation.id == conversation_id)
+                .first()
+            )
+            if conv and conv.company_id:
+                company_id = str(conv.company_id)
+            conversation_type = (
+                getattr(conv, "conversation_type", None) if conv else None
+            )
+
+            # Get all active participants in same session
+            participants = (
+                session.query(ConversationParticipant)
+                .filter(
+                    ConversationParticipant.conversation_id == conversation_id,
+                    ConversationParticipant.participant_type == "user",
+                    ConversationParticipant.status == "active",
+                )
+                .all()
+            )
+            participant_user_ids = [str(p.user_id) for p in participants if p.user_id]
+
+        notification_data = {
+            "type": "message_added",
+            "data": {
+                "conversation_id": conversation_id,
+                "conversation_name": conversation_name,
+                "conversation_type": conversation_type,
+                "message_id": message_id,
+                "message_preview": preview,
+                "role": role,
+                "sender_user_id": sender_user_id,
+                "sender_name": sender_name,
+                "company_id": company_id,
+                "timestamp": datetime.now().isoformat(),
+            },
+        }
+
+        # Parse @mentions: <@userId> format
+        mentioned_user_ids = set()
+        mention_pattern = re.compile(r"<@([0-9a-f-]{36})>")
+        for match in mention_pattern.finditer(message):
+            uid = match.group(1)
+            if uid != sender_user_id:  # Don't notify sender about their own mentions
+                mentioned_user_ids.add(uid)
+
+        # Parse reply-to: [uid:userId] format
+        replied_to_user_ids = set()
+        uid_pattern = re.compile(r"\[uid:([0-9a-f-]{36})\]")
+        for match in uid_pattern.finditer(message):
+            uid = match.group(1)
+            if (
+                uid != sender_user_id
+            ):  # Don't notify sender about replying to themselves
+                replied_to_user_ids.add(uid)
+
+        # Notify all participants with the base message_added notification
+        for user_id in participant_user_ids:
+            await user_notification_manager.broadcast_to_user(
+                user_id, notification_data
+            )
+
+        # Send targeted mention notifications to @mentioned users
+        for uid in mentioned_user_ids:
+            mention_notification = {
+                "type": "mention",
+                "data": {
+                    "conversation_id": conversation_id,
+                    "conversation_name": conversation_name,
+                    "conversation_type": conversation_type,
+                    "message_id": message_id,
+                    "message_preview": preview,
+                    "role": role,
+                    "sender_user_id": sender_user_id,
+                    "sender_name": sender_name,
+                    "company_id": company_id,
+                    "timestamp": datetime.now().isoformat(),
+                },
+            }
+            await user_notification_manager.broadcast_to_user(uid, mention_notification)
+
+        # Send targeted reply notifications to replied-to users
+        for uid in replied_to_user_ids:
+            if uid not in mentioned_user_ids:  # Don't double-notify if also mentioned
+                reply_notification = {
+                    "type": "reply",
+                    "data": {
+                        "conversation_id": conversation_id,
+                        "conversation_name": conversation_name,
+                        "conversation_type": conversation_type,
+                        "message_id": message_id,
+                        "message_preview": preview,
+                        "role": role,
+                        "sender_user_id": sender_user_id,
+                        "sender_name": sender_name,
+                        "company_id": company_id,
+                        "timestamp": datetime.now().isoformat(),
+                    },
+                }
+                await user_notification_manager.broadcast_to_user(
+                    uid, reply_notification
+                )
+    except Exception as e:
+        logging.warning(f"Failed to notify conversation participants: {e}")
+        # Fallback: at least notify the sender
+        await notify_user_message_added(
+            user_id=sender_user_id,
+            conversation_id=conversation_id,
+            conversation_name=conversation_name,
+            message_id=message_id,
+            message=message,
+            role=role,
+        )
 
 
 async def broadcast_system_notification(notification_data: dict) -> int:
@@ -2495,7 +3513,11 @@ async def share_conversation(
 
     # Create the share
     try:
-        c = Conversations(conversation_name=conversation_name, user=user)
+        c = Conversations(
+            conversation_name=conversation_name,
+            user=user,
+            conversation_id=conversation_id,
+        )
         share_info = c.share_conversation(
             share_type=share_data.share_type,
             target_user_email=share_data.email,
@@ -2648,11 +3670,10 @@ async def import_shared_conversation(
         if share.include_workspace:
             try:
                 # Get DEFAULT_USER's agent that has the workspace files
-                default_user = (
-                    session.query(User).filter(User.email == DEFAULT_USER).first()
-                )
-                if default_user:
-                    default_user_id = str(default_user.id)
+                from Globals import get_default_user_id
+
+                default_user_id = get_default_user_id()
+                if default_user_id:
 
                     # Get agent name from shared conversation messages
                     agent_message = (
@@ -2799,15 +3820,11 @@ async def get_shared_conversation_workspace(
         conversation_id = str(shared_conversation.id)
 
         # Get the DEFAULT_USER's ID to query for their agent
-        from DB import User
+        from Globals import get_default_user_id
 
-        default_user_obj = (
-            session.query(User).filter(User.email == DEFAULT_USER).first()
-        )
-        if not default_user_obj:
+        default_user_id = get_default_user_id()
+        if not default_user_id:
             raise HTTPException(status_code=500, detail="Default user not found")
-
-        default_user_id = str(default_user_obj.id)
 
         # Get the agent name from the shared conversation's messages
         agent_message = (
@@ -2916,15 +3933,11 @@ async def download_shared_workspace_file(
         conversation_id = str(shared_conversation.id)
 
         # Get the DEFAULT_USER's ID to query for their agent
-        from DB import User
+        from Globals import get_default_user_id
 
-        default_user_obj = (
-            session.query(User).filter(User.email == DEFAULT_USER).first()
-        )
-        if not default_user_obj:
+        default_user_id = get_default_user_id()
+        if not default_user_id:
             raise HTTPException(status_code=500, detail="Default user not found")
-
-        default_user_id = str(default_user_obj.id)
 
         # Get the agent name from the shared conversation's messages
         agent_message = (
@@ -2993,5 +4006,568 @@ async def download_shared_workspace_file(
     except Exception as e:
         logging.error(f"Error downloading shared workspace file: {e}")
         raise HTTPException(status_code=500, detail="Failed to download file")
+    finally:
+        session.close()
+
+
+# =========================================================================
+# Group Chat / Discord-like Endpoints
+# =========================================================================
+
+
+@app.post(
+    "/v1/conversation/group",
+    summary="Create Group Conversation or Thread",
+    description="Creates a new group conversation (channel) or thread within a company/group. For threads, provide parent_id (the channel conversation) and optionally parent_message_id (the message that spawned the thread). Adds the creator as owner and optionally adds agents as participants.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def create_group_conversation(
+    body: CreateGroupConversationModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    c = Conversations(
+        conversation_name=body.conversation_name, user=user, create_if_missing=False
+    )
+    result = c.create_group_conversation(
+        company_id=body.company_id,
+        conversation_type=body.conversation_type,
+        agents=body.agent_names,
+        parent_id=body.parent_id,
+        parent_message_id=body.parent_message_id,
+        category=body.category,
+        invite_only=body.invite_only,
+    )
+    return result
+
+
+@app.get(
+    "/v1/company/{company_id}/conversations",
+    response_model=GroupConversationListResponse,
+    summary="Get Group Conversations for Company",
+    description="Gets all group conversations (channels) for a company/group that the current user is a participant of.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_group_conversations(
+    company_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    c = Conversations(user=user)
+    conversations = c.get_group_conversations_for_company(company_id=company_id)
+    return {"conversations": conversations}
+
+
+@app.get(
+    "/v1/conversation/{conversation_id}/participants",
+    summary="Get Conversation Participants",
+    description="Gets all active participants (users and agents) in a conversation.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_conversation_participants(
+    conversation_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
+    participants = c.get_participants()
+    return {"participants": participants}
+
+
+@app.post(
+    "/v1/conversation/{conversation_id}/participants",
+    summary="Add Participant to Conversation",
+    description="Adds a user or agent as a participant to a group conversation.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def add_conversation_participant(
+    conversation_id: str,
+    body: AddParticipantModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
+    participant_id = c.add_participant(
+        user_id=body.user_id,
+        agent_id=body.agent_id,
+        participant_type=body.participant_type,
+        role=body.role,
+    )
+    return {"participant_id": participant_id}
+
+
+@app.patch(
+    "/v1/conversation/{conversation_id}/participants/{participant_id}",
+    summary="Update Participant Role",
+    description="Updates a participant's role in the conversation.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_conversation_participant_role(
+    conversation_id: str,
+    participant_id: str,
+    body: UpdateParticipantRoleModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
+    c.update_participant_role(participant_id=participant_id, new_role=body.role)
+    return ResponseMessage(message="Participant role updated successfully.")
+
+
+@app.delete(
+    "/v1/conversation/{conversation_id}/participants/{participant_id}",
+    summary="Remove Participant from Conversation",
+    description="Removes a participant from the conversation.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def remove_conversation_participant(
+    conversation_id: str,
+    participant_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
+    c.remove_participant(participant_id=participant_id)
+    return ResponseMessage(message="Participant removed successfully.")
+
+
+@app.post(
+    "/v1/conversation/{conversation_id}/leave",
+    summary="Leave Conversation",
+    description="Current user leaves a group conversation.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def leave_conversation(
+    conversation_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    from DB import get_session, ConversationParticipant
+
+    session = get_session()
+    try:
+        participant = (
+            session.query(ConversationParticipant)
+            .filter(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.user_id == auth.user_id,
+                ConversationParticipant.status == "active",
+            )
+            .first()
+        )
+        if not participant:
+            raise HTTPException(
+                status_code=404, detail="You are not a participant in this conversation"
+            )
+        participant.status = "left"
+        session.commit()
+        return ResponseMessage(message="Left conversation successfully.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"Error leaving conversation: {e}")
+    finally:
+        session.close()
+
+
+@app.post(
+    "/v1/conversation/{conversation_id}/read",
+    summary="Mark Conversation as Read",
+    description="Updates the last_read_at timestamp for the current user in a group conversation.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def mark_conversation_read(
+    conversation_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
+    c.update_last_read(user_id=str(auth.user_id))
+    return ResponseMessage(message="Conversation marked as read.")
+
+
+@app.get(
+    "/v1/conversation/{conversation_id}/notification-settings",
+    summary="Get Notification Settings",
+    description="Gets the current user's notification settings for a conversation.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_notification_settings(
+    conversation_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    from DB import get_session, ConversationParticipant
+
+    auth = MagicalAuth(token=authorization)
+    session = get_session()
+    try:
+        participant = (
+            session.query(ConversationParticipant)
+            .filter(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.user_id == str(auth.user_id),
+                ConversationParticipant.status == "active",
+            )
+            .first()
+        )
+        if not participant:
+            raise HTTPException(
+                status_code=404, detail="Not a participant in this conversation"
+            )
+        return NotificationSettingsResponse(
+            notification_mode=participant.notification_mode or "all",
+        )
+    finally:
+        session.close()
+
+
+@app.put(
+    "/v1/conversation/{conversation_id}/notification-settings",
+    summary="Update Notification Settings",
+    description="Updates the current user's notification settings for a conversation. Supports 'all' (all messages), 'mentions' (only @mentions), or 'none' (muted).",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_notification_settings(
+    conversation_id: str,
+    body: UpdateNotificationSettingsModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    from DB import get_session, ConversationParticipant
+
+    auth = MagicalAuth(token=authorization)
+    valid_modes = {"all", "mentions", "none"}
+    if body.notification_mode not in valid_modes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid notification_mode. Must be one of: {', '.join(valid_modes)}",
+        )
+    session = get_session()
+    try:
+        participant = (
+            session.query(ConversationParticipant)
+            .filter(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.user_id == str(auth.user_id),
+                ConversationParticipant.status == "active",
+            )
+            .first()
+        )
+        if not participant:
+            raise HTTPException(
+                status_code=404, detail="Not a participant in this conversation"
+            )
+        participant.notification_mode = body.notification_mode
+        session.commit()
+    finally:
+        session.close()
+    return ResponseMessage(
+        message=f"Notification settings updated to '{body.notification_mode}'."
+    )
+
+
+@app.get(
+    "/v1/conversation/{conversation_id}/threads",
+    response_model=ThreadListResponse,
+    summary="Get Threads for Channel",
+    description="Gets all threads spawned from messages in a given channel conversation. Returns thread metadata including message count and last activity.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_threads(
+    conversation_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    c = Conversations(
+        conversation_name=conversation_name,
+        user=user,
+        conversation_id=conversation_id,
+    )
+    threads = c.get_threads(conversation_id=conversation_id)
+    return {"threads": threads}
+
+
+@app.post(
+    "/v1/conversation/{conversation_id}/threads",
+    summary="Create Thread from Message",
+    description="Creates a new thread conversation from a specific message in a channel. The thread inherits the channel's company_id and adds the creator as owner.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def create_thread(
+    conversation_id: str,
+    body: CreateGroupConversationModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Parent conversation not found")
+    from DB import get_session, Conversation, Message
+
+    # Inherit company_id from parent conversation if not provided
+    company_id = body.company_id
+    if not company_id or company_id == "private":
+        session = get_session()
+        try:
+            parent_conv = (
+                session.query(Conversation)
+                .filter(Conversation.id == conversation_id)
+                .first()
+            )
+            if parent_conv and parent_conv.company_id:
+                company_id = str(parent_conv.company_id)
+        except Exception:
+            pass
+        finally:
+            session.close()
+
+    c = Conversations(
+        conversation_name=body.conversation_name, user=user, create_if_missing=False
+    )
+    result = c.create_group_conversation(
+        company_id=company_id or "",
+        conversation_type="thread",
+        agents=body.agent_names,
+        parent_id=conversation_id,
+        parent_message_id=body.parent_message_id,
+    )
+
+    # Copy the parent message into the thread as the first message
+    # so the thread context is clear (like Discord does)
+    if body.parent_message_id and result and result.get("id"):
+        session = get_session()
+        try:
+            parent_msg = (
+                session.query(Message)
+                .filter(Message.id == str(body.parent_message_id))
+                .first()
+            )
+            if parent_msg:
+                thread_conv = Conversations(
+                    conversation_name=body.conversation_name,
+                    user=user,
+                    conversation_id=result["id"],
+                )
+                thread_conv.log_interaction(
+                    role=parent_msg.role,
+                    message=parent_msg.content,
+                    timestamp=parent_msg.timestamp,
+                    sender_user_id=(
+                        str(parent_msg.sender_user_id)
+                        if parent_msg.sender_user_id
+                        else None
+                    ),
+                )
+            else:
+                logging.warning(
+                    f"Parent message not found for thread copy: id={body.parent_message_id}"
+                )
+        except Exception as e:
+            logging.warning(f"Failed to copy parent message into thread: {e}")
+        finally:
+            session.close()
+
+    return result
+
+
+@app.patch(
+    "/v1/conversation/{conversation_id}/channel",
+    summary="Update Channel Properties",
+    description="Updates a channel's properties such as category or name.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def update_channel(
+    conversation_id: str,
+    body: UpdateChannelModel,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    from DB import get_session, Conversation
+
+    session = get_session()
+    try:
+        conversation = (
+            session.query(Conversation)
+            .filter(Conversation.id == conversation_id)
+            .first()
+        )
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        if body.category is not None:
+            conversation.category = body.category
+        if body.name is not None:
+            conversation.name = body.name
+        if body.description is not None:
+            conversation.description = body.description
+
+        session.commit()
+        return {
+            "id": str(conversation.id),
+            "name": conversation.name,
+            "category": getattr(conversation, "category", None),
+            "description": getattr(conversation, "description", None),
+            "message": "Channel updated successfully",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error updating channel: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update channel")
+    finally:
+        session.close()
+
+
+@app.put(
+    "/v1/conversation/{conversation_id}/lock",
+    summary="Lock or Unlock a Conversation/Thread",
+    description="Locks or unlocks a conversation or thread. When locked, only owners and admins can send messages. Useful for closing threads.",
+    tags=["Group Chat"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def lock_conversation(
+    conversation_id: str,
+    body: dict,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
+    if not conversation_name:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    from DB import get_session, Conversation, ConversationParticipant
+
+    session = get_session()
+    try:
+        conversation = (
+            session.query(Conversation)
+            .filter(Conversation.id == conversation_id)
+            .first()
+        )
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        # Only owners and admins can lock/unlock
+        participant = (
+            session.query(ConversationParticipant)
+            .filter(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.user_id == auth.user_id,
+                ConversationParticipant.status == "active",
+            )
+            .first()
+        )
+        if not participant or participant.role not in ("owner", "admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="Only owners and admins can lock/unlock conversations",
+            )
+
+        locked = body.get("locked", True)
+        conversation.locked = locked
+        session.commit()
+        return {
+            "id": str(conversation.id),
+            "locked": conversation.locked,
+            "message": f"Conversation {'locked' if locked else 'unlocked'} successfully",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error locking conversation: {e}")
+        raise HTTPException(status_code=500, detail="Failed to lock conversation")
     finally:
         session.close()

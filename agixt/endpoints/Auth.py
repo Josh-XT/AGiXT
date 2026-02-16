@@ -302,6 +302,14 @@ async def get_user(
         "email": user_data.email,
         "first_name": user_data.first_name,
         "last_name": user_data.last_name,
+        "username": getattr(user_data, "username", None),
+        "avatar_url": getattr(user_data, "avatar_url", None),
+        "last_seen": (
+            user_data.last_seen.isoformat()
+            if getattr(user_data, "last_seen", None)
+            else None
+        ),
+        "status_text": getattr(user_data, "status_text", None),
         "companies": companies,
         "tos_accepted_at": (
             user_data.tos_accepted_at.isoformat() if user_data.tos_accepted_at else None
@@ -318,6 +326,7 @@ async def get_user(
         "last_name": response_data["last_name"],
         "companies": response_data["companies"],
         "tos_accepted_at": response_data.get("tos_accepted_at"),
+        "preferences": user_preferences,
     }
     etag_string = json.dumps(etag_data, sort_keys=True, default=str)
     etag = f'"{hashlib.sha256(etag_string.encode()).hexdigest()}"'
@@ -387,7 +396,8 @@ async def login(request: Request, login: Login):
 
 
 class RequestLoginLinkRequest(BaseModel):
-    email: str
+    email: str  # Can be email or username
+    referrer: Optional[str] = None
 
 
 @app.post(
@@ -404,23 +414,18 @@ async def request_login_link(request: Request, body: RequestLoginLinkRequest):
     to receive a login link via email. It's also useful as a "forgot password"
     alternative for passwordless login.
 
+    Accepts either an email address or a username.
+
     For security, this endpoint always returns success even if the email
     doesn't exist (to prevent email enumeration attacks).
     """
     auth = MagicalAuth()
     client_ip = request.headers.get("X-Forwarded-For") or request.client.host
 
-    # Get referrer from request body if provided
-    try:
-        data = await request.json()
-        referrer = data.get("referrer")
-    except Exception:
-        referrer = None
-
     result = auth.request_login_link(
         email=body.email,
         ip_address=client_ip,
-        referrer=referrer,
+        referrer=body.referrer,
     )
 
     return Detail(detail=result.get("detail", "Request processed"))
@@ -644,6 +649,45 @@ async def update_user(
     client_ip = request.headers.get("X-Forwarded-For") or request.client.host
     user = MagicalAuth(token=authorization).update_user(ip_address=client_ip, **data)
     return Detail(detail=user)
+
+
+@app.post(
+    "/v1/user/presence",
+    dependencies=[Depends(verify_api_key)],
+    summary="Update user presence (heartbeat)",
+    description="Updates the user's last_seen timestamp and optionally sets a status text. Call periodically as a heartbeat.",
+    tags=["Auth"],
+)
+async def update_user_presence(
+    request: Request,
+    authorization: str = Header(None),
+    user=Depends(verify_api_key),
+):
+    data = (
+        await request.json()
+        if request.headers.get("content-length", "0") != "0"
+        else {}
+    )
+    status_text = data.get("status_text", None)
+    status_mode = data.get("status_mode", None)
+    auth = MagicalAuth(token=authorization)
+    result = auth.update_presence(status_text=status_text, status_mode=status_mode)
+    return result
+
+
+@app.get(
+    "/v1/user/status",
+    dependencies=[Depends(verify_api_key)],
+    summary="Get user status",
+    description="Get the current user's presence status and status text.",
+    tags=["Auth"],
+)
+async def get_user_status(
+    authorization: str = Header(None),
+    user=Depends(verify_api_key),
+):
+    auth = MagicalAuth(token=authorization)
+    return auth.get_user_status()
 
 
 # Delete user
@@ -1146,6 +1190,50 @@ async def get_companies(
         )
 
 
+@app.put(
+    "/v1/user/companies/order",
+    summary="Update server display order",
+    description="Updates the display order of a user's companies/servers in the sidebar.",
+    tags=["Companies"],
+)
+async def update_company_order(
+    body: List[dict],
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Expects a list of objects: [{"company_id": "...", "sort_order": 0}, ...]
+    """
+    try:
+        auth = MagicalAuth(token=authorization)
+        from DB import UserCompany
+
+        session = get_session()
+        try:
+            for item in body:
+                company_id = item.get("company_id")
+                sort_order = item.get("sort_order")
+                if company_id is None or sort_order is None:
+                    continue
+                uc = (
+                    session.query(UserCompany)
+                    .filter(
+                        UserCompany.user_id == auth.user_id,
+                        UserCompany.company_id == company_id,
+                    )
+                    .first()
+                )
+                if uc:
+                    uc.sort_order = sort_order
+            session.commit()
+        finally:
+            session.close()
+        return {"detail": "Server order updated successfully"}
+    except Exception as e:
+        logging.error(f"Error updating company order: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/v1/companies", response_model=NewCompanyResponse, tags=["Companies"])
 async def create_company(
     company: NewCompanyInput,
@@ -1224,6 +1312,68 @@ async def delete_user_from_company(
         raise HTTPException(
             status_code=500,
             detail=f"An error occurred while removing the user from the company: {str(e)}",
+        )
+
+
+@app.get(
+    "/v1/companies/{company_id}/members",
+    summary="List all members of a company",
+    description="Returns all users who belong to a given company, with their basic info and role.",
+    tags=["Companies"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_company_members(
+    company_id: str,
+    email: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    try:
+        auth = MagicalAuth(token=authorization)
+        # Verify the requesting user belongs to this company
+        user_companies = auth.get_user_companies()
+        if str(company_id) not in [str(c) for c in user_companies]:
+            raise HTTPException(
+                status_code=403,
+                detail="You are not a member of this company.",
+            )
+        session = get_session()
+        try:
+            from DB import UserCompany, User
+
+            members = (
+                session.query(UserCompany, User)
+                .join(User, UserCompany.user_id == User.id)
+                .filter(UserCompany.company_id == company_id)
+                .all()
+            )
+            result = []
+            for uc, user_obj in members:
+                result.append(
+                    {
+                        "id": str(user_obj.id),
+                        "email": user_obj.email,
+                        "first_name": user_obj.first_name,
+                        "last_name": user_obj.last_name,
+                        "role_id": uc.role_id,
+                        "avatar_url": getattr(user_obj, "avatar_url", None),
+                        "last_seen": (
+                            user_obj.last_seen.isoformat()
+                            if getattr(user_obj, "last_seen", None)
+                            else None
+                        ),
+                        "status_text": getattr(user_obj, "status_text", None),
+                    }
+                )
+            return {"members": result}
+        finally:
+            session.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error in get_company_members endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while listing company members: {str(e)}",
         )
 
 
@@ -1379,6 +1529,7 @@ async def update_company(
             zip_code=company_details.zip_code,
             country=company_details.country,
             notes=company_details.notes,
+            icon_url=company_details.icon_url,
         )
     except Exception as e:
         logging.error(f"Error in update_company endpoint: {str(e)}")

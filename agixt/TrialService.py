@@ -9,7 +9,7 @@ registering with valid business email domains. It prevents abuse by:
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Tuple
 from sqlalchemy.orm import Session
 from DB import Company, TrialDomain, get_session, get_db_session
@@ -85,6 +85,27 @@ FREE_EMAIL_PROVIDERS = frozenset(
         "dispostable.com",
         "getairmail.com",
         "maildrop.cc",
+        # Additional disposable email providers
+        "throwaway.email",
+        "temp-mail.org",
+        "guerrillamail.info",
+        "guerrillamail.net",
+        "guerrillamail.de",
+        "yopmail.com",
+        "yopmail.fr",
+        "mohmal.com",
+        "tempail.com",
+        "fakeinbox.com",
+        "mailnesia.com",
+        "throwam.com",
+        "tmpmail.net",
+        "tmpmail.org",
+        "bupmail.com",
+        "mailsac.com",
+        "mytemp.email",
+        "emailondeck.com",
+        "33mail.com",
+        "getnada.com",
         # ISP-based free email
         "comcast.net",
         "verizon.net",
@@ -109,6 +130,13 @@ class TrialService:
 
     def __init__(self):
         self.extensions_hub = ExtensionsHub()
+
+    def _get_pricing_config(self):
+        """Get pricing config from extensions hub."""
+        try:
+            return self.extensions_hub.get_pricing_config()
+        except Exception:
+            return None
 
     def extract_domain(self, email: str) -> str:
         """
@@ -241,8 +269,10 @@ class TrialService:
 
         # RFC 2606 reserved test domains - always grant trial credits (for testing)
         # These domains can never be real domains and are safe for testing
-        test_domains = {"example.com", "example.org", "example.net", "test.com"}
-        is_test_domain = domain.lower() in test_domains
+        test_domains = {"example.com", "example.org", "example.net"}
+        is_test_domain = domain.lower() in test_domains or domain.lower().endswith(
+            ".test"
+        )
 
         # Check if this is a public email provider (gmail, outlook, etc.)
         # Public email providers skip domain uniqueness - each user gets their own trial
@@ -266,7 +296,7 @@ class TrialService:
             ):
                 return (
                     False,
-                    f"A trial has already been used for the domain {domain}",
+                    "This email is not eligible for trial credits",
                     None,
                 )
 
@@ -303,8 +333,10 @@ class TrialService:
         domain = self.extract_domain(email)
 
         # RFC 2606 reserved test domains - skip domain tracking
-        test_domains = {"example.com", "example.org", "example.net", "test.com"}
-        is_test_domain = domain.lower() in test_domains
+        test_domains = {"example.com", "example.org", "example.net"}
+        is_test_domain = domain.lower() in test_domains or domain.lower().endswith(
+            ".test"
+        )
 
         # Check if this is a public email provider (gmail, outlook, etc.)
         # Public providers skip domain tracking - each user is treated as individual
@@ -351,13 +383,55 @@ class TrialService:
                     credits_granted=credits_usd,
                 )
                 session.add(trial_domain)
+                try:
+                    session.flush()  # Force insert to catch unique constraint violation
+                except Exception as e:
+                    from sqlalchemy.exc import IntegrityError
+
+                    if isinstance(e, IntegrityError):
+                        session.rollback()
+                        return (
+                            False,
+                            "This email is not eligible for trial credits",
+                            None,
+                        )
+                    raise
 
             # Grant credits to company
             current_balance = company.token_balance_usd or 0.0
             company.token_balance_usd = current_balance + credits_usd
             company.trial_credits_granted = credits_usd
-            company.trial_credits_granted_at = datetime.utcnow()
+            company.trial_credits_granted_at = datetime.now(timezone.utc)
             company.trial_domain = domain.lower()
+
+            # For tiered_plan pricing, set the trial plan_id from pricing config
+            # but only if the company doesn't already have a paid subscription
+            pricing_config = self._get_pricing_config()
+            pricing_model = (
+                pricing_config.get("pricing_model") if pricing_config else "per_token"
+            )
+            has_paid_subscription = (
+                company.stripe_subscription_id
+                and company.plan_id
+                and company.plan_id
+                != pricing_config.get("trial", {}).get("plan_id", "starter")
+            )
+
+            if pricing_model == "tiered_plan" and not has_paid_subscription:
+                trial_config = pricing_config.get("trial", {})
+                trial_plan_id = trial_config.get("plan_id", "starter")
+                from MagicalAuth import MagicalAuth
+
+                auth = MagicalAuth()
+                auth.set_company_plan(
+                    company_id=company_id,
+                    plan_id=trial_plan_id,
+                )
+            elif pricing_model == "per_bed" and not has_paid_subscription:
+                trial_config = pricing_config.get("trial", {})
+                trial_beds = trial_config.get("units", 5)
+                company.bed_limit = trial_beds
+                company.plan_id = f"per_bed_{trial_beds}"
 
             # Calculate token amount based on pricing
             # We'll use the default token price from PriceService
@@ -390,9 +464,9 @@ class TrialService:
                 company_name = company.name if company else None
 
                 # Run async notification in sync context
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # If we're already in an async context, create a task
+                try:
+                    loop = asyncio.get_running_loop()
+                    # Already in an async context, create a task
                     asyncio.create_task(
                         send_discord_trial_notification(
                             email=email,
@@ -402,9 +476,9 @@ class TrialService:
                             company_name=company_name,
                         )
                     )
-                else:
-                    # Otherwise run synchronously
-                    loop.run_until_complete(
+                except RuntimeError:
+                    # No running loop — run synchronously in a new loop
+                    asyncio.run(
                         send_discord_trial_notification(
                             email=email,
                             credits_usd=credits_usd,
@@ -419,8 +493,7 @@ class TrialService:
             return True, f"Granted ${credits_usd:.2f} in trial credits", credits_usd
 
         except Exception as e:
-            if not close_session:
-                session.rollback()
+            session.rollback()
             logging.error(f"Error granting trial credits: {e}")
             return False, f"Error granting trial credits: {str(e)}", None
         finally:

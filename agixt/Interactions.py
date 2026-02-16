@@ -48,6 +48,111 @@ logging.basicConfig(
 # Initialize webhook event emitter
 webhook_emitter = WebhookEventEmitter()
 
+# Pre-compiled regex patterns for hot-path tag processing
+_RE_ANSWER_OPEN = re.compile(r"<answer>", re.IGNORECASE)
+_RE_ANSWER_CLOSE = re.compile(r"</answer>", re.IGNORECASE)
+_RE_THINKING_OPEN = re.compile(r"<thinking>", re.IGNORECASE)
+_RE_THINKING_CLOSE = re.compile(r"</thinking>", re.IGNORECASE)
+_RE_REFLECTION_OPEN = re.compile(r"<reflection>", re.IGNORECASE)
+_RE_REFLECTION_CLOSE = re.compile(r"</reflection>", re.IGNORECASE)
+_RE_CLOSING_TAG = re.compile(
+    r"</(thinking|reflection|step|execute|output)>\s*$", re.IGNORECASE
+)
+_RE_TOOL_CALL = re.compile(
+    r"<name>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*</name>", re.IGNORECASE
+)
+_RE_STEP_TAG = re.compile(r"<step>(.*?)</step>", re.DOTALL | re.IGNORECASE)
+_RE_REWARD_TAG = re.compile(r"<reward>(.*?)</reward>", re.DOTALL | re.IGNORECASE)
+_RE_COUNT_TAG = re.compile(r"<count>(.*?)</count>", re.DOTALL | re.IGNORECASE)
+_RE_RATE_TAG = re.compile(r"<rate>.*?</rate>", re.DOTALL)
+_RE_EXECUTE_TAG = re.compile(r"<execute>.*?</execute>", re.DOTALL | re.IGNORECASE)
+_RE_OUTPUT_TAG = re.compile(r"<output>.*?</output>", re.DOTALL)
+_RE_NAME_TAG = re.compile(r"<name>.*?</name>", re.DOTALL)
+_RE_THINKING_BLOCK = re.compile(r"<thinking>.*?</thinking>", re.DOTALL | re.IGNORECASE)
+_RE_REFLECTION_BLOCK = re.compile(
+    r"<reflection>.*?</reflection>", re.DOTALL | re.IGNORECASE
+)
+_RE_MULTI_NEWLINE = re.compile(r"\n\s*\n\s*\n")
+_RE_TRIPLE_NEWLINE = re.compile(r"\n{3,}")
+_RE_CUSTOM_FORMAT = re.compile(r"(?<!{){([^{}\n]+)}(?!})")
+_RE_DOT_SPACE = re.compile(r"\. ")
+_RE_OUTPUT_BLOCK = re.compile(r"<output>(.*?)</output>", re.DOTALL | re.IGNORECASE)
+_RE_THINKING_CONTENT = re.compile(
+    r"<thinking>(.*?)</thinking>", re.DOTALL | re.IGNORECASE
+)
+_RE_REFLECTION_CONTENT = re.compile(
+    r"<reflection>(.*?)</reflection>", re.DOTALL | re.IGNORECASE
+)
+_RE_REWARD_CONTENT = re.compile(r"<reward>(.*?)</reward>", re.DOTALL | re.IGNORECASE)
+_RE_COUNT_CONTENT = re.compile(r"<count>(.*?)</count>", re.DOTALL | re.IGNORECASE)
+_RE_FILE_BACKTICK = re.compile(r"`([^`]+\.[a-zA-Z0-9]+)`")
+_RE_THINKING_REFLECTION = re.compile(
+    r"<(thinking|reflection)>(.*?)(?=<(?:thinking|reflection|answer)|$)", re.DOTALL
+)
+
+# Static keyword → command mapping for select_commands_for_task()
+_KEYWORD_TO_COMMANDS = {
+    "copilot": ["Ask GitHub Copilot"],
+    "github copilot": ["Ask GitHub Copilot"],
+    "ghcopilot": ["Ask GitHub Copilot"],
+    "github": ["Ask GitHub Copilot"],
+    "repository": ["Ask GitHub Copilot"],
+    "repo": ["Ask GitHub Copilot"],
+    "pull request": ["Ask GitHub Copilot"],
+    "pr": ["Ask GitHub Copilot"],
+    "clone": ["Ask GitHub Copilot"],
+    "fork": ["Ask GitHub Copilot"],
+    "discord": ["Search Discord Channel", "Send Discord Message"],
+    "browse": ["Fetch Webpage Content", "Interact with Webpage", "Web Search"],
+    "scrape": ["Fetch Webpage Content", "Interact with Webpage"],
+    "website": ["Fetch Webpage Content", "Interact with Webpage", "Web Search"],
+    "webpage": ["Fetch Webpage Content", "Interact with Webpage"],
+    "google": ["Web Search"],
+    "search the web": ["Web Search"],
+    "search online": ["Web Search"],
+    "look up": ["Web Search"],
+    "read file": ["Read File"],
+    "write file": ["Write to File"],
+    "create file": ["Write to File"],
+    "edit file": ["Modify File"],
+    "modify file": ["Modify File"],
+    "delete file": ["Delete File"],
+    "run python": ["Execute Python Code", "Execute Python File"],
+    "execute python": ["Execute Python Code", "Execute Python File"],
+    "run code": ["Execute Python Code"],
+    "execute code": ["Execute Python Code"],
+    "run command": ["Use The Terminal to Execute Commands"],
+    "terminal": ["Use The Terminal to Execute Commands"],
+    "shell": ["Use The Terminal to Execute Commands"],
+    "bash": ["Use The Terminal to Execute Commands"],
+    "git": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+    "commit": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+    "push": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+    "pull": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+    "merge": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+    "branch": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+    "rebase": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+    "checkout": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
+    "note": ["Create Note", "Search Notes", "Get Notes", "Delete Note"],
+    "notes": ["Create Note", "Search Notes", "Get Notes", "Delete Note"],
+    "remember": ["Create Note"],
+    "email": ["Send Email", "Read Emails", "Search Emails"],
+    "mail": ["Send Email", "Read Emails", "Search Emails"],
+    "calendar": ["Get Calendar Events", "Create Calendar Event"],
+    "meeting": ["Get Calendar Events", "Create Calendar Event"],
+    "schedule": [
+        "Get Calendar Events",
+        "Create Calendar Event",
+        "Schedule a Task",
+    ],
+    "analyze": ["Run Data Analysis"],
+    "analysis": ["Run Data Analysis"],
+    "data": ["Run Data Analysis"],
+    "chart": ["Run Data Analysis"],
+    "graph": ["Run Data Analysis"],
+    "visualize": ["Run Data Analysis"],
+}
+
 
 def extract_top_level_answer(response: str) -> str:
     """
@@ -69,7 +174,7 @@ def extract_top_level_answer(response: str) -> str:
     """
     # Find all <answer> tags
     answer_opens = []
-    for match in re.finditer(r"<answer>", response, re.IGNORECASE):
+    for match in _RE_ANSWER_OPEN.finditer(response):
         open_pos = match.start()
 
         # Check if this is a real tag (not just mentioned in text)
@@ -78,12 +183,12 @@ def extract_top_level_answer(response: str) -> str:
 
         # Check if this answer is at top level (not inside thinking/reflection)
         text_before = response[:open_pos]
-        thinking_depth = len(
-            re.findall(r"<thinking>", text_before, re.IGNORECASE)
-        ) - len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
-        reflection_depth = len(
-            re.findall(r"<reflection>", text_before, re.IGNORECASE)
-        ) - len(re.findall(r"</reflection>", text_before, re.IGNORECASE))
+        thinking_depth = len(_RE_THINKING_OPEN.findall(text_before)) - len(
+            _RE_THINKING_CLOSE.findall(text_before)
+        )
+        reflection_depth = len(_RE_REFLECTION_OPEN.findall(text_before)) - len(
+            _RE_REFLECTION_CLOSE.findall(text_before)
+        )
 
         if thinking_depth == 0 and reflection_depth == 0:
             answer_opens.append(match)
@@ -158,8 +263,7 @@ def is_real_answer_tag(response: str, match_start: int) -> bool:
 
     # Check if preceded by a closing tag (like </thinking> or </reflection>)
     # Allow optional whitespace between closing tag and <answer>
-    closing_tag_pattern = r"</(thinking|reflection|step|execute|output)>\s*$"
-    if re.search(closing_tag_pattern, text_before, re.IGNORECASE):
+    if _RE_CLOSING_TAG.search(text_before):
         return True
 
     # Check if preceded by just ">" (end of some other tag)
@@ -183,12 +287,12 @@ def find_real_answer_tags(response: str, tag_type: str = "open") -> list:
         list: List of match positions for real tags
     """
     if tag_type == "open":
-        pattern = r"<answer>"
+        pat = _RE_ANSWER_OPEN
     else:
-        pattern = r"</answer>"
+        pat = _RE_ANSWER_CLOSE
 
     positions = []
-    for match in re.finditer(pattern, response, re.IGNORECASE):
+    for match in pat.finditer(response):
         if tag_type == "close" or is_real_answer_tag(response, match.start()):
             positions.append(match.start())
 
@@ -223,7 +327,7 @@ def has_complete_answer(response: str) -> bool:
     # and no corresponding execute output, don't consider the answer complete
     # Pattern: <name>word</name> where word looks like a command name (no spaces, alphanumeric + underscore)
     tool_call_pattern = r"<name>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*</name>"
-    if re.search(tool_call_pattern, response, re.IGNORECASE):
+    if _RE_TOOL_CALL.search(response):
         # Check if this tool call has been executed (would have <output> after it)
         # or is inside an <execute>...</execute> block that has output
         if "<output>" not in response.lower():
@@ -254,12 +358,12 @@ def has_complete_answer(response: str) -> bool:
         text_before = response[:answer_open_pos]
 
         # Count open/close tags before this position
-        thinking_depth = len(
-            re.findall(r"<thinking>", text_before, re.IGNORECASE)
-        ) - len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
-        reflection_depth = len(
-            re.findall(r"<reflection>", text_before, re.IGNORECASE)
-        ) - len(re.findall(r"</reflection>", text_before, re.IGNORECASE))
+        thinking_depth = len(_RE_THINKING_OPEN.findall(text_before)) - len(
+            _RE_THINKING_CLOSE.findall(text_before)
+        )
+        reflection_depth = len(_RE_REFLECTION_OPEN.findall(text_before)) - len(
+            _RE_REFLECTION_CLOSE.findall(text_before)
+        )
 
         # If this answer open is inside thinking/reflection, skip it
         if thinking_depth > 0 or reflection_depth > 0:
@@ -309,35 +413,25 @@ def has_complete_answer(response: str) -> bool:
                     answer_content = text_after_open[:next_close]
 
                     # Clean out step/reward/count/thinking/reflection tags
-                    cleaned_content = re.sub(
-                        r"<step>.*?</step>",
+                    cleaned_content = _RE_STEP_TAG.sub(
                         "",
                         answer_content,
-                        flags=re.DOTALL | re.IGNORECASE,
                     )
-                    cleaned_content = re.sub(
-                        r"<reward>.*?</reward>",
+                    cleaned_content = _RE_REWARD_TAG.sub(
                         "",
                         cleaned_content,
-                        flags=re.DOTALL | re.IGNORECASE,
                     )
-                    cleaned_content = re.sub(
-                        r"<count>.*?</count>",
+                    cleaned_content = _RE_COUNT_TAG.sub(
                         "",
                         cleaned_content,
-                        flags=re.DOTALL | re.IGNORECASE,
                     )
-                    cleaned_content = re.sub(
-                        r"<thinking>.*?</thinking>",
+                    cleaned_content = _RE_THINKING_BLOCK.sub(
                         "",
                         cleaned_content,
-                        flags=re.DOTALL | re.IGNORECASE,
                     )
-                    cleaned_content = re.sub(
-                        r"<reflection>.*?</reflection>",
+                    cleaned_content = _RE_REFLECTION_BLOCK.sub(
                         "",
                         cleaned_content,
-                        flags=re.DOTALL | re.IGNORECASE,
                     )
                     cleaned_content = cleaned_content.strip()
 
@@ -376,7 +470,7 @@ def is_inside_top_level_answer(response: str, position: int = None) -> bool:
 
     # Find all top-level answer opens before this position (using real tag detection)
     answer_open_positions = []
-    for match in re.finditer(r"<answer>", text_to_check, re.IGNORECASE):
+    for match in _RE_ANSWER_OPEN.finditer(text_to_check):
         open_pos = match.start()
 
         # First check if this is a real tag (not just mentioned in text)
@@ -385,12 +479,12 @@ def is_inside_top_level_answer(response: str, position: int = None) -> bool:
 
         # Check if this answer open is at top level (not inside thinking/reflection)
         text_before = text_to_check[:open_pos]
-        thinking_depth = len(
-            re.findall(r"<thinking>", text_before, re.IGNORECASE)
-        ) - len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
-        reflection_depth = len(
-            re.findall(r"<reflection>", text_before, re.IGNORECASE)
-        ) - len(re.findall(r"</reflection>", text_before, re.IGNORECASE))
+        thinking_depth = len(_RE_THINKING_OPEN.findall(text_before)) - len(
+            _RE_THINKING_CLOSE.findall(text_before)
+        )
+        reflection_depth = len(_RE_REFLECTION_OPEN.findall(text_before)) - len(
+            _RE_REFLECTION_CLOSE.findall(text_before)
+        )
         if thinking_depth == 0 and reflection_depth == 0:
             answer_open_positions.append(open_pos)
 
@@ -443,12 +537,13 @@ class Interactions:
     ):
         self.ApiClient = ApiClient
         self.user = user
-        self.auth = MagicalAuth(token=impersonate_user(email=self.user))
-        self.user_id = self.auth.user_id
         self.uri = getenv("AGIXT_URI")
         if agent_name != "":
             self.agent_name = agent_name
             self.agent = Agent(self.agent_name, user=user, ApiClient=self.ApiClient)
+            # Reuse auth from Agent to avoid redundant JWT encode/decode
+            self.auth = self.agent.auth
+            self.user_id = self.agent.user_id
             self.websearch = Websearch(
                 collection_number=collection_id,
                 agent=self.agent,
@@ -466,6 +561,9 @@ class Interactions:
         else:
             self.agent_name = ""
             self.agent = None
+            # Fallback: create auth when no agent
+            self.auth = MagicalAuth(token=impersonate_user(email=self.user))
+            self.user_id = self.auth.user_id
             self.websearch = None
             self.agent_memory = None
             self.outputs = f"{self.uri}/outputs"
@@ -499,8 +597,7 @@ class Interactions:
             else:
                 return str(value)
 
-        pattern = r"(?<!{){([^{}\n]+)}(?!})"
-        result = re.sub(pattern, replace, string)
+        result = _RE_CUSTOM_FORMAT.sub(replace, string)
         return result
 
     async def format_prompt(
@@ -992,8 +1089,7 @@ You have access to context management commands to reduce token usage:
             r"<(thinking|reflection)>(.*?)(?=<(?:thinking|reflection|answer)|$)"
         )
 
-        # Find all matches
-        matches = list(re.finditer(tag_pattern, response, re.DOTALL))
+        matches = list(_RE_THINKING_REFLECTION.finditer(response))
 
         # Keep track of processed tags using content as key to avoid duplicates
         if not hasattr(self, "_processed_tags"):
@@ -1008,15 +1104,11 @@ You have access to context management commands to reduce token usage:
 
             # Clean the content
             cleaned_content = tag_content
-            cleaned_content = re.sub(
-                r"<execute>.*?</execute>", "", cleaned_content, flags=re.DOTALL
-            )
-            cleaned_content = re.sub(
-                r"<output>.*?</output>", "", cleaned_content, flags=re.DOTALL
-            )
-            cleaned_content = re.sub(r"<rate>.*?</rate>", "", cleaned_content)
-            cleaned_content = re.sub(r"<reward>.*?</reward>", "", cleaned_content)
-            cleaned_content = re.sub(r"<count>.*?</count>", "", cleaned_content)
+            cleaned_content = _RE_EXECUTE_TAG.sub("", cleaned_content)
+            cleaned_content = _RE_OUTPUT_TAG.sub("", cleaned_content)
+            cleaned_content = _RE_RATE_TAG.sub("", cleaned_content)
+            cleaned_content = _RE_REWARD_TAG.sub("", cleaned_content)
+            cleaned_content = _RE_COUNT_TAG.sub("", cleaned_content)
             cleaned_content = cleaned_content.replace("\n\\n", "\n")
             cleaned_content = cleaned_content.replace("</reflection>", "")
             cleaned_content = cleaned_content.replace("</thinking>", "")
@@ -1024,10 +1116,8 @@ You have access to context management commands to reduce token usage:
             cleaned_content = cleaned_content.replace("</output>", "")
             cleaned_content = cleaned_content.replace("<step>", "")
             cleaned_content = cleaned_content.replace("</step>", "")
-            cleaned_content = re.sub(
-                r"<name>.*?</name>", "", cleaned_content, flags=re.DOTALL
-            )
-            cleaned_content = re.sub(r"\n\s*\n\s*\n", "\n\n", cleaned_content)
+            cleaned_content = _RE_NAME_TAG.sub("", cleaned_content)
+            cleaned_content = _RE_MULTI_NEWLINE.sub("\n\n", cleaned_content)
             cleaned_content = cleaned_content.strip()
 
             # Use cleaned content as key to prevent duplicates
@@ -1039,10 +1129,7 @@ You have access to context management commands to reduce token usage:
 
         # Process <step> tags that appear outside of thinking/reflection tags
         # These should be treated as thinking steps
-        step_pattern = r"<step>(.*?)</step>"
-        for step_match in re.finditer(
-            step_pattern, response, re.DOTALL | re.IGNORECASE
-        ):
+        for step_match in _RE_STEP_TAG.finditer(response):
             step_content = step_match.group(1).strip()
             step_start = step_match.start()
 
@@ -1058,18 +1145,10 @@ You have access to context management commands to reduce token usage:
             # Also check for unclosed thinking tags
             if not is_inside_thinking:
                 text_before = response[:step_start]
-                thinking_opens = len(
-                    re.findall(r"<thinking>", text_before, re.IGNORECASE)
-                )
-                thinking_closes = len(
-                    re.findall(r"</thinking>", text_before, re.IGNORECASE)
-                )
-                reflection_opens = len(
-                    re.findall(r"<reflection>", text_before, re.IGNORECASE)
-                )
-                reflection_closes = len(
-                    re.findall(r"</reflection>", text_before, re.IGNORECASE)
-                )
+                thinking_opens = len(_RE_THINKING_OPEN.findall(text_before))
+                thinking_closes = len(_RE_THINKING_CLOSE.findall(text_before))
+                reflection_opens = len(_RE_REFLECTION_OPEN.findall(text_before))
+                reflection_closes = len(_RE_REFLECTION_CLOSE.findall(text_before))
                 if (
                     thinking_opens > thinking_closes
                     or reflection_opens > reflection_closes
@@ -1079,23 +1158,15 @@ You have access to context management commands to reduce token usage:
             # Only process if outside thinking tags and not inside answer
             if not is_inside_thinking:
                 # Check if inside answer block
-                answer_opens = len(
-                    re.findall(r"<answer>", response[:step_start], re.IGNORECASE)
-                )
-                answer_closes = len(
-                    re.findall(r"</answer>", response[:step_start], re.IGNORECASE)
-                )
+                answer_opens = len(_RE_ANSWER_OPEN.findall(response[:step_start]))
+                answer_closes = len(_RE_ANSWER_CLOSE.findall(response[:step_start]))
                 if answer_opens > answer_closes:
                     continue  # Skip steps inside answer blocks
 
                 # Clean the step content
-                cleaned_step = re.sub(
-                    r"<reward>.*?</reward>", "", step_content, flags=re.DOTALL
-                )
-                cleaned_step = re.sub(
-                    r"<count>.*?</count>", "", cleaned_step, flags=re.DOTALL
-                )
-                cleaned_step = re.sub(r"\n\s*\n\s*\n", "\n\n", cleaned_step).strip()
+                cleaned_step = _RE_REWARD_TAG.sub("", step_content)
+                cleaned_step = _RE_COUNT_TAG.sub("", cleaned_step)
+                cleaned_step = _RE_MULTI_NEWLINE.sub("\n\n", cleaned_step).strip()
 
                 if cleaned_step and cleaned_step not in unique_thoughts:
                     unique_thoughts[cleaned_step] = {
@@ -1104,10 +1175,7 @@ You have access to context management commands to reduce token usage:
                     }
 
         # Process standalone <reward> tags outside thinking/reflection (log as reflection score)
-        reward_pattern = r"<reward>(.*?)</reward>"
-        for reward_match in re.finditer(
-            reward_pattern, response, re.DOTALL | re.IGNORECASE
-        ):
+        for reward_match in _RE_REWARD_TAG.finditer(response):
             reward_content = reward_match.group(1).strip()
             reward_start = reward_match.start()
 
@@ -1134,12 +1202,8 @@ You have access to context management commands to reduce token usage:
 
             if not is_inside_container:
                 # Check if inside answer block
-                answer_opens = len(
-                    re.findall(r"<answer>", response[:reward_start], re.IGNORECASE)
-                )
-                answer_closes = len(
-                    re.findall(r"</answer>", response[:reward_start], re.IGNORECASE)
-                )
+                answer_opens = len(_RE_ANSWER_OPEN.findall(response[:reward_start]))
+                answer_closes = len(_RE_ANSWER_CLOSE.findall(response[:reward_start]))
                 if answer_opens > answer_closes:
                     continue
 
@@ -1244,12 +1308,9 @@ You have access to context management commands to reduce token usage:
 
             return f"<output>{chr(10).join(compressed_lines)}</output>"
 
-        compressed = re.sub(
-            output_pattern, compress_output, compressed, flags=re.DOTALL | re.IGNORECASE
-        )
+        compressed = _RE_OUTPUT_BLOCK.sub(compress_output, compressed)
 
         # 2. Compress <thinking> blocks - keep the essence but not verbose detail
-        thinking_pattern = r"<thinking>(.*?)</thinking>"
 
         def compress_thinking(match):
             content = match.group(1).strip()
@@ -1266,15 +1327,12 @@ You have access to context management commands to reduce token usage:
 
             return f"<thinking>{truncated} [thinking truncated for brevity]</thinking>"
 
-        compressed = re.sub(
-            thinking_pattern,
+        compressed = _RE_THINKING_CONTENT.sub(
             compress_thinking,
             compressed,
-            flags=re.DOTALL | re.IGNORECASE,
         )
 
         # 3. Compress <reflection> blocks similarly
-        reflection_pattern = r"<reflection>(.*?)</reflection>"
 
         def compress_reflection(match):
             content = match.group(1).strip()
@@ -1289,28 +1347,20 @@ You have access to context management commands to reduce token usage:
 
             return f"<reflection>{truncated} [reflection truncated]</reflection>"
 
-        compressed = re.sub(
-            reflection_pattern,
+        compressed = _RE_REFLECTION_CONTENT.sub(
             compress_reflection,
             compressed,
-            flags=re.DOTALL | re.IGNORECASE,
         )
 
         # 4. Remove <step> tags entirely from continuation context - they're internal
-        compressed = re.sub(
-            r"<step>.*?</step>", "", compressed, flags=re.DOTALL | re.IGNORECASE
-        )
+        compressed = _RE_STEP_TAG.sub("", compressed)
 
         # 5. Remove <reward> and <count> tags
-        compressed = re.sub(
-            r"<reward>.*?</reward>", "", compressed, flags=re.DOTALL | re.IGNORECASE
-        )
-        compressed = re.sub(
-            r"<count>.*?</count>", "", compressed, flags=re.DOTALL | re.IGNORECASE
-        )
+        compressed = _RE_REWARD_TAG.sub("", compressed)
+        compressed = _RE_COUNT_TAG.sub("", compressed)
 
         # Clean up any excessive whitespace left behind
-        compressed = re.sub(r"\n{3,}", "\n\n", compressed)
+        compressed = _RE_TRIPLE_NEWLINE.sub("\n\n", compressed)
 
         return compressed.strip()
 
@@ -1579,83 +1629,11 @@ Example: memories, persona, files"""
 
         # Build keyword aliases for common variations/synonyms
         # Maps trigger words to command names that should be included
-        keyword_to_commands = {
-            # GitHub Copilot variations - ANY GitHub-related request should use Copilot
-            "copilot": ["Ask GitHub Copilot"],
-            "github copilot": ["Ask GitHub Copilot"],
-            "ghcopilot": ["Ask GitHub Copilot"],
-            "github": ["Ask GitHub Copilot"],  # Any GitHub mention
-            "repository": ["Ask GitHub Copilot"],
-            "repo": ["Ask GitHub Copilot"],
-            "pull request": ["Ask GitHub Copilot"],
-            "pr": ["Ask GitHub Copilot"],
-            "clone": ["Ask GitHub Copilot"],
-            "fork": ["Ask GitHub Copilot"],
-            # Discord variations
-            "discord": ["Search Discord Channel", "Send Discord Message"],
-            # Web variations
-            "browse": ["Fetch Webpage Content", "Interact with Webpage", "Web Search"],
-            "scrape": ["Fetch Webpage Content", "Interact with Webpage"],
-            "website": ["Fetch Webpage Content", "Interact with Webpage", "Web Search"],
-            "webpage": ["Fetch Webpage Content", "Interact with Webpage"],
-            "google": ["Web Search"],
-            "search the web": ["Web Search"],
-            "search online": ["Web Search"],
-            "look up": ["Web Search"],
-            # File variations
-            "read file": ["Read File"],
-            "write file": ["Write to File"],
-            "create file": ["Write to File"],
-            "edit file": ["Modify File"],
-            "modify file": ["Modify File"],
-            "delete file": ["Delete File"],
-            # Code execution variations
-            "run python": ["Execute Python Code", "Execute Python File"],
-            "execute python": ["Execute Python Code", "Execute Python File"],
-            "run code": ["Execute Python Code"],
-            "execute code": ["Execute Python Code"],
-            # Terminal variations
-            "run command": ["Use The Terminal to Execute Commands"],
-            "terminal": ["Use The Terminal to Execute Commands"],
-            "shell": ["Use The Terminal to Execute Commands"],
-            "bash": ["Use The Terminal to Execute Commands"],
-            # Git variations - include both terminal AND GitHub Copilot for git operations
-            "git": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-            "commit": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-            "push": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-            "pull": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-            "merge": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-            "branch": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-            "rebase": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-            "checkout": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-            # Note variations
-            "note": ["Create Note", "Search Notes", "Get Notes", "Delete Note"],
-            "notes": ["Create Note", "Search Notes", "Get Notes", "Delete Note"],
-            "remember": ["Create Note"],
-            # Email variations
-            "email": ["Send Email", "Read Emails", "Search Emails"],
-            "mail": ["Send Email", "Read Emails", "Search Emails"],
-            # Calendar variations
-            "calendar": ["Get Calendar Events", "Create Calendar Event"],
-            "meeting": ["Get Calendar Events", "Create Calendar Event"],
-            "schedule": [
-                "Get Calendar Events",
-                "Create Calendar Event",
-                "Schedule a Task",
-            ],
-            # Data analysis
-            "analyze": ["Run Data Analysis"],
-            "analysis": ["Run Data Analysis"],
-            "data": ["Run Data Analysis"],
-            "chart": ["Run Data Analysis"],
-            "graph": ["Run Data Analysis"],
-            "visualize": ["Run Data Analysis"],
-        }
 
         explicitly_requested_commands = []
 
         # Method 0: Check keyword aliases first (highest priority for semantic matching)
-        for keyword, cmd_names in keyword_to_commands.items():
+        for keyword, cmd_names in _KEYWORD_TO_COMMANDS.items():
             if keyword in user_input_lower:
                 for cmd_name in cmd_names:
                     if (
@@ -2616,6 +2594,31 @@ Example: Web Search, Read File"""
                     if file_matches:
                         file_context = f"Uploaded files: {', '.join(file_matches)}"
 
+            # Auto-discover existing files in the conversation workspace
+            try:
+                workspace_dir = (
+                    f"{self.agent.working_directory}/{c.get_conversation_id()}"
+                )
+                if os.path.isdir(workspace_dir):
+                    existing_files = []
+                    for root, dirs, files in os.walk(workspace_dir):
+                        for f in files:
+                            rel_path = os.path.relpath(
+                                os.path.join(root, f), workspace_dir
+                            )
+                            existing_files.append(rel_path)
+                    if existing_files:
+                        existing_context = (
+                            f"Existing workspace files: {', '.join(existing_files)}"
+                        )
+                        if file_context:
+                            file_context = f"{file_context}\n{existing_context}"
+                        else:
+                            file_context = existing_context
+                        has_uploaded_files = True
+            except Exception:
+                pass
+
             # Do intelligent command selection
             try:
                 selected_commands = await self.select_commands_for_task(
@@ -2798,6 +2801,9 @@ Example: If user says "list my files", use:
         # Track standalone steps message ID for updating in place
         standalone_steps_message_id = None
         standalone_steps_logged_ids = set()  # Track which step IDs have been logged
+        # Incremental tag depth counters — updated per-token instead of re-scanning full response
+        _thinking_depth = 0
+        _reflection_depth = 0
 
         # Helper to iterate over stream (handles sync iterators from OpenAI library)
         async def iterate_stream(stream_obj):
@@ -2887,18 +2893,15 @@ Example: If user says "list my files", use:
 
                 full_response += token
 
-                # Simple tag state detection based on COMPLETE response
-                # Count open/close tags to determine current state
-                def get_tag_depth(text, tag_name):
-                    """Count net depth of a tag (opens - closes)"""
-                    opens = len(re.findall(f"<{tag_name}>", text, re.IGNORECASE))
-                    closes = len(re.findall(f"</{tag_name}>", text, re.IGNORECASE))
-                    return opens - closes
-
-                # Determine current tag state from full response
-                thinking_depth = get_tag_depth(full_response, "thinking")
-                reflection_depth = get_tag_depth(full_response, "reflection")
-                in_thinking_or_reflection = thinking_depth > 0 or reflection_depth > 0
+                # Incremental tag depth tracking — only scan the new token
+                token_lower = token.lower()
+                _thinking_depth += token_lower.count("<thinking>") - token_lower.count(
+                    "</thinking>"
+                )
+                _reflection_depth += token_lower.count(
+                    "<reflection>"
+                ) - token_lower.count("</reflection>")
+                in_thinking_or_reflection = _thinking_depth > 0 or _reflection_depth > 0
 
                 # Use is_inside_top_level_answer for proper answer detection
                 # This handles cases where <thinking> appears INSIDE <answer> blocks
@@ -2906,10 +2909,7 @@ Example: If user says "list my files", use:
 
                 # Check for execute tag completion - allow commands inside thinking, reflection, and answer blocks
                 # Execute tags should be processed regardless of nesting to support agentic workflows
-                execute_pattern = r"<execute>.*?</execute>"
-                for match in re.finditer(
-                    execute_pattern, full_response, re.DOTALL | re.IGNORECASE
-                ):
+                for match in re.finditer(_RE_EXECUTE_TAG, full_response):
                     execute_end = match.end()
                     # Note: We no longer skip execute tags inside thinking/reflection blocks
                     # The agent may legitimately execute commands while thinking through a problem
@@ -3108,9 +3108,14 @@ Example: If user says "list my files", use:
 
                     # Check if this step is inside thinking/reflection
                     text_before = full_response[:step_start]
+                    text_before_lower = text_before.lower()
                     if (
-                        get_tag_depth(text_before, "thinking") > 0
-                        or get_tag_depth(text_before, "reflection") > 0
+                        text_before_lower.count("<thinking>")
+                        - text_before_lower.count("</thinking>")
+                        > 0
+                        or text_before_lower.count("<reflection>")
+                        - text_before_lower.count("</reflection>")
+                        > 0
                     ):
                         continue  # Skip steps inside thinking/reflection
 
@@ -3210,7 +3215,7 @@ Example: If user says "list my files", use:
                         }
 
                 # Progressive streaming of thinking content (stream as it's generated)
-                if thinking_depth > 0 and not is_executing:
+                if _thinking_depth > 0 and not is_executing:
                     # Find the currently open (incomplete) thinking tag
                     # Look for the last <thinking> that doesn't have a matching </thinking>
                     thinking_start = None
@@ -3264,7 +3269,7 @@ Example: If user says "list my files", use:
                         thinking_content = ""
 
                 # Progressive streaming of reflection content (stream as it's generated)
-                if reflection_depth > 0 and not is_executing:
+                if _reflection_depth > 0 and not is_executing:
                     # Find the currently open (incomplete) reflection tag
                     reflection_start = None
                     for match in re.finditer(
@@ -3314,9 +3319,9 @@ Example: If user says "list my files", use:
                         reflection_content = ""
 
                 # Reset thinking/reflection content tracking when tags close
-                if thinking_depth == 0 and thinking_content:
+                if _thinking_depth == 0 and thinking_content:
                     thinking_content = ""
-                if reflection_depth == 0 and reflection_content:
+                if _reflection_depth == 0 and reflection_content:
                     reflection_content = ""
 
                 # Yield answer tokens for streaming

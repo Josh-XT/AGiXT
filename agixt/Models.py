@@ -13,6 +13,7 @@ class UserResponse(BaseModel):
     last_name: str
     role: str
     role_id: int
+    avatar_url: Optional[str] = None
 
 
 class CompanyResponse(BaseModel):
@@ -29,6 +30,7 @@ class CompanyResponse(BaseModel):
     zip_code: Optional[str] = None
     country: Optional[str] = None
     notes: Optional[str] = None
+    icon_url: Optional[str] = None
     users: List[UserResponse]
     children: List["CompanyResponse"] = []
 
@@ -129,6 +131,7 @@ class Invitation(BaseModel):
 class UserInfo(BaseModel):
     first_name: str
     last_name: str
+    username: str
 
 
 class Detail(BaseModel):
@@ -798,6 +801,9 @@ class ConversationDetailResponse(BaseModel):
 
 class ConversationHistoryResponse(BaseModel):
     conversation_history: List[Dict[str, Any]]
+    total: Optional[int] = None
+    page: Optional[int] = None
+    limit: Optional[int] = None
 
 
 class NewConversationHistoryResponse(BaseModel):
@@ -811,6 +817,23 @@ class NotificationResponse(BaseModel):
 
 class MessageIdResponse(BaseModel):
     message: str  # Contains the message ID
+
+
+class AddReactionModel(BaseModel):
+    emoji: str
+
+
+class ReactionResponse(BaseModel):
+    id: str
+    emoji: str
+    user_id: str
+    user_email: Optional[str] = None
+    user_first_name: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class MessageReactionsResponse(BaseModel):
+    reactions: List[ReactionResponse]
 
 
 class ChatCompletionResponse(BaseModel):
@@ -912,6 +935,7 @@ class UpdateCompanyInput(BaseModel):
     zip_code: Optional[str] = None
     country: Optional[str] = None
     notes: Optional[str] = None
+    icon_url: Optional[str] = None
 
 
 # Wallet Models
@@ -1126,6 +1150,115 @@ class SharedConversationResponse(BaseModel):
     shared_by: str
     created_at: datetime
     include_workspace: bool
+
+
+# Group Chat / Discord-like Models
+class CreateGroupConversationModel(BaseModel):
+    """Request model for creating a group conversation (channel) or thread"""
+
+    conversation_name: str
+    company_id: str
+    conversation_type: str = "group"  # 'group', 'dm', or 'thread'
+    agent_names: Optional[List[str]] = []
+    parent_id: Optional[str] = None  # For threads: the parent channel conversation ID
+    parent_message_id: Optional[str] = (
+        None  # For threads: the message that spawned this thread
+    )
+    category: Optional[str] = (
+        None  # Channel category for grouping (e.g., "Text Channels")
+    )
+    invite_only: bool = False  # If True, only explicitly invited users can join
+
+
+class AddParticipantModel(BaseModel):
+    """Request model for adding a participant to a group conversation"""
+
+    user_id: Optional[str] = None  # For user participants
+    agent_id: Optional[str] = None  # For agent participants
+    participant_type: str = "user"  # 'user' or 'agent'
+    role: str = "member"  # 'owner', 'admin', 'member', 'observer'
+
+
+class UpdateParticipantRoleModel(BaseModel):
+    """Request model for updating a participant's role"""
+
+    role: str  # 'owner', 'admin', 'member', 'observer'
+
+
+class UpdateNotificationSettingsModel(BaseModel):
+    """Request model for updating per-channel notification settings"""
+
+    notification_mode: str = "all"  # 'all', 'mentions', 'none'
+
+
+class NotificationSettingsResponse(BaseModel):
+    """Response model for per-channel notification settings"""
+
+    notification_mode: str = "all"
+
+
+class UpdateChannelModel(BaseModel):
+    """Request model for updating a channel's properties"""
+
+    category: Optional[str] = None  # Channel category for grouping
+    name: Optional[str] = None  # Channel name
+    description: Optional[str] = None  # Channel topic/description
+
+
+class ParticipantResponse(BaseModel):
+    """Response model for a conversation participant"""
+
+    id: str
+    participant_type: str
+    role: str
+    joined_at: Optional[str] = None
+    last_read_at: Optional[str] = None
+    status: str
+    user: Optional[Dict[str, Any]] = None
+    agent: Optional[Dict[str, Any]] = None
+
+
+class GroupConversationResponse(BaseModel):
+    """Response model for a group conversation"""
+
+    id: str
+    name: str
+    conversation_type: str
+    company_id: Optional[str] = None
+    parent_id: Optional[str] = None  # For threads: parent channel ID
+    parent_message_id: Optional[str] = None  # For threads: originating message ID
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    has_notifications: bool = False
+    participant_count: int = 0
+    thread_count: int = 0  # Number of threads in this channel
+
+
+class ThreadResponse(BaseModel):
+    """Response model for a thread within a channel"""
+
+    id: str
+    name: str
+    parent_id: str
+    parent_message_id: Optional[str] = None
+    conversation_type: str = "thread"
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    message_count: int = 0
+    last_message_at: Optional[str] = None
+    locked: bool = False
+
+
+class ThreadListResponse(BaseModel):
+    """Response model for list of threads in a channel"""
+
+    threads: List[ThreadResponse]
+
+
+class GroupConversationListResponse(BaseModel):
+    """Response model for list of group conversations"""
+
+    conversations: Dict[str, Dict[str, Any]]
 
 
 # Scope and Custom Role Models

@@ -18,6 +18,17 @@ import httpx
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 
+# Module-level shared httpx client for outgoing webhooks
+_webhook_http_client = None
+
+
+def _get_webhook_http_client():
+    global _webhook_http_client
+    if _webhook_http_client is None:
+        _webhook_http_client = httpx.AsyncClient(timeout=30)
+    return _webhook_http_client
+
+
 from DB import (
     WebhookIncoming,
     WebhookOutgoing,
@@ -206,9 +217,16 @@ class WebhookEventEmitter:
 
     def _get_agent_company_id(self, agent_id: str) -> Optional[str]:
         """Attempt to resolve the company associated with a given agent."""
+        from SharedCache import shared_cache
+
+        agent_id_str = str(agent_id)
+        cache_key = f"webhook_company:agent:{agent_id_str}"
+        cached = shared_cache.get(cache_key)
+        if cached is not None:
+            return cached if cached != "" else None
+
         session: Optional[Session] = None
         try:
-            agent_id_str = str(agent_id)
             session = get_session()
 
             # Look for a cached company_id in the agent settings first
@@ -221,15 +239,19 @@ class WebhookEventEmitter:
                 .first()
             )
             if setting and setting.value:
-                return str(setting.value)
+                result = str(setting.value)
+                shared_cache.set(cache_key, result, ttl=60)
+                return result
 
             # Fall back to the agent's owning user to infer the company
             agent = session.query(Agent).filter(Agent.id == agent_id_str).first()
             if agent and agent.user_id:
                 inferred_company = self._get_user_company_id(agent.user_id)
                 if inferred_company:
+                    shared_cache.set(cache_key, inferred_company, ttl=60)
                     return inferred_company
 
+            shared_cache.set(cache_key, "", ttl=60)
             return None
         except Exception as exc:
             logger.warning(
@@ -293,38 +315,35 @@ class WebhookEventEmitter:
 
     def _get_user_company_id(self, user_id: str) -> Optional[str]:
         """Get user's default company_id"""
+        from SharedCache import shared_cache
+
+        user_id_str = str(user_id)
+        cache_key = f"webhook_company:user:{user_id_str}"
+        cached = shared_cache.get(cache_key)
+        if cached is not None:
+            return cached if cached != "" else None
+
         try:
-            # Check if user_id is a valid UUID format
-            import uuid as uuid_lib
-
-            # Ensure user_id is a string
-            user_id_str = str(user_id)
-
             try:
-                uuid_lib.UUID(user_id_str)
+                uuid.UUID(user_id_str)
             except ValueError:
-                # user_id is not a valid UUID (e.g., email address), skip company lookup
                 logger.debug("User ID is not a valid UUID, skipping company lookup")
+                shared_cache.set(cache_key, "", ttl=60)
                 return None
 
             session = get_session()
             from DB import UserCompany
 
-            user_company = (
-                session.query(UserCompany)
-                .filter(UserCompany.user_id == user_id_str)
-                .first()
-            )
-
             company_id = (
-                user_company.company_id
-                if user_company and user_company.company_id is not None
-                else None
+                session.query(UserCompany.company_id)
+                .filter(UserCompany.user_id == user_id_str)
+                .scalar()
             )
             session.close()
 
-            # Ensure we return a string or None
-            return str(company_id) if company_id is not None else None
+            result = str(company_id) if company_id is not None else None
+            shared_cache.set(cache_key, result if result else "", ttl=60)
+            return result
 
         except Exception as e:
             logger.warning(f"Could not resolve company_id for user {user_id}: {e}")
@@ -354,16 +373,7 @@ class WebhookEventEmitter:
                 )
                 return
 
-            # First, get all active webhooks to see what's available
-            all_webhooks = (
-                session.query(WebhookOutgoing)
-                .filter(WebhookOutgoing.active == True)
-                .filter(WebhookOutgoing.company_id == event.company_id)
-                .all()
-            )
-
-            # Find all active webhooks subscribed to this event type
-            # First get all active webhooks for this company, then filter in Python for better compatibility
+            # Find all active webhooks for this company, then filter in Python for better compatibility
             all_active_webhooks = (
                 session.query(WebhookOutgoing)
                 .filter(WebhookOutgoing.active == True)
@@ -551,10 +561,13 @@ class WebhookEventEmitter:
                 headers["X-Webhook-Signature"] = signature
 
             # Send HTTP request
-            async with httpx.AsyncClient(timeout=webhook.timeout) as client:
-                response = await client.post(
-                    webhook.target_url, json=payload, headers=headers
-                )
+            client = _get_webhook_http_client()
+            response = await client.post(
+                webhook.target_url,
+                json=payload,
+                headers=headers,
+                timeout=webhook.timeout,
+            )
 
             processing_time = int((time.time() - start_time) * 1000)
 

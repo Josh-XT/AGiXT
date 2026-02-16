@@ -124,7 +124,9 @@ class whatsapp(Extensions):
                 try:
                     self.auth = MagicalAuth(token=self.api_key)
                 except Exception as e:
-                    logging.error(f"Error initializing WhatsApp client: {str(e)}")
+                    logging.error(
+                        f"Error initializing WhatsApp client: {type(e).__name__}"
+                    )
 
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]

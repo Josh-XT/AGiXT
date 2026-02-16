@@ -12,8 +12,10 @@ from DB import (
     CompanyPromptArgument,
     UserPromptOverride,
 )
-from Globals import DEFAULT_USER
+from Globals import DEFAULT_USER, get_default_user_id
 from MagicalAuth import get_user_id, get_user_company_id
+from SharedCache import shared_cache
+from sqlalchemy.orm import joinedload
 import os
 import logging
 
@@ -98,7 +100,15 @@ class Prompts:
         4. Legacy file-based prompt (lowest priority, imports to user level)
 
         For internal prompts, server level is always used.
+        Results are cached for 60s to avoid repeated DB queries on hot paths.
         """
+        cache_key = (
+            f"prompt:{self.user_id}:{self.company_id}:{prompt_category}:{prompt_name}"
+        )
+        cached = shared_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         session = get_session()
 
         # 1. Try user-level prompt first
@@ -115,6 +125,7 @@ class Prompts:
         if prompt:
             content = prompt.content
             session.close()
+            shared_cache.set(cache_key, content, 60)
             return content
 
         # 2. Try company-level prompt
@@ -132,6 +143,7 @@ class Prompts:
             if company_prompt:
                 content = company_prompt.content
                 session.close()
+                shared_cache.set(cache_key, content, 60)
                 return content
 
         # 3. Try server-level prompt (including internal prompts)
@@ -147,17 +159,18 @@ class Prompts:
         if server_prompt:
             content = server_prompt.content
             session.close()
+            shared_cache.set(cache_key, content, 60)
             return content
 
         # 4. Legacy: Try default user's prompts (for backwards compatibility)
-        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
-        if user_data:
+        default_uid = get_default_user_id()
+        if default_uid:
             default_prompt = (
                 session.query(Prompt)
                 .join(PromptCategory)
                 .filter(
                     Prompt.name == prompt_name,
-                    Prompt.user_id == user_data.id,
+                    Prompt.user_id == default_uid,
                     PromptCategory.name == prompt_category,
                 )
                 .first()
@@ -165,6 +178,7 @@ class Prompts:
             if default_prompt:
                 content = default_prompt.content
                 session.close()
+                shared_cache.set(cache_key, content, 60)
                 return content
 
         # 5. Legacy: Try file-based prompts and import to user level
@@ -182,6 +196,7 @@ class Prompts:
                 prompt=prompt_content,
                 prompt_category=prompt_category,
             )
+            shared_cache.set(cache_key, prompt_content, 60)
             return prompt_content
 
         session.close()
@@ -199,6 +214,10 @@ class Prompts:
         # 1. Server-level prompts (non-internal only)
         server_prompts = (
             session.query(ServerPrompt)
+            .options(
+                joinedload(ServerPrompt.arguments),
+                joinedload(ServerPrompt.category),
+            )
             .join(ServerPromptCategory)
             .filter(ServerPrompt.is_internal == False)
             .all()
@@ -223,6 +242,10 @@ class Prompts:
         if self.company_id:
             company_prompts = (
                 session.query(CompanyPrompt)
+                .options(
+                    joinedload(CompanyPrompt.arguments),
+                    joinedload(CompanyPrompt.category),
+                )
                 .filter(CompanyPrompt.company_id == self.company_id)
                 .all()
             )
@@ -250,23 +273,30 @@ class Prompts:
 
         # 3. User-level prompts (override company and server)
         user_prompts = (
-            session.query(Prompt).filter(Prompt.user_id == self.user_id).all()
+            session.query(Prompt)
+            .options(
+                joinedload(Prompt.arguments),
+                joinedload(Prompt.prompt_category),
+            )
+            .filter(Prompt.user_id == self.user_id)
+            .all()
         )
+        # Batch-fetch all user prompt overrides in a single query (N+1 → 1)
+        all_user_overrides = (
+            session.query(UserPromptOverride)
+            .filter(UserPromptOverride.user_id == self.user_id)
+            .all()
+        )
+        override_by_prompt_id = {str(o.prompt_id): o for o in all_user_overrides}
+
         for prompt in user_prompts:
             try:
                 prompt_args = [arg.name for arg in prompt.arguments]
             except:
                 prompt_args = []
 
-            # Check if this is an override
-            override = (
-                session.query(UserPromptOverride)
-                .filter(
-                    UserPromptOverride.user_id == self.user_id,
-                    UserPromptOverride.prompt_id == prompt.id,
-                )
-                .first()
-            )
+            # Check if this is an override (from pre-fetched dict)
+            override = override_by_prompt_id.get(str(prompt.id))
             is_override = override is not None
             parent_id = None
             if override:
@@ -288,10 +318,16 @@ class Prompts:
             }
 
         # 4. Legacy: Include global prompts from DEFAULT_USER that user doesn't have
-        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
-        if user_data and user_data.id != self.user_id:
+        default_uid = get_default_user_id()
+        if default_uid and default_uid != str(self.user_id):
             global_prompts = (
-                session.query(Prompt).filter(Prompt.user_id == user_data.id).all()
+                session.query(Prompt)
+                .options(
+                    joinedload(Prompt.arguments),
+                    joinedload(Prompt.prompt_category),
+                )
+                .filter(Prompt.user_id == default_uid)
+                .all()
             )
             for prompt in global_prompts:
                 if prompt.name not in prompts_dict:
@@ -322,13 +358,21 @@ class Prompts:
 
         # Get user's prompt names for exclusion
         user_prompt_names = {
-            p.name
-            for p in session.query(Prompt).filter(Prompt.user_id == self.user_id).all()
+            row[0]
+            for row in session.query(Prompt.name)
+            .filter(Prompt.user_id == self.user_id)
+            .all()
         }
 
         # Server-level prompts (non-internal)
         server_prompts = (
-            session.query(ServerPrompt).filter(ServerPrompt.is_internal == False).all()
+            session.query(ServerPrompt)
+            .options(
+                joinedload(ServerPrompt.arguments),
+                joinedload(ServerPrompt.category),
+            )
+            .filter(ServerPrompt.is_internal == False)
+            .all()
         )
         for prompt in server_prompts:
             if prompt.name not in user_prompt_names:
@@ -352,6 +396,10 @@ class Prompts:
         if self.company_id:
             company_prompts = (
                 session.query(CompanyPrompt)
+                .options(
+                    joinedload(CompanyPrompt.arguments),
+                    joinedload(CompanyPrompt.category),
+                )
                 .filter(CompanyPrompt.company_id == self.company_id)
                 .all()
             )
@@ -374,10 +422,16 @@ class Prompts:
                     )
 
         # Legacy global prompts
-        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
-        if user_data:
+        default_uid = get_default_user_id()
+        if default_uid:
             global_prompts = (
-                session.query(Prompt).filter(Prompt.user_id == user_data.id).all()
+                session.query(Prompt)
+                .options(
+                    joinedload(Prompt.arguments),
+                    joinedload(Prompt.prompt_category),
+                )
+                .filter(Prompt.user_id == default_uid)
+                .all()
             )
             for prompt in global_prompts:
                 if prompt.name not in user_prompt_names:
@@ -483,14 +537,14 @@ class Prompts:
                 prompts_dict[prompt.name] = prompt.name
 
         # 4. Legacy global prompts
-        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
-        if user_data:
+        default_uid = get_default_user_id()
+        if default_uid:
             global_prompts = (
                 session.query(Prompt)
                 .join(PromptCategory)
                 .filter(
                     PromptCategory.name == prompt_category,
-                    Prompt.user_id == user_data.id,
+                    Prompt.user_id == default_uid,
                 )
                 .all()
             )
@@ -546,14 +600,18 @@ class Prompts:
             return prompts
 
         # Must be a user category
-        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
+        default_uid = get_default_user_id()
         global_prompts = (
-            session.query(Prompt)
-            .filter(
-                Prompt.user_id == user_data.id,
-                Prompt.prompt_category_id == category_id,
+            (
+                session.query(Prompt)
+                .filter(
+                    Prompt.user_id == default_uid,
+                    Prompt.prompt_category_id == category_id,
+                )
+                .all()
             )
-            .all()
+            if default_uid
+            else []
         )
         user_prompts = (
             session.query(Prompt)
@@ -603,6 +661,10 @@ class Prompts:
             session.delete(prompt)
             session.commit()
         session.close()
+        # Invalidate cached prompt content
+        shared_cache.delete(
+            f"prompt:{self.user_id}:{self.company_id}:{prompt_category}:{prompt_name}"
+        )
 
     def update_prompt(self, prompt_name, prompt, prompt_category="Default"):
         """Update a user-level prompt or clone from parent tier if editing inherited."""
@@ -639,10 +701,18 @@ class Prompts:
                     session.add(Argument(prompt_id=prompt_obj.id, name=arg))
             session.commit()
             session.close()
+            # Invalidate cached prompt content
+            shared_cache.delete(
+                f"prompt:{self.user_id}:{self.company_id}:{prompt_category}:{prompt_name}"
+            )
             return str(prompt_obj.id)
 
         # User doesn't have this prompt - need to clone from parent tier
         session.close()
+        # Invalidate cached prompt content
+        shared_cache.delete(
+            f"prompt:{self.user_id}:{self.company_id}:{prompt_category}:{prompt_name}"
+        )
         return self._clone_and_edit_prompt(prompt_name, prompt, prompt_category)
 
     def _clone_and_edit_prompt(self, prompt_name, new_content, prompt_category):
@@ -820,11 +890,11 @@ class Prompts:
                 categories_dict[cat.name] = cat.name
 
         # 4. Legacy global categories
-        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
-        if user_data:
+        default_uid = get_default_user_id()
+        if default_uid:
             global_categories = (
                 session.query(PromptCategory)
-                .filter(PromptCategory.user_id == user_data.id)
+                .filter(PromptCategory.user_id == default_uid)
                 .all()
             )
             for cat in global_categories:
@@ -882,13 +952,13 @@ class Prompts:
             return server_prompt.content
 
         # Try legacy global prompt
-        user_data = session.query(User).filter(User.email == DEFAULT_USER).first()
-        if user_data:
+        default_uid = get_default_user_id()
+        if default_uid:
             global_prompt = (
                 session.query(Prompt)
                 .filter(
                     Prompt.id == prompt_id,
-                    Prompt.user_id == user_data.id,
+                    Prompt.user_id == default_uid,
                 )
                 .first()
             )
@@ -927,6 +997,8 @@ class Prompts:
                     session.add(Argument(prompt_id=prompt_id, name=arg))
             session.commit()
             session.close()
+            # Invalidate all cached prompts for this user
+            shared_cache.delete_pattern(f"prompt:{self.user_id}:*")
             return str(prompt_obj.id)
 
         # Get the source prompt for cloning
@@ -983,6 +1055,9 @@ class Prompts:
         session.commit()
         session.close()
 
+        # Invalidate all cached prompts for this user
+        shared_cache.delete_pattern(f"prompt:{self.user_id}:*")
+
         return new_prompt_id
 
     def delete_prompt_by_id(self, prompt_id: str):
@@ -1010,6 +1085,8 @@ class Prompts:
         session.delete(prompt)
         session.commit()
         session.close()
+        # Invalidate all cached prompts for this user
+        shared_cache.delete_pattern(f"prompt:{self.user_id}:*")
 
     def get_prompt_details_by_id(self, prompt_id: str):
         """Get full prompt details by ID across all tiers."""

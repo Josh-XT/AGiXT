@@ -1,9 +1,16 @@
 import os
+import uuid
 from fastapi import APIRouter, Header, HTTPException, Depends, Query
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
-from datetime import datetime
-from MagicalAuth import MagicalAuth, verify_api_key, invalidate_user_scopes_cache
+from datetime import datetime, timezone
+from MagicalAuth import (
+    MagicalAuth,
+    verify_api_key,
+    invalidate_user_scopes_cache,
+    add_user_to_company_channels,
+    invalidate_user_company_cache,
+)
 from payments.pricing import PriceService
 from payments.crypto import CryptoPaymentService
 from payments.stripe_service import StripePaymentService
@@ -29,18 +36,18 @@ app = APIRouter()
 
 # Request/Response Models
 class TokenQuoteRequest(BaseModel):
-    token_millions: int
+    token_millions: int = Field(..., ge=1)
     currency: str = "USD"
 
 
 class TokenTopupCryptoRequest(BaseModel):
-    token_millions: int
+    token_millions: int = Field(..., ge=1)
     currency: str
     company_id: Optional[str] = None
 
 
 class TokenTopupStripeRequest(BaseModel):
-    token_millions: int
+    token_millions: int = Field(..., ge=1)
     company_id: Optional[str] = None
 
 
@@ -75,6 +82,76 @@ class AutoTopupCancelRequest(BaseModel):
     """Request to cancel auto top-up subscription"""
 
     company_id: str
+
+
+class PlanCheckoutRequest(BaseModel):
+    """Request to subscribe to a plan tier"""
+
+    company_id: str
+    plan_id: str = Field(
+        ...,
+        description="Plan tier ID (e.g., 'starter', 'team_5') or bed count for NurseXT",
+    )
+    billing_interval: str = Field(
+        "month", description="Billing interval: 'month' or 'year'"
+    )
+
+
+class TokenTopupPlanRequest(BaseModel):
+    """Request to add tokens to a tiered plan"""
+
+    company_id: str
+    token_millions: int = Field(
+        ..., ge=1, description="Number of millions of tokens to purchase (minimum 1M)"
+    )
+
+
+class AddonRequest(BaseModel):
+    """Request to add user/resource addons (Enterprise Plus only)"""
+
+    company_id: str
+    addon_count: int = Field(1, ge=1, description="Number of addons to add")
+
+
+class UpdateCompanyRequest(BaseModel):
+    """Request to update company details (super admin only)"""
+
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone_number: Optional[str] = None
+    website: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    country: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ChangeUserRoleRequest(BaseModel):
+    """Request to change a user's role in a company (super admin only)"""
+
+    role_id: int = Field(
+        ...,
+        ge=0,
+        le=3,
+        description="New role ID (0=Super Admin, 1=Admin, 2=Manager, 3=User)",
+    )
+
+
+class AssignUserToCompanyRequest(BaseModel):
+    """Request to assign a user to a company (super admin only)"""
+
+    user_email: str = Field(..., description="Email address of the user to assign")
+    role_id: int = Field(
+        3, ge=0, le=3, description="Role ID (0=Super Admin, 1=Admin, 2=Manager, 3=User)"
+    )
+
+
+class ImpersonateUserRequest(BaseModel):
+    """Request to impersonate a user (super admin only)"""
+
+    user_email: str = Field(..., description="Email of the user to impersonate")
 
 
 # Endpoints
@@ -151,6 +228,14 @@ async def sync_payments_endpoint(
             raise HTTPException(
                 status_code=403, detail="You do not have access to this company"
             )
+    else:
+        # Default to user's primary company — never allow syncing all companies
+        user_companies = auth.get_user_companies()
+        if not user_companies:
+            raise HTTPException(
+                status_code=400, detail="User is not associated with any company"
+            )
+        company_id = user_companies[0]
 
     stripe_service = StripePaymentService()
     result = await stripe_service.sync_payments(company_id=company_id)
@@ -395,9 +480,7 @@ async def create_token_topup_crypto(
         return invoice
     except Exception as e:
         logging.error(f"Error creating crypto invoice: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to create crypto invoice: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to create crypto invoice")
 
 
 @app.post(
@@ -455,9 +538,7 @@ async def create_token_topup_stripe(
         return payment_intent
     except Exception as e:
         logging.error(f"Error creating Stripe payment intent: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to create payment intent: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to create payment intent")
 
 
 @app.post(
@@ -497,9 +578,10 @@ async def confirm_stripe_payment(
 
     session = get_session()
     try:
-        # Find the transaction
+        # Find the transaction with row-level locking to prevent double-crediting
         transaction = (
             session.query(PaymentTransaction)
+            .with_for_update()
             .filter(
                 PaymentTransaction.stripe_payment_intent_id == request.payment_intent_id
             )
@@ -507,12 +589,10 @@ async def confirm_stripe_payment(
         )
 
         if not transaction:
-            session.close()
             raise HTTPException(status_code=404, detail="Payment transaction not found")
 
         # Verify transaction belongs to user's company
         if transaction.company_id != company_id:
-            session.close()
             raise HTTPException(
                 status_code=403, detail="Transaction does not belong to your company"
             )
@@ -520,7 +600,6 @@ async def confirm_stripe_payment(
         # Check if already processed
         if transaction.status == "completed":
             tokens_credited = transaction.token_amount
-            session.close()
             return {
                 "success": True,
                 "message": "Payment already processed",
@@ -547,6 +626,11 @@ async def confirm_stripe_payment(
 
             # Credit tokens to company
             if tokens_credited and transaction_company_id:
+                # Commit status FIRST so idempotency guard
+                # catches retries if add_tokens_to_company
+                # succeeds but later code fails
+                session.commit()
+
                 auth.add_tokens_to_company(
                     company_id=transaction_company_id,
                     token_amount=tokens_credited,
@@ -562,9 +646,8 @@ async def confirm_stripe_payment(
                     tokens=tokens_credited,
                     company_id=transaction_company_id,
                 )
-
-            session.commit()
-            session.close()
+            else:
+                session.commit()
             return {
                 "success": True,
                 "message": "Payment confirmed and tokens credited",
@@ -572,13 +655,11 @@ async def confirm_stripe_payment(
             }
         elif payment_intent.status == "processing":
             logging.info(f"PaymentIntent {request.payment_intent_id} still processing")
-            session.close()
             return {
                 "success": False,
                 "message": "Payment is still processing. Please try again in a moment.",
             }
         elif payment_intent.status == "requires_payment_method":
-            session.close()
             raise HTTPException(
                 status_code=400, detail="Payment requires a valid payment method"
             )
@@ -586,7 +667,6 @@ async def confirm_stripe_payment(
             logging.warning(
                 f"PaymentIntent {request.payment_intent_id} returned unexpected status: {getattr(payment_intent, 'status', None)}"
             )
-            session.close()
             raise HTTPException(
                 status_code=400,
                 detail=f"Payment failed with status: {payment_intent.status}",
@@ -594,18 +674,18 @@ async def confirm_stripe_payment(
 
     except stripe_lib.error.StripeError as e:
         session.rollback()
-        session.close()
         logging.error(f"Stripe API error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail="Payment processing error. Please try again."
+        )
     except HTTPException:
         raise
     except Exception as e:
         session.rollback()
-        session.close()
         logging.error(f"Error confirming payment: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to confirm payment: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to confirm payment")
+    finally:
+        session.close()
 
 
 @app.post(
@@ -629,9 +709,10 @@ async def confirm_stripe_payment_general(
 
     session = get_session()
     try:
-        # Find the transaction by payment intent ID
+        # Find the transaction by payment intent ID with row-level locking
         transaction = (
             session.query(PaymentTransaction)
+            .with_for_update()
             .filter(
                 PaymentTransaction.stripe_payment_intent_id == request.payment_intent_id
             )
@@ -639,19 +720,16 @@ async def confirm_stripe_payment_general(
         )
 
         if not transaction:
-            session.close()
             raise HTTPException(status_code=404, detail="Payment transaction not found")
 
         # Verify transaction belongs to the user
         if transaction.user_id != auth.user_id:
-            session.close()
             raise HTTPException(
                 status_code=403, detail="Transaction does not belong to you"
             )
 
         # Check if already processed
         if transaction.status == "completed":
-            session.close()
             return {
                 "success": True,
                 "message": "Payment already processed",
@@ -674,6 +752,11 @@ async def confirm_stripe_payment_general(
 
             # Handle token-based payment
             if transaction.token_amount and transaction.company_id:
+                # Commit status FIRST so idempotency guard
+                # catches retries if add_tokens_to_company
+                # succeeds but later code fails
+                session.commit()
+
                 auth.add_tokens_to_company(
                     company_id=transaction.company_id,
                     token_amount=transaction.token_amount,
@@ -752,7 +835,6 @@ async def confirm_stripe_payment_general(
                 )
 
             session.commit()
-            session.close()
             return {
                 "success": True,
                 "message": "Payment confirmed and processed",
@@ -761,13 +843,11 @@ async def confirm_stripe_payment_general(
             }
         elif payment_intent.status == "processing":
             logging.info(f"PaymentIntent {request.payment_intent_id} still processing")
-            session.close()
             return {
                 "success": False,
                 "message": "Payment is still processing. Please try again in a moment.",
             }
         elif payment_intent.status == "requires_payment_method":
-            session.close()
             raise HTTPException(
                 status_code=400, detail="Payment requires a valid payment method"
             )
@@ -775,7 +855,6 @@ async def confirm_stripe_payment_general(
             logging.warning(
                 f"PaymentIntent {request.payment_intent_id} returned unexpected status: {getattr(payment_intent, 'status', None)}"
             )
-            session.close()
             raise HTTPException(
                 status_code=400,
                 detail=f"Payment failed with status: {payment_intent.status}",
@@ -783,21 +862,21 @@ async def confirm_stripe_payment_general(
 
     except stripe_lib.error.StripeError as e:
         session.rollback()
-        session.close()
         logging.error(f"Stripe API error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Stripe error: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail="Payment processing error. Please try again."
+        )
     except HTTPException:
         raise
     except Exception as e:
         session.rollback()
-        session.close()
         logging.error(f"Error confirming payment: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to confirm payment: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to confirm payment")
+    finally:
+        session.close()
 
 
-@app.get(
+@app.post(
     "/v1/billing/tokens/warning/dismiss",
     tags=["Billing"],
     dependencies=[Depends(verify_api_key)],
@@ -852,6 +931,8 @@ async def should_show_warning(
 )
 async def get_payment_transactions(
     status: Optional[str] = None,
+    limit: int = Query(100, le=1000, ge=1),
+    offset: int = Query(0, ge=0),
     authorization: str = Header(None),
 ):
     """Get payment transaction history for user's companies"""
@@ -871,7 +952,12 @@ async def get_payment_transactions(
         if status:
             query = query.filter(PaymentTransaction.status == status)
 
-        transactions = query.order_by(desc(PaymentTransaction.created_at)).all()
+        transactions = (
+            query.order_by(desc(PaymentTransaction.created_at))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
 
         # Convert to dict for JSON serialization
         result = []
@@ -909,35 +995,13 @@ async def get_payment_transactions(
 
 
 @app.get(
-    "/v1/billing/subscription",
-    tags=["Billing"],
-    dependencies=[Depends(verify_api_key)],
-)
-async def get_subscription_info(
-    authorization: str = Header(None),
-):
-    """Get subscription information - currently returns empty as we use token-based billing"""
-    auth = MagicalAuth(token=authorization)
-    auth.validate_user()
-
-    # For now, return empty subscription info since we're using token-based billing
-    # This endpoint exists to prevent frontend errors
-    return {
-        "monthly_price_usd": 0.0,
-        "next_billing_date": None,
-        "subscription_status": "inactive",
-        "upcoming_cycles": [],
-    }
-
-
-@app.get(
     "/v1/billing/usage",
     tags=["Billing"],
     dependencies=[Depends(verify_api_key)],
 )
 async def get_company_usage(
     company_id: str,
-    limit: int = 100,
+    limit: int = Query(100, le=1000, ge=1),
     authorization: str = Header(None),
 ):
     """Get company-level token usage breakdown by user"""
@@ -963,14 +1027,19 @@ async def get_company_usage(
         )
 
         # Convert to dict for JSON serialization
+        # Batch-fetch all users to avoid N+1
+        user_ids = list({record.user_id for record in usage_records})
+        users = (
+            session.query(User).filter(User.id.in_(user_ids)).all() if user_ids else []
+        )
+        users_by_id = {str(u.id): u.email for u in users}
+
         result = []
         for record in usage_records:
-            # Get user email for display
-            user = session.query(User).filter(User.id == record.user_id).first()
             result.append(
                 {
                     "user_id": record.user_id,
-                    "user_email": user.email if user else "Unknown",
+                    "user_email": users_by_id.get(str(record.user_id), "Unknown"),
                     "input_tokens": record.input_tokens,
                     "output_tokens": record.output_tokens,
                     "total_tokens": record.total_tokens,
@@ -1168,9 +1237,7 @@ async def setup_auto_topup(
         return result
     except Exception as e:
         logging.error(f"Error creating auto top-up subscription: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to create subscription: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to create subscription")
 
 
 @app.put(
@@ -1245,9 +1312,7 @@ async def update_auto_topup(
             return result
     except Exception as e:
         logging.error(f"Error updating auto top-up: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to update subscription: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to update subscription")
 
 
 @app.delete(
@@ -1284,9 +1349,239 @@ async def cancel_auto_topup(
         return result
     except Exception as e:
         logging.error(f"Error cancelling auto top-up: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to cancel subscription")
+
+
+# ============================================================================
+# Plan Management Endpoints (tiered_plan and per_bed pricing)
+# ============================================================================
+
+
+@app.get(
+    "/v1/billing/plan/limits",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Get plan limits and current usage",
+)
+async def get_plan_limits(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """
+    Get current plan limits and usage for a company.
+
+    Returns plan tier info, limits (users, devices, tokens, storage),
+    current usage, addon info, and any warnings about approaching limits.
+    """
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    user_companies = auth.get_user_companies()
+    if company_id not in user_companies:
         raise HTTPException(
-            status_code=500, detail=f"Failed to cancel subscription: {str(e)}"
+            status_code=403, detail="You do not have access to this company"
         )
+
+    return auth.get_plan_limits(company_id)
+
+
+@app.post(
+    "/v1/billing/plan/checkout",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Subscribe to a plan or change plan",
+)
+async def create_plan_checkout(
+    request: PlanCheckoutRequest,
+    authorization: str = Header(None),
+):
+    """
+    Create a Stripe checkout session for subscribing to a plan tier.
+
+    For tiered plans (AGiXT, XT Systems, BoltRemote, UltraEstimate):
+    - Pass plan_id like 'starter', 'team_5', 'team_10', etc.
+
+    For per-bed pricing (NurseXT):
+    - Pass plan_id as the number of beds (e.g., '10' for 10 beds)
+
+    Returns a checkout URL to redirect the user to Stripe.
+    """
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    user_companies = auth.get_user_companies()
+    if request.company_id not in user_companies:
+        raise HTTPException(
+            status_code=403, detail="You do not have access to this company"
+        )
+
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == auth.user_id).first()
+        user_email = user.email if user else None
+    finally:
+        session.close()
+
+    stripe_service = StripePaymentService()
+    try:
+        # Validate billing_interval
+        interval = request.billing_interval
+        if interval not in ("month", "year"):
+            interval = "month"
+
+        result = await stripe_service.create_plan_checkout(
+            company_id=request.company_id,
+            plan_id=request.plan_id,
+            user_email=user_email,
+            billing_interval=interval,
+        )
+        return result
+    except Exception as e:
+        logging.error(f"Error creating plan checkout: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to create checkout")
+
+
+@app.post(
+    "/v1/billing/plan/topup",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Purchase additional tokens",
+)
+async def purchase_token_topup(
+    request: TokenTopupPlanRequest,
+    authorization: str = Header(None),
+):
+    """
+    Purchase additional tokens for a tiered plan.
+
+    Tokens are $5 per 1M tokens, minimum purchase of 1M tokens.
+    Purchased tokens are added to the company's balance immediately and
+    do not expire at the end of the billing period.
+    """
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    user_companies = auth.get_user_companies()
+    if request.company_id not in user_companies:
+        raise HTTPException(
+            status_code=403, detail="You do not have access to this company"
+        )
+
+    stripe_service = StripePaymentService()
+    try:
+        session = get_session()
+        try:
+            user = session.query(User).filter(User.id == auth.user_id).first()
+            user_email = user.email if user else None
+        finally:
+            session.close()
+
+        result = await stripe_service.create_token_topup_checkout(
+            company_id=request.company_id,
+            token_millions=request.token_millions,
+            user_email=user_email,
+        )
+        return result
+    except Exception as e:
+        logging.error(f"Error creating token topup: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to create token topup")
+
+
+@app.post(
+    "/v1/billing/plan/addon",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Add user/resource addons (Enterprise Plus only)",
+)
+async def purchase_addon(
+    request: AddonRequest,
+    authorization: str = Header(None),
+):
+    """
+    Purchase user/resource addons for the Enterprise Plus (enterprise_100) plan.
+
+    Each addon ($10/month) adds:
+    - 1 additional user
+    - 100 additional devices
+    - 10M additional monthly tokens
+    - 2GB additional storage
+
+    Only available for companies on the Enterprise Plus plan.
+    """
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    user_companies = auth.get_user_companies()
+    if request.company_id not in user_companies:
+        raise HTTPException(
+            status_code=403, detail="You do not have access to this company"
+        )
+
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == auth.user_id).first()
+        user_email = user.email if user else None
+    finally:
+        session.close()
+
+    stripe_service = StripePaymentService()
+    try:
+        result = await stripe_service.create_addon_checkout(
+            company_id=request.company_id,
+            addon_count=request.addon_count,
+            user_email=user_email,
+        )
+        return result
+    except Exception as e:
+        logging.error(f"Error creating addon checkout: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to create addon checkout")
+
+
+@app.get(
+    "/v1/billing/plan/device-check",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Check device limit",
+)
+async def check_device_limit(
+    company_id: str,
+    authorization: str = Header(None),
+):
+    """Check if the company can register more devices based on current plan limits."""
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    user_companies = auth.get_user_companies()
+    if company_id not in user_companies:
+        raise HTTPException(
+            status_code=403, detail="You do not have access to this company"
+        )
+
+    return auth.check_device_limit(company_id)
+
+
+@app.get(
+    "/v1/billing/plan/storage-check",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Check storage limit",
+)
+async def check_storage_limit(
+    company_id: str,
+    additional_bytes: int = 0,
+    authorization: str = Header(None),
+):
+    """Check if the company can use more storage based on current plan limits."""
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    user_companies = auth.get_user_companies()
+    if company_id not in user_companies:
+        raise HTTPException(
+            status_code=403, detail="You do not have access to this company"
+        )
+
+    return auth.check_storage_limit(company_id, additional_bytes)
 
 
 @app.post(
@@ -1319,11 +1614,13 @@ async def issue_company_credits(
     """
     from decimal import Decimal
 
+    import hmac
+
     # Verify AGiXT API Key
     agixt_api_key = os.getenv("AGIXT_API_KEY", "")
     provided_key = str(authorization).replace("Bearer ", "").replace("bearer ", "")
 
-    if not agixt_api_key or provided_key != agixt_api_key:
+    if not agixt_api_key or not hmac.compare_digest(provided_key, agixt_api_key):
         raise HTTPException(
             status_code=401,
             detail="Unauthorized. This endpoint requires the AGiXT API Key.",
@@ -1362,12 +1659,6 @@ async def issue_company_credits(
         token_millions = amount_decimal / token_price
         tokens = int(token_millions * 1_000_000)
 
-        # Add tokens to company balance
-        company_record.token_balance = (company_record.token_balance or 0) + tokens
-        company_record.token_balance_usd = (
-            company_record.token_balance_usd or 0
-        ) + float(amount_decimal)
-
         # Create a payment transaction record for audit trail
         transaction = PaymentTransaction(
             user_id=None,  # Admin credit, no specific user
@@ -1381,11 +1672,33 @@ async def issue_company_credits(
             amount_currency=float(amount_decimal),  # Same as USD for manual credits
             exchange_rate=1.0,  # 1:1 for USD
             status="completed",
-            reference_code=f"ADMIN_CREDIT_{company}_{int(datetime.now().timestamp())}",
+            reference_code=f"ADMIN_CREDIT_{company}_{uuid.uuid4().hex[:8]}",
         )
         session.add(transaction)
-
         session.commit()
+
+        # Add tokens via root parent resolution
+        from MagicalAuth import MagicalAuth
+
+        auth = MagicalAuth()
+        auth.add_tokens_to_company(
+            company_id=company,
+            token_amount=tokens,
+            amount_usd=float(amount_decimal),
+        )
+
+        # Re-fetch company to get updated balances
+        session2 = get_session()
+        try:
+            company_record = (
+                session2.query(Company).filter(Company.id == company).first()
+            )
+            new_balance_tokens = company_record.token_balance if company_record else 0
+            new_balance_usd = (
+                company_record.token_balance_usd if company_record else 0.0
+            )
+        finally:
+            session2.close()
 
         return {
             "success": True,
@@ -1393,8 +1706,8 @@ async def issue_company_credits(
             "amount_usd": float(amount_decimal),
             "tokens_credited": tokens,
             "token_millions": float(token_millions),
-            "new_balance_tokens": company_record.token_balance,
-            "new_balance_usd": company_record.token_balance_usd,
+            "new_balance_tokens": new_balance_tokens,
+            "new_balance_usd": new_balance_usd,
             "transaction_id": transaction.id,
             "reference_code": transaction.reference_code,
         }
@@ -1405,9 +1718,7 @@ async def issue_company_credits(
     except Exception as e:
         session.rollback()
         logging.error(f"Error issuing credits to company {company}: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to issue credits: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to issue credits")
     finally:
         session.close()
 
@@ -1543,12 +1854,6 @@ async def admin_issue_credits(
         token_millions = amount_decimal / token_price
         tokens = int(token_millions * 1_000_000)
 
-        # Add tokens to company balance
-        company_record.token_balance = (company_record.token_balance or 0) + tokens
-        company_record.token_balance_usd = (
-            company_record.token_balance_usd or 0
-        ) + float(amount_decimal)
-
         # Create a payment transaction record for audit trail
         transaction = PaymentTransaction(
             user_id=auth.user_id,  # Track which admin issued the credit
@@ -1562,20 +1867,43 @@ async def admin_issue_credits(
             amount_currency=float(amount_decimal),
             exchange_rate=1.0,
             status="completed",
-            reference_code=f"ADMIN_CREDIT_{request.company_id}_{int(datetime.now().timestamp())}",
+            reference_code=f"ADMIN_CREDIT_{request.company_id}_{uuid.uuid4().hex[:8]}",
         )
         session.add(transaction)
         session.commit()
 
+        # Add tokens via root parent resolution
+        from MagicalAuth import MagicalAuth as MA
+
+        ma = MA()
+        ma.add_tokens_to_company(
+            company_id=request.company_id,
+            token_amount=tokens,
+            amount_usd=float(amount_decimal),
+        )
+
+        # Re-fetch company to get updated balances
+        session2 = get_session()
+        try:
+            company_record = (
+                session2.query(Company).filter(Company.id == request.company_id).first()
+            )
+            new_balance_tokens = company_record.token_balance if company_record else 0
+            new_balance_usd = (
+                company_record.token_balance_usd if company_record else 0.0
+            )
+        finally:
+            session2.close()
+
         return {
             "success": True,
             "company_id": request.company_id,
-            "company_name": company_record.name,
+            "company_name": company_record.name if company_record else "",
             "amount_usd": float(amount_decimal),
             "tokens_credited": tokens,
             "token_millions": float(token_millions),
-            "new_balance_tokens": company_record.token_balance,
-            "new_balance_usd": company_record.token_balance_usd,
+            "new_balance_tokens": new_balance_tokens,
+            "new_balance_usd": new_balance_usd,
             "transaction_id": str(transaction.id),
             "reference_code": transaction.reference_code,
             "issued_by": auth.email,
@@ -1587,9 +1915,7 @@ async def admin_issue_credits(
     except Exception as e:
         session.rollback()
         logging.error(f"Error issuing admin credits: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to issue credits: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to issue credits")
     finally:
         session.close()
 
@@ -1618,10 +1944,14 @@ async def set_super_admin(
     Returns:
         Success message with user details
     """
+    import hmac
+
     agixt_api_key = os.getenv("AGIXT_API_KEY", "")
     provided_key = str(authorization).replace("Bearer ", "").replace("bearer ", "")
 
-    is_api_key_auth = agixt_api_key and provided_key == agixt_api_key
+    is_api_key_auth = bool(agixt_api_key) and hmac.compare_digest(
+        provided_key, agixt_api_key
+    )
     is_super_admin_auth = False
     # Check if it's a JWT from a super admin
     if not is_api_key_auth:
@@ -1681,15 +2011,24 @@ async def set_super_admin(
     except Exception as e:
         session.rollback()
         logging.error(f"Error setting super admin: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to set super admin: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to set super admin")
     finally:
         session.close()
 
 
-# Protected company names that cannot be deleted
-PROTECTED_COMPANIES = ["DevXT", "Josh's Team"]
+# Protected company names that cannot be deleted (configurable via env)
+PROTECTED_COMPANIES = [
+    name.strip()
+    for name in os.getenv("PROTECTED_COMPANIES", "DevXT,Josh's Team").split(",")
+    if name.strip()
+]
+
+# Protected emails that cannot be deactivated (configurable via env)
+PROTECTED_EMAILS = [
+    email.strip().lower()
+    for email in os.getenv("PROTECTED_EMAILS", "josh@devxt.com").split(",")
+    if email.strip()
+]
 
 
 @app.delete(
@@ -1765,9 +2104,7 @@ async def admin_delete_company(
     except Exception as e:
         session.rollback()
         logging.error(f"Error deleting company: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to delete company: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to delete company")
     finally:
         session.close()
 
@@ -1809,8 +2146,7 @@ async def admin_delete_user(
             raise HTTPException(status_code=404, detail="User not found")
 
         # Check if user is protected
-        protected_emails = ["josh@devxt.com"]
-        if user.email.lower() in protected_emails:
+        if user.email.lower() in PROTECTED_EMAILS:
             raise HTTPException(
                 status_code=403,
                 detail=f"Cannot deactivate protected user: {user.email}",
@@ -1833,9 +2169,7 @@ async def admin_delete_user(
     except Exception as e:
         session.rollback()
         logging.error(f"Error deactivating user: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to deactivate user: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to deactivate user")
     finally:
         session.close()
 
@@ -1917,7 +2251,7 @@ async def admin_remove_user_from_company(
         session.rollback()
         logging.error(f"Error removing user from company: {str(e)}")
         raise HTTPException(
-            status_code=500, detail=f"Failed to remove user from company: {str(e)}"
+            status_code=500, detail="Failed to remove user from company"
         )
     finally:
         session.close()
@@ -1931,11 +2265,7 @@ async def admin_remove_user_from_company(
 )
 async def admin_assign_user_to_company(
     company_id: str,
-    user_email: str = Query(..., description="Email address of the user to assign"),
-    role_id: int = Query(
-        3,
-        description="Role ID for the user (0=Super Admin, 1=Admin, 2=Manager, 3=User)",
-    ),
+    request: AssignUserToCompanyRequest,
     authorization: str = Header(None),
 ):
     """
@@ -1968,18 +2298,16 @@ async def admin_assign_user_to_company(
             raise HTTPException(status_code=404, detail="Company not found")
 
         # Find user by email
-        user = session.query(User).filter(User.email == user_email.lower()).first()
+        user = (
+            session.query(User).filter(User.email == request.user_email.lower()).first()
+        )
         if not user:
             raise HTTPException(
-                status_code=404, detail=f"User with email '{user_email}' not found"
+                status_code=404,
+                detail=f"User with email '{request.user_email}' not found",
             )
 
-        # Validate role_id
-        if role_id < 0 or role_id > 3:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid role_id. Must be 0 (Super Admin), 1 (Admin), 2 (Manager), or 3 (User)",
-            )
+        role_id = request.role_id
 
         role_names = {0: "Super Admin", 1: "Admin", 2: "Manager", 3: "User"}
 
@@ -2018,6 +2346,16 @@ async def admin_assign_user_to_company(
         session.add(user_company)
         session.commit()
 
+        # Add user to all non-invite-only company channels
+        try:
+            add_user_to_company_channels(
+                session=session, user_id=str(user.id), company_id=company_id
+            )
+            session.commit()
+            invalidate_user_company_cache(str(user.id))
+        except Exception as e:
+            logging.warning(f"Failed to add user to company channels: {e}")
+
         return {
             "success": True,
             "company_id": company_id,
@@ -2036,9 +2374,7 @@ async def admin_assign_user_to_company(
     except Exception as e:
         session.rollback()
         logging.error(f"Error assigning user to company: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to assign user to company: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to assign user to company")
     finally:
         session.close()
 
@@ -2154,9 +2490,7 @@ async def admin_get_server_stats(
         raise
     except Exception as e:
         logging.error(f"Error getting server stats: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get server stats: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to get server stats")
     finally:
         session.close()
 
@@ -2205,8 +2539,9 @@ async def admin_create_company(
                 detail=f"Company with name '{name}' already exists",
             )
 
-        # Create new company
-        new_company = Company(
+        # Create new company (use classmethod to auto-generate encryption_key)
+        new_company = Company.create(
+            session,
             name=name,
             email=email,
             phone_number=phone_number,
@@ -2221,7 +2556,6 @@ async def admin_create_company(
             token_balance=0,
             token_balance_usd=0,
         )
-        session.add(new_company)
         session.commit()
 
         return {
@@ -2237,9 +2571,7 @@ async def admin_create_company(
     except Exception as e:
         session.rollback()
         logging.error(f"Error creating company: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to create company: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to create company")
     finally:
         session.close()
 
@@ -2257,16 +2589,7 @@ async def admin_create_company(
 )
 async def admin_update_company(
     company_id: str,
-    name: str = Query(None, description="Company name"),
-    email: str = Query(None, description="Company contact email"),
-    phone_number: str = Query(None, description="Company phone number"),
-    website: str = Query(None, description="Company website"),
-    address: str = Query(None, description="Company address"),
-    city: str = Query(None, description="City"),
-    state: str = Query(None, description="State/Province"),
-    zip_code: str = Query(None, description="ZIP/Postal code"),
-    country: str = Query(None, description="Country"),
-    notes: str = Query(None, description="Admin notes"),
+    request: UpdateCompanyRequest,
     authorization: str = Header(None),
 ):
     """
@@ -2288,43 +2611,45 @@ async def admin_update_company(
 
         # Update only provided fields
         updated_fields = []
-        if name is not None:
+        if request.name is not None:
             # Check name uniqueness if changing
-            if name != company.name:
-                existing = session.query(Company).filter(Company.name == name).first()
+            if request.name != company.name:
+                existing = (
+                    session.query(Company).filter(Company.name == request.name).first()
+                )
                 if existing:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Company with name '{name}' already exists",
+                        detail=f"Company with name '{request.name}' already exists",
                     )
-            company.name = name
+            company.name = request.name
             updated_fields.append("name")
-        if email is not None:
-            company.email = email
+        if request.email is not None:
+            company.email = request.email
             updated_fields.append("email")
-        if phone_number is not None:
-            company.phone_number = phone_number
+        if request.phone_number is not None:
+            company.phone_number = request.phone_number
             updated_fields.append("phone_number")
-        if website is not None:
-            company.website = website
+        if request.website is not None:
+            company.website = request.website
             updated_fields.append("website")
-        if address is not None:
-            company.address = address
+        if request.address is not None:
+            company.address = request.address
             updated_fields.append("address")
-        if city is not None:
-            company.city = city
+        if request.city is not None:
+            company.city = request.city
             updated_fields.append("city")
-        if state is not None:
-            company.state = state
+        if request.state is not None:
+            company.state = request.state
             updated_fields.append("state")
-        if zip_code is not None:
-            company.zip_code = zip_code
+        if request.zip_code is not None:
+            company.zip_code = request.zip_code
             updated_fields.append("zip_code")
-        if country is not None:
-            company.country = country
+        if request.country is not None:
+            company.country = request.country
             updated_fields.append("country")
-        if notes is not None:
-            company.notes = notes
+        if request.notes is not None:
+            company.notes = request.notes
             updated_fields.append("notes")
 
         session.commit()
@@ -2343,9 +2668,7 @@ async def admin_update_company(
     except Exception as e:
         session.rollback()
         logging.error(f"Error updating company: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to update company: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to update company")
     finally:
         session.close()
 
@@ -2364,9 +2687,7 @@ async def admin_update_company(
 async def admin_change_user_role(
     company_id: str,
     user_id: str,
-    role_id: int = Query(
-        ..., description="New role ID (0=Super Admin, 1=Admin, 2=Manager, 3=User)"
-    ),
+    request: ChangeUserRoleRequest,
     authorization: str = Header(None),
 ):
     """
@@ -2379,6 +2700,7 @@ async def admin_change_user_role(
             detail="Unauthorized. Super admin permissions required.",
         )
 
+    role_id = request.role_id
     if role_id < 0 or role_id > 3:
         raise HTTPException(
             status_code=400,
@@ -2440,9 +2762,7 @@ async def admin_change_user_role(
     except Exception as e:
         session.rollback()
         logging.error(f"Error changing user role: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to change user role: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to change user role")
     finally:
         session.close()
 
@@ -2459,7 +2779,7 @@ async def admin_change_user_role(
     description="Generates a JWT token to log in as any user for support purposes.",
 )
 async def admin_impersonate_user(
-    user_email: str = Query(..., description="Email of the user to impersonate"),
+    request: ImpersonateUserRequest,
     authorization: str = Header(None),
 ):
     """
@@ -2478,15 +2798,17 @@ async def admin_impersonate_user(
         from MagicalAuth import impersonate_user
 
         # Verify user exists
-        user = session.query(User).filter(User.email == user_email.lower()).first()
+        user = (
+            session.query(User).filter(User.email == request.user_email.lower()).first()
+        )
         if not user:
             raise HTTPException(
                 status_code=404,
-                detail=f"User with email '{user_email}' not found",
+                detail=f"User with email '{request.user_email}' not found",
             )
 
         # Generate token
-        token = impersonate_user(user_email.lower())
+        token = impersonate_user(request.user_email.lower())
 
         # Get user's companies
         user_companies = (
@@ -2516,7 +2838,7 @@ async def admin_impersonate_user(
     except Exception as e:
         logging.error(f"Error impersonating user: {str(e)}")
         raise HTTPException(
-            status_code=500, detail=f"Failed to generate impersonation token: {str(e)}"
+            status_code=500, detail="Failed to generate impersonation token"
         )
     finally:
         session.close()
@@ -2658,9 +2980,7 @@ async def admin_export_companies(
         raise
     except Exception as e:
         logging.error(f"Error exporting companies: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to export companies: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to export companies")
     finally:
         session.close()
 
@@ -2723,9 +3043,7 @@ async def admin_suspend_company(
     except Exception as e:
         session.rollback()
         logging.error(f"Error suspending company: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to suspend company: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to suspend company")
     finally:
         session.close()
 
@@ -2783,9 +3101,7 @@ async def admin_unsuspend_company(
     except Exception as e:
         session.rollback()
         logging.error(f"Error unsuspending company: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to unsuspend company: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to unsuspend company")
     finally:
         session.close()
 
@@ -2910,9 +3226,7 @@ async def admin_merge_companies(
     except Exception as e:
         session.rollback()
         logging.error(f"Error merging companies: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to merge companies: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to merge companies")
     finally:
         session.close()
 
@@ -3100,16 +3414,16 @@ async def admin_get_usage_analytics(
                 "tokens_used_total": getattr(company, "tokens_used_total", 0) or 0,
                 # Audit trail usage (from CompanyTokenUsage)
                 "audit_input_tokens": (
-                    int(usage_result.input_tokens) if usage_result else 0
+                    int(usage_result["input_tokens"]) if usage_result else 0
                 ),
                 "audit_output_tokens": (
-                    int(usage_result.output_tokens) if usage_result else 0
+                    int(usage_result["output_tokens"]) if usage_result else 0
                 ),
                 "audit_total_tokens": (
-                    int(usage_result.total_tokens) if usage_result else 0
+                    int(usage_result["total_tokens"]) if usage_result else 0
                 ),
                 "audit_usage_count": (
-                    int(usage_result.usage_count) if usage_result else 0
+                    int(usage_result["usage_count"]) if usage_result else 0
                 ),
                 # Cumulative usage (from UserPreferences)
                 "cumulative_input_tokens": cumulative_input,
@@ -3162,9 +3476,7 @@ async def admin_get_usage_analytics(
         raise
     except Exception as e:
         logging.error(f"Error getting usage analytics: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get usage analytics: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to get usage analytics")
     finally:
         session.close()
 
@@ -3380,7 +3692,7 @@ async def admin_get_company_usage_analytics(
     except Exception as e:
         logging.error(f"Error getting company usage analytics: {str(e)}")
         raise HTTPException(
-            status_code=500, detail=f"Failed to get company usage analytics: {str(e)}"
+            status_code=500, detail="Failed to get company usage analytics"
         )
     finally:
         session.close()
@@ -3420,75 +3732,74 @@ async def admin_get_all_users_usage(
 
     session = get_session()
     try:
-        # Get all users
-        users = session.query(User).all()
+        from sqlalchemy import func, case, literal_column
+        from sqlalchemy.orm import aliased
+
+        input_pref = aliased(UserPreferences)
+        output_pref = aliased(UserPreferences)
+
+        # Single query with LEFT JOINs to batch-load all related data
+        base_query = (
+            session.query(
+                User.id,
+                User.email,
+                User.first_name,
+                User.last_name,
+                UserCompany.company_id,
+                Company.name.label("company_name"),
+                input_pref.pref_value.label("input_tokens_str"),
+                output_pref.pref_value.label("output_tokens_str"),
+            )
+            .outerjoin(UserCompany, UserCompany.user_id == User.id)
+            .outerjoin(Company, Company.id == UserCompany.company_id)
+            .outerjoin(
+                input_pref,
+                (input_pref.user_id == User.id)
+                & (input_pref.pref_key == "input_tokens"),
+            )
+            .outerjoin(
+                output_pref,
+                (output_pref.user_id == User.id)
+                & (output_pref.pref_key == "output_tokens"),
+            )
+        )
+
+        # Get total count first
+        total_users = base_query.count()
+
+        # Build rows and parse token values
+        rows = base_query.all()
         users_data = []
-
-        for user in users:
-            # Get user's company
-            user_company = (
-                session.query(UserCompany)
-                .filter(UserCompany.user_id == user.id)
-                .first()
-            )
-            company = None
-            company_name = "No Company"
-            if user_company:
-                company = (
-                    session.query(Company)
-                    .filter(Company.id == user_company.company_id)
-                    .first()
+        total_input = 0
+        total_output = 0
+        for row in rows:
+            try:
+                input_tokens = int(row.input_tokens_str) if row.input_tokens_str else 0
+            except (ValueError, TypeError):
+                input_tokens = 0
+            try:
+                output_tokens = (
+                    int(row.output_tokens_str) if row.output_tokens_str else 0
                 )
-                if company:
-                    company_name = company.name
-
-            # Get cumulative tokens from UserPreferences
-            input_pref = (
-                session.query(UserPreferences)
-                .filter(
-                    UserPreferences.user_id == user.id,
-                    UserPreferences.pref_key == "input_tokens",
-                )
-                .first()
-            )
-            output_pref = (
-                session.query(UserPreferences)
-                .filter(
-                    UserPreferences.user_id == user.id,
-                    UserPreferences.pref_key == "output_tokens",
-                )
-                .first()
-            )
-            input_tokens = 0
-            output_tokens = 0
-            if input_pref:
-                try:
-                    input_tokens = int(input_pref.pref_value)
-                except (ValueError, TypeError):
-                    pass
-            if output_pref:
-                try:
-                    output_tokens = int(output_pref.pref_value)
-                except (ValueError, TypeError):
-                    pass
-
+            except (ValueError, TypeError):
+                output_tokens = 0
+            total_input += input_tokens
+            total_output += output_tokens
             users_data.append(
                 {
-                    "user_id": str(user.id),
-                    "email": user.email,
-                    "first_name": getattr(user, "first_name", ""),
-                    "last_name": getattr(user, "last_name", ""),
-                    "company_id": (
-                        str(user_company.company_id) if user_company else None
-                    ),
-                    "company_name": company_name,
+                    "user_id": str(row.id),
+                    "email": row.email,
+                    "first_name": row.first_name or "",
+                    "last_name": row.last_name or "",
+                    "company_id": str(row.company_id) if row.company_id else None,
+                    "company_name": row.company_name or "No Company",
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
                     "total_tokens": input_tokens + output_tokens,
                 }
             )
 
-        # Determine sort key
+        # Sort in Python (token values are parsed from strings, hard to sort in DB)
         if sort_by == "input_tokens":
             sort_key = "input_tokens"
         elif sort_by == "output_tokens":
@@ -3499,13 +3810,9 @@ async def admin_get_all_users_usage(
         reverse = sort_direction.lower() == "desc"
         users_data.sort(key=lambda x: x.get(sort_key, 0), reverse=reverse)
 
-        # Calculate totals
-        total_input = sum(u["input_tokens"] for u in users_data)
-        total_output = sum(u["output_tokens"] for u in users_data)
         total_tokens = total_input + total_output
 
         # Apply pagination
-        total_users = len(users_data)
         paginated = users_data[offset : offset + limit]
 
         return {
@@ -3525,8 +3832,104 @@ async def admin_get_all_users_usage(
         raise
     except Exception as e:
         logging.error(f"Error getting all users usage: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get all users usage: {str(e)}"
+        raise HTTPException(status_code=500, detail="Failed to get all users usage")
+    finally:
+        session.close()
+
+
+@app.get(
+    "/v1/billing/invoice/{transaction_ref}",
+    tags=["Billing"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Get invoice/receipt URL for a transaction",
+)
+async def get_invoice_url(
+    transaction_ref: str,
+    authorization: str = Header(None),
+):
+    """
+    Get the Stripe hosted invoice URL or receipt URL for a completed transaction.
+    Returns URLs to view/download the invoice or receipt.
+    """
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    session = get_session()
+    try:
+        # Find the transaction
+        transaction = (
+            session.query(PaymentTransaction)
+            .filter(PaymentTransaction.reference_code == transaction_ref)
+            .first()
         )
+
+        if not transaction:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+
+        # Verify user has access to this transaction's company
+        user_companies = auth.get_user_companies()
+        if transaction.company_id not in user_companies:
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have access to this transaction",
+            )
+
+        stripe_api_key = os.getenv("STRIPE_SECRET_KEY")
+        if not stripe_api_key or stripe_api_key.lower() == "none":
+            raise HTTPException(status_code=400, detail="Stripe is not configured")
+
+        import stripe as stripe_lib
+
+        stripe_lib.api_key = stripe_api_key
+
+        payment_intent_id = transaction.stripe_payment_intent_id
+        if not payment_intent_id:
+            return {
+                "invoice_url": None,
+                "receipt_url": None,
+                "invoice_pdf": None,
+            }
+
+        try:
+            # Try to find an invoice associated with this payment
+            # For subscriptions, the payment intent is linked to an invoice
+            matching_invoice = None
+            try:
+                # Use Stripe's search to find invoice by payment_intent directly
+                invoices = stripe_lib.Invoice.list(
+                    limit=100,
+                )
+                for inv in invoices.data:
+                    if inv.payment_intent == payment_intent_id:
+                        matching_invoice = inv
+                        break
+            except Exception:
+                pass
+
+            if matching_invoice:
+                return {
+                    "invoice_url": matching_invoice.hosted_invoice_url,
+                    "receipt_url": None,
+                    "invoice_pdf": matching_invoice.invoice_pdf,
+                }
+
+            # Fall back to receipt URL from the charge
+            pi = stripe_lib.PaymentIntent.retrieve(payment_intent_id)
+            latest_charge = pi.latest_charge
+            if latest_charge:
+                charge = stripe_lib.Charge.retrieve(latest_charge)
+                return {
+                    "invoice_url": None,
+                    "receipt_url": charge.receipt_url,
+                    "invoice_pdf": None,
+                }
+        except Exception as e:
+            logging.warning(f"Failed to fetch invoice URL from Stripe: {e}")
+
+        return {
+            "invoice_url": None,
+            "receipt_url": None,
+            "invoice_pdf": None,
+        }
     finally:
         session.close()

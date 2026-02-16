@@ -1,5 +1,6 @@
 import time
 import uuid
+import re
 import logging
 import traceback
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -8,6 +9,7 @@ from Globals import get_tokens
 from MagicalAuth import get_user_id
 from ApiClient import Agent, verify_api_key, get_api_client, get_agents
 from Conversations import get_conversation_name_by_id
+from DB import get_session, Conversation, ConversationParticipant, Agent as AgentModel
 from Memories import embed
 from fastapi import UploadFile, File, Form
 from typing import Optional, List
@@ -27,6 +29,90 @@ from Models import (
 from XT import AGiXT
 import json
 import asyncio
+
+# Pre-compiled regex for @mention extraction
+_RE_QUOTED_MENTION = re.compile(r'@["\u201c]([^"\u201c\u201d"]+)["\u201d]')
+_RE_UNQUOTED_MENTION = re.compile(r"@(\S+)")
+
+
+def parse_agent_mentions(messages, available_agents):
+    """
+    Parse @AgentName mentions from the last user message.
+    Returns (mentioned_agent_name, cleaned_messages) or (None, messages) if no valid mention.
+
+    Matching is case-insensitive and supports multi-word agent names.
+    The longest matching agent name wins to avoid partial matches.
+    """
+    if not messages or not available_agents:
+        return None, messages
+
+    # Find the last user message
+    last_user_idx = None
+    for i in range(len(messages) - 1, -1, -1):
+        if (
+            isinstance(messages[i], dict)
+            and messages[i].get("role", "").lower() == "user"
+        ):
+            last_user_idx = i
+            break
+
+    if last_user_idx is None:
+        return None, messages
+
+    msg = messages[last_user_idx]
+    content = msg.get("content", "")
+    if not isinstance(content, str):
+        return None, messages
+
+    # Build agent name lookup (case-insensitive), sorted longest first
+    def _get_agent_name(a):
+        if isinstance(a, str):
+            return a
+        if isinstance(a, dict):
+            return a.get("name", "")
+        return getattr(a, "name", "")
+
+    agent_names = sorted(
+        [n for n in (_get_agent_name(a) for a in available_agents) if n],
+        key=lambda n: len(n),
+        reverse=True,
+    )
+    # Deduplicate
+    agent_names = list(dict.fromkeys(agent_names))
+    # Build case-insensitive lookup
+    agent_names_lower = {n.lower(): n for n in agent_names}
+
+    # Try quoted pattern first: @"Agent Name" or @\u201cAgent Name\u201d
+    match = _RE_QUOTED_MENTION.search(content)
+    if match:
+        mentioned = match.group(1)
+        canonical = agent_names_lower.get(mentioned.lower())
+        if canonical:
+            cleaned_content = (
+                content[: match.start()] + content[match.end() :]
+            ).strip()
+            new_messages = list(messages)
+            new_messages[last_user_idx] = {**msg, "content": cleaned_content}
+            return canonical, new_messages
+
+    # Try unquoted pattern: @AgentName — match longest agent name first
+    for agent_name in agent_names:
+        # Use word-boundary-aware pattern per agent name (compiled patterns are cached by Python)
+        unquoted_pattern = re.compile(
+            r"@" + re.escape(agent_name) + r"(?:\b|(?=\s|$|[,.:;!?]))",
+            re.IGNORECASE,
+        )
+        match = unquoted_pattern.search(content)
+        if match:
+            cleaned_content = (
+                content[: match.start()] + content[match.end() :]
+            ).strip()
+            new_messages = list(messages)
+            new_messages[last_user_idx] = {**msg, "content": cleaned_content}
+            return agent_name, new_messages
+
+    return None, messages
+
 
 app = APIRouter()
 
@@ -89,6 +175,7 @@ async def chat_completion(
         # prompt.user is the conversation name
         # Check if conversation name is a uuid, if so, it is the conversation_id and nedds convertd
         conversation_name = prompt.user
+        conversation_id = None
         if conversation_name != "-":
             try:
                 conversation_id = str(uuid.UUID(conversation_name))
@@ -99,15 +186,136 @@ async def chat_completion(
                 conversation_name = get_conversation_name_by_id(
                     conversation_id=conversation_id, user_id=user_id
                 )
+        # Pre-fetch agents list once for model defaulting and @mention routing
+        all_agents = get_agents(user=user)
         if not prompt.model:
-            agents = get_agents(user=user)
             try:
-                prompt.model = agents[0].name
+                prompt.model = (
+                    all_agents[0]["name"]
+                    if isinstance(all_agents[0], dict)
+                    else all_agents[0].name
+                )
             except Exception:
                 # Log without exposing exception details
                 logging.error("Error getting agent name: using default")
                 prompt.model = "AGiXT"
         prompt.model = prompt.model.replace('"', "")
+
+        # Pre-fetch conversation once for both @mention validation and DM check
+        _conv_obj = None
+        if conversation_id:
+            try:
+                _conv_session = get_session()
+                _conv_obj = (
+                    _conv_session.query(Conversation)
+                    .filter(Conversation.id == conversation_id)
+                    .first()
+                )
+                _conv_session.close()
+            except Exception as e:
+                logging.warning(f"Error fetching conversation: {e}")
+
+        # @mention agent routing: if the user's message contains @AgentName,
+        # override the target agent and strip the mention from the message.
+        if prompt.messages:
+            try:
+                mentioned_agent, cleaned_messages = parse_agent_mentions(
+                    prompt.messages, all_agents
+                )
+                if mentioned_agent:
+                    # Validate the mentioned agent belongs to this conversation's company
+                    agent_allowed = True
+                    if _conv_obj and _conv_obj.company_id:
+                        mentioned_agent_data = next(
+                            (
+                                a
+                                for a in all_agents
+                                if (
+                                    (a["name"] if isinstance(a, dict) else a.name)
+                                    == mentioned_agent
+                                )
+                            ),
+                            None,
+                        )
+                        if mentioned_agent_data:
+                            agent_company = (
+                                mentioned_agent_data["company_id"]
+                                if isinstance(mentioned_agent_data, dict)
+                                else getattr(mentioned_agent_data, "company_id", None)
+                            )
+                            if agent_company and str(agent_company) != str(
+                                _conv_obj.company_id
+                            ):
+                                agent_allowed = False
+                                logging.info(
+                                    f"@mention blocked: agent '{mentioned_agent}' "
+                                    f"(company {agent_company}) not in conversation's "
+                                    f"company ({_conv_obj.company_id})"
+                                )
+
+                    if agent_allowed:
+                        prompt.model = mentioned_agent
+                        prompt.messages = cleaned_messages
+                        logging.info(
+                            f"@mention routing: directing to agent '{mentioned_agent}'"
+                        )
+                    else:
+                        # Strip the mention but don't route to the agent
+                        prompt.messages = cleaned_messages
+            except Exception as e:
+                logging.warning(f"Error parsing @mentions: {e}")
+
+        # Defense-in-depth: refuse agent responses in user-to-user DMs
+        # (no agent participants).  The front end already routes these to
+        # the message-only endpoint, but this prevents accidental triggers
+        # from stale clients, race conditions, or API callers.
+        if _conv_obj:
+            try:
+                if _conv_obj.conversation_type == "dm":
+                    _dm_session = get_session()
+                    _has_agent = (
+                        _dm_session.query(ConversationParticipant)
+                        .filter(
+                            ConversationParticipant.conversation_id == conversation_id,
+                            ConversationParticipant.participant_type == "agent",
+                        )
+                        .first()
+                    )
+                    _dm_session.close()
+                    if not _has_agent:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Cannot trigger agent response in a user-to-user DM with no agent participants.",
+                        )
+                elif _conv_obj.conversation_type == "thread" and _conv_obj.parent_id:
+                    _dm_session = get_session()
+                    _parent_conv = (
+                        _dm_session.query(Conversation)
+                        .filter(Conversation.id == _conv_obj.parent_id)
+                        .first()
+                    )
+                    if _parent_conv and _parent_conv.conversation_type == "dm":
+                        _has_agent = (
+                            _dm_session.query(ConversationParticipant)
+                            .filter(
+                                ConversationParticipant.conversation_id
+                                == _parent_conv.id,
+                                ConversationParticipant.participant_type == "agent",
+                            )
+                            .first()
+                        )
+                        if not _has_agent:
+                            _dm_session.close()
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Cannot trigger agent response in a thread within a user-to-user DM.",
+                            )
+                    _dm_session.close()
+            except HTTPException:
+                raise
+            except Exception as e:
+                logging.warning(f"Error checking DM conversation type: {e}")
+
         agixt = AGiXT(
             user=user,
             agent_name=prompt.model,
@@ -176,6 +384,7 @@ async def mcp_chat_completion(
         # Check if conversation name is a uuid, if so, it is the conversation_id and nedds convertd
         prompt.messages[0]["running_command"] = "Browser Automation"
         conversation_name = prompt.user
+        conversation_id = None
         if conversation_name != "-":
             try:
                 conversation_id = str(uuid.UUID(conversation_name))
@@ -186,15 +395,131 @@ async def mcp_chat_completion(
                 conversation_name = get_conversation_name_by_id(
                     conversation_id=conversation_id, user_id=user_id
                 )
+        # Pre-fetch agents list once for model defaulting and @mention routing
+        all_agents = get_agents(user=user)
         if not prompt.model:
-            agents = get_agents(user=user)
             try:
-                prompt.model = agents[0].name
+                prompt.model = (
+                    all_agents[0]["name"]
+                    if isinstance(all_agents[0], dict)
+                    else all_agents[0].name
+                )
             except Exception:
                 # Log without exposing exception details
                 logging.error("Error getting agent name: using default")
                 prompt.model = "AGiXT"
         prompt.model = prompt.model.replace('"', "")
+
+        # Pre-fetch conversation once for both @mention validation and DM check
+        _conv_obj = None
+        if conversation_id:
+            try:
+                _conv_session = get_session()
+                _conv_obj = (
+                    _conv_session.query(Conversation)
+                    .filter(Conversation.id == conversation_id)
+                    .first()
+                )
+                _conv_session.close()
+            except Exception as e:
+                logging.warning(f"Error fetching conversation: {e}")
+
+        # @mention agent routing for MCP endpoint
+        if prompt.messages:
+            try:
+                mentioned_agent, cleaned_messages = parse_agent_mentions(
+                    prompt.messages, all_agents
+                )
+                if mentioned_agent:
+                    # Validate the mentioned agent belongs to this conversation's company
+                    agent_allowed = True
+                    if _conv_obj and _conv_obj.company_id:
+                        mentioned_agent_data = next(
+                            (
+                                a
+                                for a in all_agents
+                                if (
+                                    (a["name"] if isinstance(a, dict) else a.name)
+                                    == mentioned_agent
+                                )
+                            ),
+                            None,
+                        )
+                        if mentioned_agent_data:
+                            agent_company = (
+                                mentioned_agent_data["company_id"]
+                                if isinstance(mentioned_agent_data, dict)
+                                else getattr(mentioned_agent_data, "company_id", None)
+                            )
+                            if agent_company and str(agent_company) != str(
+                                _conv_obj.company_id
+                            ):
+                                agent_allowed = False
+                                logging.info(
+                                    f"@mention blocked (MCP): agent '{mentioned_agent}' "
+                                    f"(company {agent_company}) not in conversation's "
+                                    f"company ({_conv_obj.company_id})"
+                                )
+
+                    if agent_allowed:
+                        prompt.model = mentioned_agent
+                        prompt.messages = cleaned_messages
+                        logging.info(
+                            f"@mention routing (MCP): directing to agent '{mentioned_agent}'"
+                        )
+                    else:
+                        prompt.messages = cleaned_messages
+            except Exception as e:
+                logging.warning(f"Error parsing @mentions: {e}")
+
+        # Defense-in-depth: refuse agent responses in user-to-user DMs
+        if _conv_obj:
+            try:
+                if _conv_obj.conversation_type == "dm":
+                    _dm_session = get_session()
+                    _has_agent = (
+                        _dm_session.query(ConversationParticipant)
+                        .filter(
+                            ConversationParticipant.conversation_id == conversation_id,
+                            ConversationParticipant.participant_type == "agent",
+                        )
+                        .first()
+                    )
+                    _dm_session.close()
+                    if not _has_agent:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Cannot trigger agent response in a user-to-user DM with no agent participants.",
+                        )
+                elif _conv_obj.conversation_type == "thread" and _conv_obj.parent_id:
+                    _dm_session = get_session()
+                    _parent_conv = (
+                        _dm_session.query(Conversation)
+                        .filter(Conversation.id == _conv_obj.parent_id)
+                        .first()
+                    )
+                    if _parent_conv and _parent_conv.conversation_type == "dm":
+                        _has_agent = (
+                            _dm_session.query(ConversationParticipant)
+                            .filter(
+                                ConversationParticipant.conversation_id
+                                == _parent_conv.id,
+                                ConversationParticipant.participant_type == "agent",
+                            )
+                            .first()
+                        )
+                        if not _has_agent:
+                            _dm_session.close()
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Cannot trigger agent response in a thread within a user-to-user DM.",
+                            )
+                    _dm_session.close()
+            except HTTPException:
+                raise
+            except Exception as e:
+                logging.warning(f"Error checking DM conversation type (MCP): {e}")
+
         agixt = AGiXT(
             user=user,
             agent_name=prompt.model,

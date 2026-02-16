@@ -39,11 +39,18 @@ from SharedCache import (
     get_cached_sso_providers,
     invalidate_sso_providers_cache as shared_invalidate_sso_providers,
 )
-from Globals import getenv, get_tokens, DEFAULT_SETTINGS, DEFAULT_USER
+from Globals import (
+    getenv,
+    get_tokens,
+    DEFAULT_SETTINGS,
+    DEFAULT_USER,
+    get_default_user_id,
+)
 from MagicalAuth import MagicalAuth, get_user_id
 from Conversations import get_conversation_id_by_name
 from middleware import log_silenced_exception
 from typing import Any, Union
+from collections import defaultdict
 from fastapi import HTTPException
 from datetime import datetime, timezone, timedelta
 import logging
@@ -54,6 +61,9 @@ import jwt
 import os
 import re
 import time
+import asyncio
+import hashlib
+import uuid as uuid_module
 from solders.keypair import Keypair
 from typing import Tuple
 import binascii
@@ -254,41 +264,60 @@ def get_agents_lightweight(
             .all()
         )
 
-        # Get all potential shared agents (not owned by this user) for companies
+        # Get shared agents via SQL filter instead of loading ALL agents
         shared_agents = []
         if company_ids:
-            potential_shared = (
+            company_id_set = set(str(c) for c in company_ids)
+            # Subquery: agent IDs that have shared=true setting
+            shared_sq = (
+                session.query(AgentSettingModel.agent_id)
+                .filter(
+                    AgentSettingModel.name == "shared",
+                    AgentSettingModel.value == "true",
+                )
+                .subquery()
+            )
+            # Subquery: agent IDs that have company_id in the user's companies
+            company_sq = (
+                session.query(AgentSettingModel.agent_id)
+                .filter(
+                    AgentSettingModel.name == "company_id",
+                    AgentSettingModel.value.in_(list(company_id_set)),
+                )
+                .subquery()
+            )
+            shared_agents = (
                 session.query(AgentModel)
                 .options(joinedload(AgentModel.settings))
-                .filter(AgentModel.user_id != user_id)
+                .filter(
+                    AgentModel.user_id != user_id,
+                    AgentModel.id.in_(session.query(shared_sq.c.agent_id)),
+                    AgentModel.id.in_(session.query(company_sq.c.agent_id)),
+                )
                 .all()
             )
-            company_id_set = set(str(c) for c in company_ids)
-            for agent in potential_shared:
-                settings_dict = {s.name: s.value for s in agent.settings}
-                is_shared = settings_dict.get("shared", "false") == "true"
-                agent_company_id = settings_dict.get("company_id")
-                if is_shared and agent_company_id in company_id_set:
-                    shared_agents.append(agent)
 
         # Combine and organize by company
         all_agents = owned_agents + shared_agents
         result = {str(cid): [] for cid in company_ids}
         seen_by_company = {str(cid): set() for cid in company_ids}
 
-        # If including commands, batch-fetch all command data
+        # If including commands, batch-fetch command data for the default agent only.
+        # Previously this loaded commands for ALL agents (N agents × C commands = huge payload).
+        # The frontend only needs commands for the active agent from /v1/user.
         commands_by_agent = {}
-        if include_commands and all_agents:
-            agent_ids = [str(a.id) for a in all_agents]
+        if include_commands and all_agents and default_agent_id:
+            # Only load commands for the default agent
+            target_agent_ids = [str(default_agent_id)]
 
             # Get all commands (cached)
             all_commands = get_all_commands_cached(session)
             command_id_to_name = {c.id: c.name for c in all_commands}
 
-            # Get enabled commands for all agents in one query
+            # Get enabled commands for the default agent only
             agent_commands = (
                 session.query(AgentCommand)
-                .filter(AgentCommand.agent_id.in_(agent_ids))
+                .filter(AgentCommand.agent_id.in_(target_agent_ids))
                 .filter(AgentCommand.state == True)
                 .all()
             )
@@ -303,14 +332,12 @@ def get_agents_lightweight(
                 if cmd_name:
                     enabled_by_agent[agent_id_str].add(cmd_name)
 
-            # Build commands dict for each agent
-            for agent in all_agents:
-                agent_id_str = str(agent.id)
-                enabled_commands = enabled_by_agent.get(agent_id_str, set())
-                commands_by_agent[agent_id_str] = {
-                    cmd_name: cmd_name in enabled_commands
-                    for cmd_name in command_id_to_name.values()
-                }
+            # Build commands dict for the default agent only
+            enabled_commands = enabled_by_agent.get(str(default_agent_id), set())
+            commands_by_agent[str(default_agent_id)] = {
+                cmd_name: cmd_name in enabled_commands
+                for cmd_name in command_id_to_name.values()
+            }
 
         for agent in all_agents:
             settings_dict = {s.name: s.value for s in agent.settings}
@@ -557,18 +584,22 @@ def create_solana_wallet() -> Tuple[str, str, str]:
 
 def impersonate_user(user_id: str):
     AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
-    # Get users email
-    session = get_session()
-    user = session.query(User).filter(User.id == user_id).first()
-    if not user:
+    # Get user email with SharedCache to avoid DB query on every Agent() construction
+    cache_key = f"user_email:{user_id}"
+    email = shared_cache.get(cache_key)
+    if email is None:
+        session = get_session()
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            session.close()
+            raise HTTPException(status_code=404, detail="User not found.")
+        user_id = str(user.id)
+        email = user.email
         session.close()
-        raise HTTPException(status_code=404, detail="User not found.")
-    user_id = str(user.id)
-    email = user.email
-    session.close()
+        shared_cache.set(cache_key, email, ttl=300)
     token = jwt.encode(
         {
-            "sub": user_id,
+            "sub": str(user_id),
             "email": email,
             "exp": datetime.now() + timedelta(days=1),
         },
@@ -576,6 +607,159 @@ def impersonate_user(user_id: str):
         algorithm="HS256",
     )
     return token
+
+
+# Module-level cache for provider setting keys (derived from extension metadata)
+_provider_setting_keys_cache = None
+_provider_setting_keys_time = 0
+_PROVIDER_SETTING_KEYS_TTL = 300
+
+
+def _get_provider_setting_keys():
+    """Get the set of all AI Provider setting keys from cached extension metadata."""
+    global _provider_setting_keys_cache, _provider_setting_keys_time
+    import time
+
+    now = time.time()
+    if (
+        _provider_setting_keys_cache
+        and now - _provider_setting_keys_time < _PROVIDER_SETTING_KEYS_TTL
+    ):
+        return _provider_setting_keys_cache
+
+    from Extensions import _get_extension_metadata_cache
+
+    metadata = _get_extension_metadata_cache()
+    keys = set()
+    for class_name, ext_info in metadata.get("extensions", {}).items():
+        if ext_info.get("category") == "AI Provider":
+            for setting_name in ext_info.get("settings", []):
+                keys.add(setting_name)
+    keys.update({"EZLOCALAI_URI", "OPENAI_BASE_URI"})
+    _provider_setting_keys_cache = keys
+    _provider_setting_keys_time = now
+    return keys
+
+
+def _get_base_provider_settings(company_id, provider_setting_keys):
+    """Get merged provider settings from ServerConfig + ServerExtensionSetting + CompanyExtensionSetting.
+
+    Cached in SharedCache with 60s TTL. Shared across all agents in the same company.
+    """
+    cache_key = f"base_provider_settings:{company_id or 'global'}"
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    from DB import (
+        ServerExtensionSetting,
+        CompanyExtensionSetting,
+        ServerConfig,
+        get_session,
+        decrypt_config_value,
+    )
+
+    merged = {}
+    with get_session() as session:
+        server_configs = (
+            session.query(ServerConfig)
+            .filter(ServerConfig.category == "ai_providers")
+            .all()
+        )
+        for config in server_configs:
+            value = config.value
+            if config.is_sensitive and value:
+                value = decrypt_config_value(value)
+            if value:
+                merged[config.name] = value
+
+        server_ext_settings = (
+            session.query(ServerExtensionSetting)
+            .filter(ServerExtensionSetting.setting_key.in_(provider_setting_keys))
+            .all()
+        )
+        for setting in server_ext_settings:
+            value = setting.setting_value
+            if setting.is_sensitive and value:
+                value = decrypt_config_value(value)
+            if value:
+                merged[setting.setting_key] = value
+
+        if company_id:
+            company_ext_settings = (
+                session.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.setting_key.in_(provider_setting_keys),
+                )
+                .all()
+            )
+            for setting in company_ext_settings:
+                value = setting.setting_value
+                if setting.is_sensitive and value:
+                    value = decrypt_config_value(value)
+                if value == "":
+                    merged.pop(setting.setting_key, None)
+                elif value:
+                    merged[setting.setting_key] = value
+
+    shared_cache.set(cache_key, merged, ttl=60)
+    return merged
+
+
+# Module-level cache for AI Provider class discovery
+# Avoids repeated filesystem walks + module imports + class checks per Agent() construction
+_ai_provider_classes_cache = None
+_ai_provider_classes_cache_time = 0
+_AI_PROVIDER_CLASSES_TTL = 300  # 5 minutes
+
+
+def _get_cached_ai_provider_classes():
+    """
+    Cache the list of discovered AI Provider extension classes.
+    Returns list of (provider_name_lower, provider_class, ext_file) tuples.
+    """
+    global _ai_provider_classes_cache, _ai_provider_classes_cache_time
+
+    now = time.time()
+    if (
+        _ai_provider_classes_cache is not None
+        and now - _ai_provider_classes_cache_time < _AI_PROVIDER_CLASSES_TTL
+    ):
+        return _ai_provider_classes_cache
+
+    from ExtensionsHub import (
+        find_extension_files,
+        import_extension_module,
+        get_extension_class_name,
+    )
+
+    extension_files = find_extension_files()
+    provider_classes = []
+
+    for ext_file in extension_files:
+        filename = os.path.basename(ext_file)
+        module = import_extension_module(ext_file)
+        if module is None:
+            continue
+
+        class_name = get_extension_class_name(filename)
+        if not hasattr(module, class_name):
+            continue
+
+        provider_class = getattr(module, class_name)
+        if (
+            hasattr(provider_class, "CATEGORY")
+            and provider_class.CATEGORY == "AI Provider"
+        ):
+            provider_classes.append((class_name.lower(), provider_class, ext_file))
+
+    _ai_provider_classes_cache = provider_classes
+    _ai_provider_classes_cache_time = now
+    logging.info(
+        f"[AIProviderManager] Cached {len(provider_classes)} AI Provider classes"
+    )
+    return _ai_provider_classes_cache
 
 
 class AIProviderManager:
@@ -648,84 +832,15 @@ class AIProviderManager:
         So we should only pass non-empty values from higher priority sources, letting the
         extension's own logic handle defaults.
         """
-        from DB import (
-            ServerExtensionSetting,
-            CompanyExtensionSetting,
-            ServerConfig,
-            get_session,
-            decrypt_config_value,
-        )
         from Extensions import _get_extension_metadata_cache
 
-        # Get all provider settings dynamically from extension metadata
-        metadata = _get_extension_metadata_cache()
-        provider_setting_keys = set()
+        # Get provider setting keys from cached metadata
+        provider_setting_keys = _get_provider_setting_keys()
 
-        for class_name, ext_info in metadata.get("extensions", {}).items():
-            # Only include AI Provider extensions
-            if ext_info.get("category") == "AI Provider":
-                for setting_name in ext_info.get("settings", []):
-                    provider_setting_keys.add(setting_name)
-
-        # Also add common alternative key names that might be stored differently
-        alt_keys = {
-            "EZLOCALAI_URI",  # Alternative for EZLOCALAI_API_URI
-            "OPENAI_BASE_URI",  # Alternative for OPENAI_API_URI
-        }
-        provider_setting_keys.update(alt_keys)
-
-        merged_settings = {}
-
-        # Step 1: Start with ServerConfig (primary source for AI provider settings from admin UI)
-        with get_session() as session:
-            # Query ServerConfig for AI provider settings (category = 'ai_providers')
-            server_configs = (
-                session.query(ServerConfig)
-                .filter(ServerConfig.category == "ai_providers")
-                .all()
-            )
-            logging.debug(
-                f"[AIProviderManager] Found {len(server_configs)} ServerConfig ai_providers settings"
-            )
-            for config in server_configs:
-                value = config.value
-                if config.is_sensitive and value:
-                    value = decrypt_config_value(value)
-                if value:  # Only add non-empty values
-                    merged_settings[config.name] = value
-
-            # Step 2: Apply server extension settings (can override ServerConfig)
-            server_ext_settings = (
-                session.query(ServerExtensionSetting)
-                .filter(ServerExtensionSetting.setting_key.in_(provider_setting_keys))
-                .all()
-            )
-            for setting in server_ext_settings:
-                value = setting.setting_value
-                if setting.is_sensitive and value:
-                    value = decrypt_config_value(value)
-                if value:  # Only add non-empty values
-                    merged_settings[setting.setting_key] = value
-
-            # Step 3: Apply company extension settings (overrides server)
-            if self.company_id:
-                company_ext_settings = (
-                    session.query(CompanyExtensionSetting)
-                    .filter(
-                        CompanyExtensionSetting.company_id == self.company_id,
-                        CompanyExtensionSetting.setting_key.in_(provider_setting_keys),
-                    )
-                    .all()
-                )
-                for setting in company_ext_settings:
-                    value = setting.setting_value
-                    if setting.is_sensitive and value:
-                        value = decrypt_config_value(value)
-                    if value == "":
-                        # Company explicitly disconnects - remove server setting
-                        merged_settings.pop(setting.setting_key, None)
-                    elif value:
-                        merged_settings[setting.setting_key] = value
+        # Get base merged settings (Steps 1-3) from cache — shared across all agents in same company
+        merged_settings = dict(
+            _get_base_provider_settings(self.company_id, provider_setting_keys)
+        )
 
         # Step 4: Apply agent settings (highest priority)
         # Only apply if the value is meaningful (not empty, not a known localhost default)
@@ -825,13 +940,12 @@ class AIProviderManager:
         return merged_settings
 
     def _discover_providers(self):
-        """Discover all configured AI Provider extensions by their CATEGORY attribute"""
-        from ExtensionsHub import (
-            find_extension_files,
-            import_extension_module,
-            get_extension_class_name,
-        )
+        """Discover all configured AI Provider extensions by their CATEGORY attribute.
 
+        Uses cached AI provider class discovery to avoid repeated filesystem walks
+        and module imports. Only the per-agent instantiation + configured check
+        happens on each call.
+        """
         # Log env vars directly for diagnostics - helps debug Docker issues
         ezlocalai_env = os.getenv(
             "EZLOCALAI_URI", os.getenv("EZLOCALAI_API_URI", "NOT_SET")
@@ -845,43 +959,15 @@ class AIProviderManager:
         # Get merged settings from all configuration levels
         merged_settings = self._get_merged_provider_settings()
 
-        extension_files = find_extension_files()
+        # Use cached AI Provider class list (avoids filesystem walk + module imports)
+        cached_provider_classes = _get_cached_ai_provider_classes()
 
-        # Log which extension files are found
-        ai_provider_files = [
-            os.path.basename(f)
-            for f in extension_files
-            if "ezlocalai" in f.lower() or "openai" in f.lower()
-        ]
-        logging.info(
-            f"[AIProviderManager] Found extension files matching AI providers: {ai_provider_files}"
-        )
-
-        for ext_file in extension_files:
-            filename = os.path.basename(ext_file)
-
-            module = import_extension_module(ext_file)
-            if module is None:
-                continue
-
-            class_name = get_extension_class_name(filename)
-            if not hasattr(module, class_name):
-                continue
-
+        for provider_name, provider_class, ext_file in cached_provider_classes:
             # Skip excluded providers
-            provider_name = class_name.lower()
             if provider_name in self.excluded_providers:
                 continue
 
             try:
-                provider_class = getattr(module, class_name)
-
-                # Check if it's an AI Provider (has CATEGORY = "AI Provider")
-                if (
-                    not hasattr(provider_class, "CATEGORY")
-                    or provider_class.CATEGORY != "AI Provider"
-                ):
-                    continue
 
                 # Instantiate with merged settings (respecting hierarchy)
                 provider_instance = provider_class(**merged_settings)
@@ -927,7 +1013,7 @@ class AIProviderManager:
 
             except Exception as e:
                 logging.warning(
-                    f"[AIProviderManager] Could not load provider from {filename}: {e}"
+                    f"[AIProviderManager] Could not load provider {provider_name}: {e}"
                 )
                 import traceback
 
@@ -1055,14 +1141,16 @@ def can_user_access_agent(user_id, agent_id, auth: MagicalAuth = None):
         session.close()
         return (True, True, "owner")
 
-    # Check if shared and user is in same company
-    agent_settings = (
-        session.query(AgentSettingModel)
-        .filter(AgentSettingModel.agent_id == agent_id)
+    # Only fetch the 2 settings we need instead of ALL settings
+    needed = (
+        session.query(AgentSettingModel.name, AgentSettingModel.value)
+        .filter(
+            AgentSettingModel.agent_id == agent_id,
+            AgentSettingModel.name.in_(["shared", "company_id"]),
+        )
         .all()
     )
-
-    settings_dict = {s.name: s.value for s in agent_settings}
+    settings_dict = {name: value for name, value in needed}
     is_shared = settings_dict.get("shared", "false") == "true"
     agent_company_id = settings_dict.get("company_id")
 
@@ -1070,12 +1158,16 @@ def can_user_access_agent(user_id, agent_id, auth: MagicalAuth = None):
         session.close()
         return (False, False, None)
 
-    # Use MagicalAuth helper to get user's companies
-    if not auth:
-        token = impersonate_user(user_id=str(user_id))
-        auth = MagicalAuth(token=token)
-
-    user_company_ids = auth.get_user_companies()
+    # Get user's companies — skip JWT generation when auth not provided
+    if auth:
+        user_company_ids = auth.get_user_companies()
+    else:
+        user_company_ids = [
+            str(uc_id)
+            for (uc_id,) in session.query(UserCompany.company_id)
+            .filter(UserCompany.user_id == user_id)
+            .all()
+        ]
 
     # Check if agent's company is in user's companies
     has_access = agent_company_id in user_company_ids
@@ -1099,8 +1191,7 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
         agent_id = str(agent.id)
         session.close()
         return {"message": f"Agent {agent_name} already exists.", "id": agent_id}
-    user_data = session.query(User).filter(User.email == user).first()
-    user_id = user_data.id
+    user_id = get_user_id(user)
 
     if provider_settings is None or provider_settings == "" or provider_settings == {}:
         provider_settings = DEFAULT_SETTINGS
@@ -1134,7 +1225,6 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
     session.commit()
 
     # Emit webhook event for agent creation (async without await since this is sync function)
-    import asyncio
 
     # Use the company_id already set in provider_settings
     company_id = provider_settings.get("company_id")
@@ -1182,29 +1272,20 @@ def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_US
             .all()
         )
 
-        for extension in core_extensions:
-            # Get all commands from this extension
-            extension_commands = (
+        # Batch-load ALL commands from core extensions in one query
+        core_extension_ids = [ext.id for ext in core_extensions]
+        if core_extension_ids:
+            all_core_commands = (
                 session.query(Command)
-                .filter(Command.extension_id == extension.id)
+                .filter(Command.extension_id.in_(core_extension_ids))
                 .all()
             )
-            # Enable all commands from these extensions
-            for command in extension_commands:
-                # Check if agent command already exists (from commands parameter)
-                existing_agent_command = (
-                    session.query(AgentCommand)
-                    .filter(
-                        AgentCommand.agent_id == agent.id,
-                        AgentCommand.command_id == command.id,
-                    )
-                    .first()
+            # For a newly created agent, no AgentCommands exist yet
+            for command in all_core_commands:
+                agent_command = AgentCommand(
+                    agent_id=agent.id, command_id=command.id, state=True
                 )
-                if not existing_agent_command:
-                    agent_command = AgentCommand(
-                        agent_id=agent.id, command_id=command.id, state=True
-                    )
-                    session.add(agent_command)
+                session.add(agent_command)
 
     # Handle any additional commands passed in the commands parameter
     if commands:
@@ -1253,12 +1334,11 @@ def delete_agent(agent_name=None, agent_id=None, user=DEFAULT_USER):
     user_id = None
 
     try:
-        user_data = session.query(User).filter(User.email == user).first()
-        if not user_data:
+        try:
+            user_id = get_user_id(user)
+        except Exception:
             logging.warning(f"User {user} not found while deleting agent.")
             return {"message": f"User {user} not found."}, 404
-
-        user_id = user_data.id
 
         agent_query = session.query(AgentModel).filter(AgentModel.user_id == user_id)
         if agent_id is not None:
@@ -1285,31 +1365,35 @@ def delete_agent(agent_name=None, agent_id=None, user=DEFAULT_USER):
             synchronize_session=False
         )
 
-        # Delete associated chain steps, arguments, and responses
-        chain_steps = session.query(ChainStep).filter_by(agent_id=agent.id).all()
-        for chain_step in chain_steps:
-            session.query(ChainStepArgument).filter_by(
-                chain_step_id=chain_step.id
-            ).delete(synchronize_session=False)
-            session.query(ChainStepResponse).filter_by(
-                chain_step_id=chain_step.id
-            ).delete(synchronize_session=False)
-            session.delete(chain_step)
-
-        # Delete associated agent commands
-        agent_commands = session.query(AgentCommand).filter_by(agent_id=agent.id).all()
-        for agent_command in agent_commands:
-            session.delete(agent_command)
-
-        # Delete associated agent provider records and settings
-        agent_providers = (
-            session.query(AgentProvider).filter_by(agent_id=agent.id).all()
+        # Delete associated chain step arguments, responses, and steps in bulk
+        chain_step_ids = session.query(ChainStep.id).filter(
+            ChainStep.agent_id == agent.id
         )
-        for agent_provider in agent_providers:
-            session.query(AgentProviderSetting).filter_by(
-                agent_provider_id=agent_provider.id
-            ).delete(synchronize_session=False)
-            session.delete(agent_provider)
+        session.query(ChainStepArgument).filter(
+            ChainStepArgument.chain_step_id.in_(chain_step_ids)
+        ).delete(synchronize_session=False)
+        session.query(ChainStepResponse).filter(
+            ChainStepResponse.chain_step_id.in_(chain_step_ids)
+        ).delete(synchronize_session=False)
+        session.query(ChainStep).filter(ChainStep.agent_id == agent.id).delete(
+            synchronize_session=False
+        )
+
+        # Delete associated agent commands in bulk
+        session.query(AgentCommand).filter_by(agent_id=agent.id).delete(
+            synchronize_session=False
+        )
+
+        # Delete associated agent provider settings and providers in bulk
+        agent_provider_ids = session.query(AgentProvider.id).filter(
+            AgentProvider.agent_id == agent.id
+        )
+        session.query(AgentProviderSetting).filter(
+            AgentProviderSetting.agent_provider_id.in_(agent_provider_ids)
+        ).delete(synchronize_session=False)
+        session.query(AgentProvider).filter_by(agent_id=agent.id).delete(
+            synchronize_session=False
+        )
 
         # Delete associated agent settings
         session.query(AgentSettingModel).filter_by(agent_id=agent.id).delete(
@@ -1352,7 +1436,6 @@ def delete_agent(agent_name=None, agent_id=None, user=DEFAULT_USER):
     invalidate_agent_data_cache(agent_id=agent_id_value)
 
     # Emit webhook event for agent deletion
-    import asyncio
 
     try:
         asyncio.create_task(
@@ -1377,8 +1460,7 @@ def delete_agent(agent_name=None, agent_id=None, user=DEFAULT_USER):
 
 def rename_agent(agent_name, new_name, user=DEFAULT_USER, company_id=None):
     session = get_session()
-    user_data = session.query(User).filter(User.email == user).first()
-    user_id = user_data.id
+    user_id = get_user_id(user)
     if not company_id:
         agent = (
             session.query(AgentModel)
@@ -1403,7 +1485,6 @@ def rename_agent(agent_name, new_name, user=DEFAULT_USER, company_id=None):
     invalidate_agent_data_cache(agent_id=str(agent.id))
 
     # Emit webhook event for agent rename
-    import asyncio
 
     try:
         asyncio.create_task(
@@ -1446,25 +1527,23 @@ def get_agent_name_by_id(agent_id: str, user: str = DEFAULT_USER) -> str:
     """
     session = get_session()
     try:
-        user_data = session.query(User).filter(User.email == user).first()
-        if not user_data:
-            raise ValueError(f"User {user} not found")
+        user_id = get_user_id(user)
 
         # First check user's own agents
         agent = (
             session.query(AgentModel)
-            .filter(AgentModel.id == agent_id, AgentModel.user_id == user_data.id)
+            .filter(AgentModel.id == agent_id, AgentModel.user_id == user_id)
             .first()
         )
         if not agent:
             # Try to find in global agents (DEFAULT_USER)
-            global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
-            if global_user:
+            default_uid = get_default_user_id()
+            if default_uid:
                 agent = (
                     session.query(AgentModel)
                     .filter(
                         AgentModel.id == agent_id,
-                        AgentModel.user_id == global_user.id,
+                        AgentModel.user_id == default_uid,
                     )
                     .first()
                 )
@@ -1492,25 +1571,23 @@ def get_agent_id_by_name(agent_name: str, user: str = DEFAULT_USER) -> str:
     """
     session = get_session()
     try:
-        user_data = session.query(User).filter(User.email == user).first()
-        if not user_data:
-            raise ValueError(f"User {user} not found")
+        user_id = get_user_id(user)
 
         # First check user's own agents
         agent = (
             session.query(AgentModel)
-            .filter(AgentModel.name == agent_name, AgentModel.user_id == user_data.id)
+            .filter(AgentModel.name == agent_name, AgentModel.user_id == user_id)
             .first()
         )
         if not agent:
             # Try to find in global agents (DEFAULT_USER)
-            global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
-            if global_user:
+            default_uid = get_default_user_id()
+            if default_uid:
                 agent = (
                     session.query(AgentModel)
                     .filter(
                         AgentModel.name == agent_name,
-                        AgentModel.user_id == global_user.id,
+                        AgentModel.user_id == default_uid,
                     )
                     .first()
                 )
@@ -1527,15 +1604,16 @@ def get_agents(user=DEFAULT_USER, company=None):
     Optimized to reduce database queries using batch loading.
     """
     session = get_session()
-    user_data = session.query(User).filter(User.email == user).first()
-    if not user_data:
+    try:
+        user_id = get_user_id(user)
+    except Exception:
         session.close()
         return []
 
     try:
         default_agent_id = str(
             session.query(UserPreferences)
-            .filter(UserPreferences.user_id == user_data.id)
+            .filter(UserPreferences.user_id == user_id)
             .filter(UserPreferences.pref_key == "agent_id")
             .first()
             .pref_value
@@ -1544,7 +1622,7 @@ def get_agents(user=DEFAULT_USER, company=None):
         default_agent_id = ""
 
     # Get user's companies using MagicalAuth
-    token = impersonate_user(user_id=str(user_data.id))
+    token = impersonate_user(user_id=str(user_id))
     auth = MagicalAuth(token=token)
     user_company_ids = auth.get_user_companies()
 
@@ -1552,30 +1630,40 @@ def get_agents(user=DEFAULT_USER, company=None):
     owned_agents = (
         session.query(AgentModel)
         .options(joinedload(AgentModel.settings))
-        .filter(AgentModel.user_id == user_data.id)
+        .filter(AgentModel.user_id == user_id)
         .all()
     )
 
-    # Query shared agents if user has companies
+    # Query shared agents if user has companies - SQL-filtered to avoid full table scan
     shared_agents = []
     if user_company_ids:
-        # Get all agents that are not owned by this user, with settings pre-loaded
-        potential_shared = (
+        # Subquery to find agents that have shared=true AND company_id in user's companies
+        shared_setting_subq = (
+            session.query(AgentSettingModel.agent_id)
+            .filter(
+                AgentSettingModel.name == "shared",
+                AgentSettingModel.value == "true",
+            )
+            .subquery()
+        )
+        company_setting_subq = (
+            session.query(AgentSettingModel.agent_id)
+            .filter(
+                AgentSettingModel.name == "company_id",
+                AgentSettingModel.value.in_(user_company_ids),
+            )
+            .subquery()
+        )
+        shared_agents = (
             session.query(AgentModel)
             .options(joinedload(AgentModel.settings))
-            .filter(AgentModel.user_id != user_data.id)
+            .filter(
+                AgentModel.user_id != user_id,
+                AgentModel.id.in_(session.query(shared_setting_subq.c.agent_id)),
+                AgentModel.id.in_(session.query(company_setting_subq.c.agent_id)),
+            )
             .all()
         )
-
-        for agent in potential_shared:
-            # Use pre-loaded settings instead of separate query
-            settings_dict = {s.name: s.value for s in agent.settings}
-
-            is_shared = settings_dict.get("shared", "false") == "true"
-            agent_company_id = settings_dict.get("company_id")
-
-            if is_shared and agent_company_id in user_company_ids:
-                shared_agents.append(agent)
 
     # Combine owned and shared agents
     all_agents = owned_agents + shared_agents
@@ -1583,7 +1671,7 @@ def get_agents(user=DEFAULT_USER, company=None):
     if default_agent_id == "" and all_agents:
         # Add a user preference of the first agent's ID in the agent list
         user_preference = UserPreferences(
-            user_id=user_data.id, pref_key="agent_id", pref_value=all_agents[0].id
+            user_id=user_id, pref_key="agent_id", pref_value=all_agents[0].id
         )
         session.add(user_preference)
         session.commit()
@@ -1624,7 +1712,7 @@ def get_agents(user=DEFAULT_USER, company=None):
         if not agentonboarded01292026 or agentonboarded01292026.lower() != "true":
             agents_needing_onboard.append(agent.id)
 
-        is_owner = agent.user_id == user_data.id
+        is_owner = agent.user_id == user_id
         is_shared = settings_dict.get("shared", "false") == "true"
 
         output.append(
@@ -1754,11 +1842,11 @@ def clone_agent(agent_id, new_agent_name, user=DEFAULT_USER):
     User must have access to the source agent.
     """
     session = get_session()
-    user_data = session.query(User).filter(User.email == user).first()
+    user_id = get_user_id(user)
 
     # Check access to source agent
     can_access, is_owner, access_level = can_user_access_agent(
-        user_id=user_data.id, agent_id=agent_id
+        user_id=user_id, agent_id=agent_id
     )
 
     if not can_access:
@@ -1847,8 +1935,6 @@ class Agent:
         if self.agent_id is not None:
             try:
                 # Try to parse as UUID - if it works, it's a real ID
-                import uuid as uuid_module
-
                 uuid_module.UUID(str(self.agent_id))
                 self.agent_name = self.get_agent_name_by_id()
             except ValueError:
@@ -1887,57 +1973,37 @@ class Agent:
         if early_company_id and str(early_company_id).lower() in ["none", "null", ""]:
             early_company_id = None
 
-        # Initialize AI Provider Manager to discover AI Provider extensions
-        self.ai_provider_manager = AIProviderManager(
-            agent_settings=self.PROVIDER_SETTINGS,
-            company_id=str(early_company_id) if early_company_id else None,
-        )
+        # Lazy-init AI Provider Manager — only needed for inference, not config/settings reads
+        self._ai_provider_manager = None
+        self._early_company_id = str(early_company_id) if early_company_id else None
 
         # Store ApiClient and token for provider access
         self._ApiClient = ApiClient
         self._token = token
 
-        # Set up service availability flags from AI Provider Manager
-        logging.debug(
-            f"[Agent] Using AI Provider extensions: {self.ai_provider_manager.get_provider_names()}"
-        )
-        self.PROVIDER = None  # Will use ai_provider_manager in inference methods
+        # Service availability flags — set lazily when ai_provider_manager is first accessed
+        self.PROVIDER = None
         self.VISION_PROVIDER = None
-        self.TTS_PROVIDER = (
-            True if self.ai_provider_manager.has_service("tts") else None
-        )  # Flag for availability
-        self.TRANSCRIPTION_PROVIDER = (
-            True if self.ai_provider_manager.has_service("transcription") else None
-        )
-        self.TRANSLATION_PROVIDER = (
-            True if self.ai_provider_manager.has_service("translation") else None
-        )
-        self.IMAGE_PROVIDER = (
-            True if self.ai_provider_manager.has_service("image") else None
-        )
+        self.TTS_PROVIDER = None
+        self.TRANSCRIPTION_PROVIDER = None
+        self.TRANSLATION_PROVIDER = None
+        self.IMAGE_PROVIDER = None
 
         try:
             self.max_input_tokens = int(self.AGENT_CONFIG["settings"]["MAX_TOKENS"])
         except Exception as e:
             self.max_input_tokens = 32000
         self.chunk_size = 256
-        self.extensions = Extensions(
-            agent_name=self.agent_name,
-            agent_id=self.agent_id,
-            agent_config=self.AGENT_CONFIG,
-            ApiClient=ApiClient,
-            api_key=ApiClient.headers.get("Authorization"),
-            user=self.user,
-        )
-        self.available_commands = self.extensions.get_available_commands()
+
+        # Lazy-init Extensions — only needed for command execution, not config reads
+        self._extensions = None
+        self._available_commands = None
 
         # CodeQL ultra-safe pattern: Create secure workspace directory
         base_workspace = "WORKSPACE"
         os.makedirs(base_workspace, exist_ok=True)
 
         # Create agent-specific directory using hash of agent_id for security
-        import hashlib
-
         if self.agent_id:
             agent_hash = hashlib.sha256(str(self.agent_id).encode()).hexdigest()[:16]
             agent_workspace = f"{base_workspace}/agent_{agent_hash}"
@@ -1960,9 +2026,80 @@ class Agent:
         else:
             self.company_id = None
         self.PROVIDER_SETTINGS["company_id"] = self.company_id
-        self.company_agent = None
-        if self.company_id:
-            self.company_agent = self.get_company_agent()
+        self._company_agent = None
+        self._company_agent_loaded = False
+
+    @property
+    def company_agent(self):
+        """Lazy-load company agent only when actually needed (e.g., command execution)."""
+        if not self._company_agent_loaded:
+            if self.company_id:
+                self._company_agent = self.get_company_agent()
+            self._company_agent_loaded = True
+        return self._company_agent
+
+    @property
+    def ai_provider_manager(self):
+        """Lazy-init AI Provider Manager — only needed for inference, not config/settings reads."""
+        if self._ai_provider_manager is None:
+            self._ai_provider_manager = AIProviderManager(
+                agent_settings=self.PROVIDER_SETTINGS,
+                company_id=self._early_company_id,
+            )
+            # Set service availability flags now that provider manager is initialized
+            logging.debug(
+                f"[Agent] Using AI Provider extensions: {self._ai_provider_manager.get_provider_names()}"
+            )
+            self.TTS_PROVIDER = (
+                True if self._ai_provider_manager.has_service("tts") else None
+            )
+            self.TRANSCRIPTION_PROVIDER = (
+                True if self._ai_provider_manager.has_service("transcription") else None
+            )
+            self.TRANSLATION_PROVIDER = (
+                True if self._ai_provider_manager.has_service("translation") else None
+            )
+            self.IMAGE_PROVIDER = (
+                True if self._ai_provider_manager.has_service("image") else None
+            )
+        return self._ai_provider_manager
+
+    @ai_provider_manager.setter
+    def ai_provider_manager(self, value):
+        self._ai_provider_manager = value
+
+    @property
+    def extensions(self):
+        """Lazy-init Extensions — only needed for command execution, not config reads."""
+        if self._extensions is None:
+            self._extensions = Extensions(
+                agent_name=self.agent_name,
+                agent_id=self.agent_id,
+                agent_config=self.AGENT_CONFIG,
+                ApiClient=self._ApiClient,
+                api_key=(
+                    self._ApiClient.headers.get("Authorization")
+                    if self._ApiClient
+                    else None
+                ),
+                user=self.user,
+            )
+        return self._extensions
+
+    @extensions.setter
+    def extensions(self, value):
+        self._extensions = value
+
+    @property
+    def available_commands(self):
+        """Lazy-load available commands from extensions."""
+        if self._available_commands is None:
+            self._available_commands = self.extensions.get_available_commands()
+        return self._available_commands
+
+    @available_commands.setter
+    def available_commands(self, value):
+        self._available_commands = value
 
     def get_company_agent(self):
         # Check for actual None or "None" string
@@ -1988,24 +2125,20 @@ class Agent:
         if self.company_id:
             agent = self.get_company_agent()
             company_extensions = agent.get_agent_extensions()
-            # We want to find out if any commands are enabled in company_extensions and set them to enabled for agent_extensions
-            for company_extension in company_extensions:
-                for agent_extension in agent_extensions:
-                    if (
-                        company_extension["extension_name"]
-                        == agent_extension["extension_name"]
-                    ):
-                        for company_command in company_extension["commands"]:
-                            for agent_command in agent_extension["commands"]:
-                                if (
-                                    company_command["friendly_name"]
-                                    == agent_command["friendly_name"]
-                                ):
-                                    if (
-                                        str(company_command["enabled"]).lower()
-                                        == "true"
-                                    ):
-                                        agent_command["enabled"] = True
+            # Build a dict for O(1) lookup instead of O(N×M) nested loops
+            company_enabled = set()
+            for ext in company_extensions:
+                for cmd in ext.get("commands", []):
+                    if str(cmd.get("enabled", "")).lower() == "true":
+                        company_enabled.add(
+                            (ext["extension_name"], cmd["friendly_name"])
+                        )
+            # Apply enabled status from company to agent extensions
+            for agent_ext in agent_extensions:
+                for agent_cmd in agent_ext.get("commands", []):
+                    key = (agent_ext["extension_name"], agent_cmd["friendly_name"])
+                    if key in company_enabled:
+                        agent_cmd["enabled"] = True
             return agent_extensions
         else:
             return agent_extensions
@@ -2088,6 +2221,122 @@ class Agent:
         finally:
             session.close()
 
+    def _ensure_wallet(self, agent, session):
+        """Check wallet settings and create if missing. Only called on cache miss."""
+        wallet_setting_names = [
+            "SOLANA_WALLET_ADDRESS",
+            "SOLANA_WALLET_API_KEY",
+            "SOLANA_WALLET_PASSPHRASE_API_KEY",
+        ]
+        all_wallet_settings = (
+            session.query(AgentSettingModel)
+            .filter(
+                AgentSettingModel.agent_id == agent.id,
+                AgentSettingModel.name.in_(wallet_setting_names),
+            )
+            .all()
+        )
+
+        # Group by setting name
+        wallet_settings_by_name = {}
+        for setting in all_wallet_settings:
+            if setting.name not in wallet_settings_by_name:
+                wallet_settings_by_name[setting.name] = []
+            wallet_settings_by_name[setting.name].append(setting)
+
+        all_wallet_addresses = wallet_settings_by_name.get("SOLANA_WALLET_ADDRESS", [])
+        all_private_keys = wallet_settings_by_name.get("SOLANA_WALLET_API_KEY", [])
+        all_passphrases = wallet_settings_by_name.get(
+            "SOLANA_WALLET_PASSPHRASE_API_KEY", []
+        )
+
+        # Clean up duplicates - keep only the first one with a value
+        def cleanup_duplicates(settings_list):
+            if len(settings_list) <= 1:
+                return settings_list[0] if settings_list else None
+            keeper = None
+            for setting in settings_list:
+                if setting.value:
+                    keeper = setting
+                    break
+            if keeper is None:
+                keeper = settings_list[0]
+            for setting in settings_list:
+                if setting.id != keeper.id:
+                    session.delete(setting)
+            return keeper
+
+        existing_wallet_address = cleanup_duplicates(all_wallet_addresses)
+        existing_private_key = cleanup_duplicates(all_private_keys)
+        existing_passphrase = cleanup_duplicates(all_passphrases)
+
+        has_duplicates = any(
+            len(v) > 1
+            for v in [all_wallet_addresses, all_private_keys, all_passphrases]
+        )
+        if has_duplicates:
+            try:
+                session.commit()
+            except Exception as e:
+                logging.warning(f"Error cleaning up duplicate wallet settings: {e}")
+                session.rollback()
+
+        wallet_needs_creation = (
+            not existing_wallet_address
+            or not existing_private_key
+            or not existing_passphrase
+            or not (existing_wallet_address and existing_wallet_address.value)
+            or not (existing_private_key and existing_private_key.value)
+            or not (existing_passphrase and existing_passphrase.value)
+        )
+
+        if wallet_needs_creation:
+            logging.debug(
+                f"Solana wallet missing or incomplete for agent {agent.name} ({agent.id}). Creating new wallet..."
+            )
+            try:
+                private_key, passphrase, address = create_solana_wallet()
+
+                if existing_private_key:
+                    existing_private_key.value = private_key
+                else:
+                    session.add(
+                        AgentSettingModel(
+                            agent_id=agent.id,
+                            name="SOLANA_WALLET_API_KEY",
+                            value=private_key,
+                        )
+                    )
+                if existing_passphrase:
+                    existing_passphrase.value = passphrase
+                else:
+                    session.add(
+                        AgentSettingModel(
+                            agent_id=agent.id,
+                            name="SOLANA_WALLET_PASSPHRASE_API_KEY",
+                            value=passphrase,
+                        )
+                    )
+                if existing_wallet_address:
+                    existing_wallet_address.value = address
+                else:
+                    session.add(
+                        AgentSettingModel(
+                            agent_id=agent.id,
+                            name="SOLANA_WALLET_ADDRESS",
+                            value=address,
+                        )
+                    )
+                session.commit()
+                logging.debug(
+                    f"Successfully created and saved Solana wallet for agent {agent.name} ({agent.id})."
+                )
+            except Exception as e:
+                logging.error(
+                    f"Error creating/saving Solana wallet for agent {agent.name} ({agent.id}): {e}"
+                )
+                session.rollback()
+
     def get_agent_config(self):
         # Check cache first - short TTL for request batching
         cached = get_agent_data_cached(
@@ -2102,14 +2351,6 @@ class Agent:
             return cached["config"].copy()  # Return copy to prevent mutation
 
         session = get_session()
-
-        # CRITICAL: Begin a new transaction to ensure we see committed data from other workers
-        # SQLite with multiple processes can have stale reads without this
-        try:
-            session.execute("SELECT 1")  # Force connection to be active
-            session.commit()  # Commit any implicit transaction to release locks
-        except Exception:
-            pass  # Ignore if already in a good state
 
         # If we have agent_id, use it to find the agent
         if (
@@ -2126,15 +2367,13 @@ class Agent:
             )
             if not agent:
                 # Try to find in global agents (DEFAULT_USER)
-                global_user = (
-                    session.query(User).filter(User.email == DEFAULT_USER).first()
-                )
-                if global_user:
+                default_uid = get_default_user_id()
+                if default_uid:
                     agent = (
                         session.query(AgentModel)
                         .filter(
                             AgentModel.id == self.agent_id,
-                            AgentModel.user_id == global_user.id,
+                            AgentModel.user_id == default_uid,
                         )
                         .first()
                     )
@@ -2185,152 +2424,23 @@ class Agent:
         config = {"settings": {}, "commands": {}}
 
         # Wallet Creation Logic - Runs only if agent exists
+        # Use SharedCache to avoid running wallet check on every cache miss
         if agent:
-            # Get ALL wallet settings in a single query (optimized from 3 separate queries)
-            wallet_setting_names = [
-                "SOLANA_WALLET_ADDRESS",
-                "SOLANA_WALLET_API_KEY",
-                "SOLANA_WALLET_PASSPHRASE_API_KEY",
-            ]
-            all_wallet_settings = (
-                session.query(AgentSettingModel)
-                .filter(
-                    AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name.in_(wallet_setting_names),
-                )
-                .all()
-            )
-
-            # Group by setting name
-            wallet_settings_by_name = {}
-            for setting in all_wallet_settings:
-                if setting.name not in wallet_settings_by_name:
-                    wallet_settings_by_name[setting.name] = []
-                wallet_settings_by_name[setting.name].append(setting)
-
-            all_wallet_addresses = wallet_settings_by_name.get(
-                "SOLANA_WALLET_ADDRESS", []
-            )
-            all_private_keys = wallet_settings_by_name.get("SOLANA_WALLET_API_KEY", [])
-            all_passphrases = wallet_settings_by_name.get(
-                "SOLANA_WALLET_PASSPHRASE_API_KEY", []
-            )
-
-            # Clean up duplicates - keep only the first one with a value, or first one if none have values
-            def cleanup_duplicates(settings_list):
-                if len(settings_list) <= 1:
-                    return settings_list[0] if settings_list else None
-
-                # Find the first setting with a non-empty value
-                keeper = None
-                for setting in settings_list:
-                    if setting.value:
-                        keeper = setting
-                        break
-
-                # If no setting has a value, keep the first one
-                if keeper is None:
-                    keeper = settings_list[0]
-
-                # Delete all duplicates except the keeper
-                for setting in settings_list:
-                    if setting.id != keeper.id:
-                        session.delete(setting)
-
-                return keeper
-
-            existing_wallet_address = cleanup_duplicates(all_wallet_addresses)
-            existing_private_key = cleanup_duplicates(all_private_keys)
-            existing_passphrase = cleanup_duplicates(all_passphrases)
-
-            # Commit duplicate cleanup before checking if wallet needs creation
-            try:
-                session.commit()
-            except Exception as e:
-                logging.warning(f"Error cleaning up duplicate wallet settings: {e}")
-                session.rollback()
-
-            # Check if wallet doesn't exist or any of the critical settings are empty
-            wallet_needs_creation = (
-                not existing_wallet_address
-                or not existing_private_key
-                or not existing_passphrase
-                or not (existing_wallet_address and existing_wallet_address.value)
-                or not (existing_private_key and existing_private_key.value)
-                or not (existing_passphrase and existing_passphrase.value)
-            )
-
-            if wallet_needs_creation:
-                # Wallet doesn't exist or is incomplete, create and save it
-                logging.debug(
-                    f"Solana wallet missing or incomplete for agent {agent.name} ({agent.id}). Creating new wallet..."
-                )
-                try:
-                    private_key, passphrase, address = create_solana_wallet()
-
-                    # Update or create the settings
-                    if existing_private_key:
-                        existing_private_key.value = private_key
-                    else:
-                        session.add(
-                            AgentSettingModel(
-                                agent_id=agent.id,
-                                name="SOLANA_WALLET_API_KEY",
-                                value=private_key,
-                            )
-                        )
-
-                    if existing_passphrase:
-                        existing_passphrase.value = passphrase
-                    else:
-                        session.add(
-                            AgentSettingModel(
-                                agent_id=agent.id,
-                                name="SOLANA_WALLET_PASSPHRASE_API_KEY",
-                                value=passphrase,
-                            )
-                        )
-
-                    if existing_wallet_address:
-                        existing_wallet_address.value = address
-                    else:
-                        session.add(
-                            AgentSettingModel(
-                                agent_id=agent.id,
-                                name="SOLANA_WALLET_ADDRESS",
-                                value=address,
-                            )
-                        )
-
-                    session.commit()
-                    logging.debug(
-                        f"Successfully created and saved Solana wallet for agent {agent.name} ({agent.id})."
-                    )
-
-                    # Refresh agent_settings to include newly created wallet settings
-                    agent_settings = (
-                        session.query(AgentSettingModel)
-                        .filter_by(agent_id=agent.id)
-                        .all()
-                    )
-                except Exception as e:
-                    logging.error(
-                        f"Error creating/saving Solana wallet for agent {agent.name} ({agent.id}): {e}"
-                    )
-                    session.rollback()  # Rollback DB changes on error
+            wallet_cache_key = f"wallet_ok:{agent.id}"
+            if not shared_cache.get(wallet_cache_key):
+                self._ensure_wallet(agent, session)
+                shared_cache.set(wallet_cache_key, "1", ttl=300)
 
         if agent:
-            # Force fresh read from database - critical for multi-worker consistency
-            # Without this, SQLAlchemy may return stale cached data from previous queries
-            session.expire_all()
+            # Refresh only the agent object for multi-worker consistency
+            # (avoids invalidating entire ORM cache with session.expire_all())
+            session.refresh(agent)
 
             # Use cached commands to avoid repeated queries
             all_commands = get_all_commands_cached(session)
-            # Only query agent_settings if not already refreshed after wallet creation
-            if "agent_settings" not in locals():
-                agent_settings = (
-                    session.query(AgentSettingModel).filter_by(agent_id=agent.id).all()
-                )
+            agent_settings = (
+                session.query(AgentSettingModel).filter_by(agent_id=agent.id).all()
+            )
 
             agent_commands = (
                 session.query(AgentCommand)
@@ -2402,7 +2512,6 @@ class Agent:
             enabled_commands = [enabled_commands]
         for command in enabled_commands:
             config["commands"][command] = True
-        session.close()
 
         # Cache the result for short-term reuse within request cycle
         set_agent_data_cache(
@@ -2642,24 +2751,8 @@ class Agent:
         import tempfile
         import shutil
 
-        def sanitize_path_component(component: str) -> str:
-            """Sanitize a path component to prevent path traversal attacks"""
-            if not component or not isinstance(component, str):
-                raise ValueError("Invalid path component")
-            sanitized = re.sub(r"[^a-zA-Z0-9_-]", "", str(component))
-            if (
-                not sanitized
-                or sanitized
-                != component.replace("-", "").replace("_", "").replace(" ", "")
-                or ".." in component
-            ):
-                sanitized = re.sub(r"[^a-zA-Z0-9-]", "", str(component))
-            if not sanitized:
-                raise ValueError("Invalid path component after sanitization")
-            return sanitized
-
-        safe_agent_id = sanitize_path_component(self.agent_id)
-        safe_conversation_id = sanitize_path_component(conversation_id)
+        safe_agent_id = Agent.sanitize_path_component(self.agent_id)
+        safe_conversation_id = Agent.sanitize_path_component(conversation_id)
 
         with tempfile.TemporaryDirectory() as temp_base:
             secure_filename = f"image_{timestamp}.png"
@@ -2734,29 +2827,10 @@ class Agent:
             # CodeQL ultra-safe pattern: Complete data flow isolation
             import tempfile
             import shutil
-            import re
 
             # Validate agent_id and conversation_id to prevent path traversal
-            def sanitize_path_component(component: str) -> str:
-                """Sanitize a path component to prevent path traversal attacks"""
-                if not component or not isinstance(component, str):
-                    raise ValueError("Invalid path component")
-                # Only allow alphanumeric characters, hyphens, and underscores
-                sanitized = re.sub(r"[^a-zA-Z0-9_-]", "", str(component))
-                if (
-                    not sanitized
-                    or sanitized
-                    != component.replace("-", "").replace("_", "").replace(" ", "")
-                    or ".." in component
-                ):
-                    # UUID format should be alphanumeric with hyphens
-                    sanitized = re.sub(r"[^a-zA-Z0-9-]", "", str(component))
-                if not sanitized:
-                    raise ValueError("Invalid path component after sanitization")
-                return sanitized
-
-            safe_agent_id = sanitize_path_component(self.agent_id)
-            safe_conversation_id = sanitize_path_component(conversation_id)
+            safe_agent_id = Agent.sanitize_path_component(self.agent_id)
+            safe_conversation_id = Agent.sanitize_path_component(conversation_id)
 
             # Create secure temporary directory completely isolated from user input
             with tempfile.TemporaryDirectory() as temp_base:
@@ -2862,6 +2936,9 @@ class Agent:
             yield chunk
 
     def get_agent_extensions(self):
+        # Return cached result if available (avoids duplicate calls in same request)
+        if hasattr(self, "_cached_agent_extensions"):
+            return self._cached_agent_extensions
         extensions = self.extensions.get_extensions()
         new_extensions = []
         session = get_session()
@@ -3035,6 +3112,7 @@ class Agent:
                 else:
                     command["enabled"] = False
         session.close()
+        self._cached_agent_extensions = new_extensions
         return new_extensions
 
     def update_agent_config(self, new_config, config_key):
@@ -3055,15 +3133,13 @@ class Agent:
             )
             if not agent:
                 # Try to find in global agents
-                global_user = (
-                    session.query(User).filter(User.email == DEFAULT_USER).first()
-                )
-                if global_user:
+                default_uid = get_default_user_id()
+                if default_uid:
                     agent = (
                         session.query(AgentModel)
                         .filter(
                             AgentModel.id == self.agent_id,
-                            AgentModel.user_id == global_user.id,
+                            AgentModel.user_id == default_uid,
                         )
                         .first()
                     )
@@ -3092,14 +3168,12 @@ class Agent:
                 if self.user == DEFAULT_USER:
                     return f"Agent {self.agent_name} not found."
                 # Check if it is a global agent and copy it if necessary
-                global_user = (
-                    session.query(User).filter(User.email == DEFAULT_USER).first()
-                )
+                default_uid = get_default_user_id()
                 global_agent = (
                     session.query(AgentModel)
                     .filter(
                         AgentModel.name == self.agent_name,
-                        AgentModel.user_id == global_user.id,
+                        AgentModel.user_id == default_uid,
                     )
                     .first()
                 )
@@ -3130,20 +3204,81 @@ class Agent:
                 session.commit()
 
         if config_key == "commands":
+            # Batch-load all existing AgentCommands for this agent
+            existing_agent_commands = (
+                session.query(AgentCommand)
+                .filter(AgentCommand.agent_id == self.agent_id)
+                .all()
+            )
+            agent_cmd_by_command_id = {
+                ac.command_id: ac for ac in existing_agent_commands
+            }
+
+            # Batch-load all Commands that match the command names being set
+            command_names = [cn for cn in new_config.keys() if cn and cn.strip() != ""]
+            if command_names:
+                matched_commands = (
+                    session.query(Command)
+                    .options(joinedload(Command.extension))
+                    .filter(Command.name.in_(command_names))
+                    .all()
+                )
+                commands_by_name = defaultdict(list)
+                for cmd in matched_commands:
+                    commands_by_name[cmd.name].append(cmd)
+
+                # Also try friendly name mapping for any not found by exact name
+                name_mapping = _get_command_name_to_friendly_cache()
+                friendly_names_needed = []
+                for cn in command_names:
+                    if cn not in commands_by_name:
+                        friendly = name_mapping.get(cn)
+                        if friendly:
+                            friendly_names_needed.append((cn, friendly))
+                if friendly_names_needed:
+                    friendly_name_list = [f for _, f in friendly_names_needed]
+                    friendly_cmds = (
+                        session.query(Command)
+                        .options(joinedload(Command.extension))
+                        .filter(Command.name.in_(friendly_name_list))
+                        .all()
+                    )
+                    friendly_cmds_by_name = defaultdict(list)
+                    for cmd in friendly_cmds:
+                        friendly_cmds_by_name[cmd.name].append(cmd)
+                    for orig_name, friendly in friendly_names_needed:
+                        if friendly in friendly_cmds_by_name:
+                            commands_by_name[orig_name] = friendly_cmds_by_name[
+                                friendly
+                            ]
+
+            owners_cache = _get_command_owner_cache()
+
             for command_name, enabled in new_config.items():
-                # Protect against empty command names
                 if not command_name or command_name.strip() == "":
                     logging.error("Empty command name provided in config, skipping")
                     continue
 
-                # First try to find an existing command
-                command = _resolve_command_by_name(session, command_name)
+                # Resolve command from batch-loaded data
+                candidates = commands_by_name.get(command_name, [])
+                command = None
+                if len(candidates) == 1:
+                    command = candidates[0]
+                elif len(candidates) > 1:
+                    cmd_owners = owners_cache.get(command_name.lower(), set())
+                    if cmd_owners:
+                        for c in candidates:
+                            ext_name = c.extension.name if c.extension else None
+                            if ext_name in cmd_owners:
+                                command = c
+                                break
+                    if not command:
+                        command = candidates[0]
 
                 if not command:
                     # Check if this is a chain command
                     chain = session.query(ChainDB).filter_by(name=command_name).first()
                     if chain:
-                        # Find or create the Custom Automation extension
                         extension = (
                             session.query(Extension)
                             .filter_by(name="Custom Automation")
@@ -3154,22 +3289,16 @@ class Agent:
                             session.add(extension)
                             session.commit()
 
-                        # Create a new command entry for the chain
                         command = Command(name=command_name, extension_id=extension.id)
                         session.add(command)
                         session.commit()
-                        # Invalidate the commands cache since we added a new command
                         invalidate_commands_cache()
                     else:
                         logging.error(f"Command {command_name} not found.")
                         continue
 
-                # Now handle the agent command association
-                agent_command = (
-                    session.query(AgentCommand)
-                    .filter_by(agent_id=self.agent_id, command_id=command.id)
-                    .first()
-                )
+                # Use batch-loaded agent command lookup
+                agent_command = agent_cmd_by_command_id.get(command.id)
 
                 if agent_command:
                     agent_command.state = enabled
@@ -3180,16 +3309,20 @@ class Agent:
                         state=enabled,
                     )
                     session.add(agent_command)
+                    agent_cmd_by_command_id[command.id] = agent_command
 
-                # Force flush to ensure the change is staged
                 session.flush()
         else:
+            # Batch-load all existing settings for this agent
+            existing_settings = (
+                session.query(AgentSettingModel)
+                .filter(AgentSettingModel.agent_id == self.agent_id)
+                .all()
+            )
+            settings_by_name = {s.name: s for s in existing_settings}
+
             for setting_name, setting_value in new_config.items():
-                agent_setting = (
-                    session.query(AgentSettingModel)
-                    .filter_by(agent_id=self.agent_id, name=setting_name)
-                    .first()
-                )
+                agent_setting = settings_by_name.get(setting_name)
                 # Check if this is a provider key that can be explicitly disconnected
                 # Provider keys (API_KEY, SECRET, etc.) can be set to empty to override inherited values
                 is_provider_key = any(
@@ -3227,7 +3360,6 @@ class Agent:
             )  # Clear agent data cache
 
             # Emit webhook event for agent configuration update
-            import asyncio
 
             try:
                 asyncio.create_task(
@@ -3267,27 +3399,19 @@ class Agent:
         Returns:
             list: The list of URLs that have been browsed by the agent.
         """
+        if not self.agent_id:
+            return []
         session = get_session()
-        agent = (
-            session.query(AgentModel)
-            .filter(
-                AgentModel.name == self.agent_name, AgentModel.user_id == self.user_id
+        try:
+            browsed_links = (
+                session.query(AgentBrowsedLink)
+                .filter_by(agent_id=self.agent_id, conversation_id=conversation_id)
+                .order_by(AgentBrowsedLink.id.desc())
+                .all()
             )
-            .first()
-        )
-        if not agent:
+            return browsed_links if browsed_links else []
+        finally:
             session.close()
-            return []
-        browsed_links = (
-            session.query(AgentBrowsedLink)
-            .filter_by(agent_id=agent.id, conversation_id=conversation_id)
-            .order_by(AgentBrowsedLink.id.desc())
-            .all()
-        )
-        session.close()
-        if not browsed_links:
-            return []
-        return browsed_links
 
     def browsed_recently(self, url, conversation_id=None) -> bool:
         """
@@ -3335,9 +3459,7 @@ class Agent:
         elif conversation_id:
             # Validate that it's a proper UUID string
             try:
-                import uuid
-
-                uuid.UUID(str(conversation_id))
+                uuid_module.UUID(str(conversation_id))
                 conversation_id = str(conversation_id)
             except (ValueError, TypeError):
                 conversation_id = None
@@ -3399,13 +3521,13 @@ class Agent:
                 return agent.name
 
             # Try to find in global agents (DEFAULT_USER)
-            global_user = session.query(User).filter(User.email == DEFAULT_USER).first()
-            if global_user:
+            default_uid = get_default_user_id()
+            if default_uid:
                 agent = (
                     session.query(AgentModel)
                     .filter(
                         AgentModel.id == self.agent_id,
-                        AgentModel.user_id == global_user.id,
+                        AgentModel.user_id == default_uid,
                     )
                     .first()
                 )
@@ -3477,9 +3599,6 @@ class Agent:
         Raises:
             ValueError: If the component contains invalid characters
         """
-        import re
-        import os
-
         if not component or not isinstance(component, str):
             raise ValueError("Path component must be a non-empty string")
 
@@ -3936,33 +4055,26 @@ class Agent:
                         detail=f"Agent '{self.agent_name}' not found for this user.",
                     )
 
-            # Get ALL wallet settings for this agent (to handle duplicates)
-            all_private_keys = (
+            # Get ALL wallet settings for this agent in a single query
+            wallet_setting_names = [
+                "SOLANA_WALLET_API_KEY",
+                "SOLANA_WALLET_PASSPHRASE_API_KEY",
+                "SOLANA_WALLET_ADDRESS",
+            ]
+            all_wallet_settings = (
                 session.query(AgentSettingModel)
                 .filter(
                     AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_API_KEY",
+                    AgentSettingModel.name.in_(wallet_setting_names),
                 )
                 .all()
             )
-
-            all_passphrases = (
-                session.query(AgentSettingModel)
-                .filter(
-                    AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_PASSPHRASE_API_KEY",
-                )
-                .all()
-            )
-
-            all_addresses = (
-                session.query(AgentSettingModel)
-                .filter(
-                    AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "SOLANA_WALLET_ADDRESS",
-                )
-                .all()
-            )
+            wallet_by_name = {}
+            for s in all_wallet_settings:
+                wallet_by_name.setdefault(s.name, []).append(s)
+            all_private_keys = wallet_by_name.get("SOLANA_WALLET_API_KEY", [])
+            all_passphrases = wallet_by_name.get("SOLANA_WALLET_PASSPHRASE_API_KEY", [])
+            all_addresses = wallet_by_name.get("SOLANA_WALLET_ADDRESS", [])
 
             # Clean up duplicates - keep only the first one with a value, or first one if none have values
             def cleanup_duplicates(settings_list):

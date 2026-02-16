@@ -108,6 +108,34 @@ async def initialize_database(is_restart=False):
         startup_timer.section_end("migrate_auth_username_password", section_start)
 
         section_start = startup_timer.section_start()
+        DB.migrate_group_chat_tables()
+        startup_timer.section_end("migrate_group_chat_tables", section_start)
+
+        section_start = startup_timer.section_start()
+        DB.migrate_message_reaction_table()
+        startup_timer.section_end("migrate_message_reaction_table", section_start)
+
+        section_start = startup_timer.section_start()
+        DB.migrate_message_pinning()
+        startup_timer.section_end("migrate_message_pinning", section_start)
+
+        section_start = startup_timer.section_start()
+        DB.migrate_performance_indexes()
+        startup_timer.section_end("migrate_performance_indexes", section_start)
+
+        section_start = startup_timer.section_start()
+        DB.migrate_extract_data_urls_from_messages()
+        startup_timer.section_end(
+            "migrate_extract_data_urls_from_messages", section_start
+        )
+
+        section_start = startup_timer.section_start()
+        DB.migrate_backfill_channel_participants()
+        startup_timer.section_end(
+            "migrate_backfill_channel_participants", section_start
+        )
+
+        section_start = startup_timer.section_start()
         DB.migrate_conversation_table()
         startup_timer.section_end("migrate_conversation_table", section_start)
 
@@ -150,6 +178,16 @@ async def initialize_database(is_restart=False):
         section_start = startup_timer.section_start()
         DB.migrate_user_oauth_table()
         startup_timer.section_end("migrate_user_oauth_table", section_start)
+
+        section_start = startup_timer.section_start()
+        DB.migrate_conversation_participant_notification_mode()
+        startup_timer.section_end(
+            "migrate_conversation_participant_notification_mode", section_start
+        )
+
+        section_start = startup_timer.section_start()
+        DB.migrate_user_company_sort_order()
+        startup_timer.section_end("migrate_user_company_sort_order", section_start)
 
         # Clean up expired cache entries on startup
         section_start = startup_timer.section_start()

@@ -267,9 +267,11 @@ def getenv(var_name: str, default_value: str = "") -> str:
     return default_value
 
 
+_TIKTOKEN_ENCODING = tiktoken.get_encoding("cl100k_base")
+
+
 def get_tokens(text: str) -> int:
-    encoding = tiktoken.get_encoding("cl100k_base")
-    num_tokens = len(encoding.encode(text))
+    num_tokens = len(_TIKTOKEN_ENCODING.encode(text))
     return num_tokens
 
 
@@ -399,3 +401,28 @@ def get_output_url(path: str):
 
 DEFAULT_USER = str(getenv("DEFAULT_USER")).lower()
 DEFAULT_SETTINGS = get_default_agent_settings()
+
+
+# Cached DEFAULT_USER user ID — avoids 30+ DB queries per request lifecycle
+_default_user_id = None
+
+
+def get_default_user_id():
+    """Get the cached user ID for the DEFAULT_USER email.
+    This is a constant that never changes at runtime, so we cache it permanently.
+    Returns None if the DEFAULT_USER doesn't exist in the database.
+    """
+    global _default_user_id
+    if _default_user_id is not None:
+        return _default_user_id
+    try:
+        from DB import get_session, User
+
+        session = get_session()
+        u = session.query(User).filter(User.email == DEFAULT_USER).first()
+        if u:
+            _default_user_id = str(u.id)
+        session.close()
+    except Exception:
+        pass
+    return _default_user_id

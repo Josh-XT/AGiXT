@@ -18,6 +18,7 @@ from Agent import (
     can_user_access_agent,
     clone_agent as clone_agent_func,
     get_agent_commands_only,
+    get_agent_name_by_id,
 )
 from MagicalAuth import get_user_id
 from Models import (
@@ -336,9 +337,8 @@ async def renameagent_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ResponseMessage:
-    ApiClient = get_api_client(authorization=authorization)
-    agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
-    rename_agent(agent_name=agent.agent_name, new_name=new_name.new_name, user=user)
+    agent_name = get_agent_name_by_id(agent_id=agent_id, user=user)
+    rename_agent(agent_name=agent_name, new_name=new_name.new_name, user=user)
     return ResponseMessage(message="Agent renamed.")
 
 

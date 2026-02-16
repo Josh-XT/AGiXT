@@ -188,7 +188,12 @@ class ExtensionsHub:
                         # Verify the pricing config matches the current app
                         # or return the first one found if no APP_NAME match
                         config_app_name = config.get("app_name", "")
-                        if config_app_name == app_name or app_name in ["AGiXT", ""]:
+                        config_app_names = config.get("app_names", [])
+                        if (
+                            config_app_name == app_name
+                            or app_name in config_app_names
+                            or app_name in ["AGiXT", ""]
+                        ):
                             self._pricing_config_cache = config
                             return config
                 except json.JSONDecodeError as e:
@@ -677,12 +682,29 @@ class ExtensionsHub:
             return False
 
 
+# Module-level cache for find_extension_files() to avoid repeated OS walks
+import time as _time
+
+_find_ext_files_cache: Optional[List[str]] = None
+_find_ext_files_cache_time: float = 0
+_FIND_EXT_FILES_TTL: float = 300  # 5 minutes
+
+
+def invalidate_find_extension_files_cache():
+    """Invalidate the find_extension_files cache (call after extension install/update/remove)"""
+    global _find_ext_files_cache, _find_ext_files_cache_time
+    _find_ext_files_cache = None
+    _find_ext_files_cache_time = 0
+
+
 def find_extension_files(
     base_dir: str = "extensions", excluded_dirs: Optional[List[str]] = None
 ) -> List[str]:
     """
     Recursively find all Python files in extensions directory and subdirectories,
     including paths from EXTENSIONS_HUB
+
+    Results are cached for 5 minutes to avoid repeated filesystem walks.
 
     Args:
         base_dir: Base directory to search in (default extensions directory)
@@ -691,6 +713,15 @@ def find_extension_files(
     Returns:
         List of file paths relative to the base_dir
     """
+    global _find_ext_files_cache, _find_ext_files_cache_time
+
+    # Return cached result if still valid
+    if (
+        _find_ext_files_cache is not None
+        and _time.time() - _find_ext_files_cache_time < _FIND_EXT_FILES_TTL
+    ):
+        return _find_ext_files_cache
+
     if excluded_dirs is None:
         excluded_dirs = ["__pycache__", "tests", ".git"]
 
@@ -755,7 +786,10 @@ def find_extension_files(
                     full_path = os.path.normpath(os.path.join(root, file))
                     extension_files_set.add(full_path)
 
-    return list(extension_files_set)
+    result = list(extension_files_set)
+    _find_ext_files_cache = result
+    _find_ext_files_cache_time = _time.time()
+    return result
 
 
 def import_extension_module(file_path: str, base_dir: str = "extensions"):

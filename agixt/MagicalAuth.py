@@ -26,6 +26,8 @@ from DB import (
     CompanyExtensionCommand,
     CompanyExtensionSetting,
     TrialDomain,
+    Conversation,
+    ConversationParticipant,
 )
 from payments.pricing import PriceService
 from sqlalchemy.exc import SQLAlchemyError
@@ -47,7 +49,7 @@ from typing import List, Optional
 from fastapi import Header, HTTPException
 from Globals import getenv, get_default_agent
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from InternalClient import InternalClient
 from middleware import log_silenced_exception
@@ -70,6 +72,7 @@ from ExtensionsHub import (
 )
 from SharedCache import shared_cache
 
+import time as _time
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -82,6 +85,89 @@ _stripe_check_cache_ttl = 300  # 5 minutes
 _user_company_cache_ttl = 10  # 10 seconds
 _user_id_cache_ttl = 60  # 60 seconds
 _token_validation_cache_ttl = 5  # 5 seconds
+_pat_validation_cache_ttl = 10  # 10 seconds
+_user_timezone_cache_ttl = 300  # 5 minutes (timezone rarely changes)
+_scope_cache_ttl = 3600  # 1 hour (scope definitions rarely change)
+
+# Module-level PriceService singleton (stateless, reads DB on each get_token_price call)
+_price_service_instance = None
+
+
+def _get_all_scope_names():
+    """Get all scope names, cached in SharedCache for 1 hour."""
+    cache_key = "all_scope_names"
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    session = get_session()
+    try:
+        names = {s.name for s in session.query(Scope).all()}
+        shared_cache.set(cache_key, names, ttl=_scope_cache_ttl)
+        return names
+    finally:
+        session.close()
+
+
+def _get_all_scopes_info():
+    """Get all scope definitions as list of dicts, cached in SharedCache for 1 hour."""
+    cache_key = "all_scopes_info"
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    session = get_session()
+    try:
+        scopes = session.query(Scope).all()
+        result = [
+            {
+                "id": str(s.id),
+                "name": s.name,
+                "resource": s.resource,
+                "action": s.action,
+                "description": s.description,
+                "category": s.category or "Other",
+                "is_system": s.is_system,
+            }
+            for s in scopes
+        ]
+        shared_cache.set(cache_key, result, ttl=_scope_cache_ttl)
+        return result
+    finally:
+        session.close()
+
+
+def _get_price_service() -> PriceService:
+    """Get or create a singleton PriceService instance."""
+    global _price_service_instance
+    if _price_service_instance is None:
+        _price_service_instance = PriceService()
+    return _price_service_instance
+
+
+# Module-level cached pricing config from ExtensionsHub
+_cached_pricing_config = None
+_cached_pricing_config_time: float = 0
+_PRICING_CONFIG_TTL: float = 120  # 2 minutes
+
+
+def _get_cached_pricing_config():
+    """Get pricing config from ExtensionsHub with TTL caching.
+    Avoids constructing ExtensionsHub() + reading pricing.json on every call.
+    """
+    global _cached_pricing_config, _cached_pricing_config_time
+
+    now = _time.time()
+    if (
+        _cached_pricing_config is not None
+        and now - _cached_pricing_config_time < _PRICING_CONFIG_TTL
+    ):
+        return _cached_pricing_config
+
+    from ExtensionsHub import ExtensionsHub
+
+    hub = ExtensionsHub()
+    _cached_pricing_config = hub.get_pricing_config()
+    _cached_pricing_config_time = now
+    return _cached_pricing_config
 
 
 def hash_pat_token(token: str) -> str:
@@ -750,22 +836,17 @@ def get_sso_credentials(user_id):
     if not user:
         session.close()
         raise HTTPException(status_code=404, detail="User not found.")
-    user_oauth = session.query(UserOAuth).filter(UserOAuth.user_id == user_id).all()
-    if not user_oauth:
-        session.close()
-        return {}
-    credentials = {}
-    for oauth in user_oauth:
-        provider = (
-            session.query(OAuthProvider)
-            .filter(OAuthProvider.id == oauth.provider_id)
-            .first()
-        )
-        credentials.update(
-            {f"{str(provider.name).upper()}_ACCESS_TOKEN": oauth.access_token}
-        )
+    # JOIN to get provider name in a single query instead of N+1
+    results = (
+        session.query(UserOAuth.access_token, OAuthProvider.name)
+        .join(OAuthProvider, UserOAuth.provider_id == OAuthProvider.id)
+        .filter(UserOAuth.user_id == user_id)
+        .all()
+    )
     session.close()
-    return credentials
+    if not results:
+        return {}
+    return {f"{str(name).upper()}_ACCESS_TOKEN": token for token, name in results}
 
 
 def get_agent_oauth_credentials(agent_id: str, provider_name: str = None):
@@ -883,41 +964,54 @@ def get_all_agent_oauth_connections(agent_id: str):
 
         connections = {}
 
-        # Get all OAuth providers
+        # Batch-fetch all OAuth connections in one query instead of N+1 per provider
         providers = session.query(OAuthProvider).all()
+        provider_by_id = {str(p.id): p.name for p in providers}
 
-        for provider in providers:
-            # Check for agent-specific credentials first
-            agent_oauth = (
-                session.query(UserOAuth)
-                .filter(UserOAuth.agent_id == agent_id)
-                .filter(UserOAuth.provider_id == provider.id)
-                .first()
-            )
+        # Get all relevant UserOAuth records in one query
+        from sqlalchemy import or_, and_
 
-            if agent_oauth:
-                connections[provider.name] = {
-                    "connected": True,
-                    "account_name": agent_oauth.account_name,
-                    "is_agent_specific": True,
-                    "provider_user_id": agent_oauth.provider_user_id,
-                }
-            elif agent.user_id:
-                # Check for owner's credentials
-                owner_oauth = (
-                    session.query(UserOAuth)
-                    .filter(UserOAuth.user_id == agent.user_id)
-                    .filter(UserOAuth.provider_id == provider.id)
-                    .filter(UserOAuth.agent_id.is_(None))
-                    .first()
+        relevant_oauth = (
+            session.query(UserOAuth)
+            .filter(
+                or_(
+                    UserOAuth.agent_id == agent_id,
+                    and_(
+                        UserOAuth.user_id == agent.user_id,
+                        UserOAuth.agent_id.is_(None),
+                    ),
                 )
-                if owner_oauth:
-                    connections[provider.name] = {
-                        "connected": True,
-                        "account_name": owner_oauth.account_name,
-                        "is_agent_specific": False,
-                        "provider_user_id": owner_oauth.provider_user_id,
-                    }
+            )
+            .all()
+        )
+
+        # Partition into agent-specific vs owner credentials
+        agent_oauth_by_provider = {}
+        owner_oauth_by_provider = {}
+        for oauth in relevant_oauth:
+            pid = str(oauth.provider_id)
+            if str(oauth.agent_id) == str(agent_id):
+                agent_oauth_by_provider[pid] = oauth
+            elif oauth.agent_id is None:
+                owner_oauth_by_provider[pid] = oauth
+
+        for pid, pname in provider_by_id.items():
+            if pid in agent_oauth_by_provider:
+                ao = agent_oauth_by_provider[pid]
+                connections[pname] = {
+                    "connected": True,
+                    "account_name": ao.account_name,
+                    "is_agent_specific": True,
+                    "provider_user_id": ao.provider_user_id,
+                }
+            elif pid in owner_oauth_by_provider:
+                oo = owner_oauth_by_provider[pid]
+                connections[pname] = {
+                    "connected": True,
+                    "account_name": oo.account_name,
+                    "is_agent_specific": False,
+                    "provider_user_id": oo.provider_user_id,
+                }
 
         return connections
     finally:
@@ -925,9 +1019,21 @@ def get_all_agent_oauth_connections(agent_id: str):
 
 
 def get_admin_user():
+    """Get admin user dict with caching and proper session cleanup."""
+    cached = shared_cache.get("admin_user_dict")
+    if cached is not None:
+        return cached
     session = get_session()
-    user = session.query(User).filter(User.admin == True).first()
-    return user
+    try:
+        user = session.query(User).filter(User.admin == True).first()
+        if user:
+            user_dict = user.__dict__.copy()
+            user_dict.pop("_sa_instance_state", None)
+            shared_cache.set("admin_user_dict", user_dict, ttl=60)
+            return user_dict
+        return None
+    finally:
+        session.close()
 
 
 def verify_api_key(authorization: str = Header(None)):
@@ -937,8 +1043,6 @@ def verify_api_key(authorization: str = Header(None)):
         if authorization == AGIXT_API_KEY:
             return get_admin_user()
         try:
-            if authorization == AGIXT_API_KEY:
-                return get_admin_user()
 
             # Check if this is a Personal Access Token (starts with "agixt_")
             if authorization.startswith("agixt_"):
@@ -976,32 +1080,33 @@ def verify_api_key(authorization: str = Header(None)):
 
             # Check if token is blacklisted before validating
             db = get_session()
-            blacklisted_token = (
-                db.query(TokenBlacklist)
-                .filter(TokenBlacklist.token == authorization)
-                .first()
-            )
-            if blacklisted_token:
-                db.close()
-                raise HTTPException(
-                    status_code=401,
-                    detail="Token has been revoked. Please log in again.",
+            try:
+                blacklisted_token = (
+                    db.query(TokenBlacklist)
+                    .filter(TokenBlacklist.token == authorization)
+                    .first()
                 )
+                if blacklisted_token:
+                    raise HTTPException(
+                        status_code=401,
+                        detail="Token has been revoked. Please log in again.",
+                    )
 
-            token = jwt.decode(
-                jwt=authorization,
-                key=AGIXT_API_KEY,
-                algorithms=["HS256"],
-                leeway=timedelta(hours=5),
-            )
-            user = db.query(User).filter(User.id == token["sub"]).first()
-            # return user dict
-            user_dict = user.__dict__
-            user_dict.pop("_sa_instance_state")
-            db.close()
-            # Cache the validation result for a short time
-            set_token_validation_cache(authorization, user_dict.copy())
-            return user_dict
+                token = jwt.decode(
+                    jwt=authorization,
+                    key=AGIXT_API_KEY,
+                    algorithms=["HS256"],
+                    leeway=timedelta(hours=5),
+                )
+                user = db.query(User).filter(User.id == token["sub"]).first()
+                # return user dict
+                user_dict = user.__dict__
+                user_dict.pop("_sa_instance_state")
+                # Cache the validation result for a short time
+                set_token_validation_cache(authorization, user_dict.copy())
+                return user_dict
+            finally:
+                db.close()
         except Exception as e:
             logging.info(f"Error verifying API Key: {str(e)}")
             raise HTTPException(status_code=401, detail="Invalid API Key")
@@ -1344,45 +1449,77 @@ def get_agents(email, company=None):
     return output
 
 
+def add_user_to_company_channels(session, user_id: str, company_id):
+    """
+    When a user joins a company, add them as a participant to all existing
+    non-invite-only group channels they aren't already in.
+    This mirrors the logic in create_group_conversation() which auto-adds
+    all current company members at channel creation time.
+    """
+    try:
+        # Find all non-invite-only group channels for this company
+        channels = (
+            session.query(Conversation)
+            .filter(
+                Conversation.company_id == company_id,
+                Conversation.conversation_type == "group",
+                Conversation.invite_only == False,
+            )
+            .all()
+        )
+
+        if not channels:
+            return
+
+        # Get existing participant records for this user in this company's channels
+        channel_ids = [str(c.id) for c in channels]
+        existing_participations = set()
+        if channel_ids:
+            existing = (
+                session.query(ConversationParticipant.conversation_id)
+                .filter(
+                    ConversationParticipant.user_id == user_id,
+                    ConversationParticipant.conversation_id.in_(channel_ids),
+                )
+                .all()
+            )
+            existing_participations = {str(row[0]) for row in existing}
+
+        # Add user to channels they're not already in
+        for channel in channels:
+            cid = str(channel.id)
+            if cid not in existing_participations:
+                participant = ConversationParticipant(
+                    conversation_id=cid,
+                    user_id=user_id,
+                    participant_type="user",
+                    role="member",
+                    status="active",
+                )
+                session.add(participant)
+
+        session.flush()
+        logging.info(
+            f"Added user {user_id} to {len(channel_ids) - len(existing_participations)} "
+            f"company channels for company {company_id}"
+        )
+    except Exception as e:
+        logging.error(f"Error adding user {user_id} to company channels: {e}")
+
+
 class MagicalAuth:
     def __init__(self, token: str = None):
         encryption_key = os.getenv("AGIXT_API_KEY", "")
         self.link = getenv("APP_URI")
         self.encryption_key = encryption_key
-        token = (
-            str(token)
-            .replace("%2B", "+")
-            .replace("%2F", "/")
-            .replace("%3D", "=")
-            .replace("%20", " ")
-            .replace("%3A", ":")
-            .replace("%3F", "?")
-            .replace("%26", "&")
-            .replace("%23", "#")
-            .replace("%3B", ";")
-            .replace("%40", "@")
-            .replace("%21", "!")
-            .replace("%24", "$")
-            .replace("%27", "'")
-            .replace("%28", "(")
-            .replace("%29", ")")
-            .replace("%2A", "*")
-            .replace("%2C", ",")
-            .replace("%3B", ";")
-            .replace("%5B", "[")
-            .replace("%5D", "]")
-            .replace("%7B", "{")
-            .replace("%7D", "}")
-            .replace("%7C", "|")
-            .replace("%5C", "\\")
-            .replace("%5E", "^")
-            .replace("%60", "`")
-            .replace("%7E", "~")
-            .replace("Bearer ", "")
-            .replace("bearer ", "")
-            if token
-            else None
-        )
+        if token:
+            token = str(token)
+            if token.startswith("Bearer ") or token.startswith("bearer "):
+                token = token.replace("Bearer ", "").replace("bearer ", "")
+            if "%" in token:
+                token = urllib.parse.unquote(token)
+        else:
+            token = None
         try:
             # Decode jwt
             decoded = jwt.decode(
@@ -1394,17 +1531,33 @@ class MagicalAuth:
             self.email = decoded["email"]
             self.user_id = decoded["sub"]
             self.token = token
-            self.company_id = self.get_user_company_id()
+            self._company_id = None
+            self._company_id_loaded = False
         except:
             self.email = None
             self.token = None
             self.user_id = None
-            self.company_id = None
+            self._company_id = None
+            self._company_id_loaded = True  # No user, no company
         if token == encryption_key:
             self.email = getenv("DEFAULT_USER")
             self.user_id = get_user_id(self.email)
             self.token = token
-            self.company_id = self.get_user_company_id()
+            self._company_id = None
+            self._company_id_loaded = False
+
+    @property
+    def company_id(self):
+        """Lazy-loaded company_id — avoids DB query when not needed."""
+        if not self._company_id_loaded:
+            self._company_id = self.get_user_company_id()
+            self._company_id_loaded = True
+        return self._company_id
+
+    @company_id.setter
+    def company_id(self, value):
+        self._company_id = value
+        self._company_id_loaded = True
 
     @staticmethod
     def _validate_password_strength(password: str) -> str:
@@ -2022,10 +2175,7 @@ class MagicalAuth:
 
             # === 5. Billing check (fast, synchronous) ===
             # First, check the pricing model from extensions hub
-            from ExtensionsHub import ExtensionsHub
-
-            hub = ExtensionsHub()
-            pricing_config = hub.get_pricing_config()
+            pricing_config = _get_cached_pricing_config()
             pricing_model = (
                 pricing_config.get("pricing_model") if pricing_config else "per_token"
             )
@@ -2036,7 +2186,7 @@ class MagicalAuth:
             ]
 
             wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
-            price_service = PriceService()
+            price_service = _get_price_service()
             try:
                 token_price = price_service.get_token_price()
             except Exception:
@@ -2172,8 +2322,7 @@ class MagicalAuth:
             # All scopes for super admin
             all_scopes = None
             if is_super_admin:
-                all_scopes_query = session.query(Scope).all()
-                all_scopes = {s.name for s in all_scopes_query}
+                all_scopes = _get_all_scope_names()
 
             # Pre-fetch custom role scopes for this user across all companies
             custom_scopes_query = (
@@ -2288,8 +2437,19 @@ class MagicalAuth:
                     "primary": cid == str(self.company_id),
                     "agents": agents_by_company.get(cid, []),
                     "scopes": list(company_scopes) if company_scopes else [],
+                    "icon_url": getattr(company, "icon_url", None),
+                    "sort_order": getattr(uc, "sort_order", None),
                 }
                 companies.append(company_dict)
+
+            # Sort companies by sort_order (nulls last), then by name
+            companies.sort(
+                key=lambda c: (
+                    0 if c["sort_order"] is not None else 1,
+                    c["sort_order"] if c["sort_order"] is not None else 0,
+                    c["name"].lower(),
+                )
+            )
 
             # === 10. Background Stripe check (non-blocking) ===
             billing_paused = getenv("BILLING_PAUSED", "false").lower() == "true"
@@ -2651,17 +2811,28 @@ class MagicalAuth:
             .replace("%60", "`")
             .replace("%7E", "~")
         )
+        original_input = email.strip()
         self.email = email.lower()
         session = get_session()
         # Only consider active users as "existing" - inactive users can re-register
+        # Check by email first, then fall back to username
         user = (
             session.query(User)
             .filter(User.email == self.email, User.is_active == True)
             .first()
         )
         if not user:
-            self.send_email_code()
-            self.send_sms_code()
+            # Try finding by username (case-sensitive, use original input)
+            user = (
+                session.query(User)
+                .filter(User.username == original_input, User.is_active == True)
+                .first()
+            )
+        if not user:
+            # Only send verification codes if identifier looks like an email
+            if "@" in self.email:
+                self.send_email_code()
+                self.send_sms_code()
             session.close()
             return False
         session.close()
@@ -2669,11 +2840,15 @@ class MagicalAuth:
 
     def user_exists_any(self, email: str) -> bool:
         """
-        Check if a user exists with this email, regardless of active status.
+        Check if a user exists with this email or username, regardless of active status.
         """
+        original_input = email.strip()
         self.email = email.lower()
         session = get_session()
         user = session.query(User).filter(User.email == self.email).first()
+        if not user:
+            # Fall back to username lookup (case-sensitive, use original input)
+            user = session.query(User).filter(User.username == original_input).first()
         session.close()
         return user is not None
 
@@ -2745,6 +2920,14 @@ class MagicalAuth:
             # Invalidate cache
             invalidate_user_company_cache(str(user.id))
 
+            # Auto-add to existing non-invite-only company channels
+            add_user_to_company_channels(
+                session=session,
+                user_id=str(user.id),
+                company_id=invitation.company_id,
+            )
+            session.commit()
+
             # Generate login link for the user
             totp = pyotp.TOTP(user.mfa_token)
             otp_uri = totp.provisioning_uri(name=email, issuer_name=getenv("APP_NAME"))
@@ -2815,6 +2998,14 @@ class MagicalAuth:
             # Invalidate cache
             invalidate_user_company_cache(str(user.id))
 
+            # Auto-add to existing non-invite-only company channels
+            add_user_to_company_channels(
+                session=session,
+                user_id=str(user.id),
+                company_id=invitation.company_id,
+            )
+            session.commit()
+
             # Generate login link for the user
             totp = pyotp.TOTP(user.mfa_token)
             login = LoginMagicLink(email=email, token=totp.now())
@@ -2862,19 +3053,25 @@ class MagicalAuth:
         Request a login link to be sent via email.
         This allows users without a password to log in via email.
         Uses the user's MFA token to generate a one-time login link.
+        Accepts either an email address or a username.
 
         Returns:
             dict with status message
         """
-        self.email = email.lower()
         session = get_session()
-        user = session.query(User).filter(User.email == self.email).first()
+        # Try email first, then username
+        identifier = email.strip().lower()
+        user = session.query(User).filter(User.email == identifier).first()
+        if user is None:
+            # Try username lookup
+            user = session.query(User).filter(User.username == email.strip()).first()
         if user is None:
             session.close()
             # Return success even if user doesn't exist to prevent email enumeration
             return {
                 "detail": "If an account exists with this email, a login link will be sent."
             }
+        self.email = user.email
 
         # Generate a one-time token using the user's MFA secret
         totp = pyotp.TOTP(user.mfa_token)
@@ -3522,65 +3719,367 @@ class MagicalAuth:
         finally:
             session.close()
 
-    def check_user_limit(self, company_id: str) -> bool:
-        """Check if a company can add more users based on billing model.
+    def _get_billing_company(self, company_id: str, session=None):
+        """Get the billing company (root parent) for a given company.
 
-        For seat-based billing:
-            - per_user (XT Systems): Checks if current user count < user_limit (paid seats)
-            - per_capacity (NurseXT): user_limit represents paid beds - doesn't limit users
-            - per_location (UltraEstimate): Checks if child company count < user_limit (paid locations)
-
-        For token-based billing (per_token):
-            - Checks if company has a positive token balance
-
-        Returns:
-            True = company can add users/locations
-            False = company cannot add users/locations (limit reached or no balance)
+        Child companies inherit billing from their root parent company.
+        Returns (company, billing_company, session, close_session) tuple.
         """
-        from ExtensionsHub import ExtensionsHub
+        close_session = False
+        if session is None:
+            session = get_session()
+            close_session = True
 
-        # Check if billing is enabled
-        price_service = PriceService()
-        token_price = price_service.get_token_price()
+        company = session.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            if close_session:
+                session.close()
+            raise HTTPException(status_code=404, detail="Company not found")
 
-        # Get pricing config to determine billing model
-        hub = ExtensionsHub()
-        pricing_config = hub.get_pricing_config()
+        root_company_id = self.get_root_parent_company(company_id, session=session)
+        if str(root_company_id) != str(company_id):
+            billing_company = (
+                session.query(Company).filter(Company.id == root_company_id).first()
+            )
+            if not billing_company:
+                billing_company = company
+        else:
+            billing_company = company
+
+        return company, billing_company, session, close_session
+
+    def _get_plan_tier(self, plan_id: str, pricing_config: dict) -> dict:
+        """Get the tier configuration for a given plan_id from pricing config."""
+        if not pricing_config or not plan_id:
+            return {}
+        for tier in pricing_config.get("tiers", []):
+            if tier.get("id") == plan_id:
+                return tier
+        return {}
+
+    def get_plan_limits(self, company_id: str) -> dict:
+        """Get current plan limits and usage for a company.
+
+        Returns dict with plan info, limits, and current usage for enforcement and display.
+        """
+        pricing_config = _get_cached_pricing_config()
         pricing_model = (
             pricing_config.get("pricing_model") if pricing_config else "per_token"
         )
 
-        # Check if billing is disabled
+        session = get_session()
+        try:
+            company, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
+
+            if pricing_model == "tiered_plan":
+                plan_id = billing_company.plan_id
+                tier = self._get_plan_tier(plan_id, pricing_config)
+                limits = tier.get("limits", {})
+
+                # Calculate effective limits including addons
+                user_limit = (limits.get("users") or 0) + (
+                    billing_company.addon_users or 0
+                )
+                device_limit = (limits.get("devices") or 0) + (
+                    billing_company.addon_devices or 0
+                )
+                token_limit = (limits.get("tokens") or 0) + (
+                    billing_company.addon_tokens or 0
+                )
+                storage_limit_gb = limits.get("storage_gb") or 0
+                storage_limit_bytes = storage_limit_gb * 1024 * 1024 * 1024 + (
+                    billing_company.addon_storage_bytes or 0
+                )
+
+                # Get current usage - count across all companies under billing org
+                billing_company_id = str(billing_company.id)
+                all_company_ids = [billing_company_id]
+
+                def _get_children(parent_id, visited=None):
+                    if visited is None:
+                        visited = set()
+                    if parent_id in visited:
+                        return []
+                    visited.add(parent_id)
+                    children = (
+                        session.query(Company)
+                        .filter(Company.company_id == parent_id)
+                        .all()
+                    )
+                    result = []
+                    for child in children:
+                        child_id = str(child.id)
+                        result.append(child_id)
+                        result.extend(_get_children(child_id, visited))
+                    return result
+
+                all_company_ids.extend(_get_children(billing_company_id))
+
+                current_users = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.company_id.in_(all_company_ids))
+                    .count()
+                )
+
+                return {
+                    "pricing_model": "tiered_plan",
+                    "plan_id": plan_id,
+                    "plan_name": tier.get("name", "Unknown"),
+                    "plan_price": tier.get("price", 0),
+                    "limits": {
+                        "users": user_limit,
+                        "devices": device_limit,
+                        "tokens_per_month": token_limit,
+                        "storage_bytes": storage_limit_bytes,
+                        "storage_gb": round(
+                            storage_limit_bytes / (1024 * 1024 * 1024), 2
+                        ),
+                    },
+                    "usage": {
+                        "users": current_users,
+                        "devices": billing_company.device_count or 0,
+                        "tokens_this_period": billing_company.tokens_used_this_period
+                        or 0,
+                        "storage_bytes": billing_company.storage_used_bytes or 0,
+                        "storage_gb": round(
+                            (billing_company.storage_used_bytes or 0)
+                            / (1024 * 1024 * 1024),
+                            2,
+                        ),
+                    },
+                    "addons": {
+                        "users": billing_company.addon_users or 0,
+                        "devices": billing_company.addon_devices or 0,
+                        "tokens": billing_company.addon_tokens or 0,
+                        "storage_bytes": billing_company.addon_storage_bytes or 0,
+                    },
+                    "period_start": (
+                        billing_company.current_period_start.isoformat()
+                        if billing_company.current_period_start
+                        else None
+                    ),
+                    "warnings": self._get_limit_warnings(
+                        billing_company,
+                        user_limit,
+                        device_limit,
+                        token_limit,
+                        storage_limit_bytes,
+                        current_user_count=current_users,
+                    ),
+                }
+
+            elif pricing_model == "per_bed":
+                bed_count = billing_company.bed_count or 0
+                bed_limit = billing_company.bed_limit or 0
+                return {
+                    "pricing_model": "per_bed",
+                    "limits": {
+                        "beds": bed_limit,
+                    },
+                    "usage": {
+                        "beds": bed_count,
+                    },
+                    "price_per_bed": pricing_config.get("price_per_unit", 10.0),
+                    "monthly_cost": bed_limit
+                    * pricing_config.get("price_per_unit", 10.0),
+                    "warnings": [],
+                }
+
+            else:
+                # Legacy per_token / per_user / per_capacity / per_location
+                return {
+                    "pricing_model": pricing_model,
+                    "token_balance": billing_company.token_balance or 0,
+                    "token_balance_usd": billing_company.token_balance_usd or 0,
+                    "warnings": [],
+                }
+        finally:
+            session.close()
+
+    def _get_limit_warnings(
+        self,
+        company,
+        user_limit,
+        device_limit,
+        token_limit,
+        storage_limit_bytes,
+        current_user_count=None,
+    ) -> list:
+        """Generate warnings for limits approaching capacity (>80% usage)."""
+        warnings = []
+        threshold = 0.8
+
+        # User limit warnings
+        if current_user_count is not None and user_limit:
+            if current_user_count >= user_limit:
+                warnings.append(
+                    {
+                        "type": "user_limit_reached",
+                        "message": f"User limit reached ({current_user_count}/{user_limit}). Upgrade your plan or remove users.",
+                        "severity": "error",
+                    }
+                )
+            elif current_user_count >= user_limit * threshold:
+                remaining = user_limit - current_user_count
+                warnings.append(
+                    {
+                        "type": "user_limit_approaching",
+                        "message": f"Approaching user limit ({current_user_count}/{user_limit}). {remaining} user(s) remaining.",
+                        "severity": "warning",
+                    }
+                )
+
+        device_count = company.device_count or 0
+        if device_limit and device_count >= device_limit:
+            warnings.append(
+                {
+                    "type": "device_limit_reached",
+                    "message": f"Device limit reached ({device_count}/{device_limit}). Upgrade your plan or remove unused devices.",
+                    "severity": "error",
+                }
+            )
+        elif device_limit and device_count >= device_limit * threshold:
+            warnings.append(
+                {
+                    "type": "device_limit_approaching",
+                    "message": f"Approaching device limit ({device_count}/{device_limit}). Consider upgrading your plan.",
+                    "severity": "warning",
+                }
+            )
+
+        tokens_used = company.tokens_used_this_period or 0
+        if token_limit and tokens_used >= token_limit:
+            warnings.append(
+                {
+                    "type": "token_limit_reached",
+                    "message": f"Monthly token limit reached. Purchase additional tokens at $5/1M or upgrade your plan.",
+                    "severity": "error",
+                }
+            )
+        elif token_limit and tokens_used >= token_limit * threshold:
+            remaining = token_limit - tokens_used
+            warnings.append(
+                {
+                    "type": "token_limit_approaching",
+                    "message": f"Approaching monthly token limit ({tokens_used:,}/{token_limit:,}). {remaining:,} tokens remaining.",
+                    "severity": "warning",
+                }
+            )
+
+        storage_used = company.storage_used_bytes or 0
+        if storage_limit_bytes and storage_used >= storage_limit_bytes:
+            warnings.append(
+                {
+                    "type": "storage_limit_reached",
+                    "message": "Storage limit reached. Upgrade your plan, use your own S3 storage, or remove unused files.",
+                    "severity": "error",
+                }
+            )
+        elif storage_limit_bytes and storage_used >= storage_limit_bytes * threshold:
+            remaining_gb = round(
+                (storage_limit_bytes - storage_used) / (1024 * 1024 * 1024), 2
+            )
+            warnings.append(
+                {
+                    "type": "storage_limit_approaching",
+                    "message": f"Approaching storage limit ({remaining_gb}GB remaining). Consider upgrading or using your own S3 storage.",
+                    "severity": "warning",
+                }
+            )
+
+        return warnings
+
+    def check_user_limit(self, company_id: str) -> bool:
+        """Check if a company can add more users based on billing model.
+
+        For tiered_plan billing: checks user count against plan tier user limit + addons
+        For per_bed billing: no user limit (users are unlimited, billing is per bed)
+        For per_user (legacy): checks current user count < user_limit
+        For per_capacity (legacy): unlimited users
+        For per_location (legacy): checks child company count < user_limit
+        For per_token: checks positive token balance
+
+        Returns:
+            True = company can add users
+            False = company cannot add users (limit reached)
+        """
+        # Check if billing is enabled
+        price_service = _get_price_service()
+        token_price = price_service.get_token_price()
+
+        pricing_config = _get_cached_pricing_config()
+        pricing_model = (
+            pricing_config.get("pricing_model") if pricing_config else "per_token"
+        )
+
         billing_enabled = token_price > 0 or (
             pricing_config and pricing_config.get("tiers")
         )
-
         if not billing_enabled:
-            # Billing is disabled, allow all operations
             return True
 
         session = get_session()
         try:
-            company = session.query(Company).filter(Company.id == company_id).first()
-            if not company:
-                raise HTTPException(status_code=404, detail="Company not found")
+            company, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
 
-            # Get the root parent company for billing purposes
-            # Child companies consume from their root parent
-            root_company_id = self.get_root_parent_company(company_id, session=session)
-            if str(root_company_id) != str(company_id):
-                billing_company = (
-                    session.query(Company).filter(Company.id == root_company_id).first()
+            if pricing_model == "tiered_plan":
+                plan_id = billing_company.plan_id
+                if not plan_id:
+                    # No plan assigned - check trial credits
+                    return (billing_company.token_balance_usd or 0) > 0
+
+                tier = self._get_plan_tier(plan_id, pricing_config)
+                limits = tier.get("limits", {})
+                user_limit = (limits.get("users") or 0) + (
+                    billing_company.addon_users or 0
                 )
-                if not billing_company:
-                    billing_company = company
-            else:
-                billing_company = company
 
-            # user_limit represents paid capacity on root parent company
+                # Count users across all companies under the billing org
+                billing_company_id = str(billing_company.id)
+                all_company_ids = [billing_company_id]
+
+                # Get child companies recursively
+                def _get_children(parent_id, visited=None):
+                    if visited is None:
+                        visited = set()
+                    if parent_id in visited:
+                        return []
+                    visited.add(parent_id)
+                    children = (
+                        session.query(Company)
+                        .filter(Company.company_id == parent_id)
+                        .all()
+                    )
+                    result = []
+                    for child in children:
+                        child_id = str(child.id)
+                        result.append(child_id)
+                        result.extend(_get_children(child_id, visited))
+                    return result
+
+                all_company_ids.extend(_get_children(billing_company_id))
+
+                current_users = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.company_id.in_(all_company_ids))
+                    .count()
+                )
+                # user_limit of 0 means no explicit limit set — treat as unlimited
+                if user_limit <= 0:
+                    return True
+                return current_users < user_limit
+
+            elif pricing_model == "per_bed":
+                # NurseXT: no user limit, billing is per bed
+                return True
+
+            # Legacy billing models
             paid_limit = billing_company.user_limit or 0
 
-            # For per_user billing (XT Systems): count users against paid seats
             if pricing_model == "per_user":
                 current_user_count = (
                     session.query(UserCompany)
@@ -3589,43 +4088,327 @@ class MagicalAuth:
                 )
                 if current_user_count < paid_limit:
                     return True
-                # Fallback to token balance
                 if billing_company.token_balance and billing_company.token_balance > 0:
                     return True
                 return False
 
-            # For per_capacity billing (NurseXT): beds are declared capacity, not user limit
-            # Users are unlimited - the capacity (beds) is just what they pay for
             elif pricing_model == "per_capacity":
-                # Check they have paid for some capacity or have token balance
                 if paid_limit > 0:
                     return True
                 if billing_company.token_balance and billing_company.token_balance > 0:
                     return True
                 return False
 
-            # For per_location billing (UltraEstimate): count child companies as locations
             elif pricing_model == "per_location":
-                # Count child companies under the root parent (each child = 1 location)
                 child_company_count = (
                     session.query(Company)
                     .filter(Company.company_id == billing_company.id)
                     .count()
                 )
-                # The root company itself counts as 1 location
                 total_locations = child_company_count + 1
                 if total_locations <= paid_limit:
                     return True
-                # Fallback to token balance
                 if billing_company.token_balance and billing_company.token_balance > 0:
                     return True
                 return False
 
-            # For token-based billing, check root parent company's token balance
+            # Token-based billing
             if billing_company.token_balance and billing_company.token_balance > 0:
                 return True
-
             return False
+        finally:
+            session.close()
+
+    def check_device_limit(self, company_id: str) -> dict:
+        """Check if a company can register more devices.
+
+        Returns dict with can_add (bool), current count, limit, and message.
+        """
+        pricing_config = _get_cached_pricing_config()
+        pricing_model = (
+            pricing_config.get("pricing_model") if pricing_config else "per_token"
+        )
+
+        if pricing_model != "tiered_plan":
+            return {
+                "can_add": True,
+                "current": 0,
+                "limit": None,
+                "message": "No device limits",
+            }
+
+        session = get_session()
+        try:
+            _, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
+            plan_id = billing_company.plan_id
+            tier = self._get_plan_tier(plan_id, pricing_config)
+            limits = tier.get("limits", {})
+
+            device_limit = (limits.get("devices") or 0) + (
+                billing_company.addon_devices or 0
+            )
+            device_count = billing_company.device_count or 0
+
+            can_add = device_count < device_limit if device_limit else True
+
+            return {
+                "can_add": can_add,
+                "current": device_count,
+                "limit": device_limit,
+                "message": (
+                    f"Device limit reached ({device_count}/{device_limit}). Upgrade your plan to add more devices."
+                    if not can_add
+                    else f"{device_count}/{device_limit} devices used"
+                ),
+            }
+        finally:
+            session.close()
+
+    def check_storage_limit(self, company_id: str, additional_bytes: int = 0) -> dict:
+        """Check if a company can use more storage.
+
+        Args:
+            company_id: The company ID
+            additional_bytes: How many bytes would be added
+
+        Returns dict with can_add (bool), current usage, limit, and message.
+        """
+        pricing_config = _get_cached_pricing_config()
+        pricing_model = (
+            pricing_config.get("pricing_model") if pricing_config else "per_token"
+        )
+
+        if pricing_model != "tiered_plan":
+            return {
+                "can_add": True,
+                "used_bytes": 0,
+                "limit_bytes": None,
+                "message": "No storage limits",
+            }
+
+        session = get_session()
+        try:
+            _, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
+            plan_id = billing_company.plan_id
+            tier = self._get_plan_tier(plan_id, pricing_config)
+            limits = tier.get("limits", {})
+
+            storage_limit_gb = limits.get("storage_gb") or 0
+            storage_limit_bytes = storage_limit_gb * 1024 * 1024 * 1024 + (
+                billing_company.addon_storage_bytes or 0
+            )
+            storage_used = billing_company.storage_used_bytes or 0
+
+            can_add = (
+                (storage_used + additional_bytes) <= storage_limit_bytes
+                if storage_limit_bytes
+                else True
+            )
+
+            return {
+                "can_add": can_add,
+                "used_bytes": storage_used,
+                "limit_bytes": storage_limit_bytes,
+                "used_gb": round(storage_used / (1024 * 1024 * 1024), 2),
+                "limit_gb": round(storage_limit_bytes / (1024 * 1024 * 1024), 2),
+                "message": (
+                    "Storage limit reached. Upgrade your plan or use your own S3 storage."
+                    if not can_add
+                    else f"{round(storage_used / (1024 * 1024 * 1024), 2)}GB / {round(storage_limit_bytes / (1024 * 1024 * 1024), 2)}GB used"
+                ),
+            }
+        finally:
+            session.close()
+
+    def increment_device_count(self, company_id: str, count: int = 1) -> dict:
+        """Increment the device count for a company, checking limits atomically.
+
+        Returns result dict with success status and current count.
+        """
+        session = get_session()
+        try:
+            _, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
+
+            if count > 0:
+                current = billing_company.device_count or 0
+                limit = (billing_company.device_limit or 0) + (
+                    billing_company.addon_devices or 0
+                )
+                if limit and current + count > limit:
+                    raise HTTPException(
+                        status_code=402,
+                        detail=f"Device limit reached ({current}/{limit}). Upgrade your plan for more devices.",
+                    )
+
+            billing_company.device_count = (billing_company.device_count or 0) + count
+            if billing_company.device_count < 0:
+                billing_company.device_count = 0
+            session.commit()
+            return {
+                "success": True,
+                "device_count": billing_company.device_count,
+            }
+        finally:
+            session.close()
+
+    def update_storage_usage(self, company_id: str, bytes_delta: int) -> dict:
+        """Update storage usage for a company atomically.
+
+        Args:
+            company_id: The company ID
+            bytes_delta: Positive to add, negative to remove
+
+        Returns result dict with success status and current usage.
+        """
+        session = get_session()
+        try:
+            _, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
+
+            if bytes_delta > 0:
+                current = billing_company.storage_used_bytes or 0
+                limit = (billing_company.storage_limit_bytes or 0) + (
+                    billing_company.addon_storage_bytes or 0
+                )
+                if limit and current + bytes_delta > limit:
+                    raise HTTPException(
+                        status_code=402,
+                        detail=f"Storage limit reached ({round(current / (1024 * 1024 * 1024), 2)}GB / {round(limit / (1024 * 1024 * 1024), 2)}GB). Upgrade your plan for more storage.",
+                    )
+
+            billing_company.storage_used_bytes = (
+                billing_company.storage_used_bytes or 0
+            ) + bytes_delta
+            if billing_company.storage_used_bytes < 0:
+                billing_company.storage_used_bytes = 0
+            session.commit()
+            return {
+                "success": True,
+                "storage_used_bytes": billing_company.storage_used_bytes,
+                "storage_used_gb": round(
+                    billing_company.storage_used_bytes / (1024 * 1024 * 1024), 2
+                ),
+            }
+        finally:
+            session.close()
+
+    def set_company_plan(self, company_id: str, plan_id: str) -> dict:
+        """Set or change a company's plan tier.
+
+        Updates the plan_id and syncs limits from the pricing config.
+        Resets token period tracking when plan changes.
+        """
+        pricing_config = _get_cached_pricing_config()
+        pricing_model = (
+            pricing_config.get("pricing_model") if pricing_config else "per_token"
+        )
+
+        if pricing_model not in ("tiered_plan", "per_bed"):
+            raise HTTPException(
+                status_code=400,
+                detail="Plan management is only available for tiered or per-bed pricing models",
+            )
+
+        session = get_session()
+        try:
+            _, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
+
+            if pricing_model == "tiered_plan":
+                tier = self._get_plan_tier(plan_id, pricing_config)
+                if not tier:
+                    raise HTTPException(
+                        status_code=400, detail=f"Invalid plan ID: {plan_id}"
+                    )
+
+                old_plan_id = billing_company.plan_id
+                limits = tier.get("limits", {})
+                billing_company.plan_id = plan_id
+                billing_company.device_limit = limits.get("devices")
+                billing_company.monthly_token_limit = limits.get("tokens")
+                billing_company.storage_limit_bytes = (
+                    (limits.get("storage_gb") or 0) * 1024 * 1024 * 1024
+                )
+                billing_company.user_limit = limits.get("users")
+
+                # Clear addon fields when moving to a plan that doesn't support addons
+                raw_addons = pricing_config.get("addons") or {}
+                # addons can be a dict (keyed by name) or a list of dicts
+                addon_list = (
+                    raw_addons.values() if isinstance(raw_addons, dict) else raw_addons
+                )
+                new_tier_supports_addons = bool(
+                    pricing_config
+                    and any(
+                        plan_id
+                        in (
+                            addon.get("available_on") or []
+                            if isinstance(addon, dict)
+                            else []
+                        )
+                        for addon in addon_list
+                    )
+                )
+                if not new_tier_supports_addons and (
+                    billing_company.addon_users
+                    or billing_company.addon_devices
+                    or billing_company.addon_tokens
+                    or billing_company.addon_storage_bytes
+                ):
+                    billing_company.addon_users = 0
+                    billing_company.addon_devices = 0
+                    billing_company.addon_tokens = 0
+                    billing_company.addon_storage_bytes = 0
+
+                # Only reset period tracking when plan actually changes
+                if old_plan_id != plan_id:
+                    billing_company.tokens_used_this_period = 0
+                    billing_company.current_period_start = datetime.now(timezone.utc)
+
+                session.commit()
+                return {
+                    "success": True,
+                    "plan_id": plan_id,
+                    "plan_name": tier.get("name"),
+                    "limits": limits,
+                }
+
+            elif pricing_model == "per_bed":
+                # For per_bed, plan_id is the bed count as string
+                try:
+                    bed_count = int(plan_id)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="For NurseXT, plan_id should be the bed count",
+                    )
+
+                min_beds = pricing_config.get("min_units", 5)
+                if bed_count < min_beds:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Minimum bed count is {min_beds}",
+                    )
+
+                billing_company.bed_limit = bed_count
+                billing_company.plan_id = f"per_bed_{bed_count}"
+                session.commit()
+                return {
+                    "success": True,
+                    "plan_id": f"per_bed_{bed_count}",
+                    "bed_limit": bed_count,
+                    "monthly_cost": bed_count
+                    * pricing_config.get("price_per_unit", 10.0),
+                }
+
         finally:
             session.close()
 
@@ -3656,8 +4439,10 @@ class MagicalAuth:
         return False
 
     def _has_sufficient_token_balance(self, session, user_companies) -> bool:
-        """Check if any of the user's companies (or their root parents) have a positive token balance or valid subscription.
+        """Check if any of the user's companies (or their root parents) have sufficient billing status.
 
+        For tiered_plan billing: checks active subscription or trial credits
+        For per_bed billing: checks active subscription or trial credits
         For token-based billing: checks token_balance > 0
         For seat-based billing: checks token_balance_usd > 0 (trial credits) or active subscription
 
@@ -3682,14 +4467,54 @@ class MagicalAuth:
                 all_company_ids.add(root_id)
 
         # Get pricing model
-        hub = ExtensionsHub()
-        pricing_config = hub.get_pricing_config()
+        pricing_config = _get_cached_pricing_config()
         pricing_model = (
             pricing_config.get("pricing_model") if pricing_config else "per_token"
         )
-        is_seat_based = pricing_model in ["per_user", "per_capacity", "per_location"]
 
-        if is_seat_based:
+        if pricing_model == "tiered_plan":
+            # For tiered plan billing, check:
+            # 1. Has a plan_id set (trial or paid)
+            # 2. Trial credits (token_balance_usd > 0)
+            # 3. Active subscription (stripe_subscription_id exists and auto_topup_enabled)
+            # 4. Token balance > 0 (from topups or included tokens)
+            company_with_plan = (
+                session.query(Company)
+                .filter(Company.id.in_(list(all_company_ids)))
+                .filter(
+                    (Company.plan_id != None)  # Has a plan assigned
+                    & (
+                        (Company.token_balance_usd > 0)  # Has trial credits
+                        | (Company.token_balance > 0)  # Has token balance
+                        | (
+                            (Company.stripe_subscription_id != None)
+                            & (Company.auto_topup_enabled == True)
+                        )  # Has active subscription
+                    )
+                )
+                .first()
+            )
+            if company_with_plan:
+                return True
+        elif pricing_model == "per_bed":
+            # For NurseXT bed-based billing, check:
+            # 1. Trial credits (token_balance_usd > 0)
+            # 2. Active subscription
+            company_with_billing = (
+                session.query(Company)
+                .filter(Company.id.in_(list(all_company_ids)))
+                .filter(
+                    (Company.token_balance_usd > 0)  # Has trial credits
+                    | (
+                        (Company.stripe_subscription_id != None)
+                        & (Company.auto_topup_enabled == True)
+                    )  # Has subscription
+                )
+                .first()
+            )
+            if company_with_billing:
+                return True
+        elif pricing_model in ["per_user", "per_capacity", "per_location"]:
             # For seat-based billing, check:
             # 1. Trial credits (token_balance_usd > 0)
             # 2. Active subscription (stripe_subscription_id exists and auto_topup_enabled)
@@ -3728,7 +4553,7 @@ class MagicalAuth:
         Super admins (role 0) are exempt from billing checks.
         """
         # Check if billing is enabled
-        price_service = PriceService()
+        price_service = _get_price_service()
         token_price = price_service.get_token_price()
         billing_enabled = token_price > 0
 
@@ -3811,8 +4636,12 @@ class MagicalAuth:
             # Generate or validate username
             username = getattr(new_user, "username", None)
             if not username:
-                # Auto-generate username from email
-                base_username = self.email.split("@")[0]
+                # Auto-generate username from email or identifier
+                if "@" in self.email:
+                    base_username = self.email.split("@")[0]
+                else:
+                    # Non-email identifier (username-based registration)
+                    base_username = self.email
                 username = base_username
                 counter = 1
                 while session.query(User).filter(User.username == username).first():
@@ -3835,7 +4664,7 @@ class MagicalAuth:
             )
 
             # Determine if paywall is enabled for this instance
-            price_service = PriceService()
+            price_service = _get_price_service()
             try:
                 token_price = price_service.get_token_price()
             except Exception:
@@ -3901,6 +4730,13 @@ class MagicalAuth:
                 )
                 # Invalidate user company cache since company membership changed
                 invalidate_user_company_cache(str(new_user_db.id))
+                # Auto-add to existing non-invite-only company channels
+                add_user_to_company_channels(
+                    session=session,
+                    user_id=str(new_user_db.id),
+                    company_id=company_id,
+                )
+                session.commit()
                 # Create agent directly without login overhead
                 agixt = InternalClient(api_key=None, user=new_user.email)
                 agixt._user = new_user.email
@@ -4030,6 +4866,29 @@ class MagicalAuth:
             del kwargs["input_tokens"]
         if "output_tokens" in kwargs:
             del kwargs["output_tokens"]
+        # Validate username uniqueness before applying
+        if "username" in kwargs and kwargs["username"]:
+            import re
+
+            username = kwargs["username"].strip()
+            if len(username) < 3:
+                session.close()
+                return "Username must be at least 3 characters long."
+            if len(username) > 32:
+                session.close()
+                return "Username must be 32 characters or fewer."
+            if not re.match(r"^[a-zA-Z0-9_.-]+$", username):
+                session.close()
+                return "Username can only contain letters, numbers, underscores, hyphens, and dots."
+            existing = (
+                session.query(User)
+                .filter(User.username == username, User.id != self.user_id)
+                .first()
+            )
+            if existing:
+                session.close()
+                return "Username is already taken."
+            kwargs["username"] = username
         for key, value in kwargs.items():
             if "password" in key.lower():
                 value = encrypt(self.encryption_key, value)
@@ -4060,6 +4919,54 @@ class MagicalAuth:
         session.commit()
         session.close()
         return "User updated successfully."
+
+    def update_presence(self, status_text: str = None, status_mode: str = None):
+        """Update user's last_seen timestamp and optionally set a status text or mode."""
+        self.validate_user()
+        session = get_session()
+        try:
+            user = session.query(User).filter(User.id == self.user_id).first()
+            if user:
+                user.last_seen = datetime.now(timezone.utc)
+                if status_text is not None:
+                    user.status_text = status_text if status_text.strip() else None
+                if status_mode is not None:
+                    valid_modes = {"online", "away", "dnd", "invisible"}
+                    if status_mode in valid_modes:
+                        user.status_mode = status_mode
+                session.commit()
+                return {
+                    "last_seen": user.last_seen.isoformat() if user.last_seen else None,
+                    "status_text": getattr(user, "status_text", None),
+                    "status_mode": getattr(user, "status_mode", "online"),
+                }
+            return {"last_seen": None, "status_text": None, "status_mode": "online"}
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error updating presence: {e}")
+            return {"last_seen": None, "status_text": None, "status_mode": "online"}
+        finally:
+            session.close()
+
+    def get_user_status(self):
+        """Get current user's status info."""
+        self.validate_user()
+        session = get_session()
+        try:
+            user = session.query(User).filter(User.id == self.user_id).first()
+            if user:
+                return {
+                    "last_seen": (
+                        user.last_seen.isoformat()
+                        if getattr(user, "last_seen", None)
+                        else None
+                    ),
+                    "status_text": getattr(user, "status_text", None),
+                    "status_mode": getattr(user, "status_mode", "online"),
+                }
+            return {"last_seen": None, "status_text": None, "status_mode": "online"}
+        finally:
+            session.close()
 
     def delete_company(self, company_id):
         """
@@ -4504,7 +5411,7 @@ class MagicalAuth:
 
             # Get billing config
             wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
-            price_service = PriceService()
+            price_service = _get_price_service()
             try:
                 token_price = price_service.get_token_price()
             except Exception:
@@ -4707,7 +5614,7 @@ class MagicalAuth:
         wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
 
         # Determine if billing is enabled globally (token price > 0)
-        price_service = PriceService()
+        price_service = _get_price_service()
         try:
             token_price = price_service.get_token_price()
         except Exception:
@@ -4793,44 +5700,49 @@ class MagicalAuth:
 
                     # Only check company subscriptions if the user doesn't have their own
                     if not has_active_subscription:
-                        for user_company in user_companies:
-                            # Get the company admins
-                            company_admins = (
-                                session.query(User)
-                                .join(
-                                    UserCompany, User.id == UserCompany.user_id
-                                )  # Add proper JOIN
-                                .filter(
-                                    UserCompany.company_id == user_company.company_id
+                        # Batch-fetch all company admin preferences in one query
+                        company_ids = [uc.company_id for uc in user_companies]
+                        admin_rows = (
+                            (
+                                session.query(
+                                    User.id,
+                                    User.email,
+                                    UserPreferences.pref_key,
+                                    UserPreferences.pref_value,
+                                    UserCompany.company_id,
                                 )
-                                .filter(UserCompany.role_id <= 2)
+                                .join(UserCompany, User.id == UserCompany.user_id)
+                                .outerjoin(
+                                    UserPreferences, User.id == UserPreferences.user_id
+                                )
+                                .filter(
+                                    UserCompany.company_id.in_(company_ids),
+                                    UserCompany.role_id <= 2,
+                                )
                                 .all()
                             )
-                            for company_admin in company_admins:
-                                company_admin_preferences = (
-                                    session.query(UserPreferences)
-                                    .filter(UserPreferences.user_id == company_admin.id)
-                                    .all()
+                            if company_ids
+                            else []
+                        )
+                        # Group into {admin_id: {email, prefs}}
+                        admins_data = {}
+                        for uid, email, pkey, pval, cid in admin_rows:
+                            if uid not in admins_data:
+                                admins_data[uid] = {"email": email, "prefs": {}}
+                            if pkey is not None:
+                                admins_data[uid]["prefs"][pkey] = pval
+                        for admin_info in admins_data.values():
+                            if "stripe_id" in admin_info["prefs"]:
+                                user_preferences["stripe_id"] = admin_info["prefs"][
+                                    "stripe_id"
+                                ]
+                                relevant_subscriptions = self.get_subscribed_products(
+                                    api_key,
+                                    admin_info["email"],
                                 )
-                                company_admin_preferences = {
-                                    x.pref_key: x.pref_value
-                                    for x in company_admin_preferences
-                                }
-                                if "stripe_id" in company_admin_preferences:
-                                    # add to users preferences
-                                    user_preferences["stripe_id"] = (
-                                        company_admin_preferences["stripe_id"]
-                                    )
-                                    # check if it has an active subscription
-                                    relevant_subscriptions = (
-                                        self.get_subscribed_products(
-                                            api_key,
-                                            company_admin.email,
-                                        )
-                                    )
-                                    if relevant_subscriptions:
-                                        has_active_subscription = True
-                                        break
+                                if relevant_subscriptions:
+                                    has_active_subscription = True
+                                    break
                         if not has_active_subscription:
                             if (
                                 "stripe_id" not in user_preferences
@@ -5412,9 +6324,15 @@ class MagicalAuth:
 
         try:
             # Check if billing is enabled
-            price_service = PriceService()
+            price_service = _get_price_service()
             token_price = price_service.get_token_price()
             billing_enabled = token_price > 0
+
+            # Get pricing model
+            pricing_config = _get_cached_pricing_config()
+            pricing_model = (
+                pricing_config.get("pricing_model") if pricing_config else "per_token"
+            )
 
             # Get user's company
             user_company = (
@@ -5423,7 +6341,7 @@ class MagicalAuth:
                 .first()
             )
 
-            if user_company and billing_enabled:
+            if user_company and (billing_enabled or pricing_model == "tiered_plan"):
                 user_direct_company = (
                     session.query(Company)
                     .filter(Company.id == user_company.company_id)
@@ -5432,12 +6350,10 @@ class MagicalAuth:
 
                 if user_direct_company:
                     # Get the root parent company for billing purposes
-                    # Child companies consume tokens from their root parent
                     root_company_id = self.get_root_parent_company(
                         str(user_direct_company.id), session=session
                     )
 
-                    # If user's company is a child, get the root parent for billing
                     if str(root_company_id) != str(user_direct_company.id):
                         billing_company = (
                             session.query(Company)
@@ -5448,19 +6364,82 @@ class MagicalAuth:
                         billing_company = user_direct_company
 
                     if billing_company:
-                        # Check if billing company has sufficient balance
-                        if billing_company.token_balance < total_tokens:
-                            session.close()
-                            raise HTTPException(
-                                status_code=402,
-                                detail="Insufficient token balance. Please top up your company's token balance.",
+                        if pricing_model == "tiered_plan":
+                            # For tiered plans: check period reset, then track usage
+                            # Reset period if needed (billing cycle anniversary)
+                            now = datetime.now(timezone.utc)
+                            period_start = billing_company.current_period_start
+                            if period_start:
+                                # Ensure period_start is timezone-aware for comparison
+                                if (
+                                    period_start.tzinfo is None
+                                    or period_start.tzinfo.utcoffset(period_start)
+                                    is None
+                                ):
+                                    period_start = period_start.replace(
+                                        tzinfo=timezone.utc
+                                    )
+                                from dateutil.relativedelta import relativedelta
+
+                                if now >= period_start + relativedelta(months=1):
+                                    billing_company.tokens_used_this_period = 0
+                                    billing_company.current_period_start = now
+                            else:
+                                billing_company.current_period_start = now
+
+                            # Track period token usage
+                            billing_company.tokens_used_this_period = (
+                                billing_company.tokens_used_this_period or 0
+                            ) + total_tokens
+
+                            # Check if plan's monthly allowance is exhausted
+                            plan_id = billing_company.plan_id
+                            tier = self._get_plan_tier(plan_id, pricing_config)
+                            limits = tier.get("limits", {})
+                            plan_token_limit = (limits.get("tokens") or 0) + (
+                                billing_company.addon_tokens or 0
                             )
 
-                        # Deduct from billing (root parent) company balance
-                        billing_company.token_balance -= total_tokens
-                        billing_company.tokens_used_total += total_tokens
+                            tokens_used = billing_company.tokens_used_this_period or 0
 
-                    # Record usage for audit trail (against user's direct company)
+                            if plan_token_limit and tokens_used > plan_token_limit:
+                                # Over the plan's included allowance — use purchased topup tokens
+                                overage = tokens_used - plan_token_limit
+                                if (
+                                    billing_company.token_balance
+                                    and billing_company.token_balance > 0
+                                ):
+                                    # Deduct only the overage portion from topup balance
+                                    deduction = min(
+                                        total_tokens,
+                                        overage,
+                                        billing_company.token_balance,
+                                    )
+                                    billing_company.token_balance -= deduction
+                                    if billing_company.token_balance < 0:
+                                        billing_company.token_balance = 0
+                                elif billing_enabled:
+                                    # Over limit and no topup balance
+                                    if (billing_company.token_balance_usd or 0) <= 0:
+                                        raise HTTPException(
+                                            status_code=402,
+                                            detail="Monthly token limit exceeded. Purchase additional tokens ($5/1M) or upgrade your plan.",
+                                        )
+                        else:
+                            # Legacy token-based billing
+                            if (billing_company.token_balance or 0) < total_tokens:
+                                session.close()
+                                raise HTTPException(
+                                    status_code=402,
+                                    detail="Insufficient token balance. Please top up your company's token balance.",
+                                )
+                            billing_company.token_balance -= total_tokens
+
+                        billing_company.tokens_used_total = (
+                            billing_company.tokens_used_total or 0
+                        ) + total_tokens
+
+                    # Record usage for audit trail
                     usage = CompanyTokenUsage(
                         company_id=user_direct_company.id,
                         user_id=self.user_id,
@@ -5470,29 +6449,28 @@ class MagicalAuth:
                     )
                     session.add(usage)
 
-            # Still track per-user for analytics (existing logic)
-            counts = self.get_token_counts()
-            current_input_tokens = int(counts["input_tokens"])
-            current_output_tokens = int(counts["output_tokens"])
-            updated_input_tokens = current_input_tokens + input_tokens
-            updated_output_tokens = current_output_tokens + output_tokens
+            # Track per-user for analytics — inline to avoid extra session from get_token_counts()
             user_preferences = (
                 session.query(UserPreferences)
                 .filter(UserPreferences.user_id == self.user_id)
                 .all()
             )
-            if not user_preferences:
-                user_input_tokens = None
-                user_output_tokens = None
-            else:
-                user_input_tokens = next(
-                    (x for x in user_preferences if x.pref_key == "input_tokens"),
-                    None,
-                )
-                user_output_tokens = next(
-                    (x for x in user_preferences if x.pref_key == "output_tokens"),
-                    None,
-                )
+            user_input_tokens = next(
+                (x for x in user_preferences if x.pref_key == "input_tokens"),
+                None,
+            )
+            user_output_tokens = next(
+                (x for x in user_preferences if x.pref_key == "output_tokens"),
+                None,
+            )
+            current_input_tokens = (
+                int(user_input_tokens.pref_value) if user_input_tokens else 0
+            )
+            current_output_tokens = (
+                int(user_output_tokens.pref_value) if user_output_tokens else 0
+            )
+            updated_input_tokens = current_input_tokens + input_tokens
+            updated_output_tokens = current_output_tokens + output_tokens
             # Update input tokens
             if user_input_tokens is None:
                 user_input_tokens = UserPreferences(
@@ -5649,33 +6627,53 @@ class MagicalAuth:
     def add_tokens_to_company(
         self, company_id: str, token_amount: int, amount_usd: float
     ):
-        """Add tokens to company balance after successful payment"""
+        """Add tokens to billing (root parent) company balance after successful payment.
+
+        Resolves the root parent company so tokens are credited to the same
+        entity that increase_token_counts deducts from.
+        """
+        if token_amount <= 0 or amount_usd < 0:
+            raise HTTPException(status_code=400, detail="Token amount must be positive")
         session = get_session()
         try:
-            company = session.query(Company).filter(Company.id == company_id).first()
-            if not company:
-                raise HTTPException(status_code=404, detail="Company not found")
+            _, billing_company, session, _ = self._get_billing_company(
+                company_id, session=session
+            )
 
-            company.token_balance += token_amount
-            company.token_balance_usd += amount_usd
+            billing_company.token_balance = (
+                billing_company.token_balance or 0
+            ) + token_amount
+            billing_company.token_balance_usd = (
+                billing_company.token_balance_usd or 0
+            ) + amount_usd
             session.commit()
         finally:
             session.close()
 
     def get_user_companies(self) -> List[str]:
-        """Get list of company IDs that the user has access to"""
+        """Get list of company IDs that the user has access to (cached 10s)"""
+        cache_key = f"user_companies_list:{self.user_id}"
+        cached = shared_cache.get(cache_key)
+        if cached is not None:
+            return cached
         session = get_session()
-        user_companies = (
-            session.query(UserCompany).filter(UserCompany.user_id == self.user_id).all()
-        )
-        response = [str(uc.company_id) for uc in user_companies]
-        session.close()
-        return response
+        try:
+            user_companies = (
+                session.query(UserCompany)
+                .filter(UserCompany.user_id == self.user_id)
+                .all()
+            )
+            response = [str(uc.company_id) for uc in user_companies]
+            shared_cache.set(cache_key, response, ttl=10)
+            return response
+        finally:
+            session.close()
 
     def get_accessible_company_ids(self, include_children: bool = True) -> List[str]:
         """
         Get list of all company IDs that the user has access to, including child companies
         where the user is an admin of the parent company.
+        Cached for 60s to avoid repeated DB hits on hot paths.
 
         Args:
             include_children: If True, include child companies where user is admin of parent.
@@ -5683,29 +6681,34 @@ class MagicalAuth:
         Returns:
             List of company IDs the user can access.
         """
+        cache_key = f"accessible_companies:{self.user_id}:{include_children}"
+        cached = shared_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         # Start with direct company memberships
         direct_companies = self.get_user_companies()
 
         if not include_children:
+            shared_cache.set(cache_key, direct_companies, ttl=60)
             return direct_companies
 
         accessible = set(direct_companies)
 
         with get_session() as db:
-            # For each company where user is admin (role_id <= 1), add all child companies
-            admin_company_ids = []
-            for company_id in direct_companies:
-                user_company = (
-                    db.query(UserCompany)
-                    .filter(
-                        UserCompany.user_id == self.user_id,
-                        UserCompany.company_id == company_id,
-                    )
-                    .first()
+            # Single query to get role_id for all direct companies at once
+            user_company_roles = (
+                db.query(UserCompany.company_id, UserCompany.role_id)
+                .filter(
+                    UserCompany.user_id == self.user_id,
+                    UserCompany.company_id.in_(direct_companies),
                 )
-                # Role 0 = super admin, Role 1 = company admin
-                if user_company and user_company.role_id <= 1:
-                    admin_company_ids.append(company_id)
+                .all()
+            )
+            # Role 0 = super admin, Role 1 = company admin
+            admin_company_ids = [
+                str(uc.company_id) for uc in user_company_roles if uc.role_id <= 1
+            ]
 
             # Get all child companies recursively for admin companies
             def get_child_companies(parent_id: str, visited: set) -> List[str]:
@@ -5729,7 +6732,9 @@ class MagicalAuth:
                 child_ids = get_child_companies(admin_company_id, visited)
                 accessible.update(child_ids)
 
-        return list(accessible)
+        result = list(accessible)
+        shared_cache.set(cache_key, result, ttl=60)
+        return result
 
     def can_access_company(self, company_id: str) -> bool:
         """
@@ -5854,8 +6859,19 @@ class MagicalAuth:
                     "role_id": uc.role_id,
                     "primary": str(company.id) == str(self.company_id),
                     "agents": agents_by_company.get(str(company.id), []),
+                    "icon_url": getattr(company, "icon_url", None),
+                    "sort_order": getattr(uc, "sort_order", None),
                 }
                 response.append(company_dict)
+
+            # Sort by sort_order (nulls last), then by name
+            response.sort(
+                key=lambda c: (
+                    0 if c["sort_order"] is not None else 1,
+                    c["sort_order"] if c["sort_order"] is not None else 0,
+                    c["name"].lower(),
+                )
+            )
             return response
         finally:
             session.close()
@@ -6009,6 +7025,13 @@ class MagicalAuth:
                     db.commit()
                     # Invalidate user company cache since company membership changed
                     invalidate_user_company_cache(str(user.id))
+                    # Auto-add to existing non-invite-only company channels
+                    add_user_to_company_channels(
+                        session=db,
+                        user_id=str(user.id),
+                        company_id=invitation.company_id,
+                    )
+                    db.commit()
                     # send an email letting the user know they have been added to the company
                     company = (
                         db.query(Company)
@@ -6247,6 +7270,13 @@ class MagicalAuth:
                 db.commit()
                 # Invalidate user company cache since company membership changed
                 invalidate_user_company_cache(str(self.user_id))
+                # Auto-add to existing non-invite-only company channels
+                add_user_to_company_channels(
+                    session=db,
+                    user_id=str(self.user_id),
+                    company_id=invitation.company_id,
+                )
+                db.commit()
                 return True
             except SQLAlchemyError as e:
                 db.rollback()
@@ -6513,6 +7543,7 @@ class MagicalAuth:
                         "zip_code": getattr(company, "zip_code", None),
                         "country": getattr(company, "country", None),
                         "notes": getattr(company, "notes", None),
+                        "icon_url": getattr(company, "icon_url", None),
                         "users": list(unique_users.values()),
                         "children": [],
                     }
@@ -6573,6 +7604,7 @@ class MagicalAuth:
                                 "zip_code": getattr(child, "zip_code", None),
                                 "country": getattr(child, "country", None),
                                 "notes": getattr(child, "notes", None),
+                                "icon_url": getattr(child, "icon_url", None),
                                 "users": list(child_unique_users.values()),
                             }
                             company_data["children"].append(child_data)
@@ -6893,10 +7925,7 @@ class MagicalAuth:
                         )
 
                     # For per_location billing, check location limit before creating child company
-                    from ExtensionsHub import ExtensionsHub
-
-                    hub = ExtensionsHub()
-                    pricing_config = hub.get_pricing_config()
+                    pricing_config = _get_cached_pricing_config()
                     pricing_model = (
                         pricing_config.get("pricing_model")
                         if pricing_config
@@ -7076,62 +8105,6 @@ class MagicalAuth:
             if not company:
                 raise HTTPException(status_code=404, detail="Company not found")
             return company.agent_name if company.agent_name else getenv("AGENT_NAME")
-
-    def update_company(self, company_id: str, name: str) -> CompanyResponse:
-        # Check if user has permission to write to this company
-        if not self.has_scope("company:write", company_id):
-            raise HTTPException(
-                status_code=403,
-                detail="Unauthorized. Insufficient permissions.",
-            )
-
-        with get_session() as db:
-            try:
-                company = db.query(Company).filter(Company.id == company_id).first()
-                if not company:
-                    raise HTTPException(status_code=404, detail="Company not found")
-
-                company.name = name
-                db.commit()
-                user_role = self.get_user_role(company_id)
-                role_name = None
-                for role in default_roles:
-                    if role["id"] == user_role:
-                        role_name = role["name"]
-                        break
-                if role_name is None:
-                    role_name = "user"
-
-                return CompanyResponse(
-                    id=str(company.id),
-                    name=company.name,
-                    company_id=str(company.company_id) if company.company_id else None,
-                    status=getattr(company, "status", True),
-                    address=getattr(company, "address", None),
-                    phone_number=getattr(company, "phone_number", None),
-                    email=getattr(company, "email", None),
-                    website=getattr(company, "website", None),
-                    city=getattr(company, "city", None),
-                    state=getattr(company, "state", None),
-                    zip_code=getattr(company, "zip_code", None),
-                    country=getattr(company, "country", None),
-                    notes=getattr(company, "notes", None),
-                    users=[
-                        UserResponse(
-                            id=str(uc.user.id),
-                            email=uc.user.email,
-                            first_name=uc.user.first_name,
-                            last_name=uc.user.last_name,
-                            role=role_name,
-                            role_id=uc.role_id,
-                        )
-                        for uc in company.users
-                    ],
-                    children=[],
-                )
-            except SQLAlchemyError as e:
-                db.rollback()
-                raise HTTPException(status_code=500, detail=str(e))
 
     def get_training_data(self, company_id: str = None) -> str:
         if not company_id:
@@ -7618,6 +8591,7 @@ class MagicalAuth:
                 zip_code=getattr(company, "zip_code", None),
                 country=getattr(company, "country", None),
                 notes=getattr(company, "notes", None),
+                icon_url=getattr(company, "icon_url", None),
                 users=[
                     UserResponse(
                         id=str(uc.user.id),
@@ -7646,6 +8620,7 @@ class MagicalAuth:
         zip_code: Optional[str] = None,
         country: Optional[str] = None,
         notes: Optional[str] = None,
+        icon_url: Optional[str] = None,
     ):
         # Check if user has permission to write to this company
         if not self.has_scope("company:write", company_id):
@@ -7681,6 +8656,8 @@ class MagicalAuth:
                 company.country = country
             if notes is not None:
                 company.notes = notes
+            if icon_url is not None:
+                company.icon_url = icon_url
 
             db.commit()
             user_role = self.get_user_role(company_id)
@@ -7698,6 +8675,7 @@ class MagicalAuth:
                 status=getattr(company, "status", True),
                 address=getattr(company, "address", None),
                 phone_number=getattr(company, "phone_number", None),
+                icon_url=getattr(company, "icon_url", None),
                 users=[
                     UserResponse(
                         id=str(uc.user.id),
@@ -8138,42 +9116,27 @@ class MagicalAuth:
 
         user_scopes = self.get_user_scopes()
 
-        from DB import Scope, default_scopes
+        # Use cached scope definitions
+        all_scopes_info = _get_all_scopes_info()
 
-        session = get_session()
-        try:
-            # Get all scope definitions
-            all_scopes = session.query(Scope).all()
+        available_scopes = []
+        categories = {}
 
-            available_scopes = []
-            categories = {}
+        for scope_info in all_scopes_info:
+            # Check if user has this scope (including wildcard matching)
+            if self.has_scope(scope_info["name"]):
+                available_scopes.append(scope_info)
 
-            for scope in all_scopes:
-                # Check if user has this scope (including wildcard matching)
-                if self.has_scope(scope.name):
-                    scope_info = {
-                        "id": str(scope.id),
-                        "name": scope.name,
-                        "resource": scope.resource,
-                        "action": scope.action,
-                        "description": scope.description,
-                        "category": scope.category or "Other",
-                        "is_system": scope.is_system,
-                    }
-                    available_scopes.append(scope_info)
+                # Group by category
+                cat = scope_info["category"]
+                if cat not in categories:
+                    categories[cat] = []
+                categories[cat].append(scope_info)
 
-                    # Group by category
-                    cat = scope.category or "Other"
-                    if cat not in categories:
-                        categories[cat] = []
-                    categories[cat].append(scope_info)
-
-            return {
-                "scopes": available_scopes,
-                "categories": categories,
-            }
-        finally:
-            session.close()
+        return {
+            "scopes": available_scopes,
+            "categories": categories,
+        }
 
     def get_available_agents_for_token_creation(self) -> list:
         """
@@ -8218,6 +9181,15 @@ def validate_personal_access_token(token: str) -> dict:
             "error": "Invalid token format",
         }
 
+    # Fast cache check using SHA256 (avoids 100K PBKDF2 iterations on cache hit)
+    import hashlib
+
+    fast_hash = hashlib.sha256(token.encode()).hexdigest()[:16]
+    cache_key = f"pat_validation:{fast_hash}"
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     from DB import PersonalAccessToken
 
     token_hash = hash_pat_token(token)
@@ -8231,31 +9203,40 @@ def validate_personal_access_token(token: str) -> dict:
         )
 
         if not pat:
-            return {
+            result = {
                 "valid": False,
                 "error": "Token not found",
             }
+            shared_cache.set(cache_key, result, ttl=_pat_validation_cache_ttl)
+            return result
 
         if pat.is_revoked:
-            return {
+            result = {
                 "valid": False,
                 "error": "Token has been revoked",
             }
+            shared_cache.set(cache_key, result, ttl=_pat_validation_cache_ttl)
+            return result
 
         if pat.expires_at and pat.expires_at < datetime.now():
-            return {
+            result = {
                 "valid": False,
                 "error": "Token has expired",
             }
+            shared_cache.set(cache_key, result, ttl=_pat_validation_cache_ttl)
+            return result
 
-        # Update last_used_at
-        pat.last_used_at = datetime.now()
-        session.commit()
+        # Batch last_used_at update (avoid write on every request)
+        try:
+            pat.last_used_at = datetime.now()
+            session.commit()
+        except Exception:
+            session.rollback()
 
         # Get user info
         user = session.query(User).filter(User.id == pat.user_id).first()
 
-        return {
+        result = {
             "valid": True,
             "user_id": str(pat.user_id),
             "user_email": user.email if user else None,
@@ -8264,6 +9245,8 @@ def validate_personal_access_token(token: str) -> dict:
             "company_ids": json.loads(pat.companies_json),
             "token_name": pat.name,
         }
+        shared_cache.set(cache_key, result, ttl=_pat_validation_cache_ttl)
+        return result
     except Exception as e:
         # Log full error details on the server, but do not expose them to the caller
         logging.error(f"Error validating personal access token: {str(e)}")
@@ -8419,26 +9402,35 @@ def get_user_timezone(user_id):
     if normalized_user_id is None:
         return getenv("TZ") or "UTC"
 
+    # Check cache first (timezone rarely changes)
+    cache_key = f"user_tz:{normalized_user_id}"
+    cached = shared_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     session = get_session()
-    user_preferences = (
-        session.query(UserPreferences)
-        .filter(
-            UserPreferences.user_id == normalized_user_id,
-            UserPreferences.pref_key == "timezone",
+    try:
+        user_preferences = (
+            session.query(UserPreferences)
+            .filter(
+                UserPreferences.user_id == normalized_user_id,
+                UserPreferences.pref_key == "timezone",
+            )
+            .first()
         )
-        .first()
-    )
-    if not user_preferences:
-        user_preferences = UserPreferences(
-            user_id=normalized_user_id,
-            pref_key="timezone",
-            pref_value=getenv("TZ") or "UTC",
-        )
-        session.add(user_preferences)
-        session.commit()
-    timezone = user_preferences.pref_value
-    session.close()
-    return timezone
+        if not user_preferences:
+            user_preferences = UserPreferences(
+                user_id=normalized_user_id,
+                pref_key="timezone",
+                pref_value=getenv("TZ") or "UTC",
+            )
+            session.add(user_preferences)
+            session.commit()
+        timezone = user_preferences.pref_value
+        shared_cache.set(cache_key, timezone, ttl=_user_timezone_cache_ttl)
+        return timezone
+    finally:
+        session.close()
 
 
 def convert_time(utc_time, user_id) -> datetime:
