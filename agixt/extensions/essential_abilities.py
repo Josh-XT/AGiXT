@@ -4254,7 +4254,7 @@ Expert agent creation complete! {agent_name} is ready to provide specialized ass
             logging.error(error_msg)
             return f"❌ {error_msg}\n\nPlease check the logs for more details and try again."
 
-    async def get_webui_tips(page: str = "all") -> str:
+    async def get_webui_tips(self, page: str = "all") -> str:
         """
         Provide quick tips for navigating and using the AGiXT web UI. This is useful for assisting users with navigating the web interface.
 

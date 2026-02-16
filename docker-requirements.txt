@@ -1,5 +1,5 @@
 twilio
-safeexecute==0.0.23
+safeexecute==0.0.24
 redis
 agixtsdk==0.0.82
 argon2-cffi>=21.3.0
