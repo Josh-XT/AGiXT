@@ -4029,7 +4029,7 @@ class Conversations:
                         ConversationParticipant.status == "active",
                         Conversation.conversation_type == "dm",
                     )
-                    .subquery()
+                    .scalar_subquery()
                 )
 
                 # Check for existing DM with the same agent(s)

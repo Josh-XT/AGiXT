@@ -77,6 +77,7 @@ workspace_manager = WorkspaceManager()
 
 # Redis pub/sub channel for cross-worker WebSocket broadcasts
 REDIS_BROADCAST_CHANNEL = "agixt:ws:broadcast"
+REDIS_USER_NOTIFY_CHANNEL = "agixt:ws:user_notify"
 
 
 def _get_redis_client():
@@ -458,15 +459,91 @@ class UserNotificationManager:
     """
     Manages WebSocket connections for user-level notifications.
     Allows broadcasting events to all connections for a specific user.
+    Uses Redis pub/sub for cross-worker distribution when multiple uvicorn
+    workers are running, so a notification published from any worker reaches
+    the WebSocket connection regardless of which worker holds it.
     """
 
     def __init__(self):
         # Maps user_id -> set of active WebSocket connections
         self.active_connections: Dict[str, Set[WebSocket]] = {}
         self._lock = asyncio.Lock()
+        # Redis pub/sub for cross-worker broadcasting
+        self._redis_publisher = None
+        self._redis_subscriber = None
+        self._subscriber_thread = None
+        self._subscriber_running = False
+        self._main_loop = None
+
+    def set_main_loop(self, loop):
+        """Set the main event loop reference for cross-thread broadcasts."""
+        self._main_loop = loop
+        self._start_redis_subscriber()
+
+    def _start_redis_subscriber(self):
+        """Start the Redis pub/sub subscriber in a background thread."""
+        if self._subscriber_running:
+            return
+
+        self._redis_publisher = _get_redis_client()
+        if self._redis_publisher is None:
+            logging.info(
+                "UserNotificationManager: Redis not available, cross-worker notifications disabled"
+            )
+            return
+
+        self._redis_subscriber = _get_redis_client()
+        if self._redis_subscriber is None:
+            return
+
+        self._subscriber_running = True
+        self._subscriber_thread = threading.Thread(
+            target=self._redis_subscriber_loop,
+            daemon=True,
+            name="redis-user-notify-subscriber",
+        )
+        self._subscriber_thread.start()
+        logging.info("UserNotificationManager: Redis subscriber started")
+
+    def _redis_subscriber_loop(self):
+        """Background thread that listens for Redis pub/sub messages."""
+        try:
+            pubsub = self._redis_subscriber.pubsub()
+            pubsub.subscribe(REDIS_USER_NOTIFY_CHANNEL)
+
+            for message in pubsub.listen():
+                if not self._subscriber_running:
+                    break
+                if message["type"] != "message":
+                    continue
+                try:
+                    data = json.loads(message["data"])
+                    user_id = data.get("user_id")
+                    notification = data.get("notification")
+                    if user_id and notification:
+                        if self._main_loop is not None:
+                            asyncio.run_coroutine_threadsafe(
+                                self._local_broadcast_to_user(user_id, notification),
+                                self._main_loop,
+                            )
+                except json.JSONDecodeError:
+                    logging.debug(
+                        "UserNotificationManager: Invalid JSON in Redis message"
+                    )
+                except Exception as e:
+                    logging.debug(
+                        f"UserNotificationManager: Error processing Redis message: {e}"
+                    )
+        except Exception as e:
+            logging.warning(f"UserNotificationManager: Redis subscriber error: {e}")
+        finally:
+            self._subscriber_running = False
 
     async def connect(self, websocket: WebSocket, user_id: str):
         """Register a new WebSocket connection for a user."""
+        if self._main_loop is None:
+            self._main_loop = asyncio.get_running_loop()
+            self._start_redis_subscriber()
         async with self._lock:
             if user_id not in self.active_connections:
                 self.active_connections[user_id] = set()
@@ -485,7 +562,36 @@ class UserNotificationManager:
                 logging.debug(f"User {user_id} disconnected.")
 
     async def broadcast_to_user(self, user_id: str, message: dict):
-        """Broadcast a message to all connections for a specific user."""
+        """Broadcast a message to all connections for a specific user.
+        Uses Redis pub/sub so every worker can deliver to its local connections."""
+        if self._publish_to_redis(user_id, message):
+            return  # Redis will distribute to all workers including this one
+
+        # Fallback: local-only broadcast when Redis is unavailable
+        await self._local_broadcast_to_user(user_id, message)
+
+    def _publish_to_redis(self, user_id: str, message: dict) -> bool:
+        """Publish a user notification to Redis for cross-worker distribution."""
+        # Lazily initialize Redis publisher on first broadcast attempt
+        if self._redis_publisher is None:
+            self._redis_publisher = _get_redis_client()
+        if self._redis_publisher is None:
+            return False
+        try:
+            payload = json.dumps(
+                {
+                    "user_id": user_id,
+                    "notification": make_json_serializable(message),
+                }
+            )
+            self._redis_publisher.publish(REDIS_USER_NOTIFY_CHANNEL, payload)
+            return True
+        except Exception as e:
+            logging.warning(f"UserNotificationManager: Failed to publish to Redis: {e}")
+            return False
+
+    async def _local_broadcast_to_user(self, user_id: str, message: dict):
+        """Broadcast to local WebSocket connections only (called from Redis subscriber or fallback)."""
         connections_to_remove = []
         async with self._lock:
             if user_id not in self.active_connections:

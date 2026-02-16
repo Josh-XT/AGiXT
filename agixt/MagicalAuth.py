@@ -4340,11 +4340,23 @@ class MagicalAuth:
                 billing_company.user_limit = limits.get("users")
 
                 # Clear addon fields when moving to a plan that doesn't support addons
+                raw_addons = pricing_config.get("addons") or {}
+                # addons can be a dict (keyed by name) or a list of dicts
+                addon_list = (
+                    raw_addons.values()
+                    if isinstance(raw_addons, dict)
+                    else raw_addons
+                )
                 new_tier_supports_addons = bool(
                     pricing_config
                     and any(
-                        plan_id in (addon.get("available_on") or [])
-                        for addon in (pricing_config.get("addons") or [])
+                        plan_id
+                        in (
+                            addon.get("available_on") or []
+                            if isinstance(addon, dict)
+                            else []
+                        )
+                        for addon in addon_list
                     )
                 )
                 if not new_tier_supports_addons and (
