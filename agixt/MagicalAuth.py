@@ -4343,9 +4343,7 @@ class MagicalAuth:
                 raw_addons = pricing_config.get("addons") or {}
                 # addons can be a dict (keyed by name) or a list of dicts
                 addon_list = (
-                    raw_addons.values()
-                    if isinstance(raw_addons, dict)
-                    else raw_addons
+                    raw_addons.values() if isinstance(raw_addons, dict) else raw_addons
                 )
                 new_tier_supports_addons = bool(
                     pricing_config
