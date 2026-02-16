@@ -931,27 +931,34 @@ async def add_message_v1(
     )
 
     # Build sender object for broadcast (so other users see correct avatar/name)
-    # Reuse the user dict from verify_api_key instead of a redundant DB query
+    # verify_api_key returns a string (email), not a dict, so we must look up
+    # the user's full profile from the DB to populate name/avatar fields.
     sender_data = None
     if log_interaction.role.upper() == "USER":
         try:
-            sender_data = {
-                "id": str(
-                    user.get("id", auth.user_id)
-                    if isinstance(user, dict)
-                    else auth.user_id
-                ),
-                "email": user.get("email", "") if isinstance(user, dict) else "",
-                "first_name": (
-                    user.get("first_name", "") if isinstance(user, dict) else ""
-                ),
-                "last_name": (
-                    user.get("last_name", "") if isinstance(user, dict) else ""
-                ),
-                "avatar_url": (
-                    user.get("avatar_url", None) if isinstance(user, dict) else None
-                ),
-            }
+            from DB import get_session, User
+
+            with get_session() as sender_session:
+                sender_user = (
+                    sender_session.query(User).filter(User.id == auth.user_id).first()
+                )
+                if sender_user:
+                    sender_data = {
+                        "id": str(auth.user_id),
+                        "email": sender_user.email or "",
+                        "first_name": sender_user.first_name or "",
+                        "last_name": sender_user.last_name or "",
+                        "avatar_url": getattr(sender_user, "avatar_url", None),
+                    }
+                else:
+                    # Fallback: use what we have from auth
+                    sender_data = {
+                        "id": str(auth.user_id),
+                        "email": auth.email or "",
+                        "first_name": "",
+                        "last_name": "",
+                        "avatar_url": None,
+                    }
         except Exception as e:
             logging.warning(f"Failed to build sender data for broadcast: {e}")
 
