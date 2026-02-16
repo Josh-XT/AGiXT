@@ -3993,6 +3993,7 @@ class Conversations:
         parent_message_id=None,
         category=None,
         invite_only=False,
+        force_new=False,
     ):
         """
         Create a new group conversation (channel) or thread within a company/group.
@@ -4014,7 +4015,8 @@ class Conversations:
         try:
             # For DM conversations, check if one already exists between the
             # same participants to avoid creating duplicates.
-            if conversation_type == "dm":
+            # When force_new is True, skip dedup to allow creating additional conversations.
+            if conversation_type == "dm" and not force_new:
                 from sqlalchemy import func
 
                 # Find DM conversations where the current user is a participant

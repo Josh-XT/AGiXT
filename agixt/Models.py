@@ -1168,6 +1168,9 @@ class CreateGroupConversationModel(BaseModel):
         None  # Channel category for grouping (e.g., "Text Channels")
     )
     invite_only: bool = False  # If True, only explicitly invited users can join
+    force_new: bool = (
+        False  # If True, skip DM dedup and always create a new conversation
+    )
 
 
 class AddParticipantModel(BaseModel):

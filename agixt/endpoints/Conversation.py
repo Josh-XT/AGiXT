@@ -4039,6 +4039,7 @@ async def create_group_conversation(
         parent_message_id=body.parent_message_id,
         category=body.category,
         invite_only=body.invite_only,
+        force_new=body.force_new,
     )
     return result
 
