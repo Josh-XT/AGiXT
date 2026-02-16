@@ -1,7 +1,1 @@
-twilio
 safeexecute==0.0.24
-redis
-agixtsdk==0.0.82
-argon2-cffi>=21.3.0
-discord.py>=2.0.0
-arxiv>=2.0.0
