@@ -3101,6 +3101,9 @@ async def notify_conversation_participants_message_added(
             )
             if conv and conv.company_id:
                 company_id = str(conv.company_id)
+            conversation_type = (
+                getattr(conv, "conversation_type", None) if conv else None
+            )
 
             # Get all active participants in same session
             participants = (
@@ -3119,6 +3122,7 @@ async def notify_conversation_participants_message_added(
             "data": {
                 "conversation_id": conversation_id,
                 "conversation_name": conversation_name,
+                "conversation_type": conversation_type,
                 "message_id": message_id,
                 "message_preview": preview,
                 "role": role,
@@ -3160,6 +3164,7 @@ async def notify_conversation_participants_message_added(
                 "data": {
                     "conversation_id": conversation_id,
                     "conversation_name": conversation_name,
+                    "conversation_type": conversation_type,
                     "message_id": message_id,
                     "message_preview": preview,
                     "role": role,
@@ -3179,6 +3184,7 @@ async def notify_conversation_participants_message_added(
                     "data": {
                         "conversation_id": conversation_id,
                         "conversation_name": conversation_name,
+                        "conversation_type": conversation_type,
                         "message_id": message_id,
                         "message_preview": preview,
                         "role": role,
