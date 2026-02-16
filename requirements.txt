@@ -9,8 +9,8 @@ PyYAML==6.0.2
 requests==2.31.0
 python-dotenv==1.0.1
 ffmpeg-python==0.2.0
-cryptography==44.0.1
-pillow==10.4.0
+cryptography==46.0.5
+pillow==12.1.1
 SQLAlchemy==2.0.34
 psycopg2-binary==2.9.9
 gTTS==2.5.3
@@ -42,7 +42,7 @@ stripe==10.10.0
 google-auth==2.34.0
 google-api-python-client==2.144.0
 google-auth-oauthlib
-python-multipart==0.0.19
+python-multipart==0.0.22
 nest_asyncio
 pyotp
 argon2-cffi>=21.3.0
