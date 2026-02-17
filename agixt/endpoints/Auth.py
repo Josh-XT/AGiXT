@@ -43,7 +43,6 @@ import pyotp
 import jwt
 from datetime import datetime
 
-
 app = APIRouter()
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),

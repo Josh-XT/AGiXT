@@ -20,7 +20,6 @@ from DB import (
 from Models import Detail, WebhookModel  # type: ignore
 import stripe as stripe_lib
 
-
 # OAuth configuration for Stripe Connect (if implementing OAuth)
 SCOPES = [
     "read_write",  # Stripe Connect scope

@@ -32,7 +32,6 @@ import random
 import socket
 from dotenv import load_dotenv
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 XTSYS_ROOT = REPO_ROOT.parent  # Parent of AGiXT folder
 LOCAL_SCRIPT = Path(__file__).resolve().parent / "run-local.py"

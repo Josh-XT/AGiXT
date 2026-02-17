@@ -8,7 +8,6 @@ from MagicalAuth import MagicalAuth
 import base64
 from fastapi import HTTPException
 
-
 """
 DEPRECATED: This extension is deprecated and will be removed in a future release.
 

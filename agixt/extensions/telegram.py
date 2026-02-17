@@ -5,7 +5,6 @@ from Extensions import Extensions
 from Globals import getenv
 from MagicalAuth import MagicalAuth
 
-
 """
 Telegram Bot Extension for AGiXT
 

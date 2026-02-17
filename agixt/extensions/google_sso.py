@@ -5,7 +5,6 @@ from Extensions import Extensions
 from Globals import getenv
 from MagicalAuth import MagicalAuth
 
-
 """
 Google SSO Extension - Minimal scopes for login/registration only.
 

@@ -139,8 +139,7 @@ class postgres_database(Extensions):
         key_relations = []
         for schema in schemas:
             schema_name = schema["schema_name"]
-            cursor.execute(
-                f"""
+            cursor.execute(f"""
                 SELECT kcu.table_name as foreign_table, rel_tco.table_name as primary_table,
                 kcu.column_name as foreign_column, rel_kcu.column_name as primary_column
                 FROM information_schema.table_constraints tco
@@ -154,8 +153,7 @@ class postgres_database(Extensions):
                 JOIN information_schema.table_constraints rel_tco ON rel_kcu.constraint_name = rel_tco.constraint_name
                                             AND rel_kcu.constraint_schema = rel_tco.constraint_schema
                 WHERE tco.constraint_type = 'FOREIGN KEY' AND tco.table_schema = '{schema_name}' 
-                """
-            )
+                """)
             relations = cursor.fetchall()
             if relations:
                 for relation in relations:
@@ -164,13 +162,11 @@ class postgres_database(Extensions):
                         f"{relation['primary_table']}.{relation['primary_column']}"
                     )
 
-            cursor.execute(
-                f"""
+            cursor.execute(f"""
                 SELECT table_name, column_name, data_type, column_default, is_nullable, ordinal_position 
                 FROM information_schema.columns 
                 WHERE table_schema = '{schema_name}';
-                """
-            )
+                """)
             rows = cursor.fetchall()
 
             table_columns = {}

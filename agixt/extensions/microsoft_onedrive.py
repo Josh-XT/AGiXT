@@ -7,7 +7,6 @@ from Globals import getenv
 from MagicalAuth import MagicalAuth
 from fastapi import HTTPException
 
-
 """
 Microsoft OneDrive Extension - Cloud file storage functionality.
 

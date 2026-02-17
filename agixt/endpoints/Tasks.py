@@ -9,7 +9,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import datetime
 import logging
 
-
 app = APIRouter()
 
 logging.basicConfig(

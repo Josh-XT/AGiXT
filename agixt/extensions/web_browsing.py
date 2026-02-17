@@ -364,8 +364,7 @@ class web_browsing(Extensions):
                 self.page = await self.context.new_page()
 
                 # Inject scripts to mask automation indicators
-                await self.page.add_init_script(
-                    """
+                await self.page.add_init_script("""
                     // Override the navigator.webdriver property
                     Object.defineProperty(navigator, 'webdriver', {
                         get: () => false,
@@ -427,8 +426,7 @@ class web_browsing(Extensions):
                     Object.defineProperty(screen, 'height', {get: () => 1080});
                     Object.defineProperty(screen, 'colorDepth', {get: () => 24});
                     Object.defineProperty(screen, 'pixelDepth', {get: () => 24});
-                """
-                )
+                """)
 
                 # Set reasonable timeouts to prevent hanging
                 self.page.set_default_timeout(
@@ -837,8 +835,7 @@ What key information should be remembered from this content?"""
             await self.page.wait_for_load_state("domcontentloaded", timeout=10000)
 
             # Use JavaScript to get all relevant form elements, traversing shadow DOM
-            fields = await self.page.evaluate(
-                """() => {
+            fields = await self.page.evaluate("""() => {
                     const getAllFields = (root) => {
                         let elements = [];
                         const selectors = 'input, select, textarea, button, a[role="button"], div[role="button"]';
@@ -876,8 +873,7 @@ What key information should be remembered from this content?"""
                             href: el.getAttribute('href') || '', // For links
                         };
                     });
-                }"""
-            )
+                }""")
 
             structured_content = []
 
@@ -1098,8 +1094,7 @@ What key information should be remembered from this content?"""
 
         try:
             # Extract all visible clickable elements with meaningful text
-            link_texts = await self.page.evaluate(
-                """() => {
+            link_texts = await self.page.evaluate("""() => {
                     const elements = [];
                     
                     // Get all <a> tags with visible text
@@ -1144,8 +1139,7 @@ What key information should be remembered from this content?"""
                     
                     // Return unique texts
                     return [...new Set(elements)];
-                }"""
-            )
+                }""")
 
             return link_texts
 
@@ -1966,8 +1960,7 @@ What key information should be remembered from this content?"""
             )  # Wait for table to be in DOM
 
             # Use evaluate to process the table structure efficiently in the browser context
-            table_data = await table_element.evaluate(
-                """
+            table_data = await table_element.evaluate("""
                 (table) => {
                     const data = [];
                     const rows = table.querySelectorAll('tr');
@@ -1984,8 +1977,7 @@ What key information should be remembered from this content?"""
                     });
                     return data;
                 }
-            """
-            )
+            """)
 
             if not table_data:
                 logging.warning(

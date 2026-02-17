@@ -4,7 +4,6 @@ from Extensions import Extensions
 from Globals import getenv
 from fastapi import HTTPException
 
-
 """
 LinkedIn SSO Extension - Minimal scopes for Single Sign-On only.
 

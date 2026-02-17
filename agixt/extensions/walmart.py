@@ -9,7 +9,6 @@ import base64
 from typing import List, Dict, Optional
 from fastapi import HTTPException
 
-
 """
 Required environment variables:
 

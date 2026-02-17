@@ -2603,14 +2603,10 @@ class Memory(Base):
 def setup_vector_column(target, connection, **kw):
     try:
         # Create basic indices that will be useful for both databases
-        connection.execute(
-            text(
-                """
+        connection.execute(text("""
                 CREATE INDEX IF NOT EXISTS memory_agent_conv_idx 
                 ON memory (agent_id, conversation_id);
-                """
-            )
-        )
+                """))
     except Exception as e:
         logging.error(f"Error setting up memory indices: {e}")
 
@@ -3836,13 +3832,11 @@ def migrate_company_table():
                 # For PostgreSQL, check existing columns
                 for column_name, _ in columns_to_add:
                     result = session.execute(
-                        text(
-                            """
+                        text("""
                             SELECT column_name 
                             FROM information_schema.columns 
                             WHERE table_name = 'Company' AND column_name = :column_name
-                        """
-                        ),
+                        """),
                         {"column_name": column_name},
                     )
 
@@ -3937,13 +3931,11 @@ def migrate_payment_transaction_table():
                 # For PostgreSQL, check if column exists
                 for column_name, column_def in columns_to_add:
                     result = session.execute(
-                        text(
-                            """
+                        text("""
                             SELECT column_name 
                             FROM information_schema.columns 
                             WHERE table_name = 'payment_transaction' AND column_name = :column_name
-                        """
-                        ),
+                        """),
                         {"column_name": column_name},
                     )
 
@@ -3983,15 +3975,11 @@ def migrate_extension_table():
                     session.commit()
             else:
                 # For PostgreSQL, check if column exists
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT column_name 
                         FROM information_schema.columns 
                         WHERE table_name = 'extension' AND column_name = 'category_id'
-                    """
-                    )
-                )
+                    """))
 
                 if not result.fetchone():
                     session.execute(
@@ -4226,12 +4214,10 @@ def migrate_user_table():
                 # PostgreSQL
                 for column_name, column_def in columns_to_add:
                     result = session.execute(
-                        text(
-                            """
+                        text("""
                             SELECT column_name FROM information_schema.columns 
                             WHERE table_name = 'user' AND column_name = :column_name
-                            """
-                        ),
+                            """),
                         {"column_name": column_name},
                     )
                     if not result.fetchone():
@@ -4284,12 +4270,10 @@ def migrate_conversation_table():
                 # PostgreSQL
                 for column_name, column_def in columns_to_add:
                     result = session.execute(
-                        text(
-                            """
+                        text("""
                             SELECT column_name FROM information_schema.columns 
                             WHERE table_name = 'conversation' AND column_name = :column_name
-                            """
-                        ),
+                            """),
                         {"column_name": column_name},
                     )
                     if not result.fetchone():
@@ -4322,9 +4306,7 @@ def migrate_discarded_context_table():
                     )
                 )
                 if not result.fetchone():
-                    session.execute(
-                        text(
-                            """
+                    session.execute(text("""
                             CREATE TABLE discarded_context (
                                 id TEXT PRIMARY KEY,
                                 message_id TEXT NOT NULL,
@@ -4337,9 +4319,7 @@ def migrate_discarded_context_table():
                                 FOREIGN KEY (message_id) REFERENCES message(id),
                                 FOREIGN KEY (conversation_id) REFERENCES conversation(id)
                             )
-                            """
-                        )
-                    )
+                            """))
                     # Create indexes
                     session.execute(
                         text(
@@ -4355,18 +4335,12 @@ def migrate_discarded_context_table():
                     logging.info("Created discarded_context table")
             else:
                 # PostgreSQL
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT table_name FROM information_schema.tables 
                         WHERE table_name = 'discarded_context'
-                        """
-                    )
-                )
+                        """))
                 if not result.fetchone():
-                    session.execute(
-                        text(
-                            """
+                    session.execute(text("""
                             CREATE TABLE discarded_context (
                                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                 message_id UUID NOT NULL REFERENCES message(id),
@@ -4377,9 +4351,7 @@ def migrate_discarded_context_table():
                                 retrieved_at TIMESTAMP,
                                 is_active BOOLEAN DEFAULT TRUE
                             )
-                            """
-                        )
-                    )
+                            """))
                     session.execute(
                         text(
                             "CREATE INDEX IF NOT EXISTS idx_discarded_context_message_id ON discarded_context(message_id)"
@@ -4417,25 +4389,21 @@ def migrate_cleanup_duplicate_wallet_settings():
             for setting_name in wallet_setting_names:
                 # Find all agent_ids that have duplicates for this setting
                 if DATABASE_TYPE == "sqlite":
-                    duplicates_query = text(
-                        """
+                    duplicates_query = text("""
                         SELECT agent_id, COUNT(*) as cnt
                         FROM agent_setting 
                         WHERE name = :setting_name
                         GROUP BY agent_id
                         HAVING COUNT(*) > 1
-                    """
-                    )
+                    """)
                 else:
-                    duplicates_query = text(
-                        """
+                    duplicates_query = text("""
                         SELECT agent_id, COUNT(*) as cnt
                         FROM agent_setting 
                         WHERE name = :setting_name
                         GROUP BY agent_id
                         HAVING COUNT(*) > 1
-                    """
-                    )
+                    """)
 
                 result = session.execute(
                     duplicates_query, {"setting_name": setting_name}
@@ -4500,9 +4468,7 @@ def migrate_extension_settings_tables():
                     )
                 )
                 if not result.fetchone():
-                    session.execute(
-                        text(
-                            """
+                    session.execute(text("""
                             CREATE TABLE server_extension_setting (
                                 id TEXT PRIMARY KEY,
                                 extension_name TEXT NOT NULL,
@@ -4514,9 +4480,7 @@ def migrate_extension_settings_tables():
                                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                 UNIQUE(extension_name, setting_key)
                             )
-                            """
-                        )
-                    )
+                            """))
                     session.execute(
                         text(
                             "CREATE INDEX IF NOT EXISTS idx_server_ext_setting_name ON server_extension_setting(extension_name)"
@@ -4532,9 +4496,7 @@ def migrate_extension_settings_tables():
                     )
                 )
                 if not result.fetchone():
-                    session.execute(
-                        text(
-                            """
+                    session.execute(text("""
                             CREATE TABLE company_extension_setting (
                                 id TEXT PRIMARY KEY,
                                 company_id TEXT NOT NULL,
@@ -4548,9 +4510,7 @@ def migrate_extension_settings_tables():
                                 FOREIGN KEY (company_id) REFERENCES company(id),
                                 UNIQUE(company_id, extension_name, setting_key)
                             )
-                            """
-                        )
-                    )
+                            """))
                     session.execute(
                         text(
                             "CREATE INDEX IF NOT EXISTS idx_company_ext_setting_company ON company_extension_setting(company_id)"
@@ -4571,9 +4531,7 @@ def migrate_extension_settings_tables():
                     )
                 )
                 if not result.fetchone():
-                    session.execute(
-                        text(
-                            """
+                    session.execute(text("""
                             CREATE TABLE server_extension_command (
                                 id TEXT PRIMARY KEY,
                                 extension_name TEXT NOT NULL,
@@ -4583,9 +4541,7 @@ def migrate_extension_settings_tables():
                                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                 UNIQUE(extension_name, command_name)
                             )
-                            """
-                        )
-                    )
+                            """))
                     session.execute(
                         text(
                             "CREATE INDEX IF NOT EXISTS idx_server_ext_command_name ON server_extension_command(extension_name)"
@@ -4601,9 +4557,7 @@ def migrate_extension_settings_tables():
                     )
                 )
                 if not result.fetchone():
-                    session.execute(
-                        text(
-                            """
+                    session.execute(text("""
                             CREATE TABLE company_extension_command (
                                 id TEXT PRIMARY KEY,
                                 company_id TEXT NOT NULL,
@@ -4615,9 +4569,7 @@ def migrate_extension_settings_tables():
                                 FOREIGN KEY (company_id) REFERENCES company(id),
                                 UNIQUE(company_id, extension_name, command_name)
                             )
-                            """
-                        )
-                    )
+                            """))
                     session.execute(
                         text(
                             "CREATE INDEX IF NOT EXISTS idx_company_ext_command_company ON company_extension_command(company_id)"
@@ -4632,18 +4584,12 @@ def migrate_extension_settings_tables():
                     logging.info("Created company_extension_command table")
             else:
                 # PostgreSQL
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT table_name FROM information_schema.tables 
                         WHERE table_name = 'server_extension_setting'
-                        """
-                    )
-                )
+                        """))
                 if not result.fetchone():
-                    session.execute(
-                        text(
-                            """
+                    session.execute(text("""
                             CREATE TABLE server_extension_setting (
                                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                 extension_name TEXT NOT NULL,
@@ -4655,9 +4601,7 @@ def migrate_extension_settings_tables():
                                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                 CONSTRAINT uix_server_ext_setting UNIQUE(extension_name, setting_key)
                             )
-                            """
-                        )
-                    )
+                            """))
                     session.execute(
                         text(
                             "CREATE INDEX IF NOT EXISTS idx_server_ext_setting_name ON server_extension_setting(extension_name)"
@@ -4666,18 +4610,12 @@ def migrate_extension_settings_tables():
                     session.commit()
                     logging.info("Created server_extension_setting table")
 
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT table_name FROM information_schema.tables 
                         WHERE table_name = 'company_extension_setting'
-                        """
-                    )
-                )
+                        """))
                 if not result.fetchone():
-                    session.execute(
-                        text(
-                            """
+                    session.execute(text("""
                             CREATE TABLE company_extension_setting (
                                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                 company_id UUID NOT NULL REFERENCES company(id),
@@ -4690,9 +4628,7 @@ def migrate_extension_settings_tables():
                                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                 CONSTRAINT uix_company_ext_setting UNIQUE(company_id, extension_name, setting_key)
                             )
-                            """
-                        )
-                    )
+                            """))
                     session.execute(
                         text(
                             "CREATE INDEX IF NOT EXISTS idx_company_ext_setting_company ON company_extension_setting(company_id)"
@@ -4707,18 +4643,12 @@ def migrate_extension_settings_tables():
                     logging.info("Created company_extension_setting table")
 
                 # Check if server_extension_command table exists
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT table_name FROM information_schema.tables 
                         WHERE table_name = 'server_extension_command'
-                        """
-                    )
-                )
+                        """))
                 if not result.fetchone():
-                    session.execute(
-                        text(
-                            """
+                    session.execute(text("""
                             CREATE TABLE server_extension_command (
                                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                 extension_name TEXT NOT NULL,
@@ -4728,9 +4658,7 @@ def migrate_extension_settings_tables():
                                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                 CONSTRAINT uix_server_ext_command UNIQUE(extension_name, command_name)
                             )
-                            """
-                        )
-                    )
+                            """))
                     session.execute(
                         text(
                             "CREATE INDEX IF NOT EXISTS idx_server_ext_command_name ON server_extension_command(extension_name)"
@@ -4740,18 +4668,12 @@ def migrate_extension_settings_tables():
                     logging.info("Created server_extension_command table")
 
                 # Check if company_extension_command table exists
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT table_name FROM information_schema.tables 
                         WHERE table_name = 'company_extension_command'
-                        """
-                    )
-                )
+                        """))
                 if not result.fetchone():
-                    session.execute(
-                        text(
-                            """
+                    session.execute(text("""
                             CREATE TABLE company_extension_command (
                                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                 company_id UUID NOT NULL REFERENCES company(id),
@@ -4762,9 +4684,7 @@ def migrate_extension_settings_tables():
                                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                                 CONSTRAINT uix_company_ext_command UNIQUE(company_id, extension_name, command_name)
                             )
-                            """
-                        )
-                    )
+                            """))
                     session.execute(
                         text(
                             "CREATE INDEX IF NOT EXISTS idx_company_ext_command_company ON company_extension_command(company_id)"
@@ -4912,12 +4832,10 @@ def migrate_role_table():
                 # PostgreSQL
                 for column_name, column_def in columns_to_add:
                     result = session.execute(
-                        text(
-                            """
+                        text("""
                             SELECT column_name FROM information_schema.columns 
                             WHERE table_name = 'Role' AND column_name = :column_name
-                            """
-                        ),
+                            """),
                         {"column_name": column_name},
                     )
                     if not result.fetchone():
@@ -5268,13 +5186,11 @@ def migrate_task_item_table():
                 # For PostgreSQL, check if column exists
                 for column_name, column_def, default_value in columns_to_add:
                     result = session.execute(
-                        text(
-                            """
+                        text("""
                             SELECT column_name 
                             FROM information_schema.columns 
                             WHERE table_name = 'task_item' AND column_name = :column_name
-                        """
-                        ),
+                        """),
                         {"column_name": column_name},
                     )
 
@@ -5332,13 +5248,11 @@ def migrate_user_oauth_table():
             else:
                 for column_name, column_def in columns_to_add:
                     result = session.execute(
-                        text(
-                            """
+                        text("""
                             SELECT column_name 
                             FROM information_schema.columns 
                             WHERE table_name = 'user_oauth' AND column_name = :column_name
-                        """
-                        ),
+                        """),
                         {"column_name": column_name},
                     )
 
@@ -5501,12 +5415,10 @@ def migrate_auth_username_password():
                 # PostgreSQL
                 for column_name, column_def in user_columns_to_add:
                     result = session.execute(
-                        text(
-                            """
+                        text("""
                             SELECT column_name FROM information_schema.columns 
                             WHERE table_name = 'user' AND column_name = :column_name
-                            """
-                        ),
+                            """),
                         {"column_name": column_name},
                     )
                     if not result.fetchone():
@@ -5526,13 +5438,9 @@ def migrate_auth_username_password():
 
                 # Populate username from email for existing users if username is null
                 # Check if we just added the username column
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT COUNT(*) FROM "user" WHERE username IS NULL AND email IS NOT NULL
-                        """
-                    )
-                )
+                        """))
                 null_count = result.fetchone()[0]
                 if null_count > 0:
                     users = session.execute(
@@ -5598,12 +5506,10 @@ def migrate_auth_username_password():
                 # PostgreSQL
                 for column_name, column_def in company_columns_to_add:
                     result = session.execute(
-                        text(
-                            """
+                        text("""
                             SELECT column_name FROM information_schema.columns 
                             WHERE table_name = 'Company' AND column_name = :column_name
-                            """
-                        ),
+                            """),
                         {"column_name": column_name},
                     )
                     if not result.fetchone():
@@ -5652,14 +5558,10 @@ def migrate_group_chat_tables():
                     session.commit()
                     logging.info("Added column icon_url to Company table")
             else:
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT column_name FROM information_schema.columns
                         WHERE table_name = 'Company' AND column_name = 'icon_url'
-                        """
-                    )
-                )
+                        """))
                 if not result.fetchone():
                     session.execute(
                         text('ALTER TABLE "Company" ADD COLUMN icon_url VARCHAR')
@@ -5681,14 +5583,10 @@ def migrate_group_chat_tables():
                     session.commit()
                     logging.info("Added column avatar_url to user table")
             else:
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT column_name FROM information_schema.columns
                         WHERE table_name = 'user' AND column_name = 'avatar_url'
-                        """
-                    )
-                )
+                        """))
                 if not result.fetchone():
                     session.execute(
                         text('ALTER TABLE "user" ADD COLUMN avatar_url VARCHAR')
@@ -5710,14 +5608,10 @@ def migrate_group_chat_tables():
                     session.commit()
                     logging.info("Added column last_seen to user table")
             else:
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT column_name FROM information_schema.columns
                         WHERE table_name = 'user' AND column_name = 'last_seen'
-                        """
-                    )
-                )
+                        """))
                 if not result.fetchone():
                     session.execute(
                         text('ALTER TABLE "user" ADD COLUMN last_seen TIMESTAMP')
@@ -5739,14 +5633,10 @@ def migrate_group_chat_tables():
                     session.commit()
                     logging.info("Added column status_text to user table")
             else:
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT column_name FROM information_schema.columns
                         WHERE table_name = 'user' AND column_name = 'status_text'
-                        """
-                    )
-                )
+                        """))
                 if not result.fetchone():
                     session.execute(
                         text('ALTER TABLE "user" ADD COLUMN status_text VARCHAR(255)')
@@ -5770,14 +5660,10 @@ def migrate_group_chat_tables():
                     session.commit()
                     logging.info("Added column status_mode to user table")
             else:
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT column_name FROM information_schema.columns
                         WHERE table_name = 'user' AND column_name = 'status_mode'
-                        """
-                    )
-                )
+                        """))
                 if not result.fetchone():
                     session.execute(
                         text(
@@ -5803,14 +5689,10 @@ def migrate_group_chat_tables():
                     session.commit()
                     logging.info("Added column sender_user_id to message table")
             else:
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT column_name FROM information_schema.columns
                         WHERE table_name = 'message' AND column_name = 'sender_user_id'
-                        """
-                    )
-                )
+                        """))
                 if not result.fetchone():
                     session.execute(
                         text(
@@ -5845,14 +5727,10 @@ def migrate_group_chat_tables():
                     session.commit()
                     logging.info("Added column company_id to conversation table")
             else:
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT column_name FROM information_schema.columns
                         WHERE table_name = 'conversation' AND column_name = 'conversation_type'
-                        """
-                    )
-                )
+                        """))
                 if not result.fetchone():
                     session.execute(
                         text(
@@ -5862,14 +5740,10 @@ def migrate_group_chat_tables():
                     session.commit()
                     logging.info("Added column conversation_type to conversation table")
 
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT column_name FROM information_schema.columns
                         WHERE table_name = 'conversation' AND column_name = 'company_id'
-                        """
-                    )
-                )
+                        """))
                 if not result.fetchone():
                     session.execute(
                         text(
@@ -5883,9 +5757,7 @@ def migrate_group_chat_tables():
             # Create conversation_participant table
             # ============================================
             if DATABASE_TYPE == "sqlite":
-                session.execute(
-                    text(
-                        """
+                session.execute(text("""
                         CREATE TABLE IF NOT EXISTS conversation_participant (
                             id VARCHAR PRIMARY KEY,
                             conversation_id VARCHAR NOT NULL REFERENCES conversation(id),
@@ -5897,38 +5769,26 @@ def migrate_group_chat_tables():
                             last_read_at DATETIME,
                             status VARCHAR NOT NULL DEFAULT 'active'
                         )
-                        """
-                    )
-                )
+                        """))
                 session.commit()
 
                 # Create index on conversation_id if it doesn't exist
                 try:
-                    session.execute(
-                        text(
-                            """
+                    session.execute(text("""
                             CREATE INDEX IF NOT EXISTS ix_conversation_participant_conversation_id
                             ON conversation_participant(conversation_id)
-                            """
-                        )
-                    )
+                            """))
                     session.commit()
                 except Exception:
                     pass
             else:
                 # PostgreSQL
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT table_name FROM information_schema.tables
                         WHERE table_name = 'conversation_participant'
-                        """
-                    )
-                )
+                        """))
                 if not result.fetchone():
-                    session.execute(
-                        text(
-                            """
+                    session.execute(text("""
                             CREATE TABLE conversation_participant (
                                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                 conversation_id UUID NOT NULL REFERENCES conversation(id),
@@ -5940,21 +5800,15 @@ def migrate_group_chat_tables():
                                 last_read_at TIMESTAMP,
                                 status VARCHAR NOT NULL DEFAULT 'active'
                             )
-                            """
-                        )
-                    )
+                            """))
                     session.commit()
 
                     # Create index
                     try:
-                        session.execute(
-                            text(
-                                """
+                        session.execute(text("""
                                 CREATE INDEX ix_conversation_participant_conversation_id
                                 ON conversation_participant(conversation_id)
-                                """
-                            )
-                        )
+                                """))
                         session.commit()
                     except Exception:
                         pass
@@ -5964,14 +5818,10 @@ def migrate_group_chat_tables():
                 result = session.execute(text("PRAGMA table_info(conversation)"))
                 existing_columns = [row[1] for row in result.fetchall()]
             else:
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT column_name FROM information_schema.columns
                         WHERE table_name = 'conversation'
-                        """
-                    )
-                )
+                        """))
                 existing_columns = [row[0] for row in result.fetchall()]
 
             if "parent_id" not in existing_columns:
@@ -6091,12 +5941,10 @@ def migrate_message_pinning():
                     ("pinned_by", 'UUID REFERENCES "user"(id)'),
                 ]:
                     result = session.execute(
-                        text(
-                            """
+                        text("""
                             SELECT column_name FROM information_schema.columns
                             WHERE table_name = 'message' AND column_name = :column_name
-                            """
-                        ),
+                            """),
                         {"column_name": col_name},
                     )
                     if not result.fetchone():
@@ -6126,9 +5974,7 @@ def migrate_message_reaction_table():
                     )
                 )
                 if not result.fetchone():
-                    session.execute(
-                        text(
-                            """
+                    session.execute(text("""
                             CREATE TABLE message_reaction (
                                 id VARCHAR PRIMARY KEY,
                                 message_id VARCHAR NOT NULL REFERENCES message(id) ON DELETE CASCADE,
@@ -6136,9 +5982,7 @@ def migrate_message_reaction_table():
                                 emoji VARCHAR NOT NULL,
                                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                             )
-                            """
-                        )
-                    )
+                            """))
                     session.execute(
                         text(
                             "CREATE INDEX IF NOT EXISTS ix_message_reaction_message_id ON message_reaction(message_id)"
@@ -6152,18 +5996,12 @@ def migrate_message_reaction_table():
                     session.commit()
                     logging.info("Created message_reaction table")
             else:
-                result = session.execute(
-                    text(
-                        """
+                result = session.execute(text("""
                         SELECT table_name FROM information_schema.tables
                         WHERE table_name = 'message_reaction'
-                        """
-                    )
-                )
+                        """))
                 if not result.fetchone():
-                    session.execute(
-                        text(
-                            """
+                    session.execute(text("""
                             CREATE TABLE message_reaction (
                                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                 message_id UUID NOT NULL REFERENCES message(id) ON DELETE CASCADE,
@@ -6171,9 +6009,7 @@ def migrate_message_reaction_table():
                                 emoji VARCHAR NOT NULL,
                                 created_at TIMESTAMP DEFAULT NOW()
                             )
-                            """
-                        )
-                    )
+                            """))
                     session.execute(
                         text(
                             "CREATE INDEX ix_message_reaction_message_id ON message_reaction(message_id)"
@@ -8203,12 +8039,10 @@ def migrate_conversation_participant_notification_mode():
                 # PostgreSQL
                 for column_name, column_def in columns_to_add:
                     result = session.execute(
-                        text(
-                            """
+                        text("""
                             SELECT column_name FROM information_schema.columns 
                             WHERE table_name = 'conversation_participant' AND column_name = :column_name
-                            """
-                        ),
+                            """),
                         {"column_name": column_name},
                     )
                     if not result.fetchone():
@@ -8254,12 +8088,10 @@ def migrate_user_company_sort_order():
                 # PostgreSQL
                 for column_name, column_def in columns_to_add:
                     result = session.execute(
-                        text(
-                            """
+                        text("""
                             SELECT column_name FROM information_schema.columns 
                             WHERE table_name = 'UserCompany' AND column_name = :column_name
-                            """
-                        ),
+                            """),
                         {"column_name": column_name},
                     )
                     if not result.fetchone():

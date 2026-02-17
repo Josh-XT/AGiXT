@@ -1275,14 +1275,12 @@ class google(Extensions):
         try:
             url = f"https://googleads.googleapis.com/v15/customers/{customer_id}/googleAds:search"
 
-            query = {
-                "query": """
+            query = {"query": """
                     SELECT campaign.id, campaign.name, campaign.status, 
                            campaign.advertising_channel_type, campaign_budget.amount_micros
                     FROM campaign 
                     ORDER BY campaign.id
-                """
-            }
+                """}
 
             response = self.session.post(url, json=query)
 
@@ -1391,14 +1389,12 @@ class google(Extensions):
         try:
             url = f"https://googleads.googleapis.com/v15/customers/{customer_id}/googleAds:search"
 
-            query = {
-                "query": f"""
+            query = {"query": f"""
                     SELECT ad_group.id, ad_group.name, ad_group.status, 
                            ad_group.cpc_bid_micros
                     FROM ad_group 
                     WHERE campaign.id = {campaign_id}
-                """
-            }
+                """}
 
             response = self.session.post(url, json=query)
 
@@ -1479,15 +1475,13 @@ class google(Extensions):
         try:
             url = f"https://googleads.googleapis.com/v15/customers/{customer_id}/googleAds:search"
 
-            query = {
-                "query": f"""
+            query = {"query": f"""
                     SELECT campaign.name, metrics.impressions, metrics.clicks, 
                            metrics.cost_micros, metrics.conversions, metrics.ctr, 
                            metrics.average_cpc
                     FROM campaign 
                     WHERE segments.date DURING {date_range}
-                """
-            }
+                """}
 
             response = self.session.post(url, json=query)
 

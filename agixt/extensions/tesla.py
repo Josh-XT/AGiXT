@@ -12,7 +12,6 @@ from typing import Dict, List, Any
 from endpoints.TeslaIntegration import get_tesla_private_key, ensure_keys_exist
 from fastapi import HTTPException
 
-
 """
 Required environment variables:
 

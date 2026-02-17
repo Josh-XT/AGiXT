@@ -2656,9 +2656,7 @@ Example: Web Search, Read File"""
             tts_enabled = tts_provider and tts_provider not in ("None", "", None)
 
         if tts_enabled:
-            kwargs[
-                "tts_filler_instructions"
-            ] = """
+            kwargs["tts_filler_instructions"] = """
 **VOICE MODE - IMMEDIATE RESPONSE REQUIRED**
 
 The user is speaking to you and will hear your response aloud. You MUST begin with TWO `<speak>` tags IMMEDIATELY - before ANY thinking, commands, or processing:

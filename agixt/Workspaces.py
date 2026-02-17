@@ -25,7 +25,6 @@ from datetime import datetime, timezone
 import hashlib
 import fcntl
 
-
 # Global flag to track if file watcher is already started
 _file_watcher_lock_file = None
 _file_watcher_started = False

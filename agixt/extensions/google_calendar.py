@@ -10,7 +10,6 @@ install_package_if_missing("google-api-python-client", "googleapiclient")
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
-
 """
 Google Calendar Extension - Google Calendar event management.
 

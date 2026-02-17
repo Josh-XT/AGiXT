@@ -41,7 +41,6 @@ from typing import Optional
 from TaskMonitor import TaskMonitor
 from ExtensionsHub import ExtensionsHub
 
-
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 this_directory = os.path.abspath(os.path.dirname(__file__))

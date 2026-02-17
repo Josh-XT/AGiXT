@@ -32,7 +32,6 @@ from DB import (
 )
 import uuid
 
-
 # Binary file extensions to skip when searching file contents
 BINARY_EXTENSIONS = {
     ".jpg",
@@ -8300,7 +8299,9 @@ On the sidebar, expanding `Automation` reveals the following pages:
             if result.returncode != 0:
                 stderr = result.stderr
                 if "CONFLICT" in stderr or "conflict" in result.stdout:
-                    return f"⚠️ Pull resulted in conflicts:\n\n{result.stdout}\n{stderr}"
+                    return (
+                        f"⚠️ Pull resulted in conflicts:\n\n{result.stdout}\n{stderr}"
+                    )
                 return f"Error: {stderr}"
 
             return f"✅ Git pull completed\n\n{result.stdout}"
@@ -10272,15 +10273,13 @@ The map includes:
                     with open(file_path, "w", encoding="utf-8") as f:
                         f.write(paper_md)
 
-                papers_info.append(
-                    f"""
+                papers_info.append(f"""
 ### {i}. {paper.title}
 - **arXiv ID:** [{arxiv_id}]({paper.entry_id})
 - **Authors:** {authors}
 - **Date:** {paper.published.strftime('%Y-%m-%d')}
 - **PDF:** [Download]({paper.pdf_url})
-- **Abstract:** {paper.summary[:300]}..."""
-                )
+- **Abstract:** {paper.summary[:300]}...""")
 
             result = (
                 f"## arXiv Search Results for: {query}\n\nFound {len(results)} papers:\n"
@@ -10389,14 +10388,12 @@ The map includes:
                     with open(file_path, "w", encoding="utf-8") as f:
                         f.write(paper_md)
 
-                papers_info.append(
-                    f"""
+                papers_info.append(f"""
 ### {i}. {title}
 - **Authors:** {authors}
 - **Year:** {year} | **Citations:** {citations}
 - **Links:** [Semantic Scholar]({url}){" | [PDF](" + pdf_url + ")" if pdf_url else ""}
-- **Abstract:** {(abstract or 'N/A')[:300]}..."""
-                )
+- **Abstract:** {(abstract or 'N/A')[:300]}...""")
 
             result = (
                 f"## Semantic Scholar Search Results for: {query}\n\nFound {len(papers)} papers:\n"
@@ -10535,15 +10532,13 @@ The map includes:
                         f.write(paper_md)
 
                 oa_badge = "🔓" if is_oa else "🔒"
-                papers_info.append(
-                    f"""
+                papers_info.append(f"""
 ### {i}. {oa_badge} {title}
 - **Authors:** {authors}
 - **Year:** {year} | **Citations:** {citations}
 - **Concepts:** {concept_names[:100]}...
 - **Links:** [OpenAlex](https://openalex.org/works/{work_id}){" | [PDF](" + oa_url + ")" if oa_url else ""}
-- **Abstract:** {abstract[:300]}..."""
-                )
+- **Abstract:** {abstract[:300]}...""")
 
             result = (
                 f"## OpenAlex Search Results for: {query}\n\n🔓 = Open Access | 🔒 = Restricted\n\nFound {len(works)} papers:\n"
@@ -10717,15 +10712,13 @@ The map includes:
                     with open(file_path, "w", encoding="utf-8") as f:
                         f.write(paper_md)
 
-                papers_info.append(
-                    f"""
+                papers_info.append(f"""
 ### {i}. {title}
 - **PMC ID:** [PMC{pmcid}]({pmc_url})
 - **Authors:** {authors}
 - **Year:** {year} | **Journal:** {journal}
 - **PDF:** [Download]({pdf_url})
-- **Abstract:** {abstract[:300]}..."""
-                )
+- **Abstract:** {abstract[:300]}...""")
 
             result = (
                 f"## PubMed Central Search Results for: {query}\n\nFound {len(papers_info)} papers:\n"

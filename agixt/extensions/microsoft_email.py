@@ -8,7 +8,6 @@ from Globals import getenv
 from MagicalAuth import MagicalAuth
 from fastapi import HTTPException
 
-
 """
 Microsoft Email Extension - Outlook/Exchange email functionality.
 

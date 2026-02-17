@@ -8,7 +8,6 @@ from Globals import getenv
 from MagicalAuth import MagicalAuth
 from fastapi import HTTPException
 
-
 """
 Required environment variables:
 
