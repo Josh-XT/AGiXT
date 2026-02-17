@@ -4457,6 +4457,10 @@ Your response (true or false):"""
                     }
                     yield f"data: {json.dumps(pending_chunk)}\n\n"
 
+                elif event_type == "keepalive":
+                    # Send SSE comment as keepalive to prevent connection timeout
+                    yield ": keepalive\n\n"
+
                 elif event_type == "error":
                     error_chunk = {
                         "id": chunk_id,
@@ -4578,6 +4582,16 @@ Your response (true or false):"""
                 }
                 yield f"data: {json.dumps(tts_end_chunk)}\n\n"
 
+        except asyncio.CancelledError:
+            logging.warning(
+                f"[_execute_chat_completions_stream] CancelledError for conversation {conversation_id}"
+            )
+            raise
+        except GeneratorExit:
+            logging.warning(
+                f"[_execute_chat_completions_stream] GeneratorExit for conversation {conversation_id}"
+            )
+            raise
         except Exception as e:
             logging.error(f"Streaming error: {str(e)}")
             import traceback

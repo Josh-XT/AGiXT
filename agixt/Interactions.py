@@ -2957,12 +2957,35 @@ Example: If user says "list my files", use:
                             return f"[REMOTE COMMAND QUEUED] Waiting for client-side execution.\nRequest ID: {remote_cmd.get('request_id', 'unknown')}"
 
                         # Execute the command with callback
-                        await self.execution_agent(
-                            conversation_name=conversation_name,
-                            conversation_id=conversation_id,
-                            thinking_id=thinking_id,
-                            remote_command_callback=remote_command_callback,
+                        # Run execution_agent concurrently with keepalive yields
+                        # to prevent SSE stream timeout during long-running commands
+                        execution_task = asyncio.create_task(
+                            self.execution_agent(
+                                conversation_name=conversation_name,
+                                conversation_id=conversation_id,
+                                thinking_id=thinking_id,
+                                remote_command_callback=remote_command_callback,
+                            )
                         )
+                        # Yield keepalive events every 10 seconds while waiting
+                        while not execution_task.done():
+                            try:
+                                await asyncio.wait_for(
+                                    asyncio.shield(execution_task),
+                                    timeout=10.0,
+                                )
+                            except asyncio.TimeoutError:
+                                # Task still running, yield keepalive
+                                yield {
+                                    "type": "keepalive",
+                                    "content": "",
+                                    "complete": False,
+                                }
+                            except Exception:
+                                break
+                        # Ensure task result is retrieved (re-raises exceptions)
+                        if execution_task.done():
+                            execution_task.result()
 
                         # Yield any remote command requests that were queued
                         while not remote_command_queue.empty():
@@ -3556,6 +3579,11 @@ Example: If user says "list my files", use:
 
         # Track the length of processed content to detect new executions
         processed_length = len(self.response)
+        logging.info(
+            f"[run_stream] Entering continuation logic. Response length: {len(self.response)}. "
+            f"has_complete_answer: {has_complete_answer(self.response)}. "
+            f"remote_command_yielded: {remote_command_yielded}"
+        )
 
         # Use has_complete_answer() to properly check for complete answer blocks
         # This handles edge cases like <thinking> inside <answer> tags
@@ -3564,11 +3592,8 @@ Example: If user says "list my files", use:
             and continuation_count < max_continuation_loops
         ):
             # Check if there was a NEW execution in the unprocessed portion, or incomplete answer
-            unprocessed_response = (
-                self.response[processed_length:]
-                if continuation_count > 0
-                else self.response
-            )
+            # Always use processed_length to avoid re-detecting already-executed commands
+            unprocessed_response = self.response[processed_length:]
             has_new_execution = "</execute>" in unprocessed_response
             # Use has_complete_answer for proper detection instead of simple string check
             has_incomplete_answer = (
@@ -3588,6 +3613,11 @@ Example: If user says "list my files", use:
                 break
 
             continuation_count += 1
+            logging.debug(
+                f"[run_stream] Continuation loop iteration {continuation_count}/{max_continuation_loops}. "
+                f"has_new_execution: {has_new_execution}, has_incomplete_answer: {has_incomplete_answer}, "
+                f"has_no_answer: {has_no_answer}"
+            )
             # Compress the response to prevent context explosion
             # This summarizes long outputs and truncates verbose thinking
             compressed_response = self.compress_response_for_continuation(
@@ -3681,6 +3711,9 @@ Analyze the actual output shown and continue with your response.
 
             try:
                 # Run FRESH inference with stream=True
+                logging.debug(
+                    f"[run_stream] Starting continuation inference. Prompt length: {len(continuation_prompt)} chars"
+                )
                 continuation_stream = await self.agent.inference(
                     prompt=continuation_prompt, use_smartest=use_smartest, stream=True
                 )
@@ -3773,11 +3806,30 @@ Analyze the actual output shown and continue with your response.
                                     await cont_remote_queue.put(remote_cmd)
                                     return f"[REMOTE COMMAND QUEUED] Waiting for client-side execution.\nRequest ID: {remote_cmd.get('request_id', 'unknown')}"
 
-                                await self.execution_agent(
-                                    conversation_name=conversation_name,
-                                    conversation_id=conversation_id,
-                                    remote_command_callback=cont_remote_callback,
+                                # Run execution_agent with keepalive during long-running commands
+                                cont_execution_task = asyncio.create_task(
+                                    self.execution_agent(
+                                        conversation_name=conversation_name,
+                                        conversation_id=conversation_id,
+                                        remote_command_callback=cont_remote_callback,
+                                    )
                                 )
+                                while not cont_execution_task.done():
+                                    try:
+                                        await asyncio.wait_for(
+                                            asyncio.shield(cont_execution_task),
+                                            timeout=10.0,
+                                        )
+                                    except asyncio.TimeoutError:
+                                        yield {
+                                            "type": "keepalive",
+                                            "content": "",
+                                            "complete": False,
+                                        }
+                                    except Exception:
+                                        break
+                                if cont_execution_task.done():
+                                    cont_execution_task.result()
 
                                 # Yield any remote command requests
                                 while not cont_remote_queue.empty():
@@ -3978,6 +4030,16 @@ Analyze the actual output shown and continue with your response.
                 if "<answer>" not in self.response.lower():
                     continue
 
+            except asyncio.CancelledError:
+                logging.warning(
+                    f"[run_stream] Continuation cancelled (CancelledError) at iteration {continuation_count}"
+                )
+                raise
+            except GeneratorExit:
+                logging.warning(
+                    f"[run_stream] Continuation generator closed (GeneratorExit) at iteration {continuation_count}"
+                )
+                raise
             except Exception as e:
                 logging.error(f"Error during continuation: {e}")
                 import traceback
@@ -3985,6 +4047,11 @@ Analyze the actual output shown and continue with your response.
                 logging.error(traceback.format_exc())
                 break
 
+        logging.info(
+            f"[run_stream] Continuation loop finished. Total iterations: {continuation_count}. "
+            f"has_complete_answer: {has_complete_answer(self.response)}. "
+            f"Response length: {len(self.response)}"
+        )
         # Extract final answer using proper top-level detection
         # This handles cases where <answer> appears inside <thinking> blocks
         final_answer = ""
@@ -4338,17 +4405,18 @@ Analyze the actual output shown and continue with your response.
 
         # Debug logging for client tools
         if commands_to_execute:
-            logging.info(
+            logging.debug(
                 f"[execution_agent] Commands to execute: {[(c[1], c[2]) for c in commands_to_execute]}"
-            )
-            logging.info(
-                f"[execution_agent] Available client_tools: {list(client_tools.keys())}"
             )
 
         if commands_to_execute:
             for command_block, command_name, command_args in commands_to_execute:
                 # Check for cancellation before each command
                 self._check_cancelled()
+
+                # Save original args before any runtime modifications
+                # This is used for reformatting the response without runtime metadata
+                original_command_args = {k: v for k, v in command_args.items()}
 
                 position = self.response.index(command_block)
                 command_id = f"{position}:{command_name}:{json.dumps(command_args, sort_keys=True)}"
@@ -4586,10 +4654,12 @@ Analyze the actual output shown and continue with your response.
                             company_id=self.agent.company_id,
                         )
                 # Format the command execution and output
+                # Use original_command_args (without runtime metadata like activity_id)
+                # to prevent re-extraction issues on subsequent passes
                 formatted_execution = (
                     f"<execute>\n"
                     f"<name>{command_name}</name>\n"
-                    f"{chr(10).join([f'<{k}>{v}</{k}>' for k, v in command_args.items()])}\n"
+                    f"{chr(10).join([f'<{k}>{v}</{k}>' for k, v in original_command_args.items()])}\n"
                     f"</execute>\n"
                     f"<output>{command_output}</output>"
                 )
