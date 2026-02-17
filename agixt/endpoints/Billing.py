@@ -364,8 +364,8 @@ async def check_trial_eligibility(
     before registration.
 
     Trial eligibility requires:
-    1. A business email domain (not gmail, outlook, etc.)
-    2. The domain has not already been used for trial credits
+    1. The domain has not already been used for trial credits (business domains)
+    2. Or the individual user has not already received trial credits (public email providers)
     3. Trials are enabled in the pricing configuration
     """
     from TrialService import trial_service

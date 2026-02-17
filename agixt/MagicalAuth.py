@@ -4783,15 +4783,16 @@ class MagicalAuth:
                             logging.info(
                                 f"Trial credits granted for {self.email}: {message}"
                             )
-                            # Activate user since they have trial credits
-                            new_user_db.is_active = True
-                            session.commit()
                         else:
-                            logging.debug(
+                            logging.info(
                                 f"Trial credits not granted for {self.email}: {message}"
                             )
                     except Exception as e:
                         logging.warning(f"Error checking trial eligibility: {e}")
+
+                    # Always activate user - they can subscribe later if trial wasn't granted
+                    new_user_db.is_active = True
+                    session.commit()
 
             # Add default user preferences
             # Use user-provided timezone or fall back to server default

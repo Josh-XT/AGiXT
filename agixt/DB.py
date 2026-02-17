@@ -3902,7 +3902,7 @@ def migrate_company_table():
                         session.commit()
 
     except Exception as e:
-        logging.debug(f"Company table migration completed or not needed: {e}")
+        logging.warning(f"Company table migration error: {e}", exc_info=True)
 
 
 def migrate_payment_transaction_table():
@@ -4000,7 +4000,7 @@ def migrate_extension_table():
                     session.commit()
 
     except Exception as e:
-        logging.debug(f"Extension table migration completed or not needed: {e}")
+        logging.warning(f"Extension table migration error: {e}", exc_info=True)
 
 
 def migrate_webhook_outgoing_table():
@@ -5354,7 +5354,7 @@ def migrate_user_oauth_table():
             logging.debug("user_oauth table migration complete")
 
     except Exception as e:
-        logging.debug(f"user_oauth table migration completed or not needed: {e}")
+        logging.warning(f"user_oauth table migration error: {e}", exc_info=True)
 
 
 def migrate_tiered_prompts_chains_tables():
@@ -6110,7 +6110,7 @@ def migrate_message_pinning():
 
             logging.info("Message pinning migration complete")
     except Exception as e:
-        logging.debug(f"Message pinning migration completed or not needed: {e}")
+        logging.warning(f"Message pinning migration error: {e}", exc_info=True)
 
 
 def migrate_message_reaction_table():
@@ -6187,7 +6187,7 @@ def migrate_message_reaction_table():
                     session.commit()
                     logging.info("Created message_reaction table")
     except Exception as e:
-        logging.debug(f"message_reaction table migration completed or not needed: {e}")
+        logging.warning(f"message_reaction table migration error: {e}", exc_info=True)
 
 
 def migrate_performance_indexes():
@@ -6416,7 +6416,7 @@ def migrate_performance_indexes():
             session.commit()
             logging.info("Performance indexes migration complete")
     except Exception as e:
-        logging.debug(f"Performance indexes migration completed or not needed: {e}")
+        logging.warning(f"Performance indexes migration error: {e}", exc_info=True)
 
 
 def migrate_extract_data_urls_from_messages():
@@ -8270,4 +8270,4 @@ def migrate_user_company_sort_order():
                         )
                         session.commit()
     except Exception as e:
-        logging.debug(f"UserCompany sort_order migration completed or not needed: {e}")
+        logging.warning(f"UserCompany sort_order migration error: {e}", exc_info=True)

@@ -254,10 +254,10 @@ class ExtensionsHub:
                     > 0.0,  # Enable trial when billing is active
                     "days": None,  # No time limit - credits last until used
                     "type": "credits",
-                    "credits_usd": 10.00,  # $10 in credits (~2M tokens) for new business email users
-                    "description": "$10 in free credits for business domains",
+                    "credits_usd": 10.00,  # $10 in credits (~2M tokens) for new users
+                    "description": "$10 in free credits for new users",
                     "requires_card": False,
-                    "business_domain_only": True,
+                    "business_domain_only": False,
                 }
                 if token_price_float > 0.0
                 else {

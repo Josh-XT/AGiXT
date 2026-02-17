@@ -1,11 +1,11 @@
 """
 Trial Service - Handles free trial credit granting and domain validation.
 
-This service manages the free trial system which grants credits to new users
-registering with valid business email domains. It prevents abuse by:
-1. Blocking common free email providers (gmail, outlook, etc.)
-2. Tracking which domains have already used trial credits
-3. Enforcing one trial per domain policy
+This service manages the free trial system which grants credits to all new users
+registering. It prevents abuse by:
+1. Tracking which domains have already used trial credits
+2. Enforcing one trial per domain policy for business domains
+3. Allowing individual trials for users with public email providers
 """
 
 import logging
@@ -228,7 +228,7 @@ class TrialService:
             "credits_usd": 5.00,  # $5 worth of credits
             "type": "credits",
             "requires_card": False,
-            "description": "Free trial credits for business domains",
+            "description": "Free trial credits for new users",
         }
 
         # Merge with defaults
@@ -397,9 +397,7 @@ class TrialService:
                         )
                     raise
 
-            # Grant credits to company
-            current_balance = company.token_balance_usd or 0.0
-            company.token_balance_usd = current_balance + credits_usd
+            # Grant credits to company via add_tokens_to_company (resolves root parent)
             company.trial_credits_granted = credits_usd
             company.trial_credits_granted_at = datetime.now(timezone.utc)
             company.trial_domain = domain.lower()
@@ -433,8 +431,8 @@ class TrialService:
                 company.bed_limit = trial_beds
                 company.plan_id = f"per_bed_{trial_beds}"
 
-            # Calculate token amount based on pricing
-            # We'll use the default token price from PriceService
+            # Calculate token amount and add via add_tokens_to_company (root parent aware)
+            tokens_granted = 0
             try:
                 from payments.stripe_service import PriceService
 
@@ -442,13 +440,34 @@ class TrialService:
                 token_price = float(price_service.get_token_price())
                 if token_price > 0:
                     tokens_granted = int((credits_usd / token_price) * 1_000_000)
-                    company.token_balance = (
-                        company.token_balance or 0
-                    ) + tokens_granted
             except Exception as e:
                 logging.warning(f"Could not calculate token amount for trial: {e}")
 
             session.commit()
+
+            # Add tokens via the root-parent-aware method
+            if tokens_granted > 0:
+                try:
+                    from MagicalAuth import MagicalAuth
+
+                    auth = MagicalAuth()
+                    auth.add_tokens_to_company(
+                        company_id=company_id,
+                        token_amount=tokens_granted,
+                        amount_usd=credits_usd,
+                    )
+                except Exception as e:
+                    logging.warning(
+                        f"Could not add tokens via add_tokens_to_company: {e}"
+                    )
+                    # Fallback: add directly
+                    company.token_balance = (
+                        company.token_balance or 0
+                    ) + tokens_granted
+                    company.token_balance_usd = (
+                        company.token_balance_usd or 0
+                    ) + credits_usd
+                    session.commit()
 
             logging.info(
                 f"Granted ${credits_usd:.2f} trial credits to company {company_id} "
@@ -463,19 +482,23 @@ class TrialService:
                 # Get company name for notification
                 company_name = company.name if company else None
 
-                # Run async notification in sync context
+                # Schedule async notification safely from sync context
                 try:
                     loop = asyncio.get_running_loop()
-                    # Already in an async context, create a task
-                    asyncio.create_task(
+                    # In an async context, schedule the coroutine thread-safely
+                    import concurrent.futures
+
+                    future = asyncio.run_coroutine_threadsafe(
                         send_discord_trial_notification(
                             email=email,
                             credits_usd=credits_usd,
                             domain=domain.lower(),
                             company_id=company_id,
                             company_name=company_name,
-                        )
+                        ),
+                        loop,
                     )
+                    # Don't block waiting for result
                 except RuntimeError:
                     # No running loop — run synchronously in a new loop
                     asyncio.run(
