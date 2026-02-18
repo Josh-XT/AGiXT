@@ -6669,13 +6669,13 @@ class MagicalAuth:
             # Reactivate inactive users in the credited company (and billing
             # root parent, if different) so they can log in with the new balance.
             reactivate_company_ids = {str(billing_company.id), str(company_id)}
-            inactive_user_ids = (
+            company_user_ids = (
                 session.query(UserCompany.user_id)
                 .filter(UserCompany.company_id.in_(list(reactivate_company_ids)))
                 .all()
             )
-            if inactive_user_ids:
-                user_ids = [uid for (uid,) in inactive_user_ids]
+            if company_user_ids:
+                user_ids = [uid for (uid,) in company_user_ids]
                 session.query(User).filter(
                     User.id.in_(user_ids), User.is_active == False
                 ).update({"is_active": True}, synchronize_session="fetch")
