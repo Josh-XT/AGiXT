@@ -1758,10 +1758,23 @@ class MagicalAuth:
 
             # Check if user is active
             if not user.is_active:
-                return {
-                    "error": "Account is not active. Please complete payment or contact support.",
-                    "status_code": 403,
-                }
+                # Check if user's company now has sufficient billing balance
+                # (e.g., credits were issued while user was inactive)
+                user_companies = (
+                    session.query(UserCompany)
+                    .filter(UserCompany.user_id == user.id)
+                    .all()
+                )
+                if user_companies and self._has_sufficient_token_balance(
+                    session, user_companies
+                ):
+                    user.is_active = True
+                    session.commit()
+                else:
+                    return {
+                        "error": "Account is not active. Please complete payment or contact support.",
+                        "status_code": 403,
+                    }
 
             # Check if MFA is required
             # First check user's own MFA setting
@@ -6636,6 +6649,7 @@ class MagicalAuth:
 
         Resolves the root parent company so tokens are credited to the same
         entity that increase_token_counts deducts from.
+        Also reactivates any inactive users in the company so they can log in.
         """
         if token_amount <= 0 or amount_usd < 0:
             raise HTTPException(status_code=400, detail="Token amount must be positive")
@@ -6651,6 +6665,21 @@ class MagicalAuth:
             billing_company.token_balance_usd = (
                 billing_company.token_balance_usd or 0
             ) + amount_usd
+
+            # Reactivate inactive users in the credited company (and billing
+            # root parent, if different) so they can log in with the new balance.
+            reactivate_company_ids = {str(billing_company.id), str(company_id)}
+            inactive_user_ids = (
+                session.query(UserCompany.user_id)
+                .filter(UserCompany.company_id.in_(list(reactivate_company_ids)))
+                .all()
+            )
+            if inactive_user_ids:
+                user_ids = [uid for (uid,) in inactive_user_ids]
+                session.query(User).filter(
+                    User.id.in_(user_ids), User.is_active == False
+                ).update({"is_active": True}, synchronize_session="fetch")
+
             session.commit()
         finally:
             session.close()
