@@ -1681,6 +1681,26 @@ async def issue_company_credits(
         session.add(transaction)
         session.commit()
 
+        # For tiered_plan pricing, ensure company has a plan_id so
+        # _has_sufficient_token_balance passes and users can log in.
+        try:
+            from MagicalAuth import _get_cached_pricing_config
+
+            pricing_config = _get_cached_pricing_config()
+            pricing_model = (
+                pricing_config.get("pricing_model") if pricing_config else "per_token"
+            )
+            if pricing_model == "tiered_plan" and not company_record.plan_id:
+                trial_plan_id = (
+                    pricing_config.get("trial", {}).get("plan_id", "starter")
+                    if pricing_config
+                    else "starter"
+                )
+                company_record.plan_id = trial_plan_id
+                session.commit()
+        except Exception as e:
+            logging.warning(f"Could not auto-set plan_id for company {company}: {e}")
+
         # Add tokens via root parent resolution
         from MagicalAuth import MagicalAuth
 
@@ -1875,6 +1895,28 @@ async def admin_issue_credits(
         )
         session.add(transaction)
         session.commit()
+
+        # For tiered_plan pricing, ensure company has a plan_id so
+        # _has_sufficient_token_balance passes and users can log in.
+        try:
+            from MagicalAuth import _get_cached_pricing_config
+
+            pricing_config = _get_cached_pricing_config()
+            pricing_model = (
+                pricing_config.get("pricing_model") if pricing_config else "per_token"
+            )
+            if pricing_model == "tiered_plan" and not company_record.plan_id:
+                trial_plan_id = (
+                    pricing_config.get("trial", {}).get("plan_id", "starter")
+                    if pricing_config
+                    else "starter"
+                )
+                company_record.plan_id = trial_plan_id
+                session.commit()
+        except Exception as e:
+            logging.warning(
+                f"Could not auto-set plan_id for company {request.company_id}: {e}"
+            )
 
         # Add tokens via root parent resolution
         from MagicalAuth import MagicalAuth as MA

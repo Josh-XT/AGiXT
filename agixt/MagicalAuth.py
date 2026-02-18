@@ -4513,6 +4513,38 @@ class MagicalAuth:
             )
             if company_with_plan:
                 return True
+
+            # Auto-heal: company has credits/balance but no plan_id
+            # (e.g. admin-issued credits before this fix was deployed)
+            company_missing_plan = (
+                session.query(Company)
+                .filter(Company.id.in_(list(all_company_ids)))
+                .filter(
+                    (Company.plan_id == None)
+                    & (
+                        (Company.token_balance_usd > 0)
+                        | (Company.token_balance > 0)
+                        | (
+                            (Company.stripe_subscription_id != None)
+                            & (Company.auto_topup_enabled == True)
+                        )
+                    )
+                )
+                .first()
+            )
+            if company_missing_plan:
+                trial_plan_id = (
+                    pricing_config.get("trial", {}).get("plan_id", "starter")
+                    if pricing_config
+                    else "starter"
+                )
+                company_missing_plan.plan_id = trial_plan_id
+                session.commit()
+                logging.info(
+                    f"Auto-assigned plan_id '{trial_plan_id}' to company "
+                    f"{company_missing_plan.id} that had credits but no plan."
+                )
+                return True
         elif pricing_model == "per_bed":
             # For NurseXT bed-based billing, check:
             # 1. Trial credits (token_balance_usd > 0)
@@ -6665,6 +6697,22 @@ class MagicalAuth:
             billing_company.token_balance_usd = (
                 billing_company.token_balance_usd or 0
             ) + amount_usd
+
+            # For tiered_plan pricing, ensure the company has a plan_id so
+            # _has_sufficient_token_balance passes and users can log in.
+            if not billing_company.plan_id:
+                try:
+                    pc = _get_cached_pricing_config()
+                    pm = pc.get("pricing_model") if pc else "per_token"
+                    if pm == "tiered_plan":
+                        trial_plan_id = (
+                            pc.get("trial", {}).get("plan_id", "starter")
+                            if pc
+                            else "starter"
+                        )
+                        billing_company.plan_id = trial_plan_id
+                except Exception:
+                    pass
 
             # Reactivate inactive users in the credited company (and billing
             # root parent, if different) so they can log in with the new balance.
