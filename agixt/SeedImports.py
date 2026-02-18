@@ -1015,16 +1015,12 @@ def cleanup_orphaned_data():
 
 
 def import_all_data():
+    from concurrent.futures import ThreadPoolExecutor
+
     # Ensure default user exists
     ensure_default_user()
 
-    # Setup default extension categories before importing extensions
-    try:
-        from DB import setup_default_extension_categories
-
-        setup_default_extension_categories()
-    except Exception as e:
-        logging.warning(f"Failed to setup extension categories: {e}")
+    # Skip setup_default_extension_categories - already ran in initialize_database()
 
     # Initialize extensions hub first to clone external extensions
     try:
@@ -1068,10 +1064,16 @@ def import_all_data():
     except Exception as e:
         logging.warning(f"Failed to initialize extensions hub: {e}")
 
-    # Import extensions BEFORE providers to ensure all extensions are available
-    import_extensions()
-    import_providers()
-    import_prompts()
+    # Run import_extensions, import_providers, and import_prompts in parallel
+    # They use separate DB sessions and operate on different tables
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        ext_future = executor.submit(import_extensions)
+        prov_future = executor.submit(import_providers)
+        prompt_future = executor.submit(import_prompts)
+        # Wait for all to complete, re-raise any exceptions
+        ext_future.result()
+        prov_future.result()
+        prompt_future.result()
 
     # Register extension routers after all extensions are imported
     # This ensures hub extensions are available for router registration

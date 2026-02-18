@@ -12,6 +12,7 @@ import signal
 import subprocess
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Optional
 from Globals import getenv
@@ -68,7 +69,7 @@ startup_timer: Optional[StartupTimer] = None
 
 
 async def initialize_database(is_restart=False):
-    """Initialize database like DB.py does"""
+    """Initialize database like DB.py does, with concurrent migration groups"""
     global startup_timer
     try:
         # Import DB module to trigger database initialization
@@ -82,166 +83,104 @@ async def initialize_database(is_restart=False):
         DB.Base.metadata.create_all(DB.engine)
         startup_timer.section_end("Create tables (metadata.create_all)", section_start)
 
-        # Run all migrations - time each one
+        # Run schema migrations that must be sequential (table/column creation order matters)
+        # Group 1: Core schema migrations (must run first, in order)
         section_start = startup_timer.section_start()
         DB.migrate_company_table()
-        startup_timer.section_end("migrate_company_table", section_start)
-
-        section_start = startup_timer.section_start()
         DB.migrate_payment_transaction_table()
-        startup_timer.section_end("migrate_payment_transaction_table", section_start)
-
-        section_start = startup_timer.section_start()
         DB.migrate_extension_table()
-        startup_timer.section_end("migrate_extension_table", section_start)
-
-        section_start = startup_timer.section_start()
         DB.migrate_webhook_outgoing_table()
-        startup_timer.section_end("migrate_webhook_outgoing_table", section_start)
-
-        section_start = startup_timer.section_start()
         DB.migrate_user_table()
-        startup_timer.section_end("migrate_user_table", section_start)
+        startup_timer.section_end("core_schema_migrations", section_start)
 
+        # Group 2: Independent migrations that touch different tables - run in parallel
         section_start = startup_timer.section_start()
-        DB.migrate_auth_username_password()
-        startup_timer.section_end("migrate_auth_username_password", section_start)
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = [
+                executor.submit(DB.migrate_auth_username_password),
+                executor.submit(DB.migrate_group_chat_tables),
+                executor.submit(DB.migrate_message_reaction_table),
+                executor.submit(DB.migrate_message_pinning),
+                executor.submit(DB.migrate_performance_indexes),
+                executor.submit(DB.migrate_conversation_table),
+            ]
+            for f in futures:
+                f.result()  # raise any exceptions
+        startup_timer.section_end("parallel_migrations_group_1", section_start)
 
+        # Group 3: More independent migrations in parallel
         section_start = startup_timer.section_start()
-        DB.migrate_group_chat_tables()
-        startup_timer.section_end("migrate_group_chat_tables", section_start)
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = [
+                executor.submit(DB.migrate_extract_data_urls_from_messages),
+                executor.submit(DB.migrate_backfill_channel_participants),
+                executor.submit(DB.migrate_discarded_context_table),
+                executor.submit(DB.migrate_cleanup_duplicate_wallet_settings),
+                executor.submit(DB.migrate_extension_settings_tables),
+                executor.submit(DB.migrate_server_config_categories),
+            ]
+            for f in futures:
+                f.result()
+        startup_timer.section_end("parallel_migrations_group_2", section_start)
 
+        # Group 4: Remaining independent migrations in parallel
         section_start = startup_timer.section_start()
-        DB.migrate_message_reaction_table()
-        startup_timer.section_end("migrate_message_reaction_table", section_start)
-
-        section_start = startup_timer.section_start()
-        DB.migrate_message_pinning()
-        startup_timer.section_end("migrate_message_pinning", section_start)
-
-        section_start = startup_timer.section_start()
-        DB.migrate_performance_indexes()
-        startup_timer.section_end("migrate_performance_indexes", section_start)
-
-        section_start = startup_timer.section_start()
-        DB.migrate_extract_data_urls_from_messages()
-        startup_timer.section_end(
-            "migrate_extract_data_urls_from_messages", section_start
-        )
-
-        section_start = startup_timer.section_start()
-        DB.migrate_backfill_channel_participants()
-        startup_timer.section_end(
-            "migrate_backfill_channel_participants", section_start
-        )
-
-        section_start = startup_timer.section_start()
-        DB.migrate_conversation_table()
-        startup_timer.section_end("migrate_conversation_table", section_start)
-
-        section_start = startup_timer.section_start()
-        DB.migrate_discarded_context_table()
-        startup_timer.section_end("migrate_discarded_context_table", section_start)
-
-        section_start = startup_timer.section_start()
-        DB.migrate_cleanup_duplicate_wallet_settings()
-        startup_timer.section_end(
-            "migrate_cleanup_duplicate_wallet_settings", section_start
-        )
-
-        section_start = startup_timer.section_start()
-        DB.migrate_extension_settings_tables()
-        startup_timer.section_end("migrate_extension_settings_tables", section_start)
-
-        section_start = startup_timer.section_start()
-        DB.migrate_server_config_categories()
-        startup_timer.section_end("migrate_server_config_categories", section_start)
-
-        section_start = startup_timer.section_start()
-        DB.migrate_company_storage_settings_table()
-        startup_timer.section_end(
-            "migrate_company_storage_settings_table", section_start
-        )
-
-        section_start = startup_timer.section_start()
-        DB.migrate_tiered_prompts_chains_tables()
-        startup_timer.section_end("migrate_tiered_prompts_chains_tables", section_start)
-
-        section_start = startup_timer.section_start()
-        DB.migrate_response_cache_table()
-        startup_timer.section_end("migrate_response_cache_table", section_start)
-
-        section_start = startup_timer.section_start()
-        DB.migrate_task_item_table()
-        startup_timer.section_end("migrate_task_item_table", section_start)
-
-        section_start = startup_timer.section_start()
-        DB.migrate_user_oauth_table()
-        startup_timer.section_end("migrate_user_oauth_table", section_start)
-
-        section_start = startup_timer.section_start()
-        DB.migrate_conversation_participant_notification_mode()
-        startup_timer.section_end(
-            "migrate_conversation_participant_notification_mode", section_start
-        )
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = [
+                executor.submit(DB.migrate_company_storage_settings_table),
+                executor.submit(DB.migrate_tiered_prompts_chains_tables),
+                executor.submit(DB.migrate_response_cache_table),
+                executor.submit(DB.migrate_task_item_table),
+                executor.submit(DB.migrate_user_oauth_table),
+                executor.submit(DB.migrate_conversation_participant_notification_mode),
+            ]
+            for f in futures:
+                f.result()
+        startup_timer.section_end("parallel_migrations_group_3", section_start)
 
         section_start = startup_timer.section_start()
         DB.migrate_user_company_sort_order()
-        startup_timer.section_end("migrate_user_company_sort_order", section_start)
-
-        # Clean up expired cache entries on startup
-        section_start = startup_timer.section_start()
         DB.cleanup_expired_cache()
-        startup_timer.section_end("cleanup_expired_cache", section_start)
-
-        # Run task item migration for new scheduled task type columns
-        section_start = startup_timer.section_start()
-        DB.migrate_task_item_table()
-        startup_timer.section_end("migrate_task_item_table", section_start)
+        startup_timer.section_end("final_migrations_and_cleanup", section_start)
 
         # Initialize extension tables
         section_start = startup_timer.section_start()
         DB.initialize_extension_tables()
         startup_timer.section_end("initialize_extension_tables", section_start)
 
-        # Setup default data
+        # Extension categories + category migration in parallel with role setup
         section_start = startup_timer.section_start()
-        DB.setup_default_extension_categories()
-        startup_timer.section_end("setup_default_extension_categories", section_start)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            # These two are independent: categories vs roles
+            ext_future = executor.submit(
+                lambda: (
+                    DB.setup_default_extension_categories(),
+                    DB.migrate_extensions_to_new_categories(),
+                )
+            )
+            role_future = executor.submit(
+                lambda: (
+                    DB.migrate_role_table(),
+                    DB.setup_default_roles(),
+                )
+            )
+            ext_future.result()
+            role_future.result()
+        startup_timer.section_end("parallel_ext_categories_and_roles", section_start)
 
-        section_start = startup_timer.section_start()
-        DB.migrate_extensions_to_new_categories()
-        startup_timer.section_end("migrate_extensions_to_new_categories", section_start)
-
-        section_start = startup_timer.section_start()
-        DB.migrate_role_table()
-        startup_timer.section_end("migrate_role_table", section_start)
-
-        section_start = startup_timer.section_start()
-        DB.setup_default_roles()
-        startup_timer.section_end("setup_default_roles", section_start)
-
+        # Scopes depend on both extensions and roles being set up
         section_start = startup_timer.section_start()
         DB.setup_default_scopes()
         startup_timer.section_end("setup_default_scopes", section_start)
 
+        # Role scopes + server config can run in parallel
         section_start = startup_timer.section_start()
-        DB.setup_default_role_scopes()
-        startup_timer.section_end("setup_default_role_scopes", section_start)
-
-        section_start = startup_timer.section_start()
-        DB.seed_server_config_from_env()
-        startup_timer.section_end("seed_server_config_from_env", section_start)
-
-        # Handle seed data - only on initial boot, not on restarts
-        if not is_restart:
-            seed_data = str(getenv("SEED_DATA")).lower() == "true"
-            if seed_data:
-                section_start = startup_timer.section_start()
-                from SeedImports import import_all_data
-
-                import_all_data()
-                startup_timer.section_end("seed_data import_all_data", section_start)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            scope_future = executor.submit(DB.setup_default_role_scopes)
+            config_future = executor.submit(DB.seed_server_config_from_env)
+            scope_future.result()
+            config_future.result()
+        startup_timer.section_end("parallel_role_scopes_and_config", section_start)
 
         startup_timer.mark("Database initialization complete")
 
@@ -373,13 +312,32 @@ async def start_service(is_restart=False):
         )
         startup_timer.section_end("Uvicorn process spawn", section_start)
 
+        # Run seed_data import in a background thread while we wait for Uvicorn
+        # This overlaps the expensive import_all_data with Uvicorn worker startup
+        seed_future = None
+        seed_error = None
+        if not is_restart:
+            seed_data = str(getenv("SEED_DATA")).lower() == "true"
+            if seed_data:
+                section_start_seed = startup_timer.section_start()
+                loop = asyncio.get_event_loop()
+
+                def _run_seed_data():
+                    from SeedImports import import_all_data
+
+                    import_all_data()
+
+                seed_future = loop.run_in_executor(None, _run_seed_data)
+
         # Wait for uvicorn to be ready by polling the health endpoint
-        startup_wait = 15 if is_restart else 10
+        startup_wait = (
+            15 if is_restart else 30
+        )  # Allow more time since seed runs in parallel
         section_start = startup_timer.section_start()
 
         # Poll for readiness instead of fixed sleep
         ready = False
-        poll_interval = 0.5
+        poll_interval = 0.25  # Faster polling to detect readiness sooner
         max_wait = startup_wait
         waited = 0
 
@@ -416,13 +374,27 @@ async def start_service(is_restart=False):
         else:
             logger.info(f"✅ Uvicorn ready in {uvicorn_ready_time:.1f}ms")
 
+        # Wait for seed data to finish if it was started
+        if seed_future is not None:
+            try:
+                await seed_future
+                startup_timer.section_end(
+                    "seed_data import_all_data (parallel)", section_start_seed
+                )
+            except Exception as e:
+                logger.error(f"Seed data import failed: {e}")
+                seed_error = e
+
         if uvicorn_process.poll() is not None:
             logger.error(
                 f"Uvicorn process died immediately with return code: {uvicorn_process.poll()}"
             )
             raise RuntimeError("Uvicorn failed to start")
 
-        # Start Discord Bot Manager as a background task
+        if seed_error:
+            logger.warning(f"Seed data had errors but service is running: {seed_error}")
+
+        # Start Discord Bot Manager as a background task (non-blocking)
         # It runs in the main process and stores its status in Redis
         # so uvicorn workers can query it
         section_start = startup_timer.section_start()
