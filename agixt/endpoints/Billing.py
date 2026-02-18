@@ -275,7 +275,9 @@ async def get_pricing_config() -> Dict[str, Any]:
         # If pricing.json exists, check if it has any paid tiers
         tiers = config.get("tiers", [])
         has_paid_tiers = any(
-            tier.get("price_per_unit") is not None or tier.get("custom_pricing", False)
+            tier.get("price_per_unit") is not None
+            or tier.get("price") is not None
+            or tier.get("custom_pricing", False)
             for tier in tiers
         )
         # Add billing_disabled field if no paid tiers
@@ -314,7 +316,9 @@ async def is_billing_enabled() -> Dict[str, Any]:
         # Check if any tier has actual pricing
         tiers = config.get("tiers", [])
         has_paid_tiers = any(
-            tier.get("price_per_unit") is not None or tier.get("custom_pricing", False)
+            tier.get("price_per_unit") is not None
+            or tier.get("price") is not None
+            or tier.get("custom_pricing", False)
             for tier in tiers
         )
         return {

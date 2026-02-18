@@ -269,7 +269,7 @@ class TrialService:
 
         # RFC 2606 reserved test domains - always grant trial credits (for testing)
         # These domains can never be real domains and are safe for testing
-        test_domains = {"example.com", "example.org", "example.net"}
+        test_domains = {"example.com", "example.org", "example.net", "test.com"}
         is_test_domain = domain.lower() in test_domains or domain.lower().endswith(
             ".test"
         )
@@ -333,7 +333,7 @@ class TrialService:
         domain = self.extract_domain(email)
 
         # RFC 2606 reserved test domains - skip domain tracking
-        test_domains = {"example.com", "example.org", "example.net"}
+        test_domains = {"example.com", "example.org", "example.net", "test.com"}
         is_test_domain = domain.lower() in test_domains or domain.lower().endswith(
             ".test"
         )

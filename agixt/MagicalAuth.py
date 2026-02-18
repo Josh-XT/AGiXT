@@ -2184,23 +2184,27 @@ class MagicalAuth:
                 "per_capacity",
                 "per_location",
             ]
+            is_plan_based = pricing_model in ["tiered_plan", "per_bed"]
 
             wallet_address = getenv("PAYMENT_WALLET_ADDRESS", "")
             price_service = _get_price_service()
             try:
                 token_price = price_service.get_token_price()
             except Exception:
-                token_price = 0 if is_seat_based else 1
+                token_price = 0 if (is_seat_based or is_plan_based) else 1
 
             # Billing is enabled if:
             # - Token-based: TOKEN_PRICE_PER_MILLION_USD > 0
-            # - Seat-based: pricing.json has paid tiers
-            token_billing_enabled = token_price > 0 and not is_seat_based
+            # - Seat/plan-based: pricing.json has paid tiers
+            token_billing_enabled = (
+                token_price > 0 and not is_seat_based and not is_plan_based
+            )
             seat_billing_enabled = (
-                is_seat_based
+                (is_seat_based or is_plan_based)
                 and pricing_config
                 and any(
                     tier.get("price_per_unit") is not None
+                    or tier.get("price") is not None
                     or tier.get("custom_pricing", False)
                     for tier in pricing_config.get("tiers", [])
                 )

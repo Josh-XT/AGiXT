@@ -7985,8 +7985,9 @@ def seed_server_config_from_env():
 
     # Load the config cache after seeding
     try:
-        from Globals import load_server_config_cache
+        from Globals import invalidate_server_config_cache, load_server_config_cache
 
+        invalidate_server_config_cache()
         load_server_config_cache()
     except Exception as e:
         logging.debug(f"Could not load server config cache: {e}")
