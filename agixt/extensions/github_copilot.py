@@ -157,6 +157,29 @@ class github_copilot(Extensions):
         3. Under "Account permissions", enable "Copilot" with Read and write access
         4. Use the generated token (starts with 'github_pat_') as your GITHUB_COPILOT_TOKEN
         """
+        # If the agent didn't provide a prompt, fall back to the last user message
+        prompt_str = str(prompt).strip() if prompt else ""
+        if not prompt_str or prompt_str.lower() in ("none", "null"):
+            try:
+                conversation = self.ApiClient.get_conversation(
+                    conversation_name=self.conversation_name,
+                    conversation_id=self.conversation_id,
+                    limit=20,
+                    page=1,
+                )
+                interactions = conversation.get("interactions", [])
+                # Find the last USER message in the conversation
+                for msg in reversed(interactions):
+                    if msg.get("role", "").upper() == "USER":
+                        user_message = msg.get("message", "").strip()
+                        if user_message:
+                            prompt = user_message
+                            break
+            except Exception as e:
+                logging.warning(
+                    f"Failed to retrieve user input for empty prompt: {e}"
+                )
+
         model = self.GITHUB_COPILOT_MODEL
         if not self.GITHUB_COPILOT_TOKEN:
             return (
