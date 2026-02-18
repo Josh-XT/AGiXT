@@ -8310,11 +8310,17 @@ class MagicalAuth:
                         self.email = user.email
                         mfa_token = user.mfa_token
                     else:
-                        # Create new user
+                        # Create new user via SSO - generate a random password
+                        # since the user authenticates through the external provider
+                        import secrets
+
+                        random_password = secrets.token_urlsafe(32)
                         register = Register(
                             email=email,
                             first_name=user_data.get("first_name", ""),
                             last_name=user_data.get("last_name", ""),
+                            password=random_password,
+                            confirm_password=random_password,
                         )
                         registration_response = self.register(
                             new_user=register,
