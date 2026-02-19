@@ -176,9 +176,7 @@ class github_copilot(Extensions):
                             prompt = user_message
                             break
             except Exception as e:
-                logging.warning(
-                    f"Failed to retrieve user input for empty prompt: {e}"
-                )
+                logging.warning(f"Failed to retrieve user input for empty prompt: {e}")
 
         model = self.GITHUB_COPILOT_MODEL
         if not self.GITHUB_COPILOT_TOKEN:
