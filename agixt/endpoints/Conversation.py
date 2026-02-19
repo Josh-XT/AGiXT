@@ -4075,11 +4075,17 @@ async def get_conversation_participants(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
+    import uuid as _uuid
+
+    try:
+        _uuid.UUID(conversation_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="Conversation not found")
     auth = MagicalAuth(token=authorization)
     conversation_name = get_conversation_name_by_id(
         conversation_id=conversation_id, user_id=auth.user_id
     )
-    if not conversation_name:
+    if not conversation_name or conversation_name == "-":
         raise HTTPException(status_code=404, detail="Conversation not found")
     c = Conversations(
         conversation_name=conversation_name,

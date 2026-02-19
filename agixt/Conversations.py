@@ -548,9 +548,14 @@ def get_conversation_id_by_name(conversation_name, user_id, create_if_missing=Tr
 
 
 def get_conversation_name_by_id(conversation_id, user_id):
-    if conversation_id == "-":
-        conversation_id = get_conversation_id_by_name("-", user_id)
-        return "-"
+    if not conversation_id or conversation_id == "-":
+        return None
+    try:
+        import uuid as _uuid
+
+        _uuid.UUID(str(conversation_id))
+    except (ValueError, AttributeError):
+        return None
 
     # Check cache first (avoids 2-4 DB queries per call)
     cache_key = f"conv_name:{conversation_id}:{user_id}"
@@ -603,7 +608,7 @@ def get_conversation_name_by_id(conversation_id, user_id):
                     .first()
                 )
         if not conversation:
-            return "-"
+            return None
         conversation_name = conversation.name
         shared_cache.set(cache_key, conversation_name, ttl=30)
         return conversation_name
