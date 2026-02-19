@@ -39,9 +39,13 @@ _extension_module_cache = {}
 _extension_discovery_cache = None
 # Metadata cache: stores extension info without importing modules
 _extension_metadata_cache = None
+_extension_metadata_cache_version = 0  # Tracks which version of the cache is in memory
 _extension_metadata_cache_file = os.path.join(
     os.path.dirname(__file__), "models", "extension_metadata_cache.json"
 )
+_METADATA_CACHE_VERSION_KEY = "extension_metadata_cache_version"
+_last_cross_worker_check = 0
+_CROSS_WORKER_CHECK_INTERVAL = 5  # seconds between Redis checks
 
 
 def _get_newest_extension_mtime():
@@ -59,18 +63,80 @@ def _get_newest_extension_mtime():
         return 0
 
 
+def _check_cross_worker_invalidation():
+    """
+    Check if the metadata cache has been rebuilt in another process (e.g., seed process).
+    Uses SharedCache (Redis) to communicate version updates across uvicorn workers.
+    Only checks every _CROSS_WORKER_CHECK_INTERVAL seconds to avoid excessive Redis calls.
+    Returns True if the in-memory cache should be invalidated.
+    """
+    global _extension_metadata_cache_version, _last_cross_worker_check
+    import time as _t
+
+    now = _t.time()
+    if now - _last_cross_worker_check < _CROSS_WORKER_CHECK_INTERVAL:
+        return False
+    _last_cross_worker_check = now
+
+    try:
+        from SharedCache import shared_cache
+
+        remote_version = shared_cache.get(_METADATA_CACHE_VERSION_KEY)
+        if remote_version is not None:
+            remote_version = float(remote_version)
+            if remote_version > _extension_metadata_cache_version:
+                logging.info(
+                    f"Extension metadata cache invalidated by another process "
+                    f"(local={_extension_metadata_cache_version}, remote={remote_version})"
+                )
+                _extension_metadata_cache_version = remote_version
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _signal_metadata_cache_rebuilt():
+    """
+    Signal all workers that the metadata cache has been rebuilt.
+    Called after building the cache in the seed process or hot-reload.
+    """
+    global _extension_metadata_cache_version
+    import time as _t
+
+    version = _t.time()
+    _extension_metadata_cache_version = version
+    try:
+        from SharedCache import shared_cache
+
+        shared_cache.set(_METADATA_CACHE_VERSION_KEY, str(version), ttl=86400)
+    except Exception:
+        pass
+
+
 def _get_extension_metadata_cache():
     """
     Get cached extension metadata (commands, settings) without importing modules.
     This enables lazy loading - modules are only imported when commands are executed.
 
-    The cache is automatically invalidated when any extension file has been modified
-    since the cache was built.
+    The cache is automatically invalidated when:
+    - Any extension file has been modified since the cache was built
+    - The seed process or hot-reload rebuilt the cache (cross-worker via Redis)
     """
     global _extension_metadata_cache
 
     if _extension_metadata_cache is not None:
-        return _extension_metadata_cache
+        # Check if another process (seed/hot-reload) has rebuilt the cache
+        if _check_cross_worker_invalidation():
+            # Invalidate in-memory caches so we reload from disk
+            _extension_metadata_cache = None
+            global _extension_discovery_cache
+            _extension_discovery_cache = None
+            from ExtensionsHub import invalidate_find_extension_files_cache
+
+            invalidate_find_extension_files_cache()
+        else:
+            return _extension_metadata_cache
 
     # Try to load from disk cache
     try:
@@ -259,6 +325,9 @@ def _build_extension_metadata_cache():
     except Exception as e:
         logging.debug(f"Could not save extension metadata cache: {e}")
 
+    # Signal all workers that the cache has been rebuilt
+    _signal_metadata_cache_rebuilt()
+
     elapsed = time.time() - start
     logging.debug(f"Built extension metadata cache in {elapsed:.2f}s (AST parsing)")
 
@@ -295,6 +364,9 @@ def invalidate_extension_cache():
     _extension_discovery_cache = None
     _extension_module_cache.clear()
     _extension_metadata_cache = None
+
+    # Signal all workers to invalidate their in-memory caches
+    _signal_metadata_cache_rebuilt()
 
     # Remove disk cache
     try:

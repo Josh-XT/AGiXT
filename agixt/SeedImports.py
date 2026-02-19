@@ -258,6 +258,10 @@ def import_extensions():
                     current_command_map.setdefault(normalized_name, "Custom Automation")
         except Exception as e:
             logging.warning(f"Could not include automation chains in command sync: {e}")
+            try:
+                session.rollback()
+            except Exception:
+                pass
 
         # Find agent commands that reference non-existent or moved commands
         orphaned_count = 0
@@ -332,6 +336,10 @@ def import_extensions():
 
     except Exception as e:
         logging.error(f"Error cleaning up orphaned agent commands: {e}")
+        try:
+            session.rollback()
+        except Exception:
+            pass
 
     # Get existing extensions
     existing_extensions = session.query(Extension).all()
