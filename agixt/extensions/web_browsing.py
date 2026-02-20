@@ -58,7 +58,14 @@ def _import_optional(module_path: str, package_name: str = None):
         return None
 
     if target_attr:
-        return getattr(module, target_attr, None)
+        result = getattr(module, target_attr, None)
+        if result is None:
+            # target_attr might be a submodule; try importing the full path
+            try:
+                result = importlib.import_module(module_path)
+            except ImportError:
+                pass
+        return result
     return module
 
 
