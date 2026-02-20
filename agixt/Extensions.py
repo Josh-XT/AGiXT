@@ -1034,8 +1034,8 @@ class Extensions:
             "conversation_directory": os.path.join(
                 agent_workspace, self.conversation_id
             ),
-            # Use hashed agent folder in URL to match where files are actually saved
-            "output_url": f"{agixt_server}/outputs/{agent_folder}/{self.conversation_id}/",
+            # Use raw agent_id UUID in URL - serve_file route hashes it internally
+            "output_url": f"{agixt_server}/outputs/{self.agent_id}/{self.conversation_id}/",
             **self.agent_config["settings"],
             **credentials,
         }

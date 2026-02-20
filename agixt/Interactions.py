@@ -117,6 +117,33 @@ _KEYWORD_TO_COMMANDS = {
     "edit file": ["Modify File"],
     "modify file": ["Modify File"],
     "delete file": ["Delete File"],
+    "list files": ["List Directory", "Search Files"],
+    "show files": ["List Directory", "Search Files"],
+    "what files": ["List Directory", "Search Files"],
+    "file contents": ["Read File"],
+    "open file": ["Read File"],
+    "look at the file": ["Read File"],
+    "look at file": ["Read File"],
+    "check the file": ["Read File"],
+    "check file": ["Read File"],
+    "read the": ["Read File"],
+    "contents of": ["Read File"],
+    "show me the": ["Read File", "List Directory"],
+    "what does the file": ["Read File"],
+    "what's in the file": ["Read File"],
+    "whats in the file": ["Read File"],
+    "examine file": ["Read File"],
+    "examine the file": ["Read File"],
+    "review file": ["Read File"],
+    "review the file": ["Read File"],
+    "view file": ["Read File"],
+    "view the file": ["Read File"],
+    "spreadsheet": ["Read File", "Run Data Analysis"],
+    "csv": ["Read File", "Run Data Analysis"],
+    "xlsx": ["Read File", "Run Data Analysis"],
+    "excel": ["Read File", "Run Data Analysis"],
+    "parse file": ["Read File"],
+    "workspace": ["List Directory", "Read File", "Search Files"],
     "run python": ["Execute Python Code", "Execute Python File"],
     "execute python": ["Execute Python Code", "Execute Python File"],
     "run code": ["Execute Python Code"],
@@ -583,6 +610,47 @@ class Interactions:
         if task and task.cancelled():
             raise asyncio.CancelledError("Task was cancelled by user")
 
+    @staticmethod
+    def _build_file_tree(file_paths: list) -> str:
+        """Build an indented file tree string from a list of relative file paths.
+
+        Example output:
+          ├── report.csv
+          ├── data/
+          │   ├── input.xlsx
+          │   └── output.json
+          └── notes.txt
+        """
+        if not file_paths:
+            return "(empty)"
+        # Build a nested dict representing the directory structure
+        tree = {}
+        for path in sorted(file_paths):
+            parts = path.replace("\\", "/").split("/")
+            node = tree
+            for part in parts:
+                if part not in node:
+                    node[part] = {}
+                node = node[part]
+
+        lines = []
+
+        def _render(node, prefix=""):
+            entries = sorted(node.keys(), key=lambda k: (not bool(node[k]), k.lower()))
+            for i, name in enumerate(entries):
+                is_last = i == len(entries) - 1
+                connector = "└── " if is_last else "├── "
+                child = node[name]
+                if child:  # directory
+                    lines.append(f"{prefix}{connector}{name}/")
+                    extension = "    " if is_last else "│   "
+                    _render(child, prefix + extension)
+                else:  # file
+                    lines.append(f"{prefix}{connector}{name}")
+
+        _render(tree)
+        return "\n".join(lines)
+
     def custom_format(self, string, **kwargs):
         if "fp" in kwargs:
             return kwargs["user_input"]
@@ -870,6 +938,13 @@ class Interactions:
             context.append(
                 f"The user uploaded these files for the assistant to analyze:\n{kwargs['uploaded_file_data']}\n"
             )
+        # Always include workspace file tree so the agent knows what files exist
+        # This applies to both initial uploads AND follow-up requests
+        if "workspace_file_context" in kwargs and kwargs["workspace_file_context"]:
+            workspace_file_info = kwargs["workspace_file_context"]
+            context.append(
+                f"## Files in Workspace\nThe following files are available in the assistant's workspace directory and can be accessed using file operation commands (Read File, Write to File, Modify File, Delete File, List Directory, Search Files, Search File Content, Grep Search, Execute Python File, Run Data Analysis, Execute Python Code):\n{workspace_file_info}\nUse these file commands to read, analyze, modify, or create files as needed.\n"
+            )
         if vision_response != "":
             context.append(
                 f"The assistant's visual description from viewing uploaded images by user in this interaction:\n{vision_response}\n"
@@ -973,6 +1048,7 @@ class Interactions:
                 conversation_id=conversation_id,
                 running_command=kwargs.get("running_command", None),
                 selected_commands=selected_commands,
+                workspace_file_tree=kwargs.get("workspace_file_context", None),
             )
 
         # Check if context needs reduction before building final prompt
@@ -1760,6 +1836,9 @@ Example: memories, persona, files"""
             "Delete File",
             "Execute Python File",
             "Run Data Analysis",
+            "List Directory",
+            "Grep Search",
+            "Execute Python Code",
         ]
 
         # Web-related commands that should always be included if URLs/links are mentioned
@@ -2608,16 +2687,25 @@ Example: Web Search, Read File"""
                             )
                             existing_files.append(rel_path)
                     if existing_files:
-                        existing_context = (
-                            f"Existing workspace files: {', '.join(existing_files)}"
-                        )
+                        # Build an indented file tree for agent context
+                        tree_lines = self._build_file_tree(existing_files)
+                        existing_context = f"Workspace file tree:\n{tree_lines}"
                         if file_context:
                             file_context = f"{file_context}\n{existing_context}"
                         else:
                             file_context = existing_context
                         has_uploaded_files = True
-            except Exception:
-                pass
+                        logging.info(
+                            f"[run_stream] Workspace discovery found {len(existing_files)} files in {workspace_dir}"
+                        )
+                else:
+                    logging.info(
+                        f"[run_stream] Workspace directory does not exist: {workspace_dir}"
+                    )
+            except Exception as e:
+                logging.warning(
+                    f"[run_stream] Error during workspace file discovery: {e}"
+                )
 
             # Do intelligent command selection
             try:
@@ -2641,6 +2729,10 @@ Example: Web Search, Read File"""
 
         # Store selected_commands as instance variable to persist across continuation loops
         self._selected_commands = selected_commands
+
+        # Pass workspace file context to format_prompt so the agent knows what files exist
+        if file_context and "workspace_file_context" not in kwargs:
+            kwargs["workspace_file_context"] = file_context
 
         # Remove selected_commands from kwargs if present to avoid duplicate parameter
         kwargs.pop("selected_commands", None)

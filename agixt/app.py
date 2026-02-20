@@ -579,9 +579,13 @@ async def serve_file(
     filename: str,
     conversation_id: Optional[str] = None,
     authorization: str = Header(None),
+    auth: Optional[str] = None,
 ):
     try:
         # Authenticate the request
+        # Support both header-based and query-parameter-based auth
+        # Query parameter auth is needed for browser inline requests (images, etc.)
+        # that cannot include Authorization headers
         from ApiClient import verify_api_key
         from MagicalAuth import MagicalAuth
         from DB import (
@@ -590,15 +594,20 @@ async def serve_file(
             ConversationParticipant,
         )
 
+        # Use query parameter auth as fallback when header auth is missing
+        effective_auth = (
+            authorization if authorization and authorization != "None" else auth
+        )
+
         try:
-            user_email = verify_api_key(authorization)
+            user_email = verify_api_key(effective_auth)
         except HTTPException as e:
             logging.error(f"Authentication failed for workspace file access: {e}")
             raise HTTPException(status_code=401, detail="Authentication required")
 
         # Verify user has access to this conversation
         if conversation_id:
-            auth = MagicalAuth(token=authorization)
+            auth = MagicalAuth(token=effective_auth)
             session = get_session()
             try:
                 conversation = (
