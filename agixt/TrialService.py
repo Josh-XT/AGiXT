@@ -397,7 +397,8 @@ class TrialService:
                         )
                     raise
 
-            # Grant credits to company via add_tokens_to_company (resolves root parent)
+            # Grant credits to company - all updates done on the same session
+            # to avoid SQLite "database is locked" errors from competing sessions
             company.trial_credits_granted = credits_usd
             company.trial_credits_granted_at = datetime.now(timezone.utc)
             company.trial_domain = domain.lower()
@@ -418,20 +419,34 @@ class TrialService:
             if pricing_model == "tiered_plan" and not has_paid_subscription:
                 trial_config = pricing_config.get("trial", {})
                 trial_plan_id = trial_config.get("plan_id", "starter")
-                from MagicalAuth import MagicalAuth
-
-                auth = MagicalAuth()
-                auth.set_company_plan(
-                    company_id=company_id,
-                    plan_id=trial_plan_id,
-                )
+                # Set plan directly on the company object in the same session
+                # instead of calling set_company_plan which opens a new session
+                tier = None
+                for t in pricing_config.get("tiers", []):
+                    if t.get("id") == trial_plan_id:
+                        tier = t
+                        break
+                if tier:
+                    limits = tier.get("limits", {})
+                    company.plan_id = trial_plan_id
+                    company.device_limit = limits.get("devices")
+                    company.monthly_token_limit = limits.get("tokens")
+                    company.storage_limit_bytes = (
+                        (limits.get("storage_gb") or 0) * 1024 * 1024 * 1024
+                    )
+                    company.user_limit = limits.get("users")
+                    company.tokens_used_this_period = 0
+                    company.current_period_start = datetime.now(timezone.utc)
+                else:
+                    # Fallback: just set the plan_id
+                    company.plan_id = trial_plan_id
             elif pricing_model == "per_bed" and not has_paid_subscription:
                 trial_config = pricing_config.get("trial", {})
                 trial_beds = trial_config.get("units", 5)
                 company.bed_limit = trial_beds
                 company.plan_id = f"per_bed_{trial_beds}"
 
-            # Calculate token amount and add via add_tokens_to_company (root parent aware)
+            # Calculate token amount
             tokens_granted = 0
             try:
                 from payments.stripe_service import PriceService
@@ -443,31 +458,28 @@ class TrialService:
             except Exception as e:
                 logging.warning(f"Could not calculate token amount for trial: {e}")
 
-            session.commit()
-
-            # Add tokens via the root-parent-aware method
+            # Add tokens directly on the same session to avoid DB locking
             if tokens_granted > 0:
-                try:
-                    from MagicalAuth import MagicalAuth
+                company.token_balance = (company.token_balance or 0) + tokens_granted
+                company.token_balance_usd = (
+                    company.token_balance_usd or 0
+                ) + credits_usd
 
-                    auth = MagicalAuth()
-                    auth.add_tokens_to_company(
-                        company_id=company_id,
-                        token_amount=tokens_granted,
-                        amount_usd=credits_usd,
-                    )
-                except Exception as e:
-                    logging.warning(
-                        f"Could not add tokens via add_tokens_to_company: {e}"
-                    )
-                    # Fallback: add directly
-                    company.token_balance = (
-                        company.token_balance or 0
-                    ) + tokens_granted
-                    company.token_balance_usd = (
-                        company.token_balance_usd or 0
-                    ) + credits_usd
-                    session.commit()
+            # Reactivate any inactive users in this company
+            from DB import User, UserCompany
+
+            company_user_ids = (
+                session.query(UserCompany.user_id)
+                .filter(UserCompany.company_id == company_id)
+                .all()
+            )
+            if company_user_ids:
+                user_ids = [uid for (uid,) in company_user_ids]
+                session.query(User).filter(
+                    User.id.in_(user_ids), User.is_active == False
+                ).update({"is_active": True}, synchronize_session="fetch")
+
+            session.commit()
 
             logging.info(
                 f"Granted ${credits_usd:.2f} trial credits to company {company_id} "
