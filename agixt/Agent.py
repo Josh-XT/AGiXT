@@ -3770,7 +3770,11 @@ class Agent:
         return ""
 
     def get_commands_prompt(
-        self, conversation_id, running_command=None, selected_commands=None, workspace_file_tree=None
+        self,
+        conversation_id,
+        running_command=None,
+        selected_commands=None,
+        workspace_file_tree=None,
     ):
         """
         Get the commands prompt for the agent.
@@ -3807,6 +3811,16 @@ class Agent:
             conversation_outputs = (
                 f"{agixt_uri}/outputs/{self.agent_id}/{conversation_id}/"
             )
+            if workspace_file_tree:
+                workspace_files_section = (
+                    "- Files currently in the working directory:\n"
+                    + workspace_file_tree
+                )
+            else:
+                workspace_files_section = (
+                    "- The working directory is currently empty."
+                    " Files will appear here when uploaded or created by commands."
+                )
             try:
                 agent_extensions = self.get_company_agent_extensions()
                 if agent_extensions == "":
@@ -3916,7 +3930,7 @@ class Agent:
 - If referencing a file path, use the assistant's working directory as the file path. The assistant's working directory is {working_directory}.
 - Only reference files in the working directory! The assistant cannot access files outside of the working directory.
 - All files in the working directory will be immediately available to the user and agent in this folder: {conversation_outputs}
-{f"- Files currently in the working directory:\n{workspace_file_tree}" if workspace_file_tree else "- The working directory is currently empty. Files will appear here when uploaded or created by commands."}
+{workspace_files_section}
 - The assistant will receive the command output before the user does and will be able to reference the output in the response.
 - The assistant can choose to execute as many commands as needed in the response in the order that they should be executed.
 - Once the assistant executes a command, it should stop at </execute> and wait for the command output before continuing.

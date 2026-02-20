@@ -112,8 +112,13 @@ def load_server_config_cache():
 
     try:
         # Import here to avoid circular imports
-        from DB import ServerConfig, get_session, decrypt_config_value
+        from DB import ServerConfig, get_session, decrypt_config_value, engine
         from SharedCache import shared_cache
+        from sqlalchemy import inspect as sa_inspect
+
+        # Guard against querying before tables are created (fresh DB start)
+        if engine is None or not sa_inspect(engine).has_table("server_config"):
+            return
 
         # Check if already in shared cache
         cached = shared_cache.get(_SERVER_CONFIG_CACHE_KEY)
