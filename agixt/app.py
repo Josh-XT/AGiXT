@@ -7,7 +7,7 @@ import mimetypes
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, RedirectResponse
 from middleware import (
     CriticalEndpointProtectionMiddleware,
     UsageTrackingMiddleware,
@@ -313,6 +313,13 @@ try:
     app.include_router(twilio_sms_webhook_router)
 except Exception as e:
     logging.debug(f"Twilio SMS webhook router not available: {e}")
+
+
+# Redirect /chat to the frontend app
+@app.get("/chat", include_in_schema=False)
+async def redirect_to_chat():
+    app_uri = getenv("APP_URI", "http://localhost:3437").rstrip("/")
+    return RedirectResponse(url=f"{app_uri}/chat")
 
 
 # Cache stats endpoint for monitoring response cache performance
