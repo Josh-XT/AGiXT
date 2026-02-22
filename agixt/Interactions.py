@@ -90,96 +90,6 @@ _RE_THINKING_REFLECTION = re.compile(
     r"<(thinking|reflection)>(.*?)(?=<(?:thinking|reflection|answer)|$)", re.DOTALL
 )
 
-# Static keyword → command mapping for select_commands_for_task()
-_KEYWORD_TO_COMMANDS = {
-    "copilot": ["Ask GitHub Copilot"],
-    "github copilot": ["Ask GitHub Copilot"],
-    "ghcopilot": ["Ask GitHub Copilot"],
-    "github": ["Ask GitHub Copilot"],
-    "repository": ["Ask GitHub Copilot"],
-    "repo": ["Ask GitHub Copilot"],
-    "pull request": ["Ask GitHub Copilot"],
-    "pr": ["Ask GitHub Copilot"],
-    "clone": ["Ask GitHub Copilot"],
-    "fork": ["Ask GitHub Copilot"],
-    "discord": ["Search Discord Channel", "Send Discord Message"],
-    "browse": ["Fetch Webpage Content", "Interact with Webpage", "Web Search"],
-    "scrape": ["Fetch Webpage Content", "Interact with Webpage"],
-    "website": ["Fetch Webpage Content", "Interact with Webpage", "Web Search"],
-    "webpage": ["Fetch Webpage Content", "Interact with Webpage"],
-    "google": ["Web Search"],
-    "search the web": ["Web Search"],
-    "search online": ["Web Search"],
-    "look up": ["Web Search"],
-    "read file": ["Read File"],
-    "write file": ["Write to File"],
-    "create file": ["Write to File"],
-    "edit file": ["Modify File"],
-    "modify file": ["Modify File"],
-    "delete file": ["Delete File"],
-    "list files": ["List Directory", "Search Files"],
-    "show files": ["List Directory", "Search Files"],
-    "what files": ["List Directory", "Search Files"],
-    "file contents": ["Read File"],
-    "open file": ["Read File"],
-    "look at the file": ["Read File"],
-    "look at file": ["Read File"],
-    "check the file": ["Read File"],
-    "check file": ["Read File"],
-    "read the": ["Read File"],
-    "contents of": ["Read File"],
-    "show me the": ["Read File", "List Directory"],
-    "what does the file": ["Read File"],
-    "what's in the file": ["Read File"],
-    "whats in the file": ["Read File"],
-    "examine file": ["Read File"],
-    "examine the file": ["Read File"],
-    "review file": ["Read File"],
-    "review the file": ["Read File"],
-    "view file": ["Read File"],
-    "view the file": ["Read File"],
-    "spreadsheet": ["Read File", "Run Data Analysis"],
-    "csv": ["Read File", "Run Data Analysis"],
-    "xlsx": ["Read File", "Run Data Analysis"],
-    "excel": ["Read File", "Run Data Analysis"],
-    "parse file": ["Read File"],
-    "workspace": ["List Directory", "Read File", "Search Files"],
-    "run python": ["Execute Python Code", "Execute Python File"],
-    "execute python": ["Execute Python Code", "Execute Python File"],
-    "run code": ["Execute Python Code"],
-    "execute code": ["Execute Python Code"],
-    "run command": ["Use The Terminal to Execute Commands"],
-    "terminal": ["Use The Terminal to Execute Commands"],
-    "shell": ["Use The Terminal to Execute Commands"],
-    "bash": ["Use The Terminal to Execute Commands"],
-    "git": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-    "commit": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-    "push": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-    "pull": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-    "merge": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-    "branch": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-    "rebase": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-    "checkout": ["Use The Terminal to Execute Commands", "Ask GitHub Copilot"],
-    "note": ["Create Note", "Search Notes", "Get Notes", "Delete Note"],
-    "notes": ["Create Note", "Search Notes", "Get Notes", "Delete Note"],
-    "remember": ["Create Note"],
-    "email": ["Send Email", "Read Emails", "Search Emails"],
-    "mail": ["Send Email", "Read Emails", "Search Emails"],
-    "calendar": ["Get Calendar Events", "Create Calendar Event"],
-    "meeting": ["Get Calendar Events", "Create Calendar Event"],
-    "schedule": [
-        "Get Calendar Events",
-        "Create Calendar Event",
-        "Schedule a Task",
-    ],
-    "analyze": ["Run Data Analysis"],
-    "analysis": ["Run Data Analysis"],
-    "data": ["Run Data Analysis"],
-    "chart": ["Run Data Analysis"],
-    "graph": ["Run Data Analysis"],
-    "visualize": ["Run Data Analysis"],
-}
-
 
 def extract_top_level_answer(response: str) -> str:
     """
@@ -1050,6 +960,16 @@ class Interactions:
                 selected_commands=selected_commands,
                 workspace_file_tree=kwargs.get("workspace_file_context", None),
             )
+            # Safety check: if commands prompt is too large, it will crowd out
+            # user context, conversation history, and model thinking space.
+            # Log a warning so we can identify bloated command sets.
+            commands_token_count = get_tokens(agent_commands)
+            if commands_token_count > 20000:
+                logging.warning(
+                    f"[format_prompt] Commands prompt is {commands_token_count} tokens "
+                    f"({len(selected_commands) if selected_commands else 'all'} commands). "
+                    f"This may exceed context budget."
+                )
 
         # Check if context needs reduction before building final prompt
         # Estimate tokens from variable-size context components
@@ -1698,9 +1618,15 @@ Example: memories, persona, files"""
         # If total enabled commands fit within a reasonable token budget, skip LLM selection
         # and just return all of them. LLM-based selection often misses relevant commands
         # (especially from extension hubs) because user intent doesn't keyword-match command names.
-        # With a 64k context model, using up to ~30k for commands leaves plenty of room.
+        # NOTE: The selection prompt is a compact format (~65 tokens/cmd), but the full
+        # execution prompt with XML examples is ~3x larger. Keep this threshold low
+        # so the full execution prompt stays within context budget (~20k tokens).
         commands_tokens = get_tokens(commands_prompt)
-        if commands_tokens <= 30000:
+        logging.info(
+            f"[select_commands_for_task] {len(all_command_names)} commands, "
+            f"selection prompt: {commands_tokens} tokens"
+        )
+        if commands_tokens <= 8000:
             if log_output and thinking_id:
                 c = Conversations(
                     conversation_name=conversation_name,
@@ -1712,198 +1638,49 @@ Example: memories, persona, files"""
                 )
             return all_command_names
 
-        # CRITICAL: Pre-check for command name matches in user input
-        # If user mentions a command name (or close variant), always include it
+        # Get extension context to help with command selection
+        # This provides crucial info like machine names, connected accounts, etc.
+        # that helps the LLM understand user intent (e.g. "xthh01" is a machine)
+        extension_context = ""
+        try:
+            agent_extensions = self.agent.get_agent_extensions()
+            extension_context = self.agent._get_extension_contexts(
+                agent_extensions, all_command_names
+            )
+            if extension_context:
+                extension_context = extension_context.strip()
+        except Exception as e:
+            logging.debug(
+                f"[select_commands_for_task] Failed to get extension context: {e}"
+            )
+            extension_context = ""
+
+        # If user literally mentions a command by its exact name, always include it.
+        # This is the only heuristic — everything else is left to the LLM with good context.
         user_input_lower = user_input.lower()
-        # Remove common filler words for fuzzy matching
-        user_input_words = set(
-            user_input_lower.replace("?", "").replace(".", "").replace(",", "").split()
-        )
-
-        # Build keyword aliases for common variations/synonyms
-        # Maps trigger words to command names that should be included
-
         explicitly_requested_commands = []
-
-        # Method 0: Check keyword aliases first (highest priority for semantic matching)
-        for keyword, cmd_names in _KEYWORD_TO_COMMANDS.items():
-            if keyword in user_input_lower:
-                for cmd_name in cmd_names:
-                    if (
-                        cmd_name in all_command_names
-                        and cmd_name not in explicitly_requested_commands
-                    ):
-                        explicitly_requested_commands.append(cmd_name)
-
         for cmd_name in all_command_names:
-            if cmd_name in explicitly_requested_commands:
-                continue  # Already added via keyword alias
-
-            cmd_lower = cmd_name.lower()
-            # Method 1: Exact substring match
-            if cmd_lower in user_input_lower:
+            if cmd_name.lower() in user_input_lower:
                 explicitly_requested_commands.append(cmd_name)
-                continue
-            # Method 2: Check if all significant words from command name appear in user input
-            # This handles cases like "update and restart the production servers" matching
-            # "Update and Restart Production Servers" (user added "the")
-            cmd_words = set(cmd_lower.split())
-            # Remove common connecting words that might not be in user input
-            significant_cmd_words = cmd_words - {
-                "and",
-                "or",
-                "the",
-                "a",
-                "an",
-                "to",
-                "for",
-                "of",
-                "in",
-                "on",
-            }
-            if significant_cmd_words and significant_cmd_words.issubset(
-                user_input_words
-            ):
-                explicitly_requested_commands.append(cmd_name)
-                continue
-            # Method 3: Check if ANY distinctive word (3+ chars) from command appears in user input
-            # This helps match "copilot" -> "Ask GitHub Copilot"
-            distinctive_words = {w for w in significant_cmd_words if len(w) >= 3}
-            # Exclude very common words that would match too broadly
-            too_common = {
-                "get",
-                "set",
-                "run",
-                "use",
-                "add",
-                "new",
-                "all",
-                "file",
-                "list",
-                "send",
-                "read",
-                "create",
-                "update",
-                "delete",
-                "search",
-            }
-            distinctive_words = distinctive_words - too_common
-            if distinctive_words and any(
-                word in user_input_lower for word in distinctive_words
-            ):
-                explicitly_requested_commands.append(cmd_name)
-                continue
 
-            # Method 4: Check command DESCRIPTION for semantic matches
-            # This is critical for matching user intent to command capabilities
-            # But we need to be STRICT to avoid over-selection
-            if cmd_name in command_descriptions:
-                desc_lower = command_descriptions[cmd_name].lower()
-                desc_words = set(
-                    desc_lower.replace(".", " ")
-                    .replace(",", " ")
-                    .replace("(", " ")
-                    .replace(")", " ")
-                    .split()
-                )
-                # Look for significant overlapping words (5+ chars to avoid noise)
-                significant_desc_words = {w for w in desc_words if len(w) >= 5}
-                significant_user_words = {w for w in user_input_words if len(w) >= 5}
-                # Exclude very common words that match too broadly
-                common_desc_words = {
-                    "using",
-                    "based",
-                    "files",
-                    "given",
-                    "input",
-                    "output",
-                    "returns",
-                    "creates",
-                    "provides",
-                    "allows",
-                    "enables",
-                    "information",
-                    "content",
-                    "system",
-                    "current",
-                    "specified",
-                }
-                significant_desc_words = significant_desc_words - common_desc_words
-                # Require 3+ matching significant words for description-based inclusion
-                matching_words = significant_desc_words & significant_user_words
-                if len(matching_words) >= 3:
-                    explicitly_requested_commands.append(cmd_name)
-
-        # Build context about files
+        # Build context about files and extensions
         context_parts = []
+        if extension_context:
+            context_parts.append(extension_context)
         if file_context:
             context_parts.append(f"Files in workspace: {file_context}")
         if has_uploaded_files:
             context_parts.append("The user has uploaded file(s) with this request.")
 
-        context = "\n".join(context_parts) if context_parts else "No files in context."
-
-        # File-related commands that should always be included if files are involved
-        file_commands = [
-            "Read File",
-            "Write to File",
-            "Search Files",
-            "Search File Content",
-            "Modify File",
-            "Delete File",
-            "Execute Python File",
-            "Run Data Analysis",
-            "List Directory",
-            "Grep Search",
-            "Execute Python Code",
-        ]
-
-        # Web-related commands that should always be included if URLs/links are mentioned
-        web_commands = [
-            "Fetch Webpage Content",
-            "Gather information from website URLs",
-            "Web Search",
-            "Interact with Webpage",
-        ]
-
-        # Check if user input mentions URLs, links, websites, or web-related terms
-        url_indicators = [
-            "http://",
-            "https://",
-            "www.",
-            ".com",
-            ".org",
-            ".net",
-            ".io",
-            "link",
-            "url",
-            "website",
-            "webpage",
-            "page",
-            "site",
-            "goodreads",
-            "amazon",
-            "github",
-            "google",
-            "wikipedia",
-            "browse",
-            "scrape",
-            "fetch",
-            "visit",
-        ]
-        has_url_reference = any(
-            indicator in user_input_lower for indicator in url_indicators
+        context = (
+            "\n".join(context_parts) if context_parts else "No additional context."
         )
 
-        # Commands that should always be available
-        always_include = ["Get Datetime"]
-
         # Token-aware batching: Split commands into batches under 30k tokens each
-        # Testing showed larger batches are faster due to reduced overhead
         MAX_BATCH_TOKENS = 30000
 
         # Calculate base prompt template tokens (without the batch content)
-        base_selection_prompt = f"""You are a precise assistant that selects ONLY the most relevant commands/tools for a user request.
+        base_selection_prompt = f"""You are an assistant that selects relevant commands/tools for a user request.
 
 ## User's Request
 {user_input}
@@ -1914,31 +1691,26 @@ Example: memories, persona, files"""
 {{BATCH_COMMANDS}}
 
 ## Your Task
-Select ONLY the commands that are DIRECTLY needed to fulfill this specific request. Be SELECTIVE, not inclusive.
+Select the commands needed to fulfill this request. Think about:
+1. What the user is ACTUALLY asking to accomplish
+2. What commands are PREREQUISITES (e.g. opening a terminal before executing in it)
+3. What the Context section tells you about available resources (devices, accounts, files, etc.)
 
-**CRITICAL Selection Rules:**
-1. **Maximum 10-15 commands** - Only select what's truly needed. Most tasks need 1-5 commands.
-2. **Match user INTENT precisely** - If the user wants to search the web, select web search. If they want to read a file, select file read.
-3. **Don't select "just in case"** - Only select commands you're confident will be used.
-4. **Group related operations sparingly** - If reading a file, you might need write, but don't include all file operations.
-
-**When to select commands:**
-- The command DIRECTLY accomplishes what the user is asking
-- The command is explicitly mentioned by name
-- The command is a necessary prerequisite for the task
+**Selection guidance:**
+- Most tasks need 3-8 commands. Select all that may be needed, including prerequisites.
+- If the user references a device/machine from Context, include the commands needed to interact with it (terminal commands, desktop control, etc.)
+- If the user wants to interact with files, include file operation commands
+- If the user wants web information, include web/search commands
+- Include both the "ideal" command and reasonable fallbacks (e.g. both desktop control AND terminal for opening an app)
 
 **When NOT to select:**
-- The command "might be useful" but isn't clearly needed
-- The description has vaguely related words
-- You're being "safe" by including extra options
+- Commands completely unrelated to the task
+- Commands for resources not mentioned in context
 
-**If no commands seem clearly relevant**, respond with "None" - this is fine for greetings or simple questions.
-
-## Response Format
-Respond with ONLY a comma-separated list of exact command names, or "None".
+Respond with ONLY a comma-separated list of exact command names, or "None" if no commands are needed.
 No explanations. Maximum 15 commands from this batch.
 
-Example: Web Search, Read File"""
+Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
 
         # Calculate the base prompt overhead (tokens used by template, user input, context)
         base_overhead_tokens = get_tokens(
@@ -2040,26 +1812,7 @@ Example: Web Search, Read File"""
             # Fallback to all commands on error
             return all_command_names
 
-        # Always add file commands if files are involved
-        if has_uploaded_files or file_context:
-            for fc in file_commands:
-                if fc in all_command_names and fc not in valid_commands:
-                    valid_commands.append(fc)
-
-        # Always add web commands if URLs/links are mentioned
-        if has_url_reference:
-            for wc in web_commands:
-                if wc in all_command_names and wc not in valid_commands:
-                    valid_commands.append(wc)
-
-        # Always include certain commands
-        for cmd in always_include:
-            if cmd in all_command_names and cmd not in valid_commands:
-                valid_commands.append(cmd)
-
-        # CRITICAL: Always include commands that user explicitly mentioned by name
-        # This ensures that if user says "run Update and Restart Production Servers"
-        # the command is available even if LLM selection fails to pick it
+        # Always include commands that user explicitly mentioned by exact name
         for cmd in explicitly_requested_commands:
             if cmd not in valid_commands:
                 valid_commands.append(cmd)
@@ -2073,51 +1826,25 @@ Example: Web Search, Read File"""
                 unique_commands.append(cmd)
         valid_commands = unique_commands
 
-        # ENFORCE HARD CAP: Maximum 20 commands to prevent overwhelming the LLM
+        # Cap at 20 commands to keep execution prompt within context budget
         MAX_COMMANDS = 20
         if len(valid_commands) > MAX_COMMANDS:
-            # Prioritize: 1) Explicitly requested, 2) always_include, 3) file/web commands if relevant, 4) LLM selected
-            prioritized = []
-            remaining = []
-
-            # Tier 1: Explicitly requested commands (user mentioned by name)
+            # Keep explicitly requested first, then LLM-selected in order
+            prioritized = [
+                c for c in valid_commands if c in explicitly_requested_commands
+            ]
             for cmd in valid_commands:
-                if cmd in explicitly_requested_commands:
+                if cmd not in prioritized and len(prioritized) < MAX_COMMANDS:
                     prioritized.append(cmd)
-                else:
-                    remaining.append(cmd)
-
-            # Tier 2: Always include commands
-            for cmd in remaining[:]:
-                if cmd in always_include:
-                    prioritized.append(cmd)
-                    remaining.remove(cmd)
-
-            # Tier 3: File/web commands if relevant context
-            if has_uploaded_files or file_context:
-                for cmd in remaining[:]:
-                    if cmd in file_commands and len(prioritized) < MAX_COMMANDS:
-                        prioritized.append(cmd)
-                        remaining.remove(cmd)
-
-            if has_url_reference:
-                for cmd in remaining[:]:
-                    if cmd in web_commands and len(prioritized) < MAX_COMMANDS:
-                        prioritized.append(cmd)
-                        remaining.remove(cmd)
-
-            # Fill remaining slots with LLM-selected commands (preserve order = relevance)
-            for cmd in remaining:
-                if len(prioritized) >= MAX_COMMANDS:
-                    break
-                prioritized.append(cmd)
-
             valid_commands = prioritized
             logging.info(
                 f"[select_commands_for_task] Capped commands from {len(unique_commands)} to {len(valid_commands)}"
             )
 
         # Log the selection
+        logging.info(
+            f"[select_commands_for_task] Selected {len(valid_commands)} commands via LLM: {', '.join(valid_commands)}"
+        )
         if log_output and thinking_id and valid_commands:
             c.log_interaction(
                 role=self.agent_name,
@@ -2670,6 +2397,7 @@ Example: Web Search, Read File"""
         # Enable command selection if commands are available and this is the main user interaction
         enable_command_selection = kwargs.get("enable_command_selection", log_output)
 
+        file_context = ""
         if (
             "disable_commands" not in kwargs
             and not searching
@@ -2677,7 +2405,6 @@ Example: Web Search, Read File"""
             and has_commands_placeholder
         ):
             # Build file context for selection
-            file_context = ""
             has_uploaded_files = False
             if "uploaded_file_data" in kwargs:
                 has_uploaded_files = True
