@@ -234,7 +234,6 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Create Automation Chain": self.create_agixt_chain,
             "Modify Automation Chain": self.modify_chain,
             "Custom API Endpoint": self.custom_api,
-            "Get Mindmap for task to break it down": self.get_mindmap,
             "Schedule Follow-Up Message": self.schedule_task,
             "Schedule Recurring Follow-Up": self.schedule_reoccurring_task,
             "Get Scheduled Follow-Ups": self.get_scheduled_tasks,

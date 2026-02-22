@@ -481,6 +481,21 @@ class Extensions:
     def chains_with_args(self, value):
         self._chains_with_args = value
 
+    def get_extension_context(self) -> str:
+        """
+        Optional method that extensions can override to inject additional context
+        into the agent's command prompt. This is called during prompt building when
+        the extension has enabled commands for the agent.
+
+        Extensions can use this to provide contextual information that helps the
+        agent use their commands more effectively (e.g., available devices,
+        connected accounts, active sessions, etc.).
+
+        Returns:
+            str: Additional context to append to the commands prompt, or empty string.
+        """
+        return ""
+
     async def execute_chain(self, **kwargs):
         chain_name = kwargs.get("chain_name", "")
         user_input = kwargs.get("user_input", "")

@@ -3769,6 +3769,118 @@ class Agent:
             return agent_commands
         return ""
 
+    def _get_extension_contexts(
+        self, agent_extensions, command_list, selected_commands=None
+    ):
+        """
+        Collect additional context from extensions that implement get_extension_context().
+
+        Extensions can optionally provide contextual information to help the agent
+        use their commands more effectively (e.g., available devices, connected
+        accounts, active sessions).
+
+        Only extensions with enabled commands (matching the selection filter) are
+        queried, and the extension module is lazily loaded only if it defines
+        a get_extension_context method.
+
+        Args:
+            agent_extensions: List of extension dicts from get_agent_extensions()
+            command_list: List of enabled command names
+            selected_commands: Optional filter list of selected command names
+
+        Returns:
+            str: Combined context from all extensions, or empty string.
+        """
+        from Extensions import (
+            _get_extension_metadata_cache,
+            _get_cached_extension_module,
+        )
+
+        metadata = _get_extension_metadata_cache()
+        context_parts = []
+        injection_variables = {
+            "user": getattr(self, "user", None),
+            "user_id": self.user_id,
+            "agent_name": self.agent_name,
+            "agent_id": self.agent_id,
+            "company_id": self.company_id,
+            "companies": getattr(self, "companies", []),
+            "ApiClient": getattr(self, "ApiClient", None),
+            "api_key": getattr(self, "api_key", None),
+            **self.AGENT_CONFIG.get("settings", {}),
+        }
+
+        # Build set of extension class names that have enabled (and selected) commands
+        active_extension_classes = set()
+        for ext in agent_extensions:
+            has_active_commands = False
+            for cmd in ext.get("commands", []):
+                if not cmd.get("enabled"):
+                    continue
+                if selected_commands and cmd["friendly_name"] not in selected_commands:
+                    continue
+                if cmd["friendly_name"] in command_list:
+                    has_active_commands = True
+                    break
+            if has_active_commands:
+                # Map extension display name back to class name via metadata
+                for class_name, ext_info in metadata.get("extensions", {}).items():
+                    ext_file = os.path.basename(ext_info["file"])
+                    ext_display_name = ext_file.split(".")[0].replace("_", " ").title()
+                    if ext_display_name == "Agixt Actions":
+                        ext_display_name = "AGiXT Actions"
+                    if ext_display_name == ext["extension_name"]:
+                        active_extension_classes.add(class_name)
+                        break
+
+        for class_name in active_extension_classes:
+            ext_info = metadata.get("extensions", {}).get(class_name)
+            if not ext_info:
+                continue
+
+            module_file = ext_info.get("file")
+            if not module_file:
+                continue
+
+            try:
+                module = _get_cached_extension_module(module_file)
+                if module is None:
+                    continue
+
+                ext_class = getattr(module, class_name, None)
+                if ext_class is None:
+                    continue
+
+                # Check if the class overrides get_extension_context
+                # (i.e., it's not just the base Extensions.get_extension_context)
+                if not hasattr(ext_class, "get_extension_context"):
+                    continue
+                from Extensions import Extensions as BaseExtensions
+
+                if getattr(ext_class, "get_extension_context", None) is getattr(
+                    BaseExtensions, "get_extension_context", None
+                ):
+                    continue
+
+                # Instantiate the extension and call get_extension_context
+                instance = ext_class(**injection_variables)
+                context = instance.get_extension_context()
+                if context and isinstance(context, str) and context.strip():
+                    context_parts.append(context.strip())
+                    logging.info(
+                        f"[Agent] Extension '{class_name}' provided context ({len(context)} chars)"
+                    )
+
+            except Exception as e:
+                logging.debug(
+                    f"[Agent] Failed to get extension context from '{class_name}': {e}"
+                )
+                continue
+
+        if context_parts:
+            return "\n\n" + "\n\n".join(context_parts) + "\n"
+        return ""
+
     def get_commands_prompt(
         self,
         conversation_id,
@@ -3912,6 +4024,13 @@ class Agent:
                                 f"<chain_name>{command_friendly_name}</chain_name>\n"
                             )
                     agent_commands += "</execute>\n"
+
+            # Gather extension context from extensions that provide it
+            extension_context = self._get_extension_contexts(
+                agent_extensions, command_list, selected_commands
+            )
+            if extension_context:
+                agent_commands += extension_context
 
             agent_commands += f"""## Command Execution Guidelines
 - **The assistant has commands available to use if they would be useful to provide a better user experience.**

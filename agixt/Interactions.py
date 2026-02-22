@@ -1695,6 +1695,23 @@ Example: memories, persona, files"""
         if not all_command_names:
             return []
 
+        # If total enabled commands fit within a reasonable token budget, skip LLM selection
+        # and just return all of them. LLM-based selection often misses relevant commands
+        # (especially from extension hubs) because user intent doesn't keyword-match command names.
+        # With a 64k context model, using up to ~30k for commands leaves plenty of room.
+        commands_tokens = get_tokens(commands_prompt)
+        if commands_tokens <= 30000:
+            if log_output and thinking_id:
+                c = Conversations(
+                    conversation_name=conversation_name,
+                    user=self.user,
+                )
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{thinking_id}] All {len(all_command_names)} abilities available",
+                )
+            return all_command_names
+
         # CRITICAL: Pre-check for command name matches in user input
         # If user mentions a command name (or close variant), always include it
         user_input_lower = user_input.lower()
@@ -2718,6 +2735,7 @@ Example: Web Search, Read File"""
                     thinking_id=thinking_id,
                 )
             except Exception as e:
+                logging.error(f"[run_stream] select_commands_for_task failed: {e}")
                 selected_commands = None
 
         # Always include client-defined tools regardless of command selection
