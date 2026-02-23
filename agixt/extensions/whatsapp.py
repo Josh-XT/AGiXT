@@ -173,7 +173,6 @@ class whatsapp(Extensions):
                 error_msg = result["error"].get("message", "Unknown error")
                 # Log error type only, not full message which may contain sensitive data
                 error_code = result["error"].get("code", "unknown")
-                logging.error(f"WhatsApp API error: code={error_code}")
                 return {"error": error_msg}
 
             return result
