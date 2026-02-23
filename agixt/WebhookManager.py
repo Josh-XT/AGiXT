@@ -10,6 +10,8 @@ import hashlib
 import hmac
 import asyncio
 import logging
+import ipaddress
+from urllib.parse import urlparse
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
@@ -17,6 +19,40 @@ from threading import Lock
 import httpx
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
+
+
+def _validate_webhook_url(url: str) -> bool:
+    """Validate that a webhook URL does not target internal/private networks."""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        # Block common internal hostnames
+        blocked_hostnames = {
+            "localhost",
+            "127.0.0.1",
+            "0.0.0.0",
+            "::1",
+            "metadata.google.internal",
+        }
+        if hostname.lower() in blocked_hostnames:
+            return False
+        # Block private/reserved IP ranges
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_reserved or ip.is_loopback or ip.is_link_local:
+                return False
+        except ValueError:
+            # It's a hostname, not an IP - check for internal patterns
+            if hostname.endswith(".internal") or hostname.endswith(".local"):
+                return False
+        return True
+    except Exception:
+        return False
+
 
 # Module-level shared httpx client for outgoing webhooks
 _webhook_http_client = None
@@ -1026,6 +1062,12 @@ class WebhookManager:
         session = get_session()
 
         try:
+            # Validate target URL to prevent SSRF
+            if not _validate_webhook_url(webhook_data.target_url):
+                raise ValueError(
+                    "Invalid webhook target URL. URLs targeting internal/private networks are not allowed."
+                )
+
             webhook_id = str(uuid.uuid4())
 
             webhook = WebhookOutgoing(

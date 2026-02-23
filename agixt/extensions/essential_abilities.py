@@ -1203,15 +1203,6 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         if not os.path.isfile(file_path):
             return f"Error: File '{file}' does not exist."
 
-        if self.we_are_running_in_a_docker_container():
-            result = subprocess.run(
-                f"python {file_path}", capture_output=True, encoding="utf8", shell=True
-            )
-            if result.returncode == 0:
-                return result.stdout
-            else:
-                return f"Error: {result.stderr}"
-
         with open(file_path, "r") as f:
             code = f.read()
         return execute_python_code(code=code, working_directory=self.WORKING_DIRECTORY)

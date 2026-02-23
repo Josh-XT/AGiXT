@@ -2344,8 +2344,8 @@ class Vector(TypeDecorator):
         # For SQLite, parse string representation
         if DATABASE_TYPE == "sqlite":
             try:
-                value = eval(value)
-            except:
+                value = json.loads(value)
+            except (json.JSONDecodeError, TypeError):
                 return None
 
         # Convert to 1D numpy array

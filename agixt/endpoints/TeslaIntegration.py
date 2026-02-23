@@ -1,5 +1,6 @@
 import os
 import logging
+import subprocess
 import requests
 import json
 from fastapi import APIRouter, HTTPException
@@ -33,22 +34,39 @@ def ensure_keys_exist():
             return
 
         # Generate private key
-        private_key_cmd = (
-            f"openssl ecparam -name prime256v1 -genkey -noout -out {PRIVATE_KEY_PATH}"
+        private_key_result = subprocess.run(
+            [
+                "openssl",
+                "ecparam",
+                "-name",
+                "prime256v1",
+                "-genkey",
+                "-noout",
+                "-out",
+                PRIVATE_KEY_PATH,
+            ],
+            capture_output=True,
         )
-        private_key_result = os.system(private_key_cmd)
 
-        if private_key_result != 0:
+        if private_key_result.returncode != 0:
             logging.error("Failed to generate Tesla private key")
             raise Exception("Failed to generate Tesla private key")
 
         # Generate public key
-        public_key_cmd = (
-            f"openssl ec -in {PRIVATE_KEY_PATH} -pubout -out {PUBLIC_KEY_PATH}"
+        public_key_result = subprocess.run(
+            [
+                "openssl",
+                "ec",
+                "-in",
+                PRIVATE_KEY_PATH,
+                "-pubout",
+                "-out",
+                PUBLIC_KEY_PATH,
+            ],
+            capture_output=True,
         )
-        public_key_result = os.system(public_key_cmd)
 
-        if public_key_result != 0:
+        if public_key_result.returncode != 0:
             logging.error("Failed to generate Tesla public key")
             raise Exception("Failed to generate Tesla public key")
 
