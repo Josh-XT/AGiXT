@@ -885,15 +885,9 @@ class Interactions:
                 file_name = file["file_name"]
                 file_list.append(file_name)
                 file_name = regex.sub(r"(\[.*?\])", "", file_name)
-                file_path = os.path.normpath(
-                    os.path.join(working_directory, file_name)
-                )
-                if not file_path.startswith(
-                    os.path.normpath(working_directory)
-                ):
-                    logging.warning(
-                        f"Path traversal attempt blocked: {file_name}"
-                    )
+                file_path = os.path.normpath(os.path.join(working_directory, file_name))
+                if not file_path.startswith(os.path.normpath(working_directory)):
+                    logging.warning(f"Path traversal attempt blocked: {file_name}")
                     continue
                 if not os.path.exists(file_path):
                     # Create it with the content if it doesn't exist.
