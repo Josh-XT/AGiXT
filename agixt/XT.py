@@ -3155,6 +3155,47 @@ Your response (true or false):"""
         data_analysis = ""
         if analyze_user_input:
             data_analysis = await self.analyze_data(user_input=new_prompt)
+        elif not file_content:
+            # Lightweight context: read CSV files directly instead of analyze_data
+            try:
+                workspace_files = self.get_agent_workspace_list()
+                csv_files = [f for f in workspace_files if str(f).endswith(".csv")]
+                if csv_files:
+                    import pandas as pd
+                    context_parts = []
+                    for csv_path in csv_files:
+                        try:
+                            fp = csv_path if self.conversation_workspace in str(csv_path) else os.path.join(self.conversation_workspace, csv_path)
+                            raw = open(fp, "r").read()
+                            lines = raw.split("\n")
+                            preview = "\n".join(lines[:100]) if len(lines) > 100 else raw
+                            part = f"**File: `{fp}`**\n```csv\n{preview}\n```"
+                            try:
+                                df_meta = pd.read_csv(fp)
+                                part += f"\n- Shape: {df_meta.shape[0]} rows × {df_meta.shape[1]} columns"
+                                part += "\n- Columns: " + ", ".join([f"`{c}` ({df_meta[c].dtype})" for c in df_meta.columns])
+                                for col in df_meta.select_dtypes(include=["object"]).columns:
+                                    uvals = df_meta[col].unique()
+                                    if len(uvals) <= 50:
+                                        part += f"\n- `{col}` row values: [{', '.join(str(v) for v in uvals)}]"
+                            except Exception:
+                                pass
+                            context_parts.append(part)
+                        except Exception:
+                            pass
+                    if context_parts:
+                        rules = (
+                            "**DATA ACCESS RULES:**\n"
+                            "- Column headers are in the first row. All other rows are data.\n"
+                            "- If a column contains text/label values, those are ROW identifiers, NOT column names.\n"
+                            "- To find a specific row: `df[df['ColumnName'].str.strip() == 'value']`\n"
+                            "- NEVER use `df['some_value']` unless you confirmed it is an actual column name in `df.columns`.\n"
+                            "- Always use `.str.strip()` when comparing string columns — values may have trailing whitespace.\n"
+                            "- Always `print()` results so they appear in the output.\n\n"
+                        )
+                        data_analysis = rules + "\n\n".join(context_parts)
+            except Exception:
+                pass
         if mode == "command" and command_name and command_variable:
             try:
                 command_args = (
@@ -3849,32 +3890,6 @@ Your response (true or false):"""
         # Get thinking_id for activity logging
         thinking_id = c.get_thinking_id(agent_name=self.agent_name)
 
-        # Process uploaded files before streaming
-        file_contents = []
-        current_input_tokens = get_tokens(new_prompt)
-        for file in files:
-            content = await self.learn_from_file(
-                file_url=file["file_url"],
-                file_name=file["file_name"],
-                user_input=new_prompt,
-                collection_id=self.conversation_id,
-                thinking_id=thinking_id,
-            )
-            file_contents.append(content)
-        if file_contents:
-            file_content = "\n".join(file_contents)
-            file_tokens = get_tokens(file_content)
-            current_input_tokens = file_tokens + current_input_tokens
-        else:
-            file_content = ""
-            current_input_tokens = self.input_tokens
-
-        # Learn from any URLs that weren't downloaded as files
-        await self.learn_from_websites(
-            urls=urls,
-            summarize_content=False,
-        )
-
         # Handle prompt_args cleanup like non-streaming version
         if "user_input" in prompt_args:
             del prompt_args["user_input"]
@@ -3913,7 +3928,10 @@ Your response (true or false):"""
         if "data_analysis" in prompt_args:
             del prompt_args["data_analysis"]
 
-        # Send initial streaming chunk
+        # ─── YIELD INITIAL CHUNK IMMEDIATELY ───────────────────────────────
+        # This must happen BEFORE any heavy I/O (learn_from_file, analyze_data)
+        # so the HTTP response starts streaming and keepalive comments can
+        # prevent Cloudflare / proxy idle-timeout disconnects.
         initial_chunk = {
             "id": chunk_id,
             "object": "chat.completion.chunk",
@@ -3930,6 +3948,120 @@ Your response (true or false):"""
         yield f"data: {json.dumps(initial_chunk)}\n\n"
 
         try:
+            # ─── Process uploaded files with keepalive ─────────────────────
+            logging.info(f"[stream] Starting file processing. files={len(files)}")
+            file_contents = []
+            current_input_tokens = get_tokens(new_prompt)
+            for file in files:
+                file_task = asyncio.ensure_future(
+                    self.learn_from_file(
+                        file_url=file["file_url"],
+                        file_name=file["file_name"],
+                        user_input=new_prompt,
+                        collection_id=self.conversation_id,
+                        thinking_id=thinking_id,
+                    )
+                )
+                while not file_task.done():
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(file_task), timeout=15.0
+                        )
+                    except asyncio.TimeoutError:
+                        yield ": keepalive\n\n"
+                        continue
+                    except Exception:
+                        break
+                try:
+                    content = file_task.result()
+                    file_contents.append(content)
+                except Exception:
+                    pass
+            if file_contents:
+                file_content = "\n".join(file_contents)
+                file_tokens = get_tokens(file_content)
+                current_input_tokens = file_tokens + current_input_tokens
+            else:
+                file_content = ""
+                current_input_tokens = self.input_tokens
+
+            # Learn from any URLs that weren't downloaded as files
+            if urls:
+                url_task = asyncio.ensure_future(
+                    self.learn_from_websites(
+                        urls=urls,
+                        summarize_content=False,
+                    )
+                )
+                while not url_task.done():
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(url_task), timeout=15.0
+                        )
+                    except asyncio.TimeoutError:
+                        yield ": keepalive\n\n"
+                        continue
+                    except Exception:
+                        break
+
+            # ─── Build workspace data context for follow-up questions ──────
+            # Instead of running analyze_data (which does 2 LLM inferences +
+            # code execution and takes 10+ minutes), read CSV files directly
+            # from workspace and pass as context to run_stream. The main
+            # inference can handle data analysis through its own commands.
+            data_analysis = ""
+            if not file_content:
+                try:
+                    workspace_files = self.get_agent_workspace_list()
+                    csv_files = [
+                        f for f in workspace_files if str(f).endswith(".csv")
+                    ]
+                    if csv_files:
+                        logging.info(f"[stream] Found {len(csv_files)} CSV files in workspace, building context")
+                        import pandas as pd
+
+                        context_parts = []
+                        for csv_path in csv_files:
+                            try:
+                                fp = csv_path if self.conversation_workspace in str(csv_path) else os.path.join(self.conversation_workspace, csv_path)
+                                raw = open(fp, "r").read()
+                                lines = raw.split("\n")
+                                preview = "\n".join(lines[:100]) if len(lines) > 100 else raw
+                                part = f"**File: `{fp}`**\n```csv\n{preview}\n```"
+                                # Add structured metadata
+                                try:
+                                    df_meta = pd.read_csv(fp)
+                                    part += f"\n- Shape: {df_meta.shape[0]} rows × {df_meta.shape[1]} columns"
+                                    part += "\n- Columns: " + ", ".join([f"`{c}` ({df_meta[c].dtype})" for c in df_meta.columns])
+                                    for col in df_meta.select_dtypes(include=["object"]).columns:
+                                        uvals = df_meta[col].unique()
+                                        if len(uvals) <= 50:
+                                            part += f"\n- `{col}` row values: [{', '.join(str(v) for v in uvals)}]"
+                                except Exception:
+                                    pass
+                                context_parts.append(part)
+                            except Exception as e:
+                                logging.info(f"[stream] Error reading {csv_path}: {e}")
+                        if context_parts:
+                            rules = (
+                                "**DATA ACCESS RULES:**\n"
+                                "- Column headers are in the first row. All other rows are data.\n"
+                                "- If a column contains text/label values, those are ROW identifiers, NOT column names.\n"
+                                "- To find a specific row: `df[df['ColumnName'].str.strip() == 'value']`\n"
+                                "- NEVER use `df['some_value']` unless you confirmed it is an actual column name in `df.columns`.\n"
+                                "- Always use `.str.strip()` when comparing string columns — values may have trailing whitespace.\n"
+                                "- Always `print()` results so they appear in the output.\n\n"
+                            )
+                            data_analysis = rules + "\n\n".join(context_parts)
+                            logging.info(f"[stream] Built workspace data context: {len(data_analysis)} chars")
+                    else:
+                        logging.info(f"[stream] No CSV files in workspace ({len(workspace_files)} files total)")
+                except Exception as e:
+                    logging.info(f"[stream] Exception building workspace context: {e}")
+            else:
+                logging.info(f"[stream] file_content present ({len(file_content)} chars), skipping workspace context")
+
+            logging.info(f"[stream] Starting run_stream inference pipeline...")
             # Calculate complexity score for inference-time compute scaling
             complexity_score = calculate_complexity_score(
                 user_input=new_prompt,
@@ -3948,7 +4080,18 @@ Your response (true or false):"""
             # Inject file content into prompt args if within token limits
             if current_input_tokens < self.agent.max_input_tokens:
                 if file_content:
-                    prompt_args["uploaded_file_data"] = file_content
+                    # Prepend data access rules to file content so the model
+                    # knows how to properly access rows vs columns in CSV data
+                    data_rules = (
+                        "**DATA ACCESS RULES:**\n"
+                        "- Column headers are in the first row. All other rows are data.\n"
+                        "- If a column contains text/label values, those are ROW identifiers, NOT column names.\n"
+                        "- To find a specific row: `df[df['ColumnName'].str.strip() == 'value']`\n"
+                        "- NEVER use `df['some_value']` unless you confirmed it is an actual column name in `df.columns`.\n"
+                        "- Always use `.str.strip()` when comparing string columns — values may have trailing whitespace.\n"
+                        "- Always `print()` results so they appear in the output.\n\n"
+                    )
+                    prompt_args["uploaded_file_data"] = data_rules + file_content
 
             # Add additional context if provided
             if additional_context:
@@ -4005,7 +4148,18 @@ Your response (true or false):"""
                     return sentences, remainder
                 return "", text
 
-            async for event in self.agent_interactions.run_stream(
+            # Use a keepalive-wrapped iterator to prevent Cloudflare idle timeout
+            # during long processing phases (websearch, command selection, etc.)
+            # We use asyncio.shield to avoid cancelling the generator on timeout.
+            _STREAM_END = object()
+
+            async def _next_event(iterator):
+                try:
+                    return await iterator.__anext__()
+                except StopAsyncIteration:
+                    return _STREAM_END
+
+            stream_iter = self.agent_interactions.run_stream(
                 user_input=new_prompt,
                 prompt_category=prompt_category,
                 prompt_name=prompt_name,
@@ -4023,8 +4177,28 @@ Your response (true or false):"""
                 command_overrides=command_overrides,  # Pass command overrides to enable specific commands
                 tts=tts
                 or tts_mode != "off",  # Pass TTS flag for filler speech instructions
+                data_analysis=data_analysis,  # Pass data analysis from workspace files
                 **prompt_args,
-            ):
+            ).__aiter__()
+            _pending_task = None
+            while True:
+                if _pending_task is None:
+                    _pending_task = asyncio.ensure_future(
+                        _next_event(stream_iter)
+                    )
+                try:
+                    event = await asyncio.wait_for(
+                        asyncio.shield(_pending_task), timeout=15.0
+                    )
+                    _pending_task = None  # Got result, clear task
+                except asyncio.TimeoutError:
+                    # Send keepalive SSE comment to prevent proxy idle timeout
+                    yield ": keepalive\n\n"
+                    continue
+
+                if event is _STREAM_END:
+                    break
+
                 event_type = event.get("type", "")
                 content = event.get("content", "")
                 is_complete = event.get("complete", False)
@@ -5184,11 +5358,31 @@ Your response (true or false):"""
                 file_path = file_name
             file_content = open(file_path, "r").read()
             lines = file_content.split("\n")
-            if len(lines) < 20:
+            if len(lines) < 100:
                 file_preview = f"`{file_path}`\n```csv\n{file_content}\n```"
             else:
-                limited_content = "\n".join(lines[0:20])
+                limited_content = "\n".join(lines[0:100])
                 file_preview = f"`{file_path}`\n```csv\n{limited_content}\n```"
+            # Generate structured metadata to help LLM understand data structure
+            try:
+                import pandas as pd
+
+                df_meta = pd.read_csv(file_path)
+                metadata = "\n\n**DATA STRUCTURE:**\n"
+                metadata += f"- Shape: {df_meta.shape[0]} rows × {df_meta.shape[1]} columns\n"
+                metadata += "- Columns:\n"
+                for col in df_meta.columns:
+                    dtype = df_meta[col].dtype
+                    metadata += f"  - `{col}` ({dtype})\n"
+                for col in df_meta.select_dtypes(include=['object']).columns:
+                    unique_vals = df_meta[col].unique()
+                    if len(unique_vals) <= 50:
+                        vals_str = ", ".join([str(v) for v in unique_vals])
+                        metadata += f"- The `{col}` column contains these row identifiers: [{vals_str}]\n"
+                metadata += "\n**IMPORTANT:** Values listed above as row identifiers are found IN the data rows, NOT as column headers. To access a specific row, filter: `df[df['ColumnName'] == 'value']`. Use `.str.strip()` on string columns to handle trailing whitespace.\n"
+                file_preview += metadata
+            except Exception:
+                pass
         if len(file_names) > 1:
             # Found multiple files, do things a little differently.
             previews = []
@@ -5203,12 +5397,69 @@ Your response (true or false):"""
                     import_files += f", `{file_path}`"
                 file_content = open(file_path, "r").read()
                 lines = file_content.split("\n")
-                if len(lines) < 20:
+                if len(lines) < 100:
                     previews.append(f"`{file_path}`\n```csv\n{file_content}\n```")
                 else:
-                    limited_content = "\n".join(lines[0:20])
+                    limited_content = "\n".join(lines[0:100])
                     previews.append(f"`{file_path}`\n```csv\n{limited_content}\n```")
             file_preview = "\n".join(previews)
+            # Generate structured metadata for each file
+            try:
+                import pandas as pd
+
+                metadata_sections = []
+                for file in file_names:
+                    fp = (
+                        os.path.join(self.conversation_workspace, file)
+                        if self.conversation_workspace not in file
+                        else file
+                    )
+                    try:
+                        df_meta = pd.read_csv(fp)
+                        metadata = f"\n**DATA STRUCTURE for `{fp}`:**\n"
+                        metadata += f"- Shape: {df_meta.shape[0]} rows × {df_meta.shape[1]} columns\n"
+                        metadata += "- Columns:\n"
+                        for col in df_meta.columns:
+                            dtype = df_meta[col].dtype
+                            metadata += f"  - `{col}` ({dtype})\n"
+                        for col in df_meta.select_dtypes(
+                            include=["object"]
+                        ).columns:
+                            unique_vals = df_meta[col].unique()
+                            if len(unique_vals) <= 50:
+                                vals_str = ", ".join(
+                                    [str(v) for v in unique_vals]
+                                )
+                                metadata += f"- The `{col}` column contains these row identifiers: [{vals_str}]\n"
+                        metadata_sections.append(metadata)
+                    except Exception:
+                        pass
+                if metadata_sections:
+                    file_preview += "\n".join(metadata_sections)
+                    file_preview += "\n**IMPORTANT:** Values listed above as row identifiers are found IN the data rows, NOT as column headers. To access a specific row, filter: `df[df['ColumnName'] == 'value']`. Use `.str.strip()` on string columns to handle trailing whitespace.\n"
+            except Exception:
+                pass
+        # Generic data access rules to help the model understand CSV structure.
+        data_access_rules = (
+            "\n\n**DATA ACCESS RULES:**\n"
+            "1. Always start by printing `df.columns.tolist()` and `df.head()` to see what columns exist.\n"
+            "2. The FIRST ROW of the CSV is COLUMN HEADERS. All other rows are data.\n"
+            "3. If a column contains text/label values, those are ROW identifiers, NOT column names.\n"
+            "4. To find a specific row: `df[df['ColumnName'].str.strip() == 'value']`\n"
+            "   NEVER use `df['value']` — that searches for a column, not a row.\n"
+            "5. Use `.str.strip()` on string columns before comparing — values may have trailing whitespace.\n"
+            "6. Never assume a value is a column name unless you verified it exists in `df.columns`.\n"
+            "7. Always `print()` results so they appear in the output.\n"
+        )
+        verification_rules = (
+            "\n\n**DATA ACCESS VERIFICATION:**\n"
+            "- Confirm `df['X']` only uses actual column header names from `df.columns`.\n"
+            "- If `df['SomeName']` is used where 'SomeName' is a row value (not a column header), "
+            "fix it to: `df[df['ColumnName'].str.strip() == 'SomeName']`.\n"
+            "- Verify `.str.strip()` is used on string column comparisons.\n"
+        )
+        file_preview_with_rules = file_preview + data_access_rules
+        file_preview_for_verify = file_preview + verification_rules
         code_interpreter = await self.inference(
             user_input=user_input,
             prompt_category="Default",
@@ -5218,7 +5469,7 @@ Your response (true or false):"""
                 else "Code Interpreter"
             ),
             import_file=import_files if len(file_names) > 1 else file_path,
-            file_preview=file_preview,
+            file_preview=file_preview_with_rules,
             log_user_input=False,
             log_output=False,
             browse_links=False,
@@ -5241,7 +5492,7 @@ Your response (true or false):"""
                 else "Verify Code Interpreter"
             ),
             import_file=import_file,
-            file_preview=file_preview,
+            file_preview=file_preview_for_verify,
             code=code_interpreter,
             log_user_input=False,
             log_output=False,

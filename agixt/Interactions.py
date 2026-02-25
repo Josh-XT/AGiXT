@@ -3549,7 +3549,14 @@ Analyze the actual output shown and continue with your response.
                 if has_no_answer:
                     # No answer block at all - prompt to provide one
                     # Use compressed response to prevent context explosion
-                    continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant has completed thinking and command execution but has not yet provided a final answer to the user. Now provide your response to the user inside <answer></answer> tags. Do not repeat previous thinking or command outputs."
+                    # Escalate urgency as iterations increase to break code-execution loops
+                    if continuation_count >= max_continuation_loops - 2:
+                        urgency = " CRITICAL: This is your FINAL chance to respond. You MUST provide your answer NOW inside <answer></answer> tags using whatever results you have. Do NOT execute any more commands."
+                    elif continuation_count >= max_continuation_loops // 2:
+                        urgency = " IMPORTANT: You have been executing commands multiple times. Stop executing code and provide your final answer inside <answer></answer> tags immediately using the results you already have."
+                    else:
+                        urgency = ""
+                    continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant has completed thinking and command execution but has not yet provided a final answer to the user. Now provide your response to the user inside <answer></answer> tags. Do not repeat previous thinking or command outputs.{urgency}"
                 else:
                     # Incomplete answer - prompt to continue
                     # Use compressed response to prevent context explosion
@@ -3568,9 +3575,7 @@ Analyze the actual output shown and continue with your response.
                 # This is similar to the main stream processing but for continuation
                 continuation_response = ""
                 continuation_in_answer = False
-                continuation_answer_content = (
-                    ""  # Track answer content for delta streaming
-                )
+                continuation_answer_content = answer_content  # Inherit what was already streamed to avoid duplication
                 continuation_current_tag = None
                 continuation_current_tag_content = ""
                 continuation_current_tag_message_id = None  # Track message ID
@@ -3901,6 +3906,12 @@ Analyze the actual output shown and continue with your response.
                     if "</answer>" in tag_check_window.lower():
                         continuation_in_answer = False
 
+                # Propagate accumulated answer content back so next iteration
+                # doesn't re-yield already-streamed content (answer_content may
+                # have been reset to "" when execute tags appeared inside answer blocks)
+                if continuation_answer_content:
+                    answer_content = continuation_answer_content
+
                 # Append continuation to main response (only if we didn't already do it when breaking for execution)
                 if not broke_for_execution:
                     self.response += continuation_response
@@ -4021,17 +4032,43 @@ Analyze the actual output shown and continue with your response.
             flags=re.IGNORECASE,
         )
         # Remove plain text LLM reasoning artifacts that leak into answers
-        # e.g. "Quality check: The code correctly..." or "Reward: 1.0" or "Quality score: 0.95"
+        # e.g. "Quality check: The code correctly..." or "Reward: 1.0" or "The reward score is high..."
         final_answer = re.sub(
             r"^\s*(?:Quality (?:check|score)|Reward)\s*:.*$",
             "",
             final_answer,
             flags=re.MULTILINE | re.IGNORECASE,
         )
+        # Remove sentences about reward scores (model meta-commentary)
+        final_answer = re.sub(
+            r"(?:^|\n)\s*The reward score\b[^\n]*",
+            "",
+            final_answer,
+            flags=re.IGNORECASE,
+        )
         # Remove orphaned angle brackets at boundaries (remnants of stripped tags)
         final_answer = re.sub(r"^[>\s]+", "", final_answer)
         final_answer = re.sub(r"[<\s]+$", "", final_answer)
         final_answer = final_answer.strip()
+
+        # Fallback: if final_answer is empty after cleanup but response had output blocks,
+        # extract the last non-empty <output> block's content as a usable answer.
+        # This handles cases where the model executed code successfully but never
+        # wrapped results in <answer> tags (e.g., hit max continuation loops).
+        if not final_answer and "<output>" in self.response.lower():
+            output_matches = re.findall(
+                r"<output>(.*?)</output>",
+                self.response,
+                re.DOTALL | re.IGNORECASE,
+            )
+            for match in reversed(output_matches):
+                stripped = match.strip()
+                if stripped:
+                    final_answer = stripped
+                    logging.info(
+                        "[run_stream] No <answer> block found; using last code output as fallback answer"
+                    )
+                    break
 
         # Deduplicate repeated content - sometimes the model repeats the same answer multiple times
         # This detects if the answer contains repeated blocks and keeps only the first occurrence

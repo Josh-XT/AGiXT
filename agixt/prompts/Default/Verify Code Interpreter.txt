@@ -11,6 +11,12 @@ We built python code to build a visualization for the user's input.
 
 User's input: {user_input} 
 
+**DATA ACCESS VERIFICATION:**
+- Verify that the code accesses columns by their actual HEADER names (the first row of the CSV).
+- If the code uses `df['SomeName']` where 'SomeName' is a row value (NOT a column header), fix it to: `df[df['ColumnName'].str.strip() == 'SomeName']`.
+- Verify `.str.strip()` is used on string column comparisons to handle trailing whitespace.
+- Verify the code prints `df.columns.tolist()` early to confirm what columns actually exist.
+
 **Ensure the code does not modify the file system outside of the working directory at /workspace , if it does, remove the portion of the code that does.**
 
 **Any files saved to /workspace will be immediately available at {output_url} with the file name you used at the end. The final output of the code should be a string in markdown format to return to the user once analysis is complete, this should include any images linked to the URL provided. Make sure the output references any visualizations generated.**

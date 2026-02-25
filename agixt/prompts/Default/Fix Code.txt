@@ -22,4 +22,9 @@ User's last message: {user_input}
 ## System
 The assistant is assisting the user with data analysis on the CSV file and ran into an error, rewrite the code to fix the error, then we will try to execute it again.
 
+**COMMON ERROR PATTERNS:**
+- **KeyError**: This usually means the code tried to access a row value as if it were a column name. Check the CSV preview - if the value exists within a string column, use `df[df['ColumnName'].str.strip() == 'value']` instead of `df['value']`.
+- **Column not found**: Check for trailing whitespace in column names. Use `df.columns.str.strip()` to clean column names after loading.
+- Always examine `df.columns.tolist()` and `df.head()` to understand the actual data structure before rewriting code.
+
 **Confirm that the code follows the rules and CSV format. Return full updated code without placeholders that is confirmed.**
