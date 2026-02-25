@@ -3412,7 +3412,7 @@ Example: If user says "list my files", use:
 
         # Continuation logic: Handle execution outputs and incomplete answers
         # This matches the non-streaming behavior where we inject output and run inference again
-        max_continuation_loops = 10  # Prevent infinite loops
+        max_continuation_loops = 15  # Prevent infinite loops
         continuation_count = 0
 
         # Track the length of processed content to detect new executions
@@ -3451,6 +3451,14 @@ Example: If user says "list my files", use:
                 break
 
             continuation_count += 1
+            # Send keepalive at the start of each iteration to prevent
+            # proxy timeouts (e.g. Cloudflare 100s idle timeout) during
+            # prompt building and LLM inference startup.
+            yield {
+                "type": "keepalive",
+                "content": "",
+                "complete": False,
+            }
             logging.debug(
                 f"[run_stream] Continuation loop iteration {continuation_count}/{max_continuation_loops}. "
                 f"has_new_execution: {has_new_execution}, has_incomplete_answer: {has_incomplete_answer}, "
@@ -3852,7 +3860,7 @@ Analyze the actual output shown and continue with your response.
                             )
                             # Remove plain text LLM reasoning artifacts that leak into answers
                             cleaned_new_answer = re.sub(
-                                r"^\s*(?:Quality check|Reward)\s*:.*$",
+                                r"^\s*(?:Quality (?:check|score)|Reward)\s*:.*$",
                                 "",
                                 cleaned_new_answer,
                                 flags=re.MULTILINE | re.IGNORECASE,
@@ -3863,6 +3871,13 @@ Analyze the actual output shown and continue with your response.
                                 "",
                                 cleaned_new_answer,
                                 flags=re.IGNORECASE,
+                            )
+                            # Remove orphaned angle brackets at boundaries (remnants of stripped tags)
+                            cleaned_new_answer = re.sub(
+                                r"^[>\s]+", "", cleaned_new_answer
+                            )
+                            cleaned_new_answer = re.sub(
+                                r"[<\s]+$", "", cleaned_new_answer
                             )
                             cleaned_new_answer = cleaned_new_answer.strip()
 
@@ -4006,13 +4021,16 @@ Analyze the actual output shown and continue with your response.
             flags=re.IGNORECASE,
         )
         # Remove plain text LLM reasoning artifacts that leak into answers
-        # e.g. "Quality check: The code correctly..." or "Reward: 1.0"
+        # e.g. "Quality check: The code correctly..." or "Reward: 1.0" or "Quality score: 0.95"
         final_answer = re.sub(
-            r"^\s*(?:Quality check|Reward)\s*:.*$",
+            r"^\s*(?:Quality (?:check|score)|Reward)\s*:.*$",
             "",
             final_answer,
             flags=re.MULTILINE | re.IGNORECASE,
         )
+        # Remove orphaned angle brackets at boundaries (remnants of stripped tags)
+        final_answer = re.sub(r"^[>\s]+", "", final_answer)
+        final_answer = re.sub(r"[<\s]+$", "", final_answer)
         final_answer = final_answer.strip()
 
         # Deduplicate repeated content - sometimes the model repeats the same answer multiple times
