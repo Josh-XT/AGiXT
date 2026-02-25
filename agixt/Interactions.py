@@ -3812,12 +3812,50 @@ Analyze the actual output shown and continue with your response.
                                 cleaned_new_answer,
                                 flags=re.DOTALL | re.IGNORECASE,
                             )
+                            # Remove <step>, <reward>, <count>, <execute>, <output> tags
+                            cleaned_new_answer = re.sub(
+                                r"<step>.*?</step>",
+                                "",
+                                cleaned_new_answer,
+                                flags=re.DOTALL | re.IGNORECASE,
+                            )
+                            cleaned_new_answer = re.sub(
+                                r"<reward>.*?</reward>",
+                                "",
+                                cleaned_new_answer,
+                                flags=re.DOTALL | re.IGNORECASE,
+                            )
+                            cleaned_new_answer = re.sub(
+                                r"<count>.*?</count>",
+                                "",
+                                cleaned_new_answer,
+                                flags=re.DOTALL | re.IGNORECASE,
+                            )
+                            cleaned_new_answer = re.sub(
+                                r"<execute>.*?</execute>",
+                                "",
+                                cleaned_new_answer,
+                                flags=re.DOTALL | re.IGNORECASE,
+                            )
+                            cleaned_new_answer = re.sub(
+                                r"<output>.*?</output>",
+                                "",
+                                cleaned_new_answer,
+                                flags=re.DOTALL | re.IGNORECASE,
+                            )
                             # Remove orphaned closing tags
                             cleaned_new_answer = re.sub(
-                                r"</(?:thinking|reflection|step|reward|count|answer|final)>",
+                                r"</(?:thinking|reflection|step|reward|count|answer|final|execute|output)>",
                                 "",
                                 cleaned_new_answer,
                                 flags=re.IGNORECASE,
+                            )
+                            # Remove plain text LLM reasoning artifacts that leak into answers
+                            cleaned_new_answer = re.sub(
+                                r"^\s*(?:Quality check|Reward)\s*:.*$",
+                                "",
+                                cleaned_new_answer,
+                                flags=re.MULTILINE | re.IGNORECASE,
                             )
                             # Remove partial closing tag at end
                             cleaned_new_answer = re.sub(
@@ -3966,6 +4004,14 @@ Analyze the actual output shown and continue with your response.
             "",
             final_answer,
             flags=re.IGNORECASE,
+        )
+        # Remove plain text LLM reasoning artifacts that leak into answers
+        # e.g. "Quality check: The code correctly..." or "Reward: 1.0"
+        final_answer = re.sub(
+            r"^\s*(?:Quality check|Reward)\s*:.*$",
+            "",
+            final_answer,
+            flags=re.MULTILINE | re.IGNORECASE,
         )
         final_answer = final_answer.strip()
 

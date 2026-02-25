@@ -2684,6 +2684,7 @@ async def conversation_stream(
                         json.dumps(
                             {
                                 "type": "messages_deleted",
+                                "conversation_id": conversation_id,
                                 "data": {
                                     "previous_count": last_message_count,
                                     "current_count": changes["current_count"],
@@ -2723,7 +2724,11 @@ async def conversation_stream(
                     logging.debug(f"WebSocket: Sending message_added for {message_id}")
                     await websocket.send_text(
                         json.dumps(
-                            {"type": "message_added", "data": serializable_message}
+                            {
+                                "type": "message_added",
+                                "data": serializable_message,
+                                "conversation_id": conversation_id,
+                            }
                         )
                     )
                     # Track new message ID
@@ -2761,6 +2766,7 @@ async def conversation_stream(
                             {
                                 "type": "message_updated",
                                 "data": serializable_message,
+                                "conversation_id": conversation_id,
                             }
                         )
                     )
