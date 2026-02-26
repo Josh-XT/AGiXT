@@ -465,6 +465,10 @@ def count_thinking_steps(response: str) -> int:
     """
     step_count = 0
 
+    # Normalize <think> → <thinking> for models that use the short form
+    response = re.sub(r"<think(?!ing)>", "<thinking>", response, flags=re.IGNORECASE)
+    response = re.sub(r"</think(?!ing)>", "</thinking>", response, flags=re.IGNORECASE)
+
     # Count <thinking> blocks
     thinking_blocks = re.findall(r"<thinking>.*?</thinking>", response, re.DOTALL)
     step_count += len(thinking_blocks)

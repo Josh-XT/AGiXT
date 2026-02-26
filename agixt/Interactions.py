@@ -48,6 +48,23 @@ logging.basicConfig(
 # Initialize webhook event emitter
 webhook_emitter = WebhookEventEmitter()
 
+# Pre-compiled regex for normalizing <think> → <thinking> (DeepSeek-R1, Qwen QwQ, etc.)
+_RE_THINK_OPEN = re.compile(r"<think(?!ing)>", re.IGNORECASE)
+_RE_THINK_CLOSE = re.compile(r"</think(?!ing)>", re.IGNORECASE)
+
+
+def normalize_thinking_tags(text: str) -> str:
+    """Normalize short-form <think>/</ think> tags to <thinking>/</thinking>.
+
+    Many thinking models (DeepSeek-R1, Qwen QwQ, etc.) emit ``<think>`` instead
+    of ``<thinking>``.  This function canonicalises both forms so the rest of
+    the pipeline only needs to handle ``<thinking>``.
+    """
+    text = _RE_THINK_OPEN.sub("<thinking>", text)
+    text = _RE_THINK_CLOSE.sub("</thinking>", text)
+    return text
+
+
 # Pre-compiled regex patterns for hot-path tag processing
 _RE_ANSWER_OPEN = re.compile(r"<answer>", re.IGNORECASE)
 _RE_ANSWER_CLOSE = re.compile(r"</answer>", re.IGNORECASE)
@@ -56,7 +73,7 @@ _RE_THINKING_CLOSE = re.compile(r"</thinking>", re.IGNORECASE)
 _RE_REFLECTION_OPEN = re.compile(r"<reflection>", re.IGNORECASE)
 _RE_REFLECTION_CLOSE = re.compile(r"</reflection>", re.IGNORECASE)
 _RE_CLOSING_TAG = re.compile(
-    r"</(thinking|reflection|step|execute|output)>\s*$", re.IGNORECASE
+    r"</(think(?:ing)?|reflection|step|execute|output)>\s*$", re.IGNORECASE
 )
 _RE_TOOL_CALL = re.compile(
     r"<name>\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*</name>", re.IGNORECASE
@@ -2729,6 +2746,9 @@ Example: If user says "list my files", use:
                 if not token:
                     continue
 
+                # Normalize <think>/</ think> → <thinking>/</thinking> before any processing
+                token = normalize_thinking_tags(token)
+
                 full_response += token
 
                 # Incremental tag depth tracking — only scan the new token
@@ -3598,6 +3618,9 @@ Analyze the actual output shown and continue with your response.
                     if not token:
                         continue
 
+                    # Normalize <think>/</think> → <thinking>/</thinking>
+                    token = normalize_thinking_tags(token)
+
                     prev_len = len(continuation_response)
                     continuation_response += token
 
@@ -4008,10 +4031,12 @@ Analyze the actual output shown and continue with your response.
         final_answer = re.sub(
             r"<final>.*?</final>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
         )
+        # Normalize any residual <think>/</ think> tags that survived earlier processing
+        final_answer = normalize_thinking_tags(final_answer)
         # Remove orphaned closing tags (closing tags without matching opening tags)
         # This handles malformed model output with stray </thinking>, </reflection>, etc.
         final_answer = re.sub(
-            r"</thinking>|</reflection>|</step>|</execute>|</output>|</speak>|</answer>|</count>|</reward>|</final>",
+            r"</thinking>|</think>|</reflection>|</step>|</execute>|</output>|</speak>|</answer>|</count>|</reward>|</final>",
             "",
             final_answer,
             flags=re.IGNORECASE,
@@ -4019,14 +4044,14 @@ Analyze the actual output shown and continue with your response.
         # Remove orphaned tag fragments WITHOUT the leading "<"
         # This handles cases where chunk boundaries split tags, leaving "reflection>", "/thinking>", etc.
         final_answer = re.sub(
-            r"(?<![<a-zA-Z])/?(?:thinking|reflection|step|reward|count|execute|output|speak|answer)>",
+            r"(?<![<a-zA-Z])/?(?:think(?:ing)?|reflection|step|reward|count|execute|output|speak|answer)>",
             "",
             final_answer,
             flags=re.IGNORECASE,
         )
         # Remove orphaned opening tag fragments (opening tags without closing, not inside other content)
         final_answer = re.sub(
-            r"<(?:thinking|reflection|step|reward|count)>(?![^<]*</(?:thinking|reflection|step|reward|count)>)",
+            r"<(?:think(?:ing)?|reflection|step|reward|count)>(?![^<]*</(?:think(?:ing)?|reflection|step|reward|count)>)",
             "",
             final_answer,
             flags=re.IGNORECASE,
