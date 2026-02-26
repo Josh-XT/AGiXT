@@ -3162,19 +3162,33 @@ Your response (true or false):"""
                 csv_files = [f for f in workspace_files if str(f).endswith(".csv")]
                 if csv_files:
                     import pandas as pd
+
                     context_parts = []
                     for csv_path in csv_files:
                         try:
-                            fp = csv_path if self.conversation_workspace in str(csv_path) else os.path.join(self.conversation_workspace, csv_path)
+                            fp = (
+                                csv_path
+                                if self.conversation_workspace in str(csv_path)
+                                else os.path.join(self.conversation_workspace, csv_path)
+                            )
                             raw = open(fp, "r").read()
                             lines = raw.split("\n")
-                            preview = "\n".join(lines[:100]) if len(lines) > 100 else raw
+                            preview = (
+                                "\n".join(lines[:100]) if len(lines) > 100 else raw
+                            )
                             part = f"**File: `{fp}`**\n```csv\n{preview}\n```"
                             try:
                                 df_meta = pd.read_csv(fp)
                                 part += f"\n- Shape: {df_meta.shape[0]} rows × {df_meta.shape[1]} columns"
-                                part += "\n- Columns: " + ", ".join([f"`{c}` ({df_meta[c].dtype})" for c in df_meta.columns])
-                                for col in df_meta.select_dtypes(include=["object"]).columns:
+                                part += "\n- Columns: " + ", ".join(
+                                    [
+                                        f"`{c}` ({df_meta[c].dtype})"
+                                        for c in df_meta.columns
+                                    ]
+                                )
+                                for col in df_meta.select_dtypes(
+                                    include=["object"]
+                                ).columns:
                                     uvals = df_meta[col].unique()
                                     if len(uvals) <= 50:
                                         part += f"\n- `{col}` row values: [{', '.join(str(v) for v in uvals)}]"
@@ -3964,9 +3978,7 @@ Your response (true or false):"""
                 )
                 while not file_task.done():
                     try:
-                        await asyncio.wait_for(
-                            asyncio.shield(file_task), timeout=15.0
-                        )
+                        await asyncio.wait_for(asyncio.shield(file_task), timeout=15.0)
                     except asyncio.TimeoutError:
                         yield ": keepalive\n\n"
                         continue
@@ -3995,9 +4007,7 @@ Your response (true or false):"""
                 )
                 while not url_task.done():
                     try:
-                        await asyncio.wait_for(
-                            asyncio.shield(url_task), timeout=15.0
-                        )
+                        await asyncio.wait_for(asyncio.shield(url_task), timeout=15.0)
                     except asyncio.TimeoutError:
                         yield ": keepalive\n\n"
                         continue
@@ -4013,27 +4023,42 @@ Your response (true or false):"""
             if not file_content:
                 try:
                     workspace_files = self.get_agent_workspace_list()
-                    csv_files = [
-                        f for f in workspace_files if str(f).endswith(".csv")
-                    ]
+                    csv_files = [f for f in workspace_files if str(f).endswith(".csv")]
                     if csv_files:
-                        logging.info(f"[stream] Found {len(csv_files)} CSV files in workspace, building context")
+                        logging.info(
+                            f"[stream] Found {len(csv_files)} CSV files in workspace, building context"
+                        )
                         import pandas as pd
 
                         context_parts = []
                         for csv_path in csv_files:
                             try:
-                                fp = csv_path if self.conversation_workspace in str(csv_path) else os.path.join(self.conversation_workspace, csv_path)
+                                fp = (
+                                    csv_path
+                                    if self.conversation_workspace in str(csv_path)
+                                    else os.path.join(
+                                        self.conversation_workspace, csv_path
+                                    )
+                                )
                                 raw = open(fp, "r").read()
                                 lines = raw.split("\n")
-                                preview = "\n".join(lines[:100]) if len(lines) > 100 else raw
+                                preview = (
+                                    "\n".join(lines[:100]) if len(lines) > 100 else raw
+                                )
                                 part = f"**File: `{fp}`**\n```csv\n{preview}\n```"
                                 # Add structured metadata
                                 try:
                                     df_meta = pd.read_csv(fp)
                                     part += f"\n- Shape: {df_meta.shape[0]} rows × {df_meta.shape[1]} columns"
-                                    part += "\n- Columns: " + ", ".join([f"`{c}` ({df_meta[c].dtype})" for c in df_meta.columns])
-                                    for col in df_meta.select_dtypes(include=["object"]).columns:
+                                    part += "\n- Columns: " + ", ".join(
+                                        [
+                                            f"`{c}` ({df_meta[c].dtype})"
+                                            for c in df_meta.columns
+                                        ]
+                                    )
+                                    for col in df_meta.select_dtypes(
+                                        include=["object"]
+                                    ).columns:
                                         uvals = df_meta[col].unique()
                                         if len(uvals) <= 50:
                                             part += f"\n- `{col}` row values: [{', '.join(str(v) for v in uvals)}]"
@@ -4053,13 +4078,19 @@ Your response (true or false):"""
                                 "- Always `print()` results so they appear in the output.\n\n"
                             )
                             data_analysis = rules + "\n\n".join(context_parts)
-                            logging.info(f"[stream] Built workspace data context: {len(data_analysis)} chars")
+                            logging.info(
+                                f"[stream] Built workspace data context: {len(data_analysis)} chars"
+                            )
                     else:
-                        logging.info(f"[stream] No CSV files in workspace ({len(workspace_files)} files total)")
+                        logging.info(
+                            f"[stream] No CSV files in workspace ({len(workspace_files)} files total)"
+                        )
                 except Exception as e:
                     logging.info(f"[stream] Exception building workspace context: {e}")
             else:
-                logging.info(f"[stream] file_content present ({len(file_content)} chars), skipping workspace context")
+                logging.info(
+                    f"[stream] file_content present ({len(file_content)} chars), skipping workspace context"
+                )
 
             logging.info(f"[stream] Starting run_stream inference pipeline...")
             # Calculate complexity score for inference-time compute scaling
@@ -4183,9 +4214,7 @@ Your response (true or false):"""
             _pending_task = None
             while True:
                 if _pending_task is None:
-                    _pending_task = asyncio.ensure_future(
-                        _next_event(stream_iter)
-                    )
+                    _pending_task = asyncio.ensure_future(_next_event(stream_iter))
                 try:
                     event = await asyncio.wait_for(
                         asyncio.shield(_pending_task), timeout=15.0
@@ -5369,12 +5398,14 @@ Your response (true or false):"""
 
                 df_meta = pd.read_csv(file_path)
                 metadata = "\n\n**DATA STRUCTURE:**\n"
-                metadata += f"- Shape: {df_meta.shape[0]} rows × {df_meta.shape[1]} columns\n"
+                metadata += (
+                    f"- Shape: {df_meta.shape[0]} rows × {df_meta.shape[1]} columns\n"
+                )
                 metadata += "- Columns:\n"
                 for col in df_meta.columns:
                     dtype = df_meta[col].dtype
                     metadata += f"  - `{col}` ({dtype})\n"
-                for col in df_meta.select_dtypes(include=['object']).columns:
+                for col in df_meta.select_dtypes(include=["object"]).columns:
                     unique_vals = df_meta[col].unique()
                     if len(unique_vals) <= 50:
                         vals_str = ", ".join([str(v) for v in unique_vals])
@@ -5422,14 +5453,10 @@ Your response (true or false):"""
                         for col in df_meta.columns:
                             dtype = df_meta[col].dtype
                             metadata += f"  - `{col}` ({dtype})\n"
-                        for col in df_meta.select_dtypes(
-                            include=["object"]
-                        ).columns:
+                        for col in df_meta.select_dtypes(include=["object"]).columns:
                             unique_vals = df_meta[col].unique()
                             if len(unique_vals) <= 50:
-                                vals_str = ", ".join(
-                                    [str(v) for v in unique_vals]
-                                )
+                                vals_str = ", ".join([str(v) for v in unique_vals])
                                 metadata += f"- The `{col}` column contains these row identifiers: [{vals_str}]\n"
                         metadata_sections.append(metadata)
                     except Exception:
