@@ -165,7 +165,9 @@ async def stream_inference_to_string(agent, prompt: str, **kwargs) -> str:
                 elif msg_type == "done":
                     break
                 elif msg_type == "error":
-                    logging.error(f"[stream_inference_to_string] Stream error: {msg_data}")
+                    logging.error(
+                        f"[stream_inference_to_string] Stream error: {msg_data}"
+                    )
                     break
             except queue.Empty:
                 if done_event.is_set():
@@ -2892,8 +2894,7 @@ Example: If user says "list my files", use:
                             _in_reasoning_content = False
                             token = "</think>" + token
                     elif (
-                        hasattr(delta, "reasoning_content")
-                        and delta.reasoning_content
+                        hasattr(delta, "reasoning_content") and delta.reasoning_content
                     ):
                         # Providers like DeepSeek/OpenAI send thinking in a separate field
                         token = delta.reasoning_content
@@ -3274,7 +3275,11 @@ Example: If user says "list my files", use:
                         }
 
                 # Progressive streaming of thinking content (stream as it's generated)
-                if _thinking_depth > 0 and not is_executing and _thinking_content_start >= 0:
+                if (
+                    _thinking_depth > 0
+                    and not is_executing
+                    and _thinking_content_start >= 0
+                ):
                     new_thinking = full_response[_thinking_content_start:]
                     # Handle partial closing tags at the end of the buffer
                     partial_close = re.search(
