@@ -71,7 +71,9 @@ _RE_RATE_TAG = re.compile(r"<rate>.*?</rate>", re.DOTALL)
 _RE_EXECUTE_TAG = re.compile(r"<execute>.*?</execute>", re.DOTALL | re.IGNORECASE)
 _RE_OUTPUT_TAG = re.compile(r"<output>.*?</output>", re.DOTALL)
 _RE_NAME_TAG = re.compile(r"<name>.*?</name>", re.DOTALL)
-_RE_THINKING_BLOCK = re.compile(r"<think(?:ing)?>.*?</think(?:ing)?>", re.DOTALL | re.IGNORECASE)
+_RE_THINKING_BLOCK = re.compile(
+    r"<think(?:ing)?>.*?</think(?:ing)?>", re.DOTALL | re.IGNORECASE
+)
 _RE_REFLECTION_BLOCK = re.compile(
     r"<reflection>.*?</reflection>", re.DOTALL | re.IGNORECASE
 )
@@ -90,7 +92,8 @@ _RE_REWARD_CONTENT = re.compile(r"<reward>(.*?)</reward>", re.DOTALL | re.IGNORE
 _RE_COUNT_CONTENT = re.compile(r"<count>(.*?)</count>", re.DOTALL | re.IGNORECASE)
 _RE_FILE_BACKTICK = re.compile(r"`([^`]+\.[a-zA-Z0-9]+)`")
 _RE_THINKING_REFLECTION = re.compile(
-    r"<(think(?:ing)?|reflection)>(.*?)(?=<(?:think(?:ing)?|reflection|answer)|$)", re.DOTALL
+    r"<(think(?:ing)?|reflection)>(.*?)(?=<(?:think(?:ing)?|reflection|answer)|$)",
+    re.DOTALL,
 )
 
 
@@ -1140,7 +1143,9 @@ You have access to context management commands to reduce token usage:
             # Check if this step is inside a thinking or reflection tag
             is_inside_thinking = False
             for thinking_match in re.finditer(
-                r"<(think(?:ing)?|reflection)>.*?</\1>", response, re.DOTALL | re.IGNORECASE
+                r"<(think(?:ing)?|reflection)>.*?</\1>",
+                response,
+                re.DOTALL | re.IGNORECASE,
             ):
                 if thinking_match.start() < step_start < thinking_match.end():
                     is_inside_thinking = True
@@ -1330,7 +1335,7 @@ You have access to context management commands to reduce token usage:
                 truncated = truncated[: last_period + 1]
 
             # Preserve the model's native tag form (e.g., <think> vs <thinking>)
-            original_open = match.group(0)[:match.group(0).index(">") + 1]
+            original_open = match.group(0)[: match.group(0).index(">") + 1]
             # Derive closing tag from opening tag
             original_close = original_open.replace("<", "</")
             return f"{original_open}{truncated} [thinking truncated for brevity]{original_close}"
@@ -2464,6 +2469,13 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                 )
 
             # Do intelligent command selection
+            # Yield progress so the frontend shows immediate thinking feedback
+            # during what can be a long-running LLM inference for command selection
+            yield {
+                "type": "thinking_stream",
+                "content": "Selecting relevant tools for this task...\n",
+                "complete": False,
+            }
             try:
                 selected_commands = await self.select_commands_for_task(
                     user_input=user_input,
@@ -2529,6 +2541,12 @@ This prevents awkward silence - the user hears feedback within 1 second while yo
             kwargs["tts_filler_instructions"] = ""
 
         # Format the prompt
+        # Yield progress so the user sees thinking activity during context retrieval
+        yield {
+            "type": "thinking_stream",
+            "content": "Gathering context and preparing response...\n",
+            "complete": False,
+        }
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
@@ -3099,12 +3117,8 @@ Example: If user says "list my files", use:
                         open_pos = match.end()
                         text_after = full_response[open_pos:]
                         # Count opens and closes after this position
-                        opens_after = len(
-                            _RE_THINKING_OPEN.findall(text_after)
-                        )
-                        closes_after = len(
-                            _RE_THINKING_CLOSE.findall(text_after)
-                        )
+                        opens_after = len(_RE_THINKING_OPEN.findall(text_after))
+                        closes_after = len(_RE_THINKING_CLOSE.findall(text_after))
                         # If there are fewer closes than opens+1, this tag is still open
                         if closes_after <= opens_after:
                             thinking_start = open_pos
@@ -3724,7 +3738,11 @@ Analyze the actual output shown and continue with your response.
                             elif canonical_name in ("thinking", "reflection"):
                                 # Extract and log the complete tag content
                                 # Use regex that matches both <think> and <thinking> forms
-                                tag_pattern = r"<think(?:ing)?>(.*?)</think(?:ing)?>" if canonical_name == "thinking" else r"<reflection>(.*?)</reflection>"
+                                tag_pattern = (
+                                    r"<think(?:ing)?>(.*?)</think(?:ing)?>"
+                                    if canonical_name == "thinking"
+                                    else r"<reflection>(.*?)</reflection>"
+                                )
                                 matches = list(
                                     re.finditer(
                                         tag_pattern,
@@ -3791,11 +3809,17 @@ Analyze the actual output shown and continue with your response.
                             pos_thinking = resp_lower.rfind("<thinking>")
                             pos_think = resp_lower.rfind("<think>")
                             # Avoid matching <thinking> as <think> — only use <think> if it's not part of <thinking>
-                            if pos_think >= 0 and pos_thinking >= 0 and pos_thinking == pos_think:
+                            if (
+                                pos_think >= 0
+                                and pos_thinking >= 0
+                                and pos_thinking == pos_think
+                            ):
                                 # They overlap, use <thinking>
                                 last_start = pos_thinking
                                 tag_len = len("<thinking>")
-                            elif pos_thinking >= 0 and (pos_think < 0 or pos_thinking > pos_think):
+                            elif pos_thinking >= 0 and (
+                                pos_think < 0 or pos_thinking > pos_think
+                            ):
                                 last_start = pos_thinking
                                 tag_len = len("<thinking>")
                             elif pos_think >= 0:
@@ -3810,9 +3834,7 @@ Analyze the actual output shown and continue with your response.
                             tag_len = len(tag_start_pattern)
 
                         if last_start >= 0:
-                            partial = continuation_response[
-                                last_start + tag_len :
-                            ]
+                            partial = continuation_response[last_start + tag_len :]
                             if "<" in partial:
                                 partial = partial.split("<")[0]
                             if len(partial) > len(continuation_current_tag_content):
