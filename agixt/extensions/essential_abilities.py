@@ -1493,7 +1493,8 @@ print(output)
           ```python
           df.columns = df.columns.str.strip()
           # For string columns used in filtering:
-          df['Reaction'] = df['Reaction'].str.strip()
+          for col in df.select_dtypes(include='object').columns:
+              df[col] = df[col].str.strip()
           ```
         - **Always use pd.to_numeric() for numeric conversion** - never assume dtypes are correct:
           ```python
@@ -1503,15 +1504,23 @@ print(output)
           ```
         - **Use case-insensitive matching for row lookups** - avoid empty results from case mismatches:
           ```python
-          # BAD: df[df['Reaction'] == 'Titer Productivity'].iloc[0]  # fails if extra whitespace or case differs
-          # GOOD: mask = df['Reaction'].str.strip().str.lower() == 'titer productivity'
+          # BAD: df[df['category'] == 'Some Value'].iloc[0]  # fails if extra whitespace or case differs
+          # GOOD: mask = df['category'].str.strip().str.lower() == 'some value'
           #        row = df[mask].iloc[0] if mask.any() else None
           ```
         - **Ensure arrays are float before passing to numpy/scipy** - object arrays cause cryptic errors:
           ```python
           # BAD: np.corrcoef(values1, values2)  # fails if dtype is 'object'
-          # GOOD: np.corrcoef(values1.astype(float), values2.astype(float))
-          # Or use pd.to_numeric() which is safer for mixed types
+          # GOOD: v1 = pd.to_numeric(values1, errors='coerce').dropna().values
+          #        v2 = pd.to_numeric(values2, errors='coerce').dropna().values
+          #        np.corrcoef(v1, v2)
+          ```
+        - **Extract scalar values from numpy results before formatting** - correlation/stats functions return arrays:
+          ```python
+          # BAD: r_squared = np.corrcoef(x, y)  then f'R²={r_squared:.3f}' -> TypeError
+          # GOOD: r_val = np.corrcoef(x, y)[0, 1]  # extract single scalar
+          #        r_squared = r_val ** 2
+          #        f'R²={r_squared:.3f}'  # now works
           ```
         - **Check for embedded newlines and whitespace in values** before type conversion:
           ```python
@@ -1520,9 +1529,9 @@ print(output)
           ```
         - **Verify row filter results are not empty** before using .iloc[0]:
           ```python
-          filtered = df[df['Reaction'].str.strip() == 'PFK']
+          filtered = df[df['category'].str.strip() == target_value]
           if filtered.empty:
-              print("No matching rows found. Available values:", df['Reaction'].tolist())
+              print("No matching rows found. Available values:", df['category'].tolist())
           else:
               row = filtered.iloc[0]
           ```
