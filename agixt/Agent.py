@@ -3817,7 +3817,10 @@ class Agent:
             for cmd in ext.get("commands", []):
                 if not cmd.get("enabled"):
                     continue
-                if selected_commands and cmd["friendly_name"] not in selected_commands:
+                if (
+                    selected_commands is not None
+                    and cmd["friendly_name"] not in selected_commands
+                ):
                     continue
                 if cmd["friendly_name"] in command_list:
                     has_active_commands = True
@@ -3899,6 +3902,11 @@ class Agent:
         Returns:
             str: The formatted commands prompt
         """
+        # If selected_commands is explicitly empty [], no commands are needed for this task
+        # Return early to avoid including the boilerplate command guidelines (~1k tokens)
+        if selected_commands is not None and len(selected_commands) == 0:
+            return ""
+
         command_list = [
             available_command["friendly_name"]
             for available_command in self.available_commands
@@ -3963,7 +3971,7 @@ class Agent:
                         continue
                     # If selected_commands is provided, only include selected ones
                     if (
-                        selected_commands
+                        selected_commands is not None
                         and command["friendly_name"] not in selected_commands
                     ):
                         continue
@@ -3997,8 +4005,10 @@ class Agent:
                         for command in enabled_commands
                         if command["friendly_name"] != running_command
                     ]
-                # If selected_commands is provided, filter to only selected ones
-                if selected_commands:
+                # If selected_commands is provided (even if empty), filter to only selected ones
+                # Note: use `is not None` because an empty list [] means "no commands needed"
+                # while None means "no selection was made, include all"
+                if selected_commands is not None:
                     enabled_commands = [
                         command
                         for command in enabled_commands

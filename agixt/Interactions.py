@@ -97,6 +97,114 @@ _RE_THINKING_REFLECTION = re.compile(
 )
 
 
+async def stream_inference_to_string(agent, prompt: str, **kwargs) -> str:
+    """
+    Run inference with stream=True and collect the full response as a string.
+
+    This is faster than non-streaming inference because:
+    1. Tokens start arriving immediately instead of waiting for full generation
+    2. The server can begin sending data as soon as the first token is ready
+    3. For thinking models, we get the response without blocking on think tokens
+
+    All internal inference in AGiXT should use streaming. When a caller needs
+    the full string response (e.g., command selection, context reduction), use
+    this function instead of agent.inference(stream=False).
+
+    Args:
+        agent: The Agent instance to call inference on
+        prompt: The prompt to send
+        **kwargs: Additional kwargs passed to agent.inference (e.g., use_smartest)
+
+    Returns:
+        str: The full collected response text
+    """
+    import queue
+    import threading
+
+    stream_obj = await agent.inference(prompt=prompt, stream=True, **kwargs)
+    if stream_obj is None:
+        return ""
+
+    # If for some reason inference returned a string (fallback), just return it
+    if isinstance(stream_obj, str):
+        return stream_obj
+
+    collected = []
+
+    if hasattr(stream_obj, "__aiter__"):
+        # Async iterator
+        async for chunk in stream_obj:
+            token = _extract_token(chunk)
+            if token:
+                collected.append(token)
+    else:
+        # Sync iterator (e.g., requests-based SSE stream from ezlocalai)
+        chunk_queue = queue.Queue()
+        done_event = threading.Event()
+
+        def _sync_iter():
+            try:
+                for chunk in stream_obj:
+                    chunk_queue.put(("chunk", chunk))
+                chunk_queue.put(("done", None))
+            except Exception as e:
+                chunk_queue.put(("error", e))
+            finally:
+                done_event.set()
+
+        thread = threading.Thread(target=_sync_iter, daemon=True)
+        thread.start()
+
+        while True:
+            try:
+                msg_type, msg_data = chunk_queue.get_nowait()
+                if msg_type == "chunk":
+                    token = _extract_token(msg_data)
+                    if token:
+                        collected.append(token)
+                elif msg_type == "done":
+                    break
+                elif msg_type == "error":
+                    logging.error(f"[stream_inference_to_string] Stream error: {msg_data}")
+                    break
+            except queue.Empty:
+                if done_event.is_set():
+                    break
+                await asyncio.sleep(0.005)
+
+    result = "".join(collected)
+
+    # Track token usage (non-streaming path does this in Agent.inference)
+    input_tokens = get_tokens(prompt)
+    output_tokens = get_tokens(result)
+    try:
+        agent.auth.increase_token_counts(
+            input_tokens=input_tokens, output_tokens=output_tokens
+        )
+    except Exception:
+        pass  # Don't fail on billing tracking errors
+
+    # Clean up like the non-streaming path does
+    result = result.replace("\\_", "_")
+    if result.endswith("\n\n"):
+        result = result[:-2]
+
+    return result
+
+
+def _extract_token(chunk) -> str:
+    """Extract text token from a stream chunk (handles multiple formats)."""
+    if isinstance(chunk, str):
+        return chunk
+    if hasattr(chunk, "choices") and len(chunk.choices) > 0:
+        delta = chunk.choices[0].delta
+        if hasattr(delta, "content") and delta.content:
+            return delta.content
+        if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+            return delta.reasoning_content
+    return ""
+
+
 def extract_top_level_answer(response: str) -> str:
     """
     Extract the content from a top-level <answer>...</answer> block.
@@ -1529,8 +1637,8 @@ Respond with ONLY a comma-separated list of section names to KEEP, or "all" if a
 Example: memories, persona, files"""
 
         try:
-            selection_response = await self.agent.inference(
-                prompt=section_selection_prompt
+            selection_response = await stream_inference_to_string(
+                self.agent, prompt=section_selection_prompt
             )
 
             if selection_response.strip().lower() == "all":
@@ -1784,9 +1892,10 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                     "{BATCH_COMMANDS}", batch_prompt
                 )
 
-                # Direct inference call - bypasses format_prompt and all its context loading
-                selection_response = await self.agent.inference(
-                    prompt=selection_prompt,
+                # Direct streaming inference - bypasses format_prompt and all its context loading
+                # Uses streaming internally for speed (non-streaming blocks until full response)
+                selection_response = await stream_inference_to_string(
+                    self.agent, prompt=selection_prompt
                 )
 
                 # Handle "None" or empty responses
@@ -1862,11 +1971,17 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
         logging.info(
             f"[select_commands_for_task] Selected {len(valid_commands)} commands via LLM: {', '.join(valid_commands)}"
         )
-        if log_output and thinking_id and valid_commands:
-            c.log_interaction(
-                role=self.agent_name,
-                message=f"[SUBACTIVITY][{thinking_id}] Selected {len(valid_commands)} abilities: {', '.join(valid_commands)}",
-            )
+        if log_output and thinking_id:
+            if valid_commands:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{thinking_id}] Selected {len(valid_commands)} abilities: {', '.join(valid_commands)}",
+                )
+            else:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message=f"[SUBACTIVITY][{thinking_id}] No additional abilities needed for this request.",
+                )
         return valid_commands
 
     async def run(
@@ -2100,6 +2215,9 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                 - 'complete': whether the tag is fully received
         """
         global AGIXT_URI
+        import time as _time
+
+        _stream_t0 = _time.monotonic()
 
         # Store conversation_id in kwargs for downstream use
         if conversation_id:
@@ -2469,13 +2587,13 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                 )
 
             # Do intelligent command selection
-            # Yield progress so the frontend shows immediate thinking feedback
-            # during what can be a long-running LLM inference for command selection
+            # Yield a status event so the UI shows immediate feedback during selection
             yield {
                 "type": "thinking_stream",
-                "content": "Selecting relevant tools for this task...\n",
+                "content": "Analyzing request...",
                 "complete": False,
             }
+            _t_cmd_sel = _time.monotonic()
             try:
                 selected_commands = await self.select_commands_for_task(
                     user_input=user_input,
@@ -2488,6 +2606,10 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
             except Exception as e:
                 logging.error(f"[run_stream] select_commands_for_task failed: {e}")
                 selected_commands = None
+            logging.info(
+                f"[run_stream] select_commands_for_task took {_time.monotonic() - _t_cmd_sel:.1f}s, "
+                f"selected {len(selected_commands) if selected_commands is not None else 'None'} commands"
+            )
 
         # Always include client-defined tools regardless of command selection
         # Client explicitly provided these tools, so they should always be available
@@ -2541,12 +2663,7 @@ This prevents awkward silence - the user hears feedback within 1 second while yo
             kwargs["tts_filler_instructions"] = ""
 
         # Format the prompt
-        # Yield progress so the user sees thinking activity during context retrieval
-        yield {
-            "type": "thinking_stream",
-            "content": "Gathering context and preparing response...\n",
-            "complete": False,
-        }
+        _t_fmt = _time.monotonic()
         formatted_prompt, unformatted_prompt, tokens = await self.format_prompt(
             user_input=user_input,
             top_results=int(context_results),
@@ -2558,6 +2675,10 @@ This prevents awkward silence - the user hears feedback within 1 second while yo
             vision_response=vision_response,
             selected_commands=selected_commands,
             **kwargs,
+        )
+        logging.info(
+            f"[run_stream] format_prompt took {_time.monotonic() - _t_fmt:.1f}s, "
+            f"prompt tokens: {tokens}"
         )
 
         # Inject special CLI instructions if terminal command tools were requested
@@ -2638,6 +2759,11 @@ Example: If user says "list my files", use:
             formatted_prompt = f"{formatted_prompt}\n\n{planning_prompt}"
 
         # Get streaming response from the LLM
+        _t_inf = _time.monotonic()
+        logging.info(
+            f"[run_stream] Pre-processing complete in {_t_inf - _stream_t0:.1f}s total. "
+            f"Starting inference with {get_tokens(formatted_prompt)} token prompt."
+        )
         try:
             stream = await self.agent.inference(
                 prompt=formatted_prompt, use_smartest=use_smartest, stream=True
@@ -2671,6 +2797,11 @@ Example: If user says "list my files", use:
         # Incremental tag depth counters — updated per-token instead of re-scanning full response
         _thinking_depth = 0
         _reflection_depth = 0
+        # Track reasoning_content field state (DeepSeek, OpenAI reasoning models)
+        _in_reasoning_content = False
+        # Track position where the currently open thinking block's content starts
+        # Avoids O(n²) re-scanning of full_response on every token
+        _thinking_content_start = -1
 
         # Helper to iterate over stream (handles sync iterators from OpenAI library)
         async def iterate_stream(stream_obj):
@@ -2713,11 +2844,11 @@ Example: If user says "list my files", use:
                 thread = threading.Thread(target=sync_iterator, daemon=True)
                 thread.start()
 
-                # Yield chunks as they arrive
+                # Yield chunks as they arrive — use non-blocking get to avoid
+                # blocking the event loop (which would stall SSE delivery)
                 while True:
-                    # Non-blocking check with short timeout
                     try:
-                        msg_type, msg_data = chunk_queue.get(timeout=0.1)
+                        msg_type, msg_data = chunk_queue.get_nowait()
                         if msg_type == "chunk":
                             yield msg_data
                         elif msg_type == "done":
@@ -2725,8 +2856,9 @@ Example: If user says "list my files", use:
                         elif msg_type == "error":
                             raise msg_data
                     except queue.Empty:
-                        # Allow other coroutines to run while waiting
-                        await asyncio.sleep(0.1)
+                        # Short non-blocking sleep lets other coroutines run
+                        # 5ms matches token cadence at ~120 tok/s
+                        await asyncio.sleep(0.005)
                         # Check if thread died unexpectedly
                         if done_event.is_set() and chunk_queue.empty():
                             if error_holder[0]:
@@ -2737,6 +2869,7 @@ Example: If user says "list my files", use:
             chunk_count = 0
             # Track last processed position for incremental tag detection
             last_tag_check_pos = 0
+            _first_token_logged = False
 
             async for chunk in iterate_stream(stream):
                 # Check for cancellation periodically during streaming
@@ -2754,18 +2887,50 @@ Example: If user says "list my files", use:
                     delta = chunk.choices[0].delta
                     if hasattr(delta, "content") and delta.content:
                         token = delta.content
+                        # If we were receiving reasoning_content, close the thinking block
+                        if _in_reasoning_content:
+                            _in_reasoning_content = False
+                            token = "</think>" + token
+                    elif (
+                        hasattr(delta, "reasoning_content")
+                        and delta.reasoning_content
+                    ):
+                        # Providers like DeepSeek/OpenAI send thinking in a separate field
+                        token = delta.reasoning_content
+                        if not _in_reasoning_content:
+                            _in_reasoning_content = True
+                            token = "<think>" + token
 
                 if not token:
                     continue
+
+                if not _first_token_logged:
+                    _first_token_logged = True
+                    logging.info(
+                        f"[run_stream] First token arrived {_time.monotonic() - _t_inf:.1f}s after inference start, "
+                        f"{_time.monotonic() - _stream_t0:.1f}s total from run_stream entry"
+                    )
 
                 full_response += token
 
                 # Incremental tag depth tracking — only scan the new token
                 # Count both <think> and <thinking> forms for model compatibility
                 token_lower = token.lower()
+                _prev_thinking_depth = _thinking_depth
                 _thinking_depth += len(_RE_THINKING_OPEN.findall(token)) - len(
                     _RE_THINKING_CLOSE.findall(token)
                 )
+                # Track where the current thinking block content starts (O(1) per token)
+                if _thinking_depth > 0 and _prev_thinking_depth == 0:
+                    # Just entered thinking — find the end of the opening tag
+                    last_open = None
+                    for m in _RE_THINKING_OPEN.finditer(full_response):
+                        last_open = m
+                    _thinking_content_start = (
+                        last_open.end() if last_open else len(full_response)
+                    )
+                elif _thinking_depth == 0 and _prev_thinking_depth > 0:
+                    _thinking_content_start = -1
                 _reflection_depth += token_lower.count(
                     "<reflection>"
                 ) - token_lower.count("</reflection>")
@@ -3109,50 +3274,28 @@ Example: If user says "list my files", use:
                         }
 
                 # Progressive streaming of thinking content (stream as it's generated)
-                if _thinking_depth > 0 and not is_executing:
-                    # Find the currently open (incomplete) thinking tag
-                    # Look for the last <think>/<thinking> that doesn't have a matching close
-                    thinking_start = None
-                    for match in _RE_THINKING_OPEN.finditer(full_response):
-                        open_pos = match.end()
-                        text_after = full_response[open_pos:]
-                        # Count opens and closes after this position
-                        opens_after = len(_RE_THINKING_OPEN.findall(text_after))
-                        closes_after = len(_RE_THINKING_CLOSE.findall(text_after))
-                        # If there are fewer closes than opens+1, this tag is still open
-                        if closes_after <= opens_after:
-                            thinking_start = open_pos
-                            # Don't break - we want the LAST unclosed one
+                if _thinking_depth > 0 and not is_executing and _thinking_content_start >= 0:
+                    new_thinking = full_response[_thinking_content_start:]
+                    # Handle partial closing tags at the end of the buffer
+                    partial_close = re.search(
+                        r"</?t?h?i?n?k?i?n?g?>?$", new_thinking, re.IGNORECASE
+                    )
+                    if partial_close and partial_close.group().startswith("<"):
+                        new_thinking = new_thinking[: partial_close.start()]
 
-                    if thinking_start is not None:
-                        new_thinking = full_response[thinking_start:]
-                        # Truncate at </thinking> or </think> if present
-                        close_match = _RE_THINKING_CLOSE.search(new_thinking)
-                        if close_match:
-                            new_thinking = new_thinking[: close_match.start()]
-                        # Also handle partial closing tags
-                        partial_close = re.search(
-                            r"</?t?h?i?n?k?i?n?g?>?$", new_thinking, re.IGNORECASE
-                        )
-                        if partial_close and partial_close.group().startswith("<"):
-                            new_thinking = new_thinking[: partial_close.start()]
-                        # Clean up
-                        if new_thinking.startswith(">"):
-                            new_thinking = new_thinking[1:]
-
-                        # Stream the delta
-                        if len(new_thinking) > len(thinking_content):
-                            delta = new_thinking[len(thinking_content) :]
-                            if delta and not re.match(r"^\s*<[a-zA-Z]", delta):
-                                yield {
-                                    "type": "thinking_stream",
-                                    "content": delta,
-                                    "complete": False,
-                                }
-                            thinking_content = new_thinking
-                    else:
-                        # Reset tracking when we exit thinking
-                        thinking_content = ""
+                    # Stream the delta
+                    if len(new_thinking) > len(thinking_content):
+                        delta = new_thinking[len(thinking_content) :]
+                        if delta and not re.match(r"^\s*<[a-zA-Z]", delta):
+                            yield {
+                                "type": "thinking_stream",
+                                "content": delta,
+                                "complete": False,
+                            }
+                        thinking_content = new_thinking
+                elif _thinking_depth == 0 and thinking_content:
+                    # Reset tracking when we exit thinking
+                    thinking_content = ""
 
                 # Progressive streaming of reflection content (stream as it's generated)
                 if _reflection_depth > 0 and not is_executing:
@@ -4197,46 +4340,6 @@ Analyze the actual output shown and continue with your response.
                 )
             except Exception as e:
                 log_silenced_exception(e, "chat: writing to memory")
-
-        # Handle image generation if enabled
-        if "image_provider" in agent_settings:
-            if (
-                agent_settings["image_provider"] != "None"
-                and agent_settings["image_provider"] != ""
-                and agent_settings["image_provider"] != None
-                and agent_settings["image_provider"] != "default"
-            ):
-                img_gen_prompt = f"Users message: {user_input} \n\n{'The user uploaded an image, one does not need generated unless the user is specifically asking.' if images else ''} **The assistant is acting as sentiment analysis expert and only responds with a concise YES or NO answer on if the user would like a creative generated image to be generated by AI in their request. No other explanation is needed!**\nWould the user potentially like an image generated based on their message?\nAssistant: "
-                create_img = await self.agent.inference(prompt=img_gen_prompt)
-                create_img = str(create_img).lower()
-                to_create_image = re.search(r"\byes\b", str(create_img).lower())
-                if to_create_image:
-                    if thinking_id:
-                        c.log_interaction(
-                            role=self.agent_name,
-                            message=f"[SUBACTIVITY][{thinking_id}][EXECUTION] Generating image.",
-                        )
-                    img_prompt = f"**The assistant is acting as a Stable Diffusion Prompt Generator.**\n\nUsers message: {user_input} \nAssistant response: {final_answer} \n\nImportant rules to follow:\n- Describe subjects in detail, specify image type (e.g., digital illustration), art style (e.g., steampunk), and background. Include art inspirations (e.g., Art Station, specific artists). Detail lighting, camera (type, lens, view), and render (resolution, style). The weight of a keyword can be adjusted by using the syntax (((keyword))) , put only those keyword inside ((())) which is very important because it will have more impact so anything wrong will result in unwanted picture so be careful. Realistic prompts: exclude artist, specify lens. Separate with double lines. Max 60 words, avoiding 'real' for fantastical.\n- Based on the message from the user and response of the assistant, you will need to generate one detailed stable diffusion image generation prompt based on the context of the conversation to accompany the assistant response.\n- The prompt can only be up to 60 words long, so try to be concise while using enough descriptive words to make a proper prompt.\n- Following all rules will result in a $2000 tip that you can spend on anything!\n- Must be in markdown code block to be parsed out and only provide prompt in the code block, nothing else.\nStable Diffusion Prompt Generator: "
-                    image_generation_prompt = await self.agent.inference(
-                        prompt=img_prompt
-                    )
-                    image_generation_prompt = str(image_generation_prompt)
-                    if "```markdown" in image_generation_prompt:
-                        image_generation_prompt = image_generation_prompt.split(
-                            "```markdown"
-                        )[1]
-                        image_generation_prompt = image_generation_prompt.split("```")[
-                            0
-                        ]
-                    try:
-                        generated_image = await self.agent.generate_image(
-                            prompt=image_generation_prompt
-                        )
-                        final_answer = f"{final_answer}\n![Image generated by {self.agent_name}]({generated_image})"
-                    except:
-                        logging.warning(
-                            f"Failed to generate image for prompt: {image_generation_prompt}"
-                        )
 
         # Log the final output
         if log_output and final_answer:
