@@ -3580,6 +3580,21 @@ Example: If user says "list my files", use:
         # Store the full response
         self.response = full_response
 
+        # If the stream was stopped by a stop sequence (e.g., "</execute>"),
+        # the closing tag won't be in the output. Detect unclosed <execute> tags
+        # and append the closing tag so the execution logic can process them.
+        _lower_resp = full_response.lower()
+        _last_exec_open = _lower_resp.rfind("<execute>")
+        if _last_exec_open != -1:
+            _last_exec_close = _lower_resp.rfind("</execute>")
+            if _last_exec_close < _last_exec_open:
+                # Unclosed <execute> tag — stop sequence likely fired
+                full_response += "</execute>"
+                self.response = full_response
+                logging.info(
+                    "[run_stream] Appended </execute> closing tag (stop sequence detected)"
+                )
+
         # Skip continuation logic if a remote command was yielded
         # The CLI will handle the command execution and submit the result
         # The next user interaction will pick up from there
@@ -4147,6 +4162,16 @@ Analyze the actual output shown and continue with your response.
 
                 # Append continuation to main response (only if we didn't already do it when breaking for execution)
                 if not broke_for_execution:
+                    # Check for unclosed <execute> tag from stop sequence in continuation
+                    _cont_lower = continuation_response.lower()
+                    _cont_last_open = _cont_lower.rfind("<execute>")
+                    if _cont_last_open != -1:
+                        _cont_last_close = _cont_lower.rfind("</execute>")
+                        if _cont_last_close < _cont_last_open:
+                            continuation_response += "</execute>"
+                            logging.info(
+                                "[run_stream] Appended </execute> in continuation (stop sequence detected)"
+                            )
                     self.response += continuation_response
 
                 # Update processed_length to track what we've handled

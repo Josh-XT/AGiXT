@@ -303,6 +303,7 @@ class ezlocalai(Extensions):
                 "top_p": float(self.AI_TOP_P),
                 "n": 1,
                 "stream": stream,
+                "stop": ["</execute>"],
             }
 
             api_url = self.API_URI.rstrip("/") + "/chat/completions"

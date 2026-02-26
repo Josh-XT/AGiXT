@@ -175,6 +175,7 @@ class deepseek(Extensions):
                 "top_p": float(self.AI_TOP_P),
                 "n": 1,
                 "stream": stream,
+                "stop": ["</execute>"],
             }
 
             if stream:

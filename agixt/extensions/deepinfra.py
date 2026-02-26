@@ -157,6 +157,7 @@ class deepinfra(Extensions):
             "max_tokens": int(self.MAX_TOKENS),
             "top_p": float(self.AI_TOP_P),
             "stream": stream,
+            "stop": ["</execute>"],
         }
 
         if self.WAIT_BETWEEN_REQUESTS > 0:
