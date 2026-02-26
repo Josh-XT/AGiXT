@@ -465,16 +465,16 @@ def count_thinking_steps(response: str) -> int:
     """
     step_count = 0
 
-    # Normalize <think> → <thinking> for models that use the short form
-    response = re.sub(r"<think(?!ing)>", "<thinking>", response, flags=re.IGNORECASE)
-    response = re.sub(r"</think(?!ing)>", "</thinking>", response, flags=re.IGNORECASE)
-
-    # Count <thinking> blocks
-    thinking_blocks = re.findall(r"<thinking>.*?</thinking>", response, re.DOTALL)
+    # Count <thinking> and <think> blocks (both forms used by different models)
+    thinking_blocks = re.findall(
+        r"<think(?:ing)?>.*?</think(?:ing)?>", response, re.DOTALL | re.IGNORECASE
+    )
     step_count += len(thinking_blocks)
 
-    # Count unclosed <thinking> tags
-    open_thinking = response.count("<thinking>") - response.count("</thinking>")
+    # Count unclosed <thinking>/<think> tags
+    open_thinking = len(re.findall(r"<think(?:ing)?>", response, re.IGNORECASE)) - len(
+        re.findall(r"</think(?:ing)?>", response, re.IGNORECASE)
+    )
     step_count += max(0, open_thinking)
 
     # Count <step> blocks

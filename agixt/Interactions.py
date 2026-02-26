@@ -48,28 +48,14 @@ logging.basicConfig(
 # Initialize webhook event emitter
 webhook_emitter = WebhookEventEmitter()
 
-# Pre-compiled regex for normalizing <think> → <thinking> (DeepSeek-R1, Qwen QwQ, etc.)
-_RE_THINK_OPEN = re.compile(r"<think(?!ing)>", re.IGNORECASE)
-_RE_THINK_CLOSE = re.compile(r"</think(?!ing)>", re.IGNORECASE)
-
-
-def normalize_thinking_tags(text: str) -> str:
-    """Normalize short-form <think>/</ think> tags to <thinking>/</thinking>.
-
-    Many thinking models (DeepSeek-R1, Qwen QwQ, etc.) emit ``<think>`` instead
-    of ``<thinking>``.  This function canonicalises both forms so the rest of
-    the pipeline only needs to handle ``<thinking>``.
-    """
-    text = _RE_THINK_OPEN.sub("<thinking>", text)
-    text = _RE_THINK_CLOSE.sub("</thinking>", text)
-    return text
-
-
 # Pre-compiled regex patterns for hot-path tag processing
+# NOTE: All thinking-related patterns match BOTH <think> and <thinking> forms.
+# Models like DeepSeek-R1 and Qwen QwQ use <think>, while AGiXT's prompts use <thinking>.
+# We preserve the model's native form to avoid confusing it during continuation prompts.
 _RE_ANSWER_OPEN = re.compile(r"<answer>", re.IGNORECASE)
 _RE_ANSWER_CLOSE = re.compile(r"</answer>", re.IGNORECASE)
-_RE_THINKING_OPEN = re.compile(r"<thinking>", re.IGNORECASE)
-_RE_THINKING_CLOSE = re.compile(r"</thinking>", re.IGNORECASE)
+_RE_THINKING_OPEN = re.compile(r"<think(?:ing)?>", re.IGNORECASE)
+_RE_THINKING_CLOSE = re.compile(r"</think(?:ing)?>", re.IGNORECASE)
 _RE_REFLECTION_OPEN = re.compile(r"<reflection>", re.IGNORECASE)
 _RE_REFLECTION_CLOSE = re.compile(r"</reflection>", re.IGNORECASE)
 _RE_CLOSING_TAG = re.compile(
@@ -85,7 +71,7 @@ _RE_RATE_TAG = re.compile(r"<rate>.*?</rate>", re.DOTALL)
 _RE_EXECUTE_TAG = re.compile(r"<execute>.*?</execute>", re.DOTALL | re.IGNORECASE)
 _RE_OUTPUT_TAG = re.compile(r"<output>.*?</output>", re.DOTALL)
 _RE_NAME_TAG = re.compile(r"<name>.*?</name>", re.DOTALL)
-_RE_THINKING_BLOCK = re.compile(r"<thinking>.*?</thinking>", re.DOTALL | re.IGNORECASE)
+_RE_THINKING_BLOCK = re.compile(r"<think(?:ing)?>.*?</think(?:ing)?>", re.DOTALL | re.IGNORECASE)
 _RE_REFLECTION_BLOCK = re.compile(
     r"<reflection>.*?</reflection>", re.DOTALL | re.IGNORECASE
 )
@@ -95,7 +81,7 @@ _RE_CUSTOM_FORMAT = re.compile(r"(?<!{){([^{}\n]+)}(?!})")
 _RE_DOT_SPACE = re.compile(r"\. ")
 _RE_OUTPUT_BLOCK = re.compile(r"<output>(.*?)</output>", re.DOTALL | re.IGNORECASE)
 _RE_THINKING_CONTENT = re.compile(
-    r"<thinking>(.*?)</thinking>", re.DOTALL | re.IGNORECASE
+    r"<think(?:ing)?>(.*?)</think(?:ing)?>", re.DOTALL | re.IGNORECASE
 )
 _RE_REFLECTION_CONTENT = re.compile(
     r"<reflection>(.*?)</reflection>", re.DOTALL | re.IGNORECASE
@@ -104,7 +90,7 @@ _RE_REWARD_CONTENT = re.compile(r"<reward>(.*?)</reward>", re.DOTALL | re.IGNORE
 _RE_COUNT_CONTENT = re.compile(r"<count>(.*?)</count>", re.DOTALL | re.IGNORECASE)
 _RE_FILE_BACKTICK = re.compile(r"`([^`]+\.[a-zA-Z0-9]+)`")
 _RE_THINKING_REFLECTION = re.compile(
-    r"<(thinking|reflection)>(.*?)(?=<(?:thinking|reflection|answer)|$)", re.DOTALL
+    r"<(think(?:ing)?|reflection)>(.*?)(?=<(?:think(?:ing)?|reflection|answer)|$)", re.DOTALL
 )
 
 
@@ -1113,7 +1099,10 @@ You have access to context management commands to reduce token usage:
         unique_thoughts = {}
 
         for match in matches:
-            tag_name = match.group(1)  # thinking or reflection
+            tag_name = match.group(1)  # think, thinking, or reflection
+            # Canonicalize "think" to "thinking" for internal processing
+            if tag_name.lower() == "think":
+                tag_name = "thinking"
             tag_content = match.group(2).strip()
 
             # Clean the content
@@ -1126,6 +1115,7 @@ You have access to context management commands to reduce token usage:
             cleaned_content = cleaned_content.replace("\n\\n", "\n")
             cleaned_content = cleaned_content.replace("</reflection>", "")
             cleaned_content = cleaned_content.replace("</thinking>", "")
+            cleaned_content = cleaned_content.replace("</think>", "")
             cleaned_content = cleaned_content.replace("<output>", "")
             cleaned_content = cleaned_content.replace("</output>", "")
             cleaned_content = cleaned_content.replace("<step>", "")
@@ -1150,7 +1140,7 @@ You have access to context management commands to reduce token usage:
             # Check if this step is inside a thinking or reflection tag
             is_inside_thinking = False
             for thinking_match in re.finditer(
-                r"<(thinking|reflection)>.*?</\1>", response, re.DOTALL | re.IGNORECASE
+                r"<(think(?:ing)?|reflection)>.*?</\1>", response, re.DOTALL | re.IGNORECASE
             ):
                 if thinking_match.start() < step_start < thinking_match.end():
                     is_inside_thinking = True
@@ -1207,7 +1197,7 @@ You have access to context management commands to reduce token usage:
             # Check for unclosed tags
             if not is_inside_container:
                 text_before = response[:reward_start]
-                for tag in ["thinking", "reflection", "step"]:
+                for tag in ["think(?:ing)?", "reflection", "step"]:
                     opens = len(re.findall(f"<{tag}>", text_before, re.IGNORECASE))
                     closes = len(re.findall(f"</{tag}>", text_before, re.IGNORECASE))
                     if opens > closes:
@@ -1324,7 +1314,7 @@ You have access to context management commands to reduce token usage:
 
         compressed = _RE_OUTPUT_BLOCK.sub(compress_output, compressed)
 
-        # 2. Compress <thinking> blocks - keep the essence but not verbose detail
+        # 2. Compress <thinking>/<think> blocks - keep the essence but not verbose detail
 
         def compress_thinking(match):
             content = match.group(1).strip()
@@ -1339,7 +1329,11 @@ You have access to context management commands to reduce token usage:
             if last_period > max_thinking_chars * 0.7:
                 truncated = truncated[: last_period + 1]
 
-            return f"<thinking>{truncated} [thinking truncated for brevity]</thinking>"
+            # Preserve the model's native tag form (e.g., <think> vs <thinking>)
+            original_open = match.group(0)[:match.group(0).index(">") + 1]
+            # Derive closing tag from opening tag
+            original_close = original_open.replace("<", "</")
+            return f"{original_open}{truncated} [thinking truncated for brevity]{original_close}"
 
         compressed = _RE_THINKING_CONTENT.sub(
             compress_thinking,
@@ -2746,15 +2740,13 @@ Example: If user says "list my files", use:
                 if not token:
                     continue
 
-                # Normalize <think>/</ think> → <thinking>/</thinking> before any processing
-                token = normalize_thinking_tags(token)
-
                 full_response += token
 
                 # Incremental tag depth tracking — only scan the new token
+                # Count both <think> and <thinking> forms for model compatibility
                 token_lower = token.lower()
-                _thinking_depth += token_lower.count("<thinking>") - token_lower.count(
-                    "</thinking>"
+                _thinking_depth += len(_RE_THINKING_OPEN.findall(token)) - len(
+                    _RE_THINKING_CLOSE.findall(token)
                 )
                 _reflection_depth += token_lower.count(
                     "<reflection>"
@@ -2865,7 +2857,11 @@ Example: If user says "list my files", use:
                 # This also consolidates any adjacent <step>, <count>, <reward> tags
                 # that appear between thinking/reflection blocks
                 for tag_name in ["thinking", "reflection"]:
-                    tag_pattern = f"<{tag_name}>(.*?)</{tag_name}>"
+                    # Use regex that matches both <think> and <thinking> forms
+                    if tag_name == "thinking":
+                        tag_pattern = r"<think(?:ing)?>(.*?)</think(?:ing)?>"
+                    else:
+                        tag_pattern = f"<{tag_name}>(.*?)</{tag_name}>"
                     for match in re.finditer(
                         tag_pattern, full_response, re.DOTALL | re.IGNORECASE
                     ):
@@ -2989,13 +2985,12 @@ Example: If user says "list my files", use:
 
                     # Check if this step is inside thinking/reflection
                     text_before = full_response[:step_start]
-                    text_before_lower = text_before.lower()
                     if (
-                        text_before_lower.count("<thinking>")
-                        - text_before_lower.count("</thinking>")
+                        len(_RE_THINKING_OPEN.findall(text_before))
+                        - len(_RE_THINKING_CLOSE.findall(text_before))
                         > 0
-                        or text_before_lower.count("<reflection>")
-                        - text_before_lower.count("</reflection>")
+                        or text_before.lower().count("<reflection>")
+                        - text_before.lower().count("</reflection>")
                         > 0
                     ):
                         continue  # Skip steps inside thinking/reflection
@@ -3098,19 +3093,17 @@ Example: If user says "list my files", use:
                 # Progressive streaming of thinking content (stream as it's generated)
                 if _thinking_depth > 0 and not is_executing:
                     # Find the currently open (incomplete) thinking tag
-                    # Look for the last <thinking> that doesn't have a matching </thinking>
+                    # Look for the last <think>/<thinking> that doesn't have a matching close
                     thinking_start = None
-                    for match in re.finditer(
-                        r"<thinking>", full_response, re.IGNORECASE
-                    ):
+                    for match in _RE_THINKING_OPEN.finditer(full_response):
                         open_pos = match.end()
                         text_after = full_response[open_pos:]
                         # Count opens and closes after this position
                         opens_after = len(
-                            re.findall(r"<thinking>", text_after, re.IGNORECASE)
+                            _RE_THINKING_OPEN.findall(text_after)
                         )
                         closes_after = len(
-                            re.findall(r"</thinking>", text_after, re.IGNORECASE)
+                            _RE_THINKING_CLOSE.findall(text_after)
                         )
                         # If there are fewer closes than opens+1, this tag is still open
                         if closes_after <= opens_after:
@@ -3119,10 +3112,8 @@ Example: If user says "list my files", use:
 
                     if thinking_start is not None:
                         new_thinking = full_response[thinking_start:]
-                        # Truncate at </thinking> if present
-                        close_match = re.search(
-                            r"</thinking>", new_thinking, re.IGNORECASE
-                        )
+                        # Truncate at </thinking> or </think> if present
+                        close_match = _RE_THINKING_CLOSE.search(new_thinking)
                         if close_match:
                             new_thinking = new_thinking[: close_match.start()]
                         # Also handle partial closing tags
@@ -3219,8 +3210,8 @@ Example: If user says "list my files", use:
 
                         text_before = full_response[:open_pos]
                         thinking_depth = len(
-                            re.findall(r"<thinking>", text_before, re.IGNORECASE)
-                        ) - len(re.findall(r"</thinking>", text_before, re.IGNORECASE))
+                            _RE_THINKING_OPEN.findall(text_before)
+                        ) - len(_RE_THINKING_CLOSE.findall(text_before))
                         reflection_depth = len(
                             re.findall(r"<reflection>", text_before, re.IGNORECASE)
                         ) - len(
@@ -3275,7 +3266,7 @@ Example: If user says "list my files", use:
                         # Clean all internal tags from answer content before yielding
                         # Complete tags
                         cleaned_new_answer = re.sub(
-                            r"<thinking>.*?</thinking>",
+                            r"<think(?:ing)?>.*?</think(?:ing)?>",
                             "",
                             new_answer,
                             flags=re.DOTALL | re.IGNORECASE,
@@ -3618,9 +3609,6 @@ Analyze the actual output shown and continue with your response.
                     if not token:
                         continue
 
-                    # Normalize <think>/</think> → <thinking>/</thinking>
-                    token = normalize_thinking_tags(token)
-
                     prev_len = len(continuation_response)
                     continuation_response += token
 
@@ -3634,28 +3622,42 @@ Analyze the actual output shown and continue with your response.
                     )
 
                     # Check for opening tags - only if we haven't detected this opening tag yet
-                    for tag_name in ["thinking", "reflection", "execute", "answer"]:
-                        open_tag = f"<{tag_name}>"
+                    # Support both <think> and <thinking> forms
+                    _CONTINUATION_OPEN_TAGS = [
+                        ("thinking", "<thinking>"),
+                        ("thinking", "<think>"),  # DeepSeek-R1, Qwen QwQ short form
+                        ("reflection", "<reflection>"),
+                        ("execute", "<execute>"),
+                        ("answer", "<answer>"),
+                    ]
+                    for canonical_name, open_tag in _CONTINUATION_OPEN_TAGS:
                         if (
-                            open_tag in tag_check_window
+                            open_tag in tag_check_window.lower()
                             and open_tag not in continuation_detected_tags
                         ):
                             continuation_detected_tags.add(open_tag)
-                            continuation_current_tag = tag_name
+                            continuation_current_tag = canonical_name
                             continuation_current_tag_content = ""
-                            if tag_name == "answer":
+                            if canonical_name == "answer":
                                 continuation_in_answer = True
                             break
 
                     # Check for closing tags in the window
-                    for tag_name in ["thinking", "reflection", "execute", "answer"]:
-                        close_tag = f"</{tag_name}>"
+                    # Support both </think> and </thinking> forms
+                    _CONTINUATION_CLOSE_TAGS = [
+                        ("thinking", "</thinking>"),
+                        ("thinking", "</think>"),
+                        ("reflection", "</reflection>"),
+                        ("execute", "</execute>"),
+                        ("answer", "</answer>"),
+                    ]
+                    for canonical_name, close_tag in _CONTINUATION_CLOSE_TAGS:
                         if (
-                            close_tag in tag_check_window
-                            and continuation_current_tag == tag_name
+                            close_tag in tag_check_window.lower()
+                            and continuation_current_tag == canonical_name
                         ):
                             # Tag closed - process it
-                            if tag_name == "execute":
+                            if canonical_name == "execute":
                                 # Execute commands and stop the continuation stream
                                 # Truncate at </execute> to discard hallucinated output
                                 execute_end_match = re.search(
@@ -3719,9 +3721,10 @@ Analyze the actual output shown and continue with your response.
 
                                 # Break to start new continuation with execution output
                                 break
-                            elif tag_name in ("thinking", "reflection"):
+                            elif canonical_name in ("thinking", "reflection"):
                                 # Extract and log the complete tag content
-                                tag_pattern = f"<{tag_name}>(.*?)</{tag_name}>"
+                                # Use regex that matches both <think> and <thinking> forms
+                                tag_pattern = r"<think(?:ing)?>(.*?)</think(?:ing)?>" if canonical_name == "thinking" else r"<reflection>(.*?)</reflection>"
                                 matches = list(
                                     re.finditer(
                                         tag_pattern,
@@ -3731,7 +3734,7 @@ Analyze the actual output shown and continue with your response.
                                 )
                                 for m in matches:
                                     content = m.group(1).strip()
-                                    tag_id = f"{tag_name}:{hash(content)}"
+                                    tag_id = f"{canonical_name}:{hash(content)}"
                                     if (
                                         tag_id
                                         not in continuation_processed_thinking_ids
@@ -3739,7 +3742,7 @@ Analyze the actual output shown and continue with your response.
                                     ):
                                         continuation_processed_thinking_ids.add(tag_id)
 
-                                        if tag_name == "thinking":
+                                        if canonical_name == "thinking":
                                             log_msg = (
                                                 f"[SUBACTIVITY][THOUGHT] {content}"
                                             )
@@ -3760,13 +3763,13 @@ Analyze the actual output shown and continue with your response.
                                             )
 
                                         yield {
-                                            "type": tag_name,
+                                            "type": canonical_name,
                                             "content": content,
                                             "complete": True,
                                         }
 
                             # Reset answer flag when </answer> is detected
-                            if tag_name == "answer":
+                            if canonical_name == "answer":
                                 continuation_in_answer = False
                             continuation_current_tag = None
                             continuation_current_tag_content = ""
@@ -3781,11 +3784,34 @@ Analyze the actual output shown and continue with your response.
                         "thinking",
                         "reflection",
                     ):
-                        tag_start_pattern = f"<{continuation_current_tag}>"
-                        if tag_start_pattern in continuation_response:
-                            last_start = continuation_response.rfind(tag_start_pattern)
+                        # Find the opening tag - handle both <think> and <thinking> forms
+                        resp_lower = continuation_response.lower()
+                        if continuation_current_tag == "thinking":
+                            # Find last occurrence of either <think> or <thinking>
+                            pos_thinking = resp_lower.rfind("<thinking>")
+                            pos_think = resp_lower.rfind("<think>")
+                            # Avoid matching <thinking> as <think> — only use <think> if it's not part of <thinking>
+                            if pos_think >= 0 and pos_thinking >= 0 and pos_thinking == pos_think:
+                                # They overlap, use <thinking>
+                                last_start = pos_thinking
+                                tag_len = len("<thinking>")
+                            elif pos_thinking >= 0 and (pos_think < 0 or pos_thinking > pos_think):
+                                last_start = pos_thinking
+                                tag_len = len("<thinking>")
+                            elif pos_think >= 0:
+                                last_start = pos_think
+                                tag_len = len("<think>")
+                            else:
+                                last_start = -1
+                                tag_len = 0
+                        else:
+                            tag_start_pattern = f"<{continuation_current_tag}>"
+                            last_start = resp_lower.rfind(tag_start_pattern)
+                            tag_len = len(tag_start_pattern)
+
+                        if last_start >= 0:
                             partial = continuation_response[
-                                last_start + len(tag_start_pattern) :
+                                last_start + tag_len :
                             ]
                             if "<" in partial:
                                 partial = partial.split("<")[0]
@@ -3830,7 +3856,7 @@ Analyze the actual output shown and continue with your response.
                         if new_answer:
                             # Clean internal tags from answer content
                             cleaned_new_answer = re.sub(
-                                r"<thinking>.*?</thinking>",
+                                r"<think(?:ing)?>.*?</think(?:ing)?>",
                                 "",
                                 new_answer,
                                 flags=re.DOTALL | re.IGNORECASE,
@@ -3995,7 +4021,7 @@ Analyze the actual output shown and continue with your response.
             flags=re.IGNORECASE,
         )
         final_answer = re.sub(
-            r"<thinking>.*?</thinking>",
+            r"<think(?:ing)?>.*?</think(?:ing)?>",
             "",
             final_answer,
             flags=re.DOTALL | re.IGNORECASE,
@@ -4031,12 +4057,10 @@ Analyze the actual output shown and continue with your response.
         final_answer = re.sub(
             r"<final>.*?</final>", "", final_answer, flags=re.DOTALL | re.IGNORECASE
         )
-        # Normalize any residual <think>/</ think> tags that survived earlier processing
-        final_answer = normalize_thinking_tags(final_answer)
         # Remove orphaned closing tags (closing tags without matching opening tags)
-        # This handles malformed model output with stray </thinking>, </reflection>, etc.
+        # This handles malformed model output with stray </thinking>, </think>, </reflection>, etc.
         final_answer = re.sub(
-            r"</thinking>|</think>|</reflection>|</step>|</execute>|</output>|</speak>|</answer>|</count>|</reward>|</final>",
+            r"</think(?:ing)?>|</reflection>|</step>|</execute>|</output>|</speak>|</answer>|</count>|</reward>|</final>",
             "",
             final_answer,
             flags=re.IGNORECASE,
