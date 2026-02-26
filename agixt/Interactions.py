@@ -2872,6 +2872,7 @@ Example: If user says "list my files", use:
             # Track last processed position for incremental tag detection
             last_tag_check_pos = 0
             _first_token_logged = False
+            _break_for_continuation = False
 
             async for chunk in iterate_stream(stream):
                 # Check for cancellation periodically during streaming
@@ -3035,7 +3036,15 @@ Example: If user says "list my files", use:
 
                         full_response = self.response
                         is_executing = False
-                        break  # Break to continuation loop
+                        _break_for_continuation = True
+                        break  # Break inner for-match loop
+
+                # After code execution, break the outer streaming loop immediately.
+                # The model's remaining stream tokens are generated without knowledge
+                # of the actual execution output, so they're stale/hallucinated.
+                # Continuation logic will make a fresh inference with real output.
+                if _break_for_continuation:
+                    break
 
                 # Process completed thinking/reflection tags for logging
                 # This also consolidates any adjacent <step>, <count>, <reward> tags
@@ -4124,6 +4133,11 @@ Analyze the actual output shown and continue with your response.
                     # Stop streaming answer once </answer> is found
                     if "</answer>" in tag_check_window.lower():
                         continuation_in_answer = False
+
+                    # Break early if we have a complete answer - don't keep consuming
+                    # potentially very long post-answer thinking tokens from the model
+                    if has_complete_answer(self.response + continuation_response):
+                        break
 
                 # Propagate accumulated answer content back so next iteration
                 # doesn't re-yield already-streamed content (answer_content may
