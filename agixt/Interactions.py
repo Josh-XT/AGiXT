@@ -3577,6 +3577,18 @@ Example: If user says "list my files", use:
 
             logging.error(traceback.format_exc())
 
+        # Cancel/close the old LLM stream so the inference slot is freed immediately.
+        # Without this, the iterate_stream daemon thread keeps consuming tokens from
+        # the old generation, blocking the single ezlocalai slot.  The continuation
+        # logic below needs that slot for a fresh inference call.
+        try:
+            if hasattr(stream, "close"):
+                stream.close()
+            elif hasattr(stream, "response") and hasattr(stream.response, "close"):
+                stream.response.close()
+        except Exception:
+            pass  # Best-effort cleanup
+
         # Store the full response
         self.response = full_response
 
@@ -3611,6 +3623,18 @@ Example: If user says "list my files", use:
         # This matches the non-streaming behavior where we inject output and run inference again
         max_continuation_loops = 15  # Prevent infinite loops
         continuation_count = 0
+        _continuation_iter_lengths = (
+            []
+        )  # Track per-iteration response lengths for stuck detection (non-execution only)
+        _previous_iteration_executed = (
+            _break_for_continuation  # Carry forward from initial stream execution
+        )
+        _no_answer_non_exec_streak = (
+            0  # Track consecutive non-exec iterations without <answer> tags
+        )
+        _auto_injected_answer = (
+            False  # Track if <answer> was auto-injected (needs special prompt)
+        )
 
         # Track the length of processed content to detect new executions
         processed_length = len(self.response)
@@ -3630,6 +3654,12 @@ Example: If user says "list my files", use:
             # Always use processed_length to avoid re-detecting already-executed commands
             unprocessed_response = self.response[processed_length:]
             has_new_execution = "</execute>" in unprocessed_response
+            # If the previous iteration broke for execution, treat this as
+            # a post-execution iteration so we use the execution-aware prompt
+            # that shows the model its error output instead of just "provide answer"
+            if _previous_iteration_executed and not has_new_execution:
+                has_new_execution = True
+                _previous_iteration_executed = False
             # Use has_complete_answer for proper detection instead of simple string check
             has_incomplete_answer = (
                 "<answer>" in self.response.lower()
@@ -3637,6 +3667,20 @@ Example: If user says "list my files", use:
             )
             # Also check if there's NO answer at all - we need to prompt for one
             has_no_answer = "<answer>" not in self.response.lower()
+
+            # After 2+ consecutive non-exec no-answer iterations, the model is
+            # generating useful content but not wrapping in <answer> tags.
+            # Inject <answer> to transition to has_incomplete_answer mode where
+            # the prompt tells the model to close the answer block.
+            if _no_answer_non_exec_streak >= 2 and has_no_answer:
+                self.response += "\n<answer>"
+                has_no_answer = False
+                has_incomplete_answer = True
+                _auto_injected_answer = True
+                logging.info(
+                    f"[run_stream] Auto-injected <answer> tag after {_no_answer_non_exec_streak} "
+                    f"consecutive no-answer non-exec iterations"
+                )
 
             # Continue if: new execution, incomplete answer, OR no answer at all (need to prompt for one)
             should_continue = (
@@ -3656,10 +3700,60 @@ Example: If user says "list my files", use:
                 "content": "",
                 "complete": False,
             }
-            logging.debug(
+            _cont_iter_t0 = _time.monotonic()
+            logging.info(
                 f"[run_stream] Continuation loop iteration {continuation_count}/{max_continuation_loops}. "
                 f"has_new_execution: {has_new_execution}, has_incomplete_answer: {has_incomplete_answer}, "
-                f"has_no_answer: {has_no_answer}"
+                f"has_no_answer: {has_no_answer}. response_len: {len(self.response)}"
+            )
+
+            # --- Stuck-loop detection ---
+            # Only check for stuck loops using NON-EXECUTION iterations.
+            # Execution iterations (where the model writes code) are productive
+            # even if they fail — the model may need several tries to fix errors.
+            # We only track iterations where the model just generated thinking/answer
+            # without executing code.
+            if len(_continuation_iter_lengths) >= 4 and not has_new_execution:
+                _last4 = _continuation_iter_lengths[-4:]
+                _avg = sum(_last4) / 4
+                _all_small = all(l < 4000 for l in _last4)
+                _all_similar = all(abs(l - _avg) < 500 for l in _last4)
+                if _all_small and _all_similar:
+                    if has_incomplete_answer:
+                        # Model opened <answer> but keeps generating without closing.
+                        # Force-close it — the answer content is already there.
+                        logging.warning(
+                            f"[run_stream] Stuck loop detected (incomplete answer) at iteration {continuation_count}. "
+                            f"Last 4 non-exec lengths: {_last4}. Force-closing answer tag."
+                        )
+                        self.response += "</answer>"
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message="[SUBACTIVITY][CONTINUATION] Finalizing response...",
+                        )
+                        break
+                    elif has_no_answer:
+                        # Model keeps generating thinking without ever producing an answer.
+                        # Break out and use fallback answer extraction.
+                        logging.warning(
+                            f"[run_stream] Stuck loop detected (no answer) at iteration {continuation_count}. "
+                            f"Last 4 non-exec lengths: {_last4}. Breaking to extract best available answer."
+                        )
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message="[SUBACTIVITY][CONTINUATION] Finalizing response...",
+                        )
+                        break
+
+            # Log a visible subactivity so the user sees continuation progress
+            _cont_status = (
+                "Processing execution results"
+                if has_new_execution
+                else "Continuing analysis"
+            )
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][CONTINUATION] {_cont_status} (step {continuation_count})...",
             )
             # Compress the response to prevent context explosion
             # This summarizes long outputs and truncates verbose thinking
@@ -3672,6 +3766,10 @@ Example: If user says "list my files", use:
             # Log compression stats
             original_tokens = get_tokens(self.response)
             compressed_tokens = get_tokens(compressed_response)
+            logging.info(
+                f"[run_stream] Continuation {continuation_count}: response {original_tokens} tokens "
+                f"-> compressed {compressed_tokens} tokens ({compressed_tokens*100//max(original_tokens,1)}%)"
+            )
 
             if has_new_execution:
 
@@ -3746,22 +3844,36 @@ Analyze the actual output shown and continue with your response.
                 if has_no_answer:
                     # No answer block at all - prompt to provide one
                     # Use compressed response to prevent context explosion
-                    # Escalate urgency as iterations increase to break code-execution loops
+                    # Only escalate urgency at the very end of the loop
                     if continuation_count >= max_continuation_loops - 2:
-                        urgency = " CRITICAL: This is your FINAL chance to respond. You MUST provide your answer NOW inside <answer></answer> tags using whatever results you have. Do NOT execute any more commands."
-                    elif continuation_count >= max_continuation_loops // 2:
-                        urgency = " IMPORTANT: You have been executing commands multiple times. Stop executing code and provide your final answer inside <answer></answer> tags immediately using the results you already have."
+                        urgency = " CRITICAL: This is your FINAL chance to respond. You MUST provide your answer NOW inside <answer></answer> tags using whatever results you have. Do NOT execute any more commands. Do NOT think further. Output ONLY <answer>your response</answer>."
+                    elif continuation_count >= max_continuation_loops - 4:
+                        urgency = " IMPORTANT: You are running low on processing steps. Please provide your final answer inside <answer></answer> tags using the results you already have."
                     else:
                         urgency = ""
                     continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant has completed thinking and command execution but has not yet provided a final answer to the user. Now provide your response to the user inside <answer></answer> tags. Do not repeat previous thinking or command outputs.{urgency}"
                 else:
                     # Incomplete answer - prompt to continue
                     # Use compressed response to prevent context explosion
-                    continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
+                    if _auto_injected_answer:
+                        # Auto-injected answer tag: model was generating analysis without
+                        # wrapping in <answer> tags. Tell it to provide a COMPLETE answer
+                        # with all findings, not just a brief closing reference.
+                        _auto_injected_answer = False  # Only use this prompt once
+                        continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe <answer> block is now open. Provide a COMPLETE response to the user's question. Include ALL key findings, numerical results, computed values, and analysis conclusions directly in your answer. Do NOT just reference output files or say 'see attached' - present the actual results. Close with </answer> when done."
+                    else:
+                        continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
 
             try:
+                # Send keepalive before starting new inference to prevent
+                # client-side read timeouts during prompt building + slot wait
+                yield {
+                    "type": "keepalive",
+                    "content": "",
+                    "complete": False,
+                }
                 # Run FRESH inference with stream=True
-                logging.debug(
+                logging.info(
                     f"[run_stream] Starting continuation inference. Prompt length: {len(continuation_prompt)} chars"
                 )
                 continuation_stream = await self.agent.inference(
@@ -3781,9 +3893,11 @@ Analyze the actual output shown and continue with your response.
                 continuation_detected_tags = (
                     set()
                 )  # Track which opening tags we've already detected
+                _cont_in_reasoning = False  # Track reasoning_content field state
 
                 async for chunk_data in iterate_stream(continuation_stream):
-                    # Extract token from chunk
+                    # Extract token from chunk — mirrors main stream logic
+                    # including reasoning_content support for DeepSeek/OpenAI/Qwen
                     token = None
                     if isinstance(chunk_data, str):
                         token = chunk_data
@@ -3791,6 +3905,19 @@ Analyze the actual output shown and continue with your response.
                         delta = chunk_data.choices[0].delta
                         if hasattr(delta, "content") and delta.content:
                             token = delta.content
+                            # If we were receiving reasoning_content, close the thinking block
+                            if _cont_in_reasoning:
+                                _cont_in_reasoning = False
+                                token = "</think>" + token
+                        elif (
+                            hasattr(delta, "reasoning_content")
+                            and delta.reasoning_content
+                        ):
+                            # Providers like DeepSeek/OpenAI/Qwen send thinking in a separate field
+                            token = delta.reasoning_content
+                            if not _cont_in_reasoning:
+                                _cont_in_reasoning = True
+                                token = "<think>" + token
 
                     if not token:
                         continue
@@ -3860,6 +3987,23 @@ Analyze the actual output shown and continue with your response.
 
                                 # Update processed_length before execution so we can detect new executions
                                 processed_length = len(self.response)
+
+                                # Close/cancel the continuation stream NOW to free the
+                                # inference slot BEFORE running execution_agent.  Without
+                                # this, the iterate_stream daemon thread keeps consuming
+                                # from the old generation, occupying the single ezlocalai
+                                # slot while code executes (which doesn't need the LLM).
+                                try:
+                                    if hasattr(continuation_stream, "close"):
+                                        continuation_stream.close()
+                                    elif hasattr(
+                                        continuation_stream, "response"
+                                    ) and hasattr(
+                                        continuation_stream.response, "close"
+                                    ):
+                                        continuation_stream.response.close()
+                                except Exception:
+                                    pass  # Best-effort cleanup
 
                                 # Create queue for remote command requests in continuation
                                 cont_remote_queue = asyncio.Queue()
@@ -4154,11 +4298,43 @@ Analyze the actual output shown and continue with your response.
                     if has_complete_answer(self.response + continuation_response):
                         break
 
+                # Close/cancel the continuation stream to free the inference slot
+                # for the next iteration's LLM call (same rationale as main stream cleanup)
+                try:
+                    if hasattr(continuation_stream, "close"):
+                        continuation_stream.close()
+                    elif hasattr(continuation_stream, "response") and hasattr(
+                        continuation_stream.response, "close"
+                    ):
+                        continuation_stream.response.close()
+                except Exception:
+                    pass  # Best-effort cleanup
+
+                logging.info(
+                    f"[run_stream] Continuation iteration {continuation_count} complete. "
+                    f"broke_for_execution: {broke_for_execution}, "
+                    f"continuation_response_len: {len(continuation_response)}, "
+                    f"elapsed: {_time.monotonic() - _cont_iter_t0:.1f}s"
+                )
+
                 # Propagate accumulated answer content back so next iteration
                 # doesn't re-yield already-streamed content (answer_content may
                 # have been reset to "" when execute tags appeared inside answer blocks)
                 if continuation_answer_content:
                     answer_content = continuation_answer_content
+
+                # Track this iteration's response length for stuck detection
+                # Only track NON-execution iterations — execution iterations are
+                # productive (model is writing/fixing code) and shouldn't count as "stuck"
+                if broke_for_execution:
+                    _previous_iteration_executed = True
+                    _no_answer_non_exec_streak = 0  # Reset streak on execution
+                else:
+                    _continuation_iter_lengths.append(len(continuation_response))
+                    if has_no_answer:
+                        _no_answer_non_exec_streak += 1
+                    else:
+                        _no_answer_non_exec_streak = 0  # Reset if we have answer tags
 
                 # Append continuation to main response (only if we didn't already do it when breaking for execution)
                 if not broke_for_execution:
@@ -4756,8 +4932,9 @@ Analyze the actual output shown and continue with your response.
                                 # Wrap in json code block for better formatting
                                 command_output = "```json\n" + command_output + "\n```"
                             except:
-                                # Not valid JSON, leave as is
-                                pass
+                                # Not valid JSON — wrap in a plain code block to prevent
+                                # raw markdown (e.g. ## headings) from rendering in the UI
+                                command_output = "```\n" + command_output + "\n```"
 
                         c.log_interaction(
                             role=self.agent_name,

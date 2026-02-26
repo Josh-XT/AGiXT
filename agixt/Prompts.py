@@ -63,7 +63,7 @@ Conclude with a final reflection on the overall solution, discussing effectivene
 Never worry about running out of output tokens, you will be prompted to continue where you left off if you run out of output tokens. If you are prompted to continue, you can continue from where you left off without acknowledging the message or repeating anything that was already typed.
 Thoughts and reflections will not be available to the user, only to the assistant from memories in future interactions where relevant.
 The content of the <answer> block should be in markdown.
-**Only the <answer> tag will be available to the user, so make sure it is complete, well-reasoned, accurate and ends in </answer>.**
+**Only the <answer> tag will be available to the user, so make sure it is complete, well-reasoned, accurate and ends in </answer>. It must end in </answer> !**
 """
 
 

@@ -1482,6 +1482,51 @@ print(output)
         - Use descriptive variable names and add comments for complex operations
         - Import required packages at the beginning (auto-installation supported)
 
+        **CRITICAL: Common CSV/DataFrame Pitfalls to Avoid:**
+        - **Never hardcode column names** - always read them from the data first:
+          ```python
+          df = pd.read_csv('data.csv')
+          print("Columns:", df.columns.tolist())
+          # Then use the EXACT column names from the output
+          ```
+        - **Strip whitespace from column names AND values** - CSV files often have trailing spaces:
+          ```python
+          df.columns = df.columns.str.strip()
+          # For string columns used in filtering:
+          df['Reaction'] = df['Reaction'].str.strip()
+          ```
+        - **Always use pd.to_numeric() for numeric conversion** - never assume dtypes are correct:
+          ```python
+          # BAD: values.astype(float) - fails on strings, whitespace, or mixed types
+          # GOOD: pd.to_numeric(values, errors='coerce') - handles strings, NaN, whitespace
+          numeric_values = pd.to_numeric(df['column'], errors='coerce').dropna().values
+          ```
+        - **Use case-insensitive matching for row lookups** - avoid empty results from case mismatches:
+          ```python
+          # BAD: df[df['Reaction'] == 'Titer Productivity'].iloc[0]  # fails if extra whitespace or case differs
+          # GOOD: mask = df['Reaction'].str.strip().str.lower() == 'titer productivity'
+          #        row = df[mask].iloc[0] if mask.any() else None
+          ```
+        - **Ensure arrays are float before passing to numpy/scipy** - object arrays cause cryptic errors:
+          ```python
+          # BAD: np.corrcoef(values1, values2)  # fails if dtype is 'object'
+          # GOOD: np.corrcoef(values1.astype(float), values2.astype(float))
+          # Or use pd.to_numeric() which is safer for mixed types
+          ```
+        - **Check for embedded newlines and whitespace in values** before type conversion:
+          ```python
+          # CSV values can contain '0.003\\n' which fails float conversion
+          df = df.apply(lambda col: col.str.strip() if col.dtype == 'object' else col)
+          ```
+        - **Verify row filter results are not empty** before using .iloc[0]:
+          ```python
+          filtered = df[df['Reaction'].str.strip() == 'PFK']
+          if filtered.empty:
+              print("No matching rows found. Available values:", df['Reaction'].tolist())
+          else:
+              row = filtered.iloc[0]
+          ```
+
         Remember: This is an incredibly powerful tool - use it creatively to solve complex problems that would be difficult or impossible with other commands. The combination of workspace file access, multi-file processing, and advanced Python libraries makes this suitable for professional-grade data analysis and automation tasks.
         `Can't` is for humans, not for you.
         """
