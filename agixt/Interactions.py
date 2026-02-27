@@ -4368,8 +4368,52 @@ Analyze the actual output shown and continue with your response.
 
             except asyncio.CancelledError:
                 logging.warning(
-                    f"[run_stream] Continuation cancelled (CancelledError) at iteration {continuation_count}"
+                    f"[run_stream] Continuation cancelled (CancelledError) at iteration {continuation_count}. "
+                    f"Saving partial response ({len(self.response)} chars)."
                 )
+                # Save whatever response we've accumulated so far
+                # so the user sees partial work instead of nothing
+                partial_answer = self.response
+                if "<answer>" in partial_answer.lower():
+                    partial_answer = extract_top_level_answer(partial_answer)
+                if partial_answer:
+                    # Strip thinking/execute/output tags
+                    partial_answer = re.sub(
+                        r"<think(?:ing)?>.*?</think(?:ing)?>",
+                        "",
+                        partial_answer,
+                        flags=re.DOTALL | re.IGNORECASE,
+                    )
+                    partial_answer = re.sub(
+                        r"<execute>.*?</execute>",
+                        "",
+                        partial_answer,
+                        flags=re.DOTALL | re.IGNORECASE,
+                    )
+                    partial_answer = re.sub(
+                        r"<output>.*?</output>",
+                        "",
+                        partial_answer,
+                        flags=re.DOTALL | re.IGNORECASE,
+                    )
+                    partial_answer = re.sub(
+                        r"</?(?:answer|think(?:ing)?|reflection|step|execute|output|speak|reward|count|final)>",
+                        "",
+                        partial_answer,
+                        flags=re.IGNORECASE,
+                    )
+                    partial_answer = partial_answer.strip()
+                if partial_answer and log_output:
+                    try:
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message=partial_answer,
+                        )
+                        logging.info(
+                            f"[run_stream] Saved partial response ({len(partial_answer)} chars) on cancellation"
+                        )
+                    except Exception:
+                        pass
                 raise
             except GeneratorExit:
                 logging.warning(
