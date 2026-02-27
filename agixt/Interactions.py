@@ -3755,6 +3755,12 @@ Example: If user says "list my files", use:
                 role=self.agent_name,
                 message=f"[SUBACTIVITY][CONTINUATION] {_cont_status} (step {continuation_count})...",
             )
+            # Yield a streaming event so the front end knows we're still alive
+            yield {
+                "type": "thinking_stream",
+                "content": f"*{_cont_status} (step {continuation_count})...*\n",
+                "complete": False,
+            }
             # Compress the response to prevent context explosion
             # This summarizes long outputs and truncates verbose thinking
             compressed_response = self.compress_response_for_continuation(
@@ -4108,6 +4114,15 @@ Analyze the actual output shown and continue with your response.
                             continuation_current_tag = None
                             continuation_current_tag_content = ""
                             continuation_current_tag_message_id = None  # Reset
+                            # Allow the same tag type to be detected again
+                            # (model may produce multiple <thinking> blocks per continuation)
+                            # Clear both <think> and <thinking> forms when either closes
+                            if canonical_name == "thinking":
+                                continuation_detected_tags.discard("<thinking>")
+                                continuation_detected_tags.discard("<think>")
+                            else:
+                                open_form = close_tag.replace("/", "")
+                                continuation_detected_tags.discard(open_form)
 
                     # Break out of stream loop if we're breaking for execution
                     if broke_for_execution:
