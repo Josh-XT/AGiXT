@@ -75,13 +75,23 @@ jobs:
     steps:
       - name: Deploy Application
         id: deploy
+        env:
+          RAW_COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          # Escape commit message for JSON
-          COMMIT_MSG=$(echo '${{ github.event.head_commit.message }}' | head -c 100 | tr '\n' ' ' | sed 's/"/\\"/g' | sed "s/'/\\\\'/g")
+          # Build JSON payload safely using jq to handle special characters in commit messages
+          COMMIT_MSG=$(printf '%.100s' "$RAW_COMMIT_MSG" | tr '\n' ' ')
+          JSON_BODY=$(jq -n \
+            --arg domain "${{ secrets.DEPLOY_DOMAIN }}" \
+            --arg actor "${{ github.actor }}" \
+            --arg commit_id "${{ github.sha }}" \
+            --arg commit_message "$COMMIT_MSG" \
+            --arg repository "${{ github.repository }}" \
+            --arg branch "${{ github.ref_name }}" \
+            '{domain: $domain, github_actor: $actor, commit_id: $commit_id, commit_message: $commit_message, repository: $repository, branch: $branch}')
           RESPONSE=$(curl -s -w "\nHTTP_STATUS_CODE:%{http_code}" -X POST "${{ secrets.DEPLOY_URI }}" \
             -H "Content-Type: application/json" \
             -H "X-API-Key: ${{ secrets.DEPLOY_SECRET }}" \
-            -d "{\"domain\": \"${{ secrets.DEPLOY_DOMAIN }}\", \"github_actor\": \"${{ github.actor }}\", \"commit_id\": \"${{ github.sha }}\", \"commit_message\": \"${COMMIT_MSG}\", \"repository\": \"${{ github.repository }}\", \"branch\": \"${{ github.ref_name }}\"}")
+            -d "$JSON_BODY")
 
           HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTP_STATUS_CODE:[0-9]*" | cut -d: -f2)
           RESPONSE_BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS_CODE:/d')
@@ -107,13 +117,23 @@ jobs:
     steps:
       - name: Deploy Release Application
         id: deploy-release
+        env:
+          RAW_COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          # Escape commit message for JSON
-          COMMIT_MSG=$(echo '${{ github.event.head_commit.message }}' | head -c 100 | tr '\n' ' ' | sed 's/"/\\"/g' | sed "s/'/\\\\'/g")
+          # Build JSON payload safely using jq to handle special characters in commit messages
+          COMMIT_MSG=$(printf '%.100s' "$RAW_COMMIT_MSG" | tr '\n' ' ')
+          JSON_BODY=$(jq -n \
+            --arg domain "agixt.com" \
+            --arg actor "${{ github.actor }}" \
+            --arg commit_id "${{ github.sha }}" \
+            --arg commit_message "$COMMIT_MSG" \
+            --arg repository "${{ github.repository }}" \
+            --arg branch "${{ github.ref_name }}" \
+            '{domain: $domain, github_actor: $actor, commit_id: $commit_id, commit_message: $commit_message, repository: $repository, branch: $branch}')
           RESPONSE=$(curl -s -w "\nHTTP_STATUS_CODE:%{http_code}" -X POST "${{ secrets.DEPLOY_URI }}" \
             -H "Content-Type: application/json" \
             -H "X-API-Key: ${{ secrets.DEPLOY_SECRET }}" \
-            -d "{\"domain\": \"agixt.com\", \"github_actor\": \"${{ github.actor }}\", \"commit_id\": \"${{ github.sha }}\", \"commit_message\": \"${COMMIT_MSG}\", \"repository\": \"${{ github.repository }}\", \"branch\": \"${{ github.ref_name }}\"}")
+            -d "$JSON_BODY")
 
           HTTP_STATUS=$(echo "$RESPONSE" | grep -o "HTTP_STATUS_CODE:[0-9]*" | cut -d: -f2)
           RESPONSE_BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS_CODE:/d')

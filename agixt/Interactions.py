@@ -739,7 +739,7 @@ class Interactions:
         )
         conversation_id = c.get_conversation_id()
         conversation_outputs = (
-            f"http://localhost:7437/outputs/{self.agent.agent_id}/{conversation_id}/"
+            f"http://localhost:7437/outputs/{self.agent.agent_id}/{conversation_id}"
         )
         context = []
         if int(top_results) > 0:

@@ -4789,11 +4789,29 @@ Your response (true or false):"""
             logging.warning(
                 f"[_execute_chat_completions_stream] CancelledError for conversation {conversation_id}"
             )
+            # Cancel the shielded pending task so run_stream doesn't keep running
+            try:
+                if _pending_task is not None and not _pending_task.done():
+                    _pending_task.cancel()
+            except Exception:
+                pass
+            # Close the run_stream async generator to stop LLM inference
+            try:
+                if stream_iter is not None:
+                    await stream_iter.aclose()
+            except Exception:
+                pass
             raise
         except GeneratorExit:
             logging.warning(
                 f"[_execute_chat_completions_stream] GeneratorExit for conversation {conversation_id}"
             )
+            # Cancel the shielded pending task so run_stream doesn't keep running
+            try:
+                if _pending_task is not None and not _pending_task.done():
+                    _pending_task.cancel()
+            except Exception:
+                pass
             raise
         except Exception as e:
             logging.error(f"Streaming error: {str(e)}")

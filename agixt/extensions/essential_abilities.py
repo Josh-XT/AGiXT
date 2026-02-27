@@ -1508,12 +1508,16 @@ print(output)
           # GOOD: mask = df['category'].str.strip().str.lower() == 'some value'
           #        row = df[mask].iloc[0] if mask.any() else None
           ```
-        - **Ensure arrays are float before passing to numpy/scipy** - object arrays cause cryptic errors:
+        - **Ensure arrays are float before ANY numpy/scipy operation** - object arrays cause cryptic errors:
           ```python
           # BAD: np.corrcoef(values1, values2)  # fails if dtype is 'object'
-          # GOOD: v1 = pd.to_numeric(values1, errors='coerce').dropna().values
-          #        v2 = pd.to_numeric(values2, errors='coerce').dropna().values
+          # BAD: np.isnan(values)  # ALSO fails on object dtype - don't use for validation
+          # GOOD: Always convert first, then all numpy operations work:
+          #        v1 = pd.to_numeric(pd.Series(values1), errors='coerce').dropna().values
+          #        v2 = pd.to_numeric(pd.Series(values2), errors='coerce').dropna().values
           #        np.corrcoef(v1, v2)
+          # For NaN checks, use pandas instead of numpy:
+          #        pd.isna(values)  # works on ANY dtype safely
           ```
         - **Extract scalar values from numpy results before formatting** - correlation/stats functions return arrays:
           ```python
