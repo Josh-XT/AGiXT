@@ -2859,8 +2859,8 @@ Example: If user says "list my files", use:
                             raise msg_data
                     except queue.Empty:
                         # Short non-blocking sleep lets other coroutines run
-                        # 5ms matches token cadence at ~120 tok/s
-                        await asyncio.sleep(0.005)
+                        # 1ms keeps latency low for smooth streaming
+                        await asyncio.sleep(0.001)
                         # Check if thread died unexpectedly
                         if done_event.is_set() and chunk_queue.empty():
                             if error_holder[0]:

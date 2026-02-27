@@ -1,1 +1,2 @@
-safeexecute==0.0.24
+safeexecute==0.0.25
+docker==7.1.0

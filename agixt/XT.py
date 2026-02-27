@@ -4378,7 +4378,9 @@ Your response (true or false):"""
                                     }
                                 ],
                             }
-                            yield f"data: {json.dumps(chunk)}\n\n"
+                            # Add 2KB SSE comment padding to force proxy buffer flush
+                            _pad = ":" + " " * 2048 + "\n"
+                            yield f"data: {json.dumps(chunk)}\n{_pad}\n"
 
                         # Buffer text for TTS and stream sentence-by-sentence
                         if tts_mode in ("audio_only", "interleaved"):
@@ -4519,7 +4521,10 @@ Your response (true or false):"""
                         "content": content,
                         "complete": is_complete,
                     }
-                    yield f"data: {json.dumps(activity_chunk)}\n\n"
+                    # Add 2KB SSE comment padding to force proxy buffer flush
+                    # (Cloudflare/nginx buffer small events, causing chunky delivery)
+                    _pad = ":" + " " * 2048 + "\n"
+                    yield f"data: {json.dumps(activity_chunk)}\n{_pad}\n"
 
                 # Handle speak events for TTS filler speech during thinking
                 # These are brief phrases like "Let me check on that" spoken while processing
