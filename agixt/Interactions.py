@@ -3746,19 +3746,29 @@ Example: If user says "list my files", use:
                         break
 
             # Log a visible subactivity so the user sees continuation progress
-            _cont_status = (
-                "Processing execution results"
-                if has_new_execution
-                else "Continuing analysis"
-            )
+            # Build a descriptive status message so the user knows what's happening
+            if has_new_execution:
+                _cont_status = "Analyzing command execution results"
+            elif has_incomplete_answer:
+                _cont_status = "Completing response"
+            elif has_no_answer:
+                if continuation_count <= 1:
+                    _cont_status = "Formulating response from analysis"
+                else:
+                    _cont_status = "Refining analysis before responding"
+            else:
+                _cont_status = "Continuing analysis"
+            # Add token context so user sees scale of work
+            _resp_tokens = get_tokens(self.response)
+            _cont_detail = f"{_cont_status} — {_resp_tokens:,} tokens processed so far"
             c.log_interaction(
                 role=self.agent_name,
-                message=f"[SUBACTIVITY][CONTINUATION] {_cont_status} (step {continuation_count})...",
+                message=f"[SUBACTIVITY][CONTINUATION] {_cont_detail}",
             )
             # Yield a streaming event so the front end knows we're still alive
             yield {
                 "type": "thinking_stream",
-                "content": f"*{_cont_status} (step {continuation_count})...*\n",
+                "content": f"*{_cont_detail}*\n",
                 "complete": False,
             }
             # Compress the response to prevent context explosion
