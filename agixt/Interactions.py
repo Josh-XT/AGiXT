@@ -2804,6 +2804,11 @@ Example: If user says "list my files", use:
         # Track position where the currently open thinking block's content starts
         # Avoids O(n²) re-scanning of full_response on every token
         _thinking_content_start = -1
+        # Track placeholder activity IDs for progressive streaming display
+        # Created when thinking/reflection starts so the front-end has an activity
+        # item to attach streaming content to (avoids content buffering invisibly)
+        _thinking_placeholder_id = None
+        _reflection_placeholder_id = None
 
         # Helper to iterate over stream (handles sync iterators from OpenAI library)
         async def iterate_stream(stream_obj):
@@ -2931,6 +2936,13 @@ Example: If user says "list my files", use:
                     _thinking_content_start = (
                         last_open.end() if last_open else len(full_response)
                     )
+                    # Create placeholder activity so the front-end has an item
+                    # to attach progressive streaming content to immediately
+                    if not is_executing and _thinking_placeholder_id is None:
+                        _thinking_placeholder_id = c.log_interaction(
+                            role=self.agent_name,
+                            message="[SUBACTIVITY][THOUGHT] Thinking...",
+                        )
                 elif _thinking_depth == 0 and _prev_thinking_depth > 0:
                     _thinking_content_start = -1
                 _reflection_depth += token_lower.count(
@@ -3153,7 +3165,26 @@ Example: If user says "list my files", use:
                                 log_msg = f"[SUBACTIVITY][REFLECTION] {content}"
 
                             if not is_executing:
-                                c.log_interaction(role=self.agent_name, message=log_msg)
+                                # Update placeholder if we created one, otherwise create new
+                                if tag_name == "thinking" and _thinking_placeholder_id:
+                                    c.update_message_by_id(
+                                        _thinking_placeholder_id, log_msg
+                                    )
+                                    _thinking_placeholder_id = (
+                                        None  # Reset for next block
+                                    )
+                                elif (
+                                    tag_name == "reflection"
+                                    and _reflection_placeholder_id
+                                ):
+                                    c.update_message_by_id(
+                                        _reflection_placeholder_id, log_msg
+                                    )
+                                    _reflection_placeholder_id = None
+                                else:
+                                    c.log_interaction(
+                                        role=self.agent_name, message=log_msg
+                                    )
 
                             yield {
                                 "type": tag_name,
