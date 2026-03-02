@@ -3652,7 +3652,7 @@ Example: If user says "list my files", use:
 
         # Continuation logic: Handle execution outputs and incomplete answers
         # This matches the non-streaming behavior where we inject output and run inference again
-        max_continuation_loops = 15  # Prevent infinite loops
+        max_continuation_loops = 25  # Prevent infinite loops
         continuation_count = 0
         _continuation_iter_lengths = (
             []
@@ -3699,11 +3699,11 @@ Example: If user says "list my files", use:
             # Also check if there's NO answer at all - we need to prompt for one
             has_no_answer = "<answer>" not in self.response.lower()
 
-            # After 2+ consecutive non-exec no-answer iterations, the model is
+            # After several consecutive non-exec no-answer iterations, the model is
             # generating useful content but not wrapping in <answer> tags.
             # Inject <answer> to transition to has_incomplete_answer mode where
             # the prompt tells the model to close the answer block.
-            if _no_answer_non_exec_streak >= 2 and has_no_answer:
+            if _no_answer_non_exec_streak >= 5 and has_no_answer:
                 self.response += "\n<answer>"
                 has_no_answer = False
                 has_incomplete_answer = True
@@ -3744,18 +3744,18 @@ Example: If user says "list my files", use:
             # even if they fail — the model may need several tries to fix errors.
             # We only track iterations where the model just generated thinking/answer
             # without executing code.
-            if len(_continuation_iter_lengths) >= 4 and not has_new_execution:
-                _last4 = _continuation_iter_lengths[-4:]
-                _avg = sum(_last4) / 4
-                _all_small = all(l < 4000 for l in _last4)
-                _all_similar = all(abs(l - _avg) < 500 for l in _last4)
+            if len(_continuation_iter_lengths) >= 6 and not has_new_execution:
+                _last4 = _continuation_iter_lengths[-6:]
+                _avg = sum(_last4) / len(_last4)
+                _all_small = all(l < 2000 for l in _last4)
+                _all_similar = all(abs(l - _avg) < 300 for l in _last4)
                 if _all_small and _all_similar:
                     if has_incomplete_answer:
                         # Model opened <answer> but keeps generating without closing.
                         # Force-close it — the answer content is already there.
                         logging.warning(
                             f"[run_stream] Stuck loop detected (incomplete answer) at iteration {continuation_count}. "
-                            f"Last 4 non-exec lengths: {_last4}. Force-closing answer tag."
+                            f"Last 6 non-exec lengths: {_last4}. Force-closing answer tag."
                         )
                         self.response += "</answer>"
                         c.log_interaction(
@@ -3768,7 +3768,7 @@ Example: If user says "list my files", use:
                         # Break out and use fallback answer extraction.
                         logging.warning(
                             f"[run_stream] Stuck loop detected (no answer) at iteration {continuation_count}. "
-                            f"Last 4 non-exec lengths: {_last4}. Breaking to extract best available answer."
+                            f"Last 6 non-exec lengths: {_last4}. Breaking to extract best available answer."
                         )
                         c.log_interaction(
                             role=self.agent_name,
@@ -3894,11 +3894,11 @@ Analyze the actual output shown and continue with your response.
                     # Only escalate urgency at the very end of the loop
                     if continuation_count >= max_continuation_loops - 2:
                         urgency = " CRITICAL: This is your FINAL chance to respond. You MUST provide your answer NOW inside <answer></answer> tags using whatever results you have. Do NOT execute any more commands. Do NOT think further. Output ONLY <answer>your response</answer>."
-                    elif continuation_count >= max_continuation_loops - 4:
+                    elif continuation_count >= max_continuation_loops - 3:
                         urgency = " IMPORTANT: You are running low on processing steps. Please provide your final answer inside <answer></answer> tags using the results you already have."
                     else:
                         urgency = ""
-                    continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant has completed thinking and command execution but has not yet provided a final answer to the user. Now provide your response to the user inside <answer></answer> tags. Do not repeat previous thinking or command outputs.{urgency}"
+                    continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nContinue working on the user's request. If you need to execute more commands to complete the task, do so now. If you have finished all necessary work, provide your response to the user inside <answer></answer> tags. Do not repeat previous thinking or command outputs.{urgency}"
                 else:
                     # Incomplete answer - prompt to continue
                     # Use compressed response to prevent context explosion
