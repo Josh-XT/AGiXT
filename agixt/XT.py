@@ -1,4 +1,4 @@
-from Interactions import Interactions
+from Interactions import Interactions, stream_inference_to_string
 from ApiClient import get_api_client, Conversations, Prompts, Chain
 from Memories import Memories
 from Extensions import Extensions
@@ -450,11 +450,12 @@ Rules:
 - Do not use any name from the existing list above
 - Respond with ONLY the JSON, no explanation"""
 
-            # Direct LLM call - bypasses full inference pipeline for speed
-            new_convo = await self.agent.inference(
+            # Direct LLM call - uses streaming internally to avoid blocking
+            # the inference slot for other concurrent requests
+            new_convo = await stream_inference_to_string(
+                self.agent,
                 prompt=naming_prompt,
                 use_smartest=False,
-                stream=False,
             )
 
             # Extract JSON from the response
@@ -489,10 +490,10 @@ Rules:
 
 Respond with ONLY: {{"suggested_conversation_name": "Different Name Here"}}"""
 
-                    retry_response = await self.agent.inference(
+                    retry_response = await stream_inference_to_string(
+                        self.agent,
                         prompt=retry_prompt,
                         use_smartest=False,
-                        stream=False,
                     )
 
                     # Handle potential thinking tags

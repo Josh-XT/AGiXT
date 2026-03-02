@@ -310,12 +310,15 @@ class ezlocalai(Extensions):
 
             if stream:
                 # Return a generator for streaming with OpenAI SDK-like interface
+                # Use a longer connection timeout (600s) since the inference slot
+                # may be busy with another request and we need to wait in queue.
+                # The read timeout for individual chunks is set to 120s.
                 resp = requests.post(
                     api_url,
                     headers=headers,
                     json=payload,
                     stream=True,
-                    timeout=300,
+                    timeout=(600, 120),
                 )
                 resp.raise_for_status()
                 return parse_sse_stream(resp)

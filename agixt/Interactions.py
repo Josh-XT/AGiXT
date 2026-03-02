@@ -4373,6 +4373,9 @@ Analyze the actual output shown and continue with your response.
                     f"elapsed: {_time.monotonic() - _cont_iter_t0:.1f}s"
                 )
 
+                # Reset retry counter on successful iteration
+                self._continuation_retry_count = 0
+
                 # Propagate accumulated answer content back so next iteration
                 # doesn't re-yield already-streamed content (answer_content may
                 # have been reset to "" when execute tags appeared inside answer blocks)
@@ -4477,11 +4480,56 @@ Analyze the actual output shown and continue with your response.
                 )
                 raise
             except Exception as e:
-                logging.error(f"Error during continuation: {e}")
-                import traceback
+                # Check if this is a retryable error (timeout, connection error)
+                error_str = str(e).lower()
+                is_retryable = any(
+                    keyword in error_str
+                    for keyword in [
+                        "timed out",
+                        "timeout",
+                        "connection",
+                        "reset by peer",
+                        "broken pipe",
+                        "server disconnected",
+                        "503",
+                        "502",
+                        "429",
+                    ]
+                )
 
-                logging.error(traceback.format_exc())
-                break
+                if is_retryable and continuation_count < max_continuation_loops:
+                    # Track retry attempts for this iteration
+                    if not hasattr(self, "_continuation_retry_count"):
+                        self._continuation_retry_count = 0
+                    self._continuation_retry_count += 1
+
+                    if self._continuation_retry_count <= 3:
+                        # Wait with exponential backoff before retrying
+                        wait_time = min(
+                            30, 5 * self._continuation_retry_count
+                        )
+                        logging.warning(
+                            f"[run_stream] Retryable error in continuation iteration {continuation_count} "
+                            f"(retry {self._continuation_retry_count}/3): {e}. "
+                            f"Waiting {wait_time}s before retry."
+                        )
+                        await asyncio.sleep(wait_time)
+                        # Don't increment continuation_count for retries
+                        continuation_count -= 1
+                        continue
+                    else:
+                        logging.error(
+                            f"[run_stream] Max retries (3) reached for continuation. "
+                            f"Breaking out. Error: {e}"
+                        )
+                        self._continuation_retry_count = 0
+                        break
+                else:
+                    logging.error(f"Error during continuation: {e}")
+                    import traceback
+
+                    logging.error(traceback.format_exc())
+                    break
 
         logging.info(
             f"[run_stream] Continuation loop finished. Total iterations: {continuation_count}. "
