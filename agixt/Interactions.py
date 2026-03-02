@@ -3984,7 +3984,9 @@ Analyze the actual output shown and continue with your response.
                     set()
                 )  # Track which opening tags we've already detected
                 _cont_in_reasoning = False  # Track reasoning_content field state
-                _cont_commands_executed = 0  # Track if execution_agent actually ran any commands
+                _cont_commands_executed = (
+                    0  # Track if execution_agent actually ran any commands
+                )
 
                 async for chunk_data in iterate_stream(continuation_stream):
                     # Extract token from chunk — mirrors main stream logic
@@ -4126,7 +4128,9 @@ Analyze the actual output shown and continue with your response.
                                     except Exception:
                                         break
                                 if cont_execution_task.done():
-                                    _cont_commands_executed = cont_execution_task.result() or 0
+                                    _cont_commands_executed = (
+                                        cont_execution_task.result() or 0
+                                    )
                                 else:
                                     _cont_commands_executed = 0
 
