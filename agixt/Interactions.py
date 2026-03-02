@@ -1383,21 +1383,28 @@ You have access to context management commands to reduce token usage:
     def compress_response_for_continuation(
         self,
         response: str,
-        max_output_lines: int = 20,
-        max_thinking_chars: int = 500,
+        max_output_lines: int = 80,
+        max_thinking_chars: int = 2000,
     ) -> str:
         """
-        Compress a response for continuation prompts to prevent context explosion.
+        Compress a response for continuation prompts to prevent context explosion
+        while preserving critical execution context.
+
+        CRITICAL: The most important thing to preserve is the <execute>...<output>
+        pairs — these tell the model what commands were already run and their results.
+        Without this context, the model will regenerate the same commands, which get
+        silently deduplicated, resulting in "swallowed" activities.
 
         This function:
-        1. Summarizes long <output> blocks (keep first/last lines)
-        2. Truncates verbose thinking/reflection blocks
-        3. Preserves <execute> blocks intact (needed for tracking what was executed)
+        1. Preserves ALL <execute>...<output> pairs intact (most important context)
+        2. Compresses standalone <output> blocks (not paired with execute)
+        3. Compresses verbose thinking/reflection blocks (keep enough for reasoning continuity)
         4. Preserves answer content intact
+        5. Removes internal-only tags (<step>, <reward>, <count>)
 
         Args:
             response: The full response to compress
-            max_output_lines: Maximum lines to keep per output block
+            max_output_lines: Maximum lines to keep per standalone output block
             max_thinking_chars: Maximum characters to keep per thinking block
 
         Returns:
@@ -1405,9 +1412,23 @@ You have access to context management commands to reduce token usage:
         """
         compressed = response
 
-        # 1. Compress <output> blocks - these tend to be the biggest culprits
-        output_pattern = r"<output>(.*?)</output>"
+        # 1. FIRST: Extract and protect all <execute>...<output>...</output> pairs
+        # These are the MOST CRITICAL context — they tell the model what was already done.
+        # We replace them with placeholders, compress everything else, then restore them.
+        execute_output_pairs = []
+        pair_pattern = re.compile(
+            r"(<execute>.*?</execute>\s*<output>.*?</output>)",
+            re.DOTALL | re.IGNORECASE,
+        )
+        for i, match in enumerate(pair_pattern.finditer(compressed)):
+            placeholder = f"__EXEC_OUTPUT_PAIR_{i}__"
+            execute_output_pairs.append((placeholder, match.group(1)))
 
+        # Replace pairs with placeholders (reverse order to preserve positions)
+        for placeholder, pair_content in reversed(execute_output_pairs):
+            compressed = compressed.replace(pair_content, placeholder, 1)
+
+        # 2. Compress STANDALONE <output> blocks (not paired with execute)
         def compress_output(match):
             content = match.group(1).strip()
             lines = content.split("\n")
@@ -1415,9 +1436,9 @@ You have access to context management commands to reduce token usage:
             if len(lines) <= max_output_lines:
                 return match.group(0)  # Keep as-is if short enough
 
-            # Keep first few and last few lines with a summary in between
-            keep_start = max_output_lines // 2
-            keep_end = max_output_lines // 2
+            # Keep first portion and last portion with a summary in between
+            keep_start = max_output_lines * 2 // 3
+            keep_end = max_output_lines // 3
 
             compressed_lines = lines[:keep_start]
             compressed_lines.append(
@@ -1429,7 +1450,8 @@ You have access to context management commands to reduce token usage:
 
         compressed = _RE_OUTPUT_BLOCK.sub(compress_output, compressed)
 
-        # 2. Compress <thinking>/<think> blocks - keep the essence but not verbose detail
+        # 3. Compress <thinking>/<think> blocks — keep enough for reasoning continuity
+        # but remove verbose internal deliberation
 
         def compress_thinking(match):
             content = match.group(1).strip()
@@ -1448,14 +1470,14 @@ You have access to context management commands to reduce token usage:
             original_open = match.group(0)[: match.group(0).index(">") + 1]
             # Derive closing tag from opening tag
             original_close = original_open.replace("<", "</")
-            return f"{original_open}{truncated} [thinking truncated for brevity]{original_close}"
+            return f"{original_open}{truncated} [thinking truncated]{original_close}"
 
         compressed = _RE_THINKING_CONTENT.sub(
             compress_thinking,
             compressed,
         )
 
-        # 3. Compress <reflection> blocks similarly
+        # 4. Compress <reflection> blocks similarly
 
         def compress_reflection(match):
             content = match.group(1).strip()
@@ -1475,12 +1497,40 @@ You have access to context management commands to reduce token usage:
             compressed,
         )
 
-        # 4. Remove <step> tags entirely from continuation context - they're internal
+        # 5. Remove <step> tags entirely from continuation context - they're internal
         compressed = _RE_STEP_TAG.sub("", compressed)
 
-        # 5. Remove <reward> and <count> tags
+        # 6. Remove <reward> and <count> tags
         compressed = _RE_REWARD_TAG.sub("", compressed)
         compressed = _RE_COUNT_TAG.sub("", compressed)
+
+        # 7. Restore protected execute+output pairs
+        for placeholder, pair_content in execute_output_pairs:
+            compressed = compressed.replace(placeholder, pair_content)
+
+        # Now compress the output blocks WITHIN the restored pairs more gently
+        # (keep more lines since these are critical execution results)
+        exec_output_max_lines = 50  # More generous for execution outputs
+
+        def compress_exec_output(match):
+            content = match.group(1).strip()
+            lines = content.split("\n")
+
+            if len(lines) <= exec_output_max_lines:
+                return match.group(0)
+
+            keep_start = exec_output_max_lines * 2 // 3
+            keep_end = exec_output_max_lines // 3
+
+            compressed_lines = lines[:keep_start]
+            compressed_lines.append(
+                f"\n... [{len(lines) - exec_output_max_lines} lines omitted] ...\n"
+            )
+            compressed_lines.extend(lines[-keep_end:])
+
+            return f"<output>{chr(10).join(compressed_lines)}</output>"
+
+        compressed = _RE_OUTPUT_BLOCK.sub(compress_exec_output, compressed)
 
         # Clean up any excessive whitespace left behind
         compressed = _RE_TRIPLE_NEWLINE.sub("\n\n", compressed)
@@ -3652,7 +3702,8 @@ Example: If user says "list my files", use:
 
         # Continuation logic: Handle execution outputs and incomplete answers
         # This matches the non-streaming behavior where we inject output and run inference again
-        max_continuation_loops = 25  # Prevent infinite loops
+        # No max iteration limit — the agent should work through problems taking as many
+        # steps and as much time as needed, just like a human would.
         continuation_count = 0
         _continuation_iter_lengths = (
             []
@@ -3679,7 +3730,6 @@ Example: If user says "list my files", use:
         # This handles edge cases like <thinking> inside <answer> tags
         while (
             not has_complete_answer(self.response)
-            and continuation_count < max_continuation_loops
         ):
             # Check if there was a NEW execution in the unprocessed portion, or incomplete answer
             # Always use processed_length to avoid re-detecting already-executed commands
@@ -3733,7 +3783,7 @@ Example: If user says "list my files", use:
             }
             _cont_iter_t0 = _time.monotonic()
             logging.info(
-                f"[run_stream] Continuation loop iteration {continuation_count}/{max_continuation_loops}. "
+                f"[run_stream] Continuation loop iteration {continuation_count}. "
                 f"has_new_execution: {has_new_execution}, has_incomplete_answer: {has_incomplete_answer}, "
                 f"has_no_answer: {has_no_answer}. response_len: {len(self.response)}"
             )
@@ -3804,10 +3854,12 @@ Example: If user says "list my files", use:
             }
             # Compress the response to prevent context explosion
             # This summarizes long outputs and truncates verbose thinking
+            # CRITICAL: Preserve execute+output pairs intact so the model
+            # knows what was already done and doesn't regenerate the same commands
             compressed_response = self.compress_response_for_continuation(
                 self.response,
-                max_output_lines=20,  # Keep 20 lines max per output
-                max_thinking_chars=500,  # Keep 500 chars max per thinking block
+                max_output_lines=80,  # Keep 80 lines max per standalone output
+                max_thinking_chars=2000,  # Keep 2000 chars max per thinking block
             )
 
             # Log compression stats
@@ -3891,14 +3943,7 @@ Analyze the actual output shown and continue with your response.
                 if has_no_answer:
                     # No answer block at all - prompt to provide one
                     # Use compressed response to prevent context explosion
-                    # Only escalate urgency at the very end of the loop
-                    if continuation_count >= max_continuation_loops - 2:
-                        urgency = " CRITICAL: This is your FINAL chance to respond. You MUST provide your answer NOW inside <answer></answer> tags using whatever results you have. Do NOT execute any more commands. Do NOT think further. Output ONLY <answer>your response</answer>."
-                    elif continuation_count >= max_continuation_loops - 3:
-                        urgency = " IMPORTANT: You are running low on processing steps. Please provide your final answer inside <answer></answer> tags using the results you already have."
-                    else:
-                        urgency = ""
-                    continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nContinue working on the user's request. If you need to execute more commands to complete the task, do so now. If you have finished all necessary work, provide your response to the user inside <answer></answer> tags. Do not repeat previous thinking or command outputs.{urgency}"
+                    continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nContinue working on the user's request. If you need to execute more commands to complete the task, do so now. If you have finished all necessary work, provide your response to the user inside <answer></answer> tags. Do not repeat previous thinking or command outputs."
                 else:
                     # Incomplete answer - prompt to continue
                     # Use compressed response to prevent context explosion
@@ -4497,7 +4542,7 @@ Analyze the actual output shown and continue with your response.
                     ]
                 )
 
-                if is_retryable and continuation_count < max_continuation_loops:
+                if is_retryable:
                     # Track retry attempts for this iteration
                     if not hasattr(self, "_continuation_retry_count"):
                         self._continuation_retry_count = 0
@@ -4903,6 +4948,12 @@ Analyze the actual output shown and continue with your response.
                 command_id = f"{position}:{command_name}:{json.dumps(command_args, sort_keys=True)}"
                 # Skip if we've already processed this exact command
                 if command_id in self._processed_commands:
+                    logging.warning(
+                        f"[execution_agent] Skipping already-processed command: {command_name} "
+                        f"(args: {json.dumps(command_args, sort_keys=True)[:200]}). "
+                        f"This usually means the model lost context about previous executions "
+                        f"and regenerated the same command."
+                    )
                     continue
 
                 # Mark this command as processed
