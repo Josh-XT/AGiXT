@@ -3728,9 +3728,7 @@ Example: If user says "list my files", use:
 
         # Use has_complete_answer() to properly check for complete answer blocks
         # This handles edge cases like <thinking> inside <answer> tags
-        while (
-            not has_complete_answer(self.response)
-        ):
+        while not has_complete_answer(self.response):
             # Check if there was a NEW execution in the unprocessed portion, or incomplete answer
             # Always use processed_length to avoid re-detecting already-executed commands
             unprocessed_response = self.response[processed_length:]
@@ -4550,9 +4548,7 @@ Analyze the actual output shown and continue with your response.
 
                     if self._continuation_retry_count <= 3:
                         # Wait with exponential backoff before retrying
-                        wait_time = min(
-                            30, 5 * self._continuation_retry_count
-                        )
+                        wait_time = min(30, 5 * self._continuation_retry_count)
                         logging.warning(
                             f"[run_stream] Retryable error in continuation iteration {continuation_count} "
                             f"(retry {self._continuation_retry_count}/3): {e}. "
