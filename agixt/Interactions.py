@@ -3984,6 +3984,7 @@ Analyze the actual output shown and continue with your response.
                     set()
                 )  # Track which opening tags we've already detected
                 _cont_in_reasoning = False  # Track reasoning_content field state
+                _cont_commands_executed = 0  # Track if execution_agent actually ran any commands
 
                 async for chunk_data in iterate_stream(continuation_stream):
                     # Extract token from chunk — mirrors main stream logic
@@ -4125,7 +4126,23 @@ Analyze the actual output shown and continue with your response.
                                     except Exception:
                                         break
                                 if cont_execution_task.done():
-                                    cont_execution_task.result()
+                                    _cont_commands_executed = cont_execution_task.result() or 0
+                                else:
+                                    _cont_commands_executed = 0
+
+                                # If ALL commands were deduplicated (nothing new ran),
+                                # tell the model explicitly so it doesn't regenerate them
+                                if _cont_commands_executed == 0:
+                                    logging.warning(
+                                        f"[run_stream] All commands in iteration {continuation_count} "
+                                        f"were already processed. Injecting dedup notice."
+                                    )
+                                    self.response += (
+                                        "\n<output>ALL COMMANDS ABOVE WERE ALREADY EXECUTED IN PREVIOUS ITERATIONS. "
+                                        "Their outputs are already shown above. Do NOT regenerate these same commands. "
+                                        "If you need to run DIFFERENT commands, do so. "
+                                        "If the task is complete, provide your answer in <answer></answer> tags.</output>"
+                                    )
 
                                 # Yield any remote command requests
                                 while not cont_remote_queue.empty():
@@ -4428,10 +4445,19 @@ Analyze the actual output shown and continue with your response.
                 # Track this iteration's response length for stuck detection
                 # Only track NON-execution iterations — execution iterations are
                 # productive (model is writing/fixing code) and shouldn't count as "stuck"
-                if broke_for_execution:
+                # BUT: if broke_for_execution but ALL commands were deduplicated,
+                # that's NOT productive — treat it like a non-exec iteration
+                if broke_for_execution and _cont_commands_executed > 0:
                     _previous_iteration_executed = True
-                    _no_answer_non_exec_streak = 0  # Reset streak on execution
+                    _no_answer_non_exec_streak = 0  # Reset streak on real execution
                 else:
+                    if broke_for_execution and _cont_commands_executed == 0:
+                        # Broke for execution but everything was deduplicated
+                        # This IS a stuck iteration — the model keeps regenerating same commands
+                        logging.info(
+                            f"[run_stream] Iteration {continuation_count}: broke_for_execution=True "
+                            f"but 0 commands actually ran (all deduplicated). Treating as non-exec iteration."
+                        )
                     _continuation_iter_lengths.append(len(continuation_response))
                     if has_no_answer:
                         _no_answer_non_exec_streak += 1
@@ -4892,6 +4918,9 @@ Analyze the actual output shown and continue with your response.
         """
         Execute commands found in the agent's response.
 
+        Returns:
+            int: Number of commands actually executed (0 means all were deduplicated/skipped).
+
         Args:
             conversation_name: Name of the conversation
             conversation_id: ID of the conversation
@@ -4932,6 +4961,7 @@ Analyze the actual output shown and continue with your response.
             )
 
         if commands_to_execute:
+            commands_actually_executed = 0
             for command_block, command_name, command_args in commands_to_execute:
                 # Check for cancellation before each command
                 self._check_cancelled()
@@ -4954,6 +4984,7 @@ Analyze the actual output shown and continue with your response.
 
                 # Mark this command as processed
                 self._processed_commands.add(command_id)
+                commands_actually_executed += 1
 
                 command_output = ""
 
@@ -5200,5 +5231,7 @@ Analyze the actual output shown and continue with your response.
         else:
             cmds = "\n".join(command_list)
             self.response += f"\nThe assistant tried to execute a command, but it was not recognized. Ensure that the correct naming of the commands is being used, they go off of the friendly name. Please choose from the list of available commands and try again:\n{cmds}"
+            return 0
         if reformatted_response != self.response:
             self.response = reformatted_response
+        return commands_actually_executed
