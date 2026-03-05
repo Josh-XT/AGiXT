@@ -379,15 +379,22 @@ class ezlocalai(Extensions):
                 use_smartest=use_smartest,
             )
 
-    async def transcribe_audio(self, audio_path: str) -> str:
+    async def transcribe_audio(
+        self,
+        audio_path: str,
+        enable_diarization: bool = False,
+        num_speakers: int = None,
+    ) -> str:
         """
         Transcribe audio to text using ezLocalai.
 
         Args:
             audio_path: Path to the audio file
+            enable_diarization: If True, perform speaker diarization
+            num_speakers: Optional number of speakers (auto-detect if None)
 
         Returns:
-            Transcribed text
+            Transcribed text, or dict with text/segments/language if diarization enabled
         """
         if not self.configured:
             raise Exception("ezLocalai provider not configured")
@@ -399,11 +406,19 @@ class ezlocalai(Extensions):
         with open(audio_path, "rb") as audio_file:
             files = {"file": audio_file}
             data = {"model": self.TRANSCRIPTION_MODEL}
+            if enable_diarization:
+                data["enable_diarization"] = "true"
+                data["response_format"] = "verbose_json"
+                if num_speakers is not None:
+                    data["num_speakers"] = str(num_speakers)
             resp = requests.post(
                 api_url, headers=headers, files=files, data=data, timeout=120
             )
             resp.raise_for_status()
-            return resp.json().get("text", "")
+            result = resp.json()
+            if enable_diarization and "segments" in result:
+                return result
+            return result.get("text", "")
 
     async def translate_audio(self, audio_path: str) -> str:
         """

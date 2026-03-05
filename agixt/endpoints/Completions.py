@@ -605,6 +605,8 @@ async def speech_to_text(
     response_format: Optional[str] = Form("json"),
     temperature: Optional[float] = Form(0.0),
     timestamp_granularities: Optional[List[str]] = Form(["segment"]),
+    enable_diarization: Optional[bool] = Form(False),
+    num_speakers: Optional[int] = Form(None),
     user: str = Depends(verify_api_key),
     authorization: str = Header(None),
 ):
@@ -616,7 +618,14 @@ async def speech_to_text(
     audio_path = f"./WORKSPACE/{uuid.uuid4().hex}.{audio_format}"
     with open(audio_path, "wb") as f:
         f.write(file.file.read())
-    response = await agent.transcribe_audio(audio_path=audio_path)
+    response = await agent.transcribe_audio(
+        audio_path=audio_path,
+        enable_diarization=enable_diarization,
+        num_speakers=num_speakers,
+    )
+    # If diarization was requested and we got a dict with segments, return full response
+    if isinstance(response, dict):
+        return response
     return {"text": response}
 
 

@@ -2711,14 +2711,23 @@ class Agent:
 
         return embed(input=input)
 
-    async def transcribe_audio(self, audio_path: str):
+    async def transcribe_audio(
+        self,
+        audio_path: str,
+        enable_diarization: bool = False,
+        num_speakers: int = None,
+    ):
         provider = self.ai_provider_manager.get_provider_for_service("transcription")
         if provider is None:
             raise HTTPException(
                 status_code=400,
                 detail="No transcription provider available",
             )
-        return await provider.transcribe_audio(audio_path=audio_path)
+        return await provider.transcribe_audio(
+            audio_path=audio_path,
+            enable_diarization=enable_diarization,
+            num_speakers=num_speakers,
+        )
 
     async def translate_audio(self, audio_path: str):
         provider = self.ai_provider_manager.get_provider_for_service("translation")

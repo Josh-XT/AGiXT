@@ -866,8 +866,18 @@ class EmbeddingResponse(BaseModel):
     usage: Dict[str, int]
 
 
+class AudioTranscriptionSegment(BaseModel):
+    id: int = 0
+    start: float = 0.0
+    end: float = 0.0
+    text: str = ""
+    speaker: Optional[str] = None
+
+
 class AudioTranscriptionResponse(BaseModel):
     text: str
+    segments: Optional[List[AudioTranscriptionSegment]] = None
+    language: Optional[str] = None
 
 
 class AudioTranslationResponse(BaseModel):
