@@ -2638,29 +2638,13 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                     f"[run_stream] Error during workspace file discovery: {e}"
                 )
 
-            # Do intelligent command selection
-            # Yield a status event so the UI shows immediate feedback during selection
-            yield {
-                "type": "thinking_stream",
-                "content": "Analyzing request...",
-                "complete": False,
-            }
-            _t_cmd_sel = _time.monotonic()
-            try:
-                selected_commands = await self.select_commands_for_task(
-                    user_input=user_input,
-                    conversation_name=conversation_name,
-                    file_context=file_context,
-                    has_uploaded_files=has_uploaded_files,
-                    log_output=log_output,
-                    thinking_id=thinking_id,
-                )
-            except Exception as e:
-                logging.error(f"[run_stream] select_commands_for_task failed: {e}")
-                selected_commands = None
+            # Command selection disabled - pass all enabled commands directly.
+            # Models can handle the full command list (up to 1M input tokens) and
+            # skipping selection avoids an extra inference round-trip that slows
+            # things down and can miss relevant commands.
+            # selected_commands remains None, which means "include all enabled commands"
             logging.info(
-                f"[run_stream] select_commands_for_task took {_time.monotonic() - _t_cmd_sel:.1f}s, "
-                f"selected {len(selected_commands) if selected_commands is not None else 'None'} commands"
+                "[run_stream] Command selection disabled - using all enabled commands"
             )
 
         # Always include client-defined tools regardless of command selection
@@ -4525,6 +4509,22 @@ Analyze the actual output shown and continue with your response.
                 # If we still don't have an answer, continue to prompt for one
                 if "<answer>" not in self.response.lower():
                     continue
+
+                # If <answer> is open but not closed and this inference didn't
+                # produce a command to execute, the model gave its answer in
+                # this inference but didn't emit the closing tag. Close it now
+                # rather than looping back — re-inferring just causes repetition.
+                if (
+                    "<answer>" in self.response.lower()
+                    and not has_complete_answer(self.response)
+                    and "</execute>" not in continuation_response
+                ):
+                    logging.info(
+                        f"[run_stream] Inference opened <answer> without closing it "
+                        f"at iteration {continuation_count}. Auto-closing </answer>."
+                    )
+                    self.response += "</answer>"
+                    break
 
             except asyncio.CancelledError:
                 logging.warning(
