@@ -884,6 +884,17 @@ class AudioTranslationResponse(BaseModel):
     text: str
 
 
+class LiveConversationChunkResponse(BaseModel):
+    session_id: str
+    chunk_index: int
+    transcription: str = ""
+    cumulative_transcription: str = ""
+    notes: str = ""
+    suggestions: List[str] = []
+    action_items: List[str] = []
+    is_final: bool = False
+
+
 class TextToSpeechResponse(BaseModel):
     url: str
 

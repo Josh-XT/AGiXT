@@ -2716,6 +2716,7 @@ class Agent:
         audio_path: str,
         enable_diarization: bool = False,
         num_speakers: int = None,
+        session_id: str = None,
     ):
         provider = self.ai_provider_manager.get_provider_for_service("transcription")
         if provider is None:
@@ -2727,6 +2728,7 @@ class Agent:
             audio_path=audio_path,
             enable_diarization=enable_diarization,
             num_speakers=num_speakers,
+            session_id=session_id,
         )
 
     async def translate_audio(self, audio_path: str):

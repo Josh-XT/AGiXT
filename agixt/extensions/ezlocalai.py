@@ -384,6 +384,7 @@ class ezlocalai(Extensions):
         audio_path: str,
         enable_diarization: bool = False,
         num_speakers: int = None,
+        session_id: str = None,
     ) -> str:
         """
         Transcribe audio to text using ezLocalai.
@@ -392,6 +393,7 @@ class ezlocalai(Extensions):
             audio_path: Path to the audio file
             enable_diarization: If True, perform speaker diarization
             num_speakers: Optional number of speakers (auto-detect if None)
+            session_id: Optional session ID for persistent speaker voice prints
 
         Returns:
             Transcribed text, or dict with text/segments/language if diarization enabled
@@ -411,6 +413,8 @@ class ezlocalai(Extensions):
                 data["response_format"] = "verbose_json"
                 if num_speakers is not None:
                     data["num_speakers"] = str(num_speakers)
+            if session_id:
+                data["session_id"] = session_id
             resp = requests.post(
                 api_url, headers=headers, files=files, data=data, timeout=120
             )
