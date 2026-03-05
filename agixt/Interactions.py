@@ -2660,7 +2660,8 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                 _conv_data = c.get_conversation()
                 if "interactions" in _conv_data and _conv_data["interactions"]:
                     _recent_msgs = [
-                        i for i in _conv_data["interactions"]
+                        i
+                        for i in _conv_data["interactions"]
                         if not str(i.get("message", "")).startswith("[ACTIVITY]")
                         and not str(i.get("message", "")).startswith("[SUBACTIVITY]")
                         and not str(i.get("message", "")).startswith("<audio")
