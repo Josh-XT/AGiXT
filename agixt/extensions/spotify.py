@@ -241,6 +241,80 @@ class spotify(Extensions):
             "Content-Type": "application/json",
         }
 
+    def get_extension_context(self) -> str:
+        """
+        Provide contextual information about the user's Spotify state so the
+        agent can act on commands like "pause it" or "play on my speaker"
+        without extra API round-trips.
+        """
+        try:
+            if not self.access_token or not self.auth:
+                return ""
+
+            self.verify_user()
+            headers = self._get_headers()
+            context_parts = []
+
+            # Fetch available devices
+            try:
+                dev_resp = requests.get(
+                    f"{self.base_url}/me/player/devices",
+                    headers=headers,
+                    timeout=5,
+                )
+                if dev_resp.status_code == 200:
+                    devices = dev_resp.json().get("devices", [])
+                    if devices:
+                        lines = []
+                        for d in devices:
+                            active = "(active)" if d.get("is_active") else ""
+                            lines.append(
+                                f"  - {d.get('name', 'Unknown')} "
+                                f"({d.get('type', '')}) "
+                                f"id={d.get('id', '')} "
+                                f"vol={d.get('volume_percent', '?')}% {active}"
+                            )
+                        context_parts.append("Spotify devices:\n" + "\n".join(lines))
+            except Exception as e:
+                logging.debug(f"[spotify] context: devices fetch failed: {e}")
+
+            # Fetch currently playing
+            try:
+                cp_resp = requests.get(
+                    f"{self.base_url}/me/player/currently-playing",
+                    headers=headers,
+                    timeout=5,
+                )
+                if cp_resp.status_code == 200 and cp_resp.text:
+                    data = cp_resp.json()
+                    track = data.get("item", {})
+                    if track:
+                        name = track.get("name", "Unknown")
+                        artists = ", ".join(
+                            a.get("name", "") for a in track.get("artists", [])
+                        )
+                        is_playing = data.get("is_playing", False)
+                        state = "Playing" if is_playing else "Paused"
+                        device = data.get("device", {})
+                        dev_name = device.get("name", "") if device else ""
+                        context_parts.append(
+                            f'Spotify now: {state} "{name}" by {artists}'
+                            + (f" on {dev_name}" if dev_name else "")
+                        )
+                elif cp_resp.status_code == 204:
+                    context_parts.append("Spotify now: Nothing playing")
+            except Exception as e:
+                logging.debug(f"[spotify] context: currently-playing fetch failed: {e}")
+
+            if not context_parts:
+                return ""
+
+            return "## Spotify\n" + "\n".join(context_parts)
+
+        except Exception as e:
+            logging.debug(f"[spotify] get_extension_context failed: {e}")
+            return ""
+
     def verify_user(self):
         """Verifies the access token and refreshes if necessary."""
         if not self.auth:

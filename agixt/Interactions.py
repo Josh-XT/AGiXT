@@ -1763,6 +1763,7 @@ Example: memories, persona, files"""
         has_uploaded_files: bool = False,
         log_output: bool = True,
         thinking_id: str = "",
+        conversation_history: str = "",
     ) -> list:
         """
         Intelligently select which commands should be available for this task.
@@ -1776,6 +1777,7 @@ Example: memories, persona, files"""
             has_uploaded_files: Whether the user uploaded files with this request
             log_output: Whether to log the selection as a subactivity
             thinking_id: Optional thinking_id for logging subactivities
+            conversation_history: Recent conversation messages for follow-up context
 
         Returns:
             list: List of command friendly names that should be enabled
@@ -1840,8 +1842,12 @@ Example: memories, persona, files"""
             if cmd_name.lower() in user_input_lower:
                 explicitly_requested_commands.append(cmd_name)
 
-        # Build context about files and extensions
+        # Build context about files, extensions, and conversation history
         context_parts = []
+        if conversation_history:
+            context_parts.append(
+                f"## Recent Conversation (for understanding follow-up requests)\n{conversation_history}"
+            )
         if extension_context:
             context_parts.append(extension_context)
         if file_context:
@@ -1872,9 +1878,11 @@ Select the commands needed to fulfill this request. Think about:
 1. What the user is ACTUALLY asking to accomplish
 2. What commands are PREREQUISITES (e.g. opening a terminal before executing in it)
 3. What the Context section tells you about available resources (devices, accounts, files, etc.)
+4. **The recent conversation history** — follow-up messages like "pause it", "do that again", "now close it" refer to services/tools used in recent messages. Select commands from the SAME extension/service that was just used.
 
 **Selection guidance:**
 - Most tasks need 3-8 commands. Select all that may be needed, including prerequisites.
+- For follow-up requests, ALWAYS include commands from the extension/service used in the previous turn (e.g. if Spotify was just used, include Spotify commands for "pause it")
 - If the user references a device/machine from Context, include the commands needed to interact with it (terminal commands, desktop control, etc.)
 - If the user wants to interact with files, include file operation commands
 - If the user wants web information, include web/search commands
@@ -1882,7 +1890,7 @@ Select the commands needed to fulfill this request. Think about:
 
 **When NOT to select:**
 - Commands completely unrelated to the task
-- Commands for resources not mentioned in context
+- Commands for resources not mentioned in context OR recent conversation
 
 Respond with ONLY a comma-separated list of exact command names, or "None" if no commands are needed.
 No explanations. Maximum 15 commands from this batch.
@@ -2638,13 +2646,53 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                     f"[run_stream] Error during workspace file discovery: {e}"
                 )
 
-            # Command selection disabled - pass all enabled commands directly.
-            # Models can handle the full command list (up to 1M input tokens) and
-            # skipping selection avoids an extra inference round-trip that slows
-            # things down and can miss relevant commands.
-            # selected_commands remains None, which means "include all enabled commands"
+            # Do intelligent command selection with conversation history
+            # so follow-ups like "pause it" correctly map to Spotify, etc.
+            yield {
+                "type": "thinking_stream",
+                "content": "Analyzing request...",
+                "complete": False,
+            }
+            _t_cmd_sel = _time.monotonic()
+            try:
+                # Build recent conversation summary for command selection context
+                _recent_history = ""
+                _conv_data = c.get_conversation()
+                if "interactions" in _conv_data and _conv_data["interactions"]:
+                    _recent_msgs = [
+                        i for i in _conv_data["interactions"]
+                        if not str(i.get("message", "")).startswith("[ACTIVITY]")
+                        and not str(i.get("message", "")).startswith("[SUBACTIVITY]")
+                        and not str(i.get("message", "")).startswith("<audio")
+                    ]
+                    # Last 6 messages (3 turns) is enough context for follow-ups
+                    _recent_msgs = _recent_msgs[-6:]
+                    if _recent_msgs:
+                        _history_lines = []
+                        for msg in _recent_msgs:
+                            role = msg.get("role", "")
+                            content = msg.get("message", "")
+                            # Truncate long messages - we just need the gist
+                            if len(content) > 300:
+                                content = content[:300] + "..."
+                            _history_lines.append(f"{role}: {content}")
+                        _recent_history = "\n".join(_history_lines)
+
+                selected_commands = await self.select_commands_for_task(
+                    user_input=user_input,
+                    conversation_name=conversation_name,
+                    file_context=file_context,
+                    has_uploaded_files=has_uploaded_files,
+                    log_output=log_output,
+                    thinking_id=thinking_id,
+                    conversation_history=_recent_history,
+                )
+            except Exception as e:
+                logging.error(f"[run_stream] select_commands_for_task failed: {e}")
+                selected_commands = None
             logging.info(
-                "[run_stream] Command selection disabled - using all enabled commands"
+                f"[run_stream] select_commands_for_task took {_time.monotonic() - _t_cmd_sel:.1f}s, "
+                f"selected {len(selected_commands) if selected_commands is not None else 'None'} commands"
             )
 
         # Always include client-defined tools regardless of command selection
