@@ -3717,6 +3717,9 @@ Example: If user says "list my files", use:
         _auto_injected_answer = (
             False  # Track if <answer> was auto-injected (needs special prompt)
         )
+        _consecutive_dedup_iterations = (
+            0  # Track consecutive iterations where ALL commands were deduplicated
+        )
 
         # Track the length of processed content to detect new executions
         processed_length = len(self.response)
@@ -4454,13 +4457,38 @@ Analyze the actual output shown and continue with your response.
                 if broke_for_execution and _cont_commands_executed > 0:
                     _previous_iteration_executed = True
                     _no_answer_non_exec_streak = 0  # Reset streak on real execution
+                    _consecutive_dedup_iterations = (
+                        0  # Reset dedup streak on real execution
+                    )
                 else:
                     if broke_for_execution and _cont_commands_executed == 0:
                         # Broke for execution but everything was deduplicated
                         # This IS a stuck iteration — the model keeps regenerating same commands
+                        _consecutive_dedup_iterations += 1
                         logging.info(
                             f"[run_stream] Iteration {continuation_count}: broke_for_execution=True "
-                            f"but 0 commands actually ran (all deduplicated). Treating as non-exec iteration."
+                            f"but 0 commands actually ran (all deduplicated). "
+                            f"Consecutive dedup iterations: {_consecutive_dedup_iterations}. "
+                            f"Treating as non-exec iteration."
+                        )
+                        # If we've seen 2+ consecutive all-dedup iterations and already
+                        # have an answer open, the model is stuck regenerating the same
+                        # command. Force-close the answer immediately.
+                        if _consecutive_dedup_iterations >= 2 and has_incomplete_answer:
+                            logging.warning(
+                                f"[run_stream] Dedup loop detected at iteration {continuation_count}. "
+                                f"{_consecutive_dedup_iterations} consecutive iterations with all commands "
+                                f"deduplicated. Force-closing answer tag."
+                            )
+                            self.response += "</answer>"
+                            c.log_interaction(
+                                role=self.agent_name,
+                                message="[SUBACTIVITY][CONTINUATION] Finalizing response...",
+                            )
+                            break
+                    else:
+                        _consecutive_dedup_iterations = (
+                            0  # Reset on normal non-exec iteration
                         )
                     _continuation_iter_lengths.append(len(continuation_response))
                     if has_no_answer:
