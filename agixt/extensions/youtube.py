@@ -1,5 +1,6 @@
 import logging
 import requests
+from urllib.parse import urlparse, parse_qs
 from Extensions import Extensions
 from Globals import getenv
 from MagicalAuth import MagicalAuth
@@ -338,12 +339,18 @@ class youtube(Extensions):
         try:
             self.verify_user()
             # Extract video ID from URL if needed
-            if "youtube.com" in video_id or "youtu.be" in video_id:
-                import re
-
-                match = re.search(r"(?:v=|youtu\.be/)([a-zA-Z0-9_-]{11})", video_id)
-                if match:
-                    video_id = match.group(1)
+            if video_id.startswith("http://") or video_id.startswith("https://"):
+                parsed = urlparse(video_id)
+                hostname = (parsed.hostname or "").lower()
+                if hostname in ("youtube.com", "www.youtube.com"):
+                    query_params = parse_qs(parsed.query)
+                    v_params = query_params.get("v")
+                    if v_params and v_params[0]:
+                        video_id = v_params[0]
+                elif hostname == "youtu.be":
+                    path_parts = [p for p in parsed.path.split("/") if p]
+                    if path_parts:
+                        video_id = path_parts[0]
 
             response = requests.get(
                 f"{self.base_url}/videos",

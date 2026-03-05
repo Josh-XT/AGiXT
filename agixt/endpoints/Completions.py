@@ -1,3 +1,4 @@
+import os
 import time
 import uuid
 import re
@@ -666,6 +667,13 @@ async def live_conversation_chunk(
     if not session_id:
         session_id = uuid.uuid4().hex
 
+    # Sanitize session_id to prevent path traversal — allow only safe chars
+    safe_session_id = re.sub(r"[^A-Za-z0-9_-]", "", session_id)
+    if not safe_session_id:
+        safe_session_id = uuid.uuid4().hex
+    if chunk_index < 0:
+        raise HTTPException(status_code=400, detail="chunk_index must be non-negative")
+
     # Use session-based conversation name if not provided
     if not conversation_name:
         conversation_name = f"Live Meeting {time.strftime('%Y-%m-%d %H:%M')}"
@@ -675,7 +683,13 @@ async def live_conversation_chunk(
     audio_format = file.content_type.split("/")[1] if file.content_type else "wav"
     if audio_format == "x-wav":
         audio_format = "wav"
-    audio_path = f"./WORKSPACE/{session_id}_chunk_{chunk_index}.{audio_format}"
+    # Sanitize audio_format as well
+    audio_format = re.sub(r"[^a-zA-Z0-9]", "", audio_format) or "wav"
+    workspace_dir = os.path.abspath("./WORKSPACE")
+    audio_filename = f"{safe_session_id}_chunk_{chunk_index}.{audio_format}"
+    audio_path = os.path.normpath(os.path.join(workspace_dir, audio_filename))
+    if not audio_path.startswith(workspace_dir + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid session or chunk index")
     with open(audio_path, "wb") as f:
         f.write(file_content)
 
@@ -692,8 +706,6 @@ async def live_conversation_chunk(
         logging.error(f"Live transcription error on chunk {chunk_index}: {e}")
         # Clean up and return empty response
         try:
-            import os
-
             os.remove(audio_path)
         except Exception:
             pass
@@ -705,8 +717,6 @@ async def live_conversation_chunk(
     finally:
         # Clean up audio file
         try:
-            import os
-
             os.remove(audio_path)
         except Exception:
             pass

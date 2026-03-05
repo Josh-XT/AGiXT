@@ -1,5 +1,6 @@
 import logging
 import requests
+from urllib.parse import urlparse
 from Extensions import Extensions
 from Globals import getenv
 from MagicalAuth import MagicalAuth
@@ -375,13 +376,13 @@ class reddit(Extensions):
         try:
             self.verify_user()
             # Extract post path from URL
-            if "reddit.com" in post_url:
-                import re
-
-                match = re.search(r"reddit\.com(/r/[^?]+)", post_url)
-                if match:
-                    path = match.group(1)
-                else:
+            parsed = urlparse(post_url)
+            hostname = (parsed.hostname or "").lower()
+            if hostname and (
+                hostname == "reddit.com" or hostname.endswith(".reddit.com")
+            ):
+                path = parsed.path or ""
+                if not path.startswith("/r/"):
                     return "Could not parse Reddit URL."
             elif post_url.startswith("t3_"):
                 path = f"/api/info?id={post_url}"
@@ -448,13 +449,13 @@ class reddit(Extensions):
         """
         try:
             self.verify_user()
-            if "reddit.com" in post_url:
-                import re
-
-                match = re.search(r"reddit\.com(/r/[^?]+)", post_url)
-                if match:
-                    path = match.group(1)
-                else:
+            parsed = urlparse(post_url)
+            hostname = (parsed.hostname or "").lower()
+            if hostname and (
+                hostname == "reddit.com" or hostname.endswith(".reddit.com")
+            ):
+                path = parsed.path or ""
+                if not path.startswith("/r/"):
                     return "Could not parse Reddit URL."
             else:
                 path = post_url
