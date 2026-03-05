@@ -106,13 +106,19 @@ class obsidian(Extensions):
                 return {"success": True}, None
 
             content_type = response.headers.get("Content-Type", "")
-            if "application/json" in content_type or "application/vnd.olrapi" in content_type:
+            if (
+                "application/json" in content_type
+                or "application/vnd.olrapi" in content_type
+            ):
                 return response.json(), None
             else:
                 return {"content": response.text}, None
 
         except requests.exceptions.ConnectionError:
-            return None, "Cannot connect to Obsidian. Make sure Obsidian is running with the Local REST API plugin enabled."
+            return (
+                None,
+                "Cannot connect to Obsidian. Make sure Obsidian is running with the Local REST API plugin enabled.",
+            )
         except Exception as e:
             return None, f"Request error: {str(e)}"
 
@@ -351,11 +357,23 @@ class obsidian(Extensions):
 
             result = f"**Vault contents ({folder_path}):**\n\n"
             if folders:
-                result += "**Folders:**\n" + "\n".join(f"  📁 {f}" for f in sorted(folders)) + "\n\n"
+                result += (
+                    "**Folders:**\n"
+                    + "\n".join(f"  📁 {f}" for f in sorted(folders))
+                    + "\n\n"
+                )
             if notes:
-                result += "**Notes:**\n" + "\n".join(f"  📝 {f}" for f in sorted(notes)) + "\n\n"
+                result += (
+                    "**Notes:**\n"
+                    + "\n".join(f"  📝 {f}" for f in sorted(notes))
+                    + "\n\n"
+                )
             if other:
-                result += "**Other files:**\n" + "\n".join(f"  📎 {f}" for f in sorted(other)) + "\n\n"
+                result += (
+                    "**Other files:**\n"
+                    + "\n".join(f"  📎 {f}" for f in sorted(other))
+                    + "\n\n"
+                )
 
             return result
 

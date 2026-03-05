@@ -49,8 +49,12 @@ class home_assistant(Extensions):
     friendly_name = "Home Assistant"
 
     def __init__(self, **kwargs):
-        self.base_url = kwargs.get("HOME_ASSISTANT_URL", getenv("HOME_ASSISTANT_URL", ""))
-        self.token = kwargs.get("HOME_ASSISTANT_TOKEN", getenv("HOME_ASSISTANT_TOKEN", ""))
+        self.base_url = kwargs.get(
+            "HOME_ASSISTANT_URL", getenv("HOME_ASSISTANT_URL", "")
+        )
+        self.token = kwargs.get(
+            "HOME_ASSISTANT_TOKEN", getenv("HOME_ASSISTANT_TOKEN", "")
+        )
         self.commands = {}
 
         if self.base_url and self.token:
@@ -161,7 +165,11 @@ class home_assistant(Extensions):
             entities = data if isinstance(data, list) else []
 
             if domain:
-                entities = [e for e in entities if e.get("entity_id", "").startswith(f"{domain}.")]
+                entities = [
+                    e
+                    for e in entities
+                    if e.get("entity_id", "").startswith(f"{domain}.")
+                ]
 
             if not entities:
                 return f"No entities found{f' for domain: {domain}' if domain else ''}."
@@ -368,7 +376,10 @@ class home_assistant(Extensions):
                     return f"Error setting HVAC mode: {error}"
 
             if temperature is not None:
-                service_data = {"entity_id": entity_id, "temperature": float(temperature)}
+                service_data = {
+                    "entity_id": entity_id,
+                    "temperature": float(temperature),
+                }
                 if target_temp_high is not None:
                     service_data["target_temp_high"] = float(target_temp_high)
                 if target_temp_low is not None:
@@ -427,7 +438,9 @@ class home_assistant(Extensions):
         except Exception as e:
             return f"Error getting services: {str(e)}"
 
-    async def call_service(self, domain: str, service: str, entity_id: str = None, data: str = None):
+    async def call_service(
+        self, domain: str, service: str, entity_id: str = None, data: str = None
+    ):
         """
         Call any Home Assistant service with custom data.
 
@@ -529,16 +542,22 @@ class home_assistant(Extensions):
             if error:
                 return f"Error getting automations: {error}"
 
-            automations = [e for e in data if e.get("entity_id", "").startswith("automation.")]
+            automations = [
+                e for e in data if e.get("entity_id", "").startswith("automation.")
+            ]
 
             if not automations:
                 return "No automations found."
 
             result = "**Automations:**\n\n"
             for auto in sorted(automations, key=lambda e: e.get("entity_id", "")):
-                name = auto.get("attributes", {}).get("friendly_name", auto.get("entity_id"))
+                name = auto.get("attributes", {}).get(
+                    "friendly_name", auto.get("entity_id")
+                )
                 state = auto.get("state", "unknown")
-                last_triggered = auto.get("attributes", {}).get("last_triggered", "Never")
+                last_triggered = auto.get("attributes", {}).get(
+                    "last_triggered", "Never"
+                )
                 icon = "🟢" if state == "on" else "🔴"
                 result += f"- {icon} **{name}** (`{auto.get('entity_id', '')}`) - Last triggered: {last_triggered}\n"
 
@@ -565,7 +584,9 @@ class home_assistant(Extensions):
 
             result = "**Scenes:**\n\n"
             for scene in sorted(scenes, key=lambda e: e.get("entity_id", "")):
-                name = scene.get("attributes", {}).get("friendly_name", scene.get("entity_id"))
+                name = scene.get("attributes", {}).get(
+                    "friendly_name", scene.get("entity_id")
+                )
                 result += f"- 🎬 **{name}** (`{scene.get('entity_id', '')}`)\n"
 
             return result
@@ -609,7 +630,9 @@ class home_assistant(Extensions):
         try:
             from datetime import datetime, timedelta, timezone
 
-            start_time = (datetime.now(timezone.utc) - timedelta(hours=int(hours))).isoformat()
+            start_time = (
+                datetime.now(timezone.utc) - timedelta(hours=int(hours))
+            ).isoformat()
 
             data, error = self._make_request(
                 "GET",
@@ -624,7 +647,9 @@ class home_assistant(Extensions):
             states = data[0]
             result = f"**History for {entity_id} (last {hours} hours):**\n\n"
             for state in states[-30:]:  # Last 30 state changes
-                result += f"- {state.get('state', '?')} at {state.get('last_changed', '?')}\n"
+                result += (
+                    f"- {state.get('state', '?')} at {state.get('last_changed', '?')}\n"
+                )
 
             if len(states) > 30:
                 result += f"\n_({len(states)} total state changes, showing last 30)_"
@@ -647,7 +672,9 @@ class home_assistant(Extensions):
         try:
             from datetime import datetime, timedelta, timezone
 
-            start_time = (datetime.now(timezone.utc) - timedelta(hours=int(hours))).isoformat()
+            start_time = (
+                datetime.now(timezone.utc) - timedelta(hours=int(hours))
+            ).isoformat()
             endpoint = f"logbook/{start_time}"
             if entity_id:
                 endpoint += f"?entity={entity_id}"

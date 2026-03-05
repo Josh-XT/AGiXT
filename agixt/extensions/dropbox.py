@@ -217,7 +217,9 @@ class dropbox(Extensions):
                 try:
                     self.auth = MagicalAuth(token=self.api_key)
                 except Exception as e:
-                    logging.error(f"Error initializing Dropbox extension auth: {str(e)}")
+                    logging.error(
+                        f"Error initializing Dropbox extension auth: {str(e)}"
+                    )
 
     def _get_headers(self, content_type="application/json"):
         """Returns authorization headers for Dropbox API requests."""
@@ -353,7 +355,9 @@ class dropbox(Extensions):
             if tag == "file":
                 result += f"- **Size:** {self._format_size(data.get('size', 0))}\n"
                 result += f"- **Modified:** {data.get('client_modified', 'N/A')}\n"
-                result += f"- **Server Modified:** {data.get('server_modified', 'N/A')}\n"
+                result += (
+                    f"- **Server Modified:** {data.get('server_modified', 'N/A')}\n"
+                )
                 result += f"- **Content Hash:** {data.get('content_hash', 'N/A')}\n"
 
             return result
@@ -392,7 +396,9 @@ class dropbox(Extensions):
             try:
                 content = response.content.decode("utf-8")
                 if len(content) > 50000:
-                    content = content[:50000] + "\n\n... (file truncated, showing first 50KB)"
+                    content = (
+                        content[:50000] + "\n\n... (file truncated, showing first 50KB)"
+                    )
                 return f"**Content of {path}:**\n\n```\n{content}\n```"
             except UnicodeDecodeError:
                 return f"File '{path}' is a binary file ({self._format_size(len(response.content))}). Cannot display content."
@@ -417,12 +423,14 @@ class dropbox(Extensions):
             headers = {
                 "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/octet-stream",
-                "Dropbox-API-Arg": json_lib.dumps({
-                    "path": path,
-                    "mode": "overwrite",
-                    "autorename": False,
-                    "mute": False,
-                }),
+                "Dropbox-API-Arg": json_lib.dumps(
+                    {
+                        "path": path,
+                        "mode": "overwrite",
+                        "autorename": False,
+                        "mute": False,
+                    }
+                ),
             }
 
             response = requests.post(

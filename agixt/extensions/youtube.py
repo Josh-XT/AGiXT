@@ -199,7 +199,9 @@ class youtube(Extensions):
                 try:
                     self.auth = MagicalAuth(token=self.api_key)
                 except Exception as e:
-                    logging.error(f"Error initializing YouTube extension auth: {str(e)}")
+                    logging.error(
+                        f"Error initializing YouTube extension auth: {str(e)}"
+                    )
 
     def _get_headers(self):
         """Returns authorization headers for YouTube API requests."""
@@ -435,7 +437,9 @@ class youtube(Extensions):
             result += f"- **Videos:** {videos}\n"
             result += f"- **Total Views:** {views}\n"
             result += f"- **Created:** {snippet.get('publishedAt', '')[:10]}\n"
-            result += f"- **URL:** https://youtube.com/channel/{channel.get('id', '')}\n"
+            result += (
+                f"- **URL:** https://youtube.com/channel/{channel.get('id', '')}\n"
+            )
 
             description = snippet.get("description", "")
             if description:
@@ -784,7 +788,9 @@ class youtube(Extensions):
             data = response.json()
 
             if "error" in data:
-                error_reason = data.get("error", {}).get("errors", [{}])[0].get("reason", "")
+                error_reason = (
+                    data.get("error", {}).get("errors", [{}])[0].get("reason", "")
+                )
                 if error_reason == "commentsDisabled":
                     return "Comments are disabled for this video."
                 return f"Error: {data['error'].get('message', data['error'])}"
@@ -795,14 +801,20 @@ class youtube(Extensions):
 
             result = f"**Comments on video {video_id}:**\n\n"
             for item in items:
-                comment = item.get("snippet", {}).get("topLevelComment", {}).get("snippet", {})
+                comment = (
+                    item.get("snippet", {})
+                    .get("topLevelComment", {})
+                    .get("snippet", {})
+                )
                 author = comment.get("authorDisplayName", "")
                 text = comment.get("textDisplay", "")
                 likes = comment.get("likeCount", 0)
                 published = comment.get("publishedAt", "")[:10]
                 replies = item.get("snippet", {}).get("totalReplyCount", 0)
 
-                result += f"- **{author}** ({published}) [{likes} likes, {replies} replies]\n"
+                result += (
+                    f"- **{author}** ({published}) [{likes} likes, {replies} replies]\n"
+                )
                 result += f"  {text[:300]}\n\n"
 
             return result

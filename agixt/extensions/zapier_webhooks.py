@@ -250,7 +250,9 @@ class zapier_webhooks(Extensions):
             result = f"**Webhook Status:**\n\n"
             result += f"- **URL:** {url[:80]}{'...' if len(url) > 80 else ''}\n"
             result += f"- **Status Code:** {response.status_code}\n"
-            result += f"- **Reachable:** {'Yes' if response.status_code < 500 else 'No'}\n"
+            result += (
+                f"- **Reachable:** {'Yes' if response.status_code < 500 else 'No'}\n"
+            )
             result += f"- **Response Time:** {response.elapsed.total_seconds():.2f}s\n"
 
             if response.status_code in (200, 201, 202):
@@ -311,10 +313,14 @@ class zapier_webhooks(Extensions):
                         timeout=15,
                     )
                     if response.status_code in (200, 201, 202):
-                        result += f"- **{url[:50]}...** - Success ({response.status_code})\n"
+                        result += (
+                            f"- **{url[:50]}...** - Success ({response.status_code})\n"
+                        )
                         success_count += 1
                     else:
-                        result += f"- **{url[:50]}...** - Failed ({response.status_code})\n"
+                        result += (
+                            f"- **{url[:50]}...** - Failed ({response.status_code})\n"
+                        )
                         fail_count += 1
                 except Exception as e:
                     result += f"- **{url[:50]}...** - Error: {str(e)[:100]}\n"

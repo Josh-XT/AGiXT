@@ -214,7 +214,9 @@ class airtable(Extensions):
                 try:
                     self.auth = MagicalAuth(token=self.api_key)
                 except Exception as e:
-                    logging.error(f"Error initializing Airtable extension auth: {str(e)}")
+                    logging.error(
+                        f"Error initializing Airtable extension auth: {str(e)}"
+                    )
 
     def _get_headers(self):
         """Returns authorization headers for Airtable API requests."""
@@ -338,6 +340,7 @@ class airtable(Extensions):
 
             # URL-encode table name
             import urllib.parse
+
             encoded_table = urllib.parse.quote(table_name, safe="")
 
             response = requests.get(
@@ -385,6 +388,7 @@ class airtable(Extensions):
         try:
             self.verify_user()
             import urllib.parse
+
             encoded_table = urllib.parse.quote(table_name, safe="")
 
             response = requests.get(
@@ -428,6 +432,7 @@ class airtable(Extensions):
                 return "Error: fields_json must be a valid JSON string."
 
             import urllib.parse
+
             encoded_table = urllib.parse.quote(table_name, safe="")
 
             response = requests.post(
@@ -467,6 +472,7 @@ class airtable(Extensions):
                 return "Error: fields_json must be a valid JSON string."
 
             import urllib.parse
+
             encoded_table = urllib.parse.quote(table_name, safe="")
 
             response = requests.patch(
@@ -498,6 +504,7 @@ class airtable(Extensions):
         try:
             self.verify_user()
             import urllib.parse
+
             encoded_table = urllib.parse.quote(table_name, safe="")
 
             response = requests.delete(
@@ -535,6 +542,7 @@ class airtable(Extensions):
         try:
             self.verify_user()
             import urllib.parse
+
             encoded_table = urllib.parse.quote(table_name, safe="")
 
             response = requests.get(

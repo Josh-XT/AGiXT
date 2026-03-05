@@ -232,7 +232,9 @@ class reddit(Extensions):
     def _format_post(self, post_data):
         """Format a Reddit post for display."""
         data = post_data.get("data", post_data)
-        subreddit = data.get("subreddit_name_prefixed", f"r/{data.get('subreddit', '')}")
+        subreddit = data.get(
+            "subreddit_name_prefixed", f"r/{data.get('subreddit', '')}"
+        )
         score = data.get("score", 0)
         num_comments = data.get("num_comments", 0)
         author = data.get("author", "[deleted]")
@@ -244,7 +246,9 @@ class reddit(Extensions):
         is_self = data.get("is_self", True)
 
         result = f"- **{title}**\n"
-        result += f"  {subreddit} | u/{author} | {score} points | {num_comments} comments\n"
+        result += (
+            f"  {subreddit} | u/{author} | {score} points | {num_comments} comments\n"
+        )
         result += f"  https://reddit.com{permalink}\n"
 
         if not is_self and url:
@@ -657,11 +661,17 @@ class reddit(Extensions):
 
             if result.get("success") is False:
                 errors = result.get("jquery", [])
-                error_msgs = [str(e) for e in errors if isinstance(e, list) and len(e) > 3]
+                error_msgs = [
+                    str(e) for e in errors if isinstance(e, list) and len(e) > 3
+                ]
                 return f"Error submitting post: {'; '.join(error_msgs) if error_msgs else result}"
 
             post_url = result.get("json", {}).get("data", {}).get("url", "")
-            return f"Post submitted successfully!\n{post_url}" if post_url else f"Post submitted. Response: {result}"
+            return (
+                f"Post submitted successfully!\n{post_url}"
+                if post_url
+                else f"Post submitted. Response: {result}"
+            )
         except Exception as e:
             return f"Error submitting post: {str(e)}"
 

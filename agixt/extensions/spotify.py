@@ -109,9 +109,7 @@ class SpotifySSO:
 
         headers = {"Authorization": f"Bearer {self.access_token}"}
         try:
-            response = requests.get(
-                "https://api.spotify.com/v1/me", headers=headers
-            )
+            response = requests.get("https://api.spotify.com/v1/me", headers=headers)
 
             if response.status_code == 401:
                 self.get_new_token()
@@ -230,7 +228,9 @@ class spotify(Extensions):
                 try:
                     self.auth = MagicalAuth(token=self.api_key)
                 except Exception as e:
-                    logging.error(f"Error initializing Spotify extension auth: {str(e)}")
+                    logging.error(
+                        f"Error initializing Spotify extension auth: {str(e)}"
+                    )
 
     def _get_headers(self):
         """Returns authorization headers for Spotify API requests."""
@@ -487,7 +487,9 @@ class spotify(Extensions):
                     followers = item.get("followers", {}).get("total", 0)
                     result += f"- **{item.get('name', '')}** ({followers:,} followers) {f'[{genres}]' if genres else ''} `{item.get('uri', '')}`\n"
                 elif search_type == "album":
-                    artists = ", ".join(a.get("name", "") for a in item.get("artists", []))
+                    artists = ", ".join(
+                        a.get("name", "") for a in item.get("artists", [])
+                    )
                     result += f"- **{item.get('name', '')}** by {artists} ({item.get('release_date', '')}, {item.get('total_tracks', 0)} tracks) `{item.get('uri', '')}`\n"
                 elif search_type == "playlist":
                     owner = item.get("owner", {}).get("display_name", "")
@@ -688,7 +690,9 @@ class spotify(Extensions):
 
             result = "**Playback Queue:**\n\n"
             if currently_playing:
-                result += f"**Now Playing:** {self._format_track(currently_playing)}\n\n"
+                result += (
+                    f"**Now Playing:** {self._format_track(currently_playing)}\n\n"
+                )
             if queue:
                 result += "**Up Next:**\n"
                 for i, track in enumerate(queue[:20], 1):
@@ -761,7 +765,12 @@ class spotify(Extensions):
         except Exception as e:
             return f"Error setting volume: {str(e)}"
 
-    async def get_top_items(self, item_type: str = "tracks", time_range: str = "medium_term", limit: int = 20):
+    async def get_top_items(
+        self,
+        item_type: str = "tracks",
+        time_range: str = "medium_term",
+        limit: int = 20,
+    ):
         """
         Get the user's top tracks or artists.
 

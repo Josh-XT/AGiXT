@@ -213,7 +213,9 @@ class trello(Extensions):
             result = "**Your Trello Boards:**\n\n"
             for board in boards:
                 if not board.get("closed", False):
-                    result += f"- **{board.get('name', '')}** - {board.get('shortUrl', '')}\n"
+                    result += (
+                        f"- **{board.get('name', '')}** - {board.get('shortUrl', '')}\n"
+                    )
                     if board.get("desc"):
                         result += f"  _{board['desc'][:100]}_\n"
                     result += f"  ID: `{board.get('id', '')}`\n"
@@ -249,7 +251,9 @@ class trello(Extensions):
             if lists:
                 result += "\n**Lists:**\n"
                 for lst in sorted(lists, key=lambda x: x.get("pos", 0)):
-                    result += f"- **{lst.get('name', '')}** (ID: `{lst.get('id', '')}`)\n"
+                    result += (
+                        f"- **{lst.get('name', '')}** (ID: `{lst.get('id', '')}`)\n"
+                    )
 
             return result
         except Exception as e:
@@ -348,9 +352,11 @@ class trello(Extensions):
             self.verify_user()
             response = requests.get(
                 f"{self.base_url}/lists/{list_id}/cards",
-                params=self._get_params({
-                    "fields": "name,desc,due,dueComplete,labels,shortUrl,idMembers",
-                }),
+                params=self._get_params(
+                    {
+                        "fields": "name,desc,due,dueComplete,labels,shortUrl,idMembers",
+                    }
+                ),
             )
             cards = response.json()
 
@@ -363,7 +369,12 @@ class trello(Extensions):
                 due_str = f" (Due: {due[:10]})" if due else ""
                 done = " ✅" if card.get("dueComplete") else ""
                 labels = card.get("labels", [])
-                label_str = " " + " ".join(f"[{l.get('name', l.get('color', ''))}]" for l in labels) if labels else ""
+                label_str = (
+                    " "
+                    + " ".join(f"[{l.get('name', l.get('color', ''))}]" for l in labels)
+                    if labels
+                    else ""
+                )
                 result += f"- **{card.get('name', '')}**{due_str}{done}{label_str}\n"
                 if card.get("desc"):
                     result += f"  _{card['desc'][:80]}_\n"
@@ -387,11 +398,13 @@ class trello(Extensions):
             self.verify_user()
             response = requests.get(
                 f"{self.base_url}/cards/{card_id}",
-                params=self._get_params({
-                    "members": "true",
-                    "member_fields": "fullName,username",
-                    "checklists": "all",
-                }),
+                params=self._get_params(
+                    {
+                        "members": "true",
+                        "member_fields": "fullName,username",
+                        "checklists": "all",
+                    }
+                ),
             )
             card = response.json()
 
@@ -686,7 +699,9 @@ class trello(Extensions):
             for label in labels:
                 name = label.get("name", "") or "(no name)"
                 color = label.get("color", "none")
-                result += f"- **{name}** (Color: {color}, ID: `{label.get('id', '')}`)\n"
+                result += (
+                    f"- **{name}** (Color: {color}, ID: `{label.get('id', '')}`)\n"
+                )
 
             return result
         except Exception as e:
@@ -761,12 +776,14 @@ class trello(Extensions):
             self.verify_user()
             response = requests.get(
                 f"{self.base_url}/search",
-                params=self._get_params({
-                    "query": query,
-                    "modelTypes": model_types,
-                    "cards_limit": 20,
-                    "boards_limit": 10,
-                }),
+                params=self._get_params(
+                    {
+                        "query": query,
+                        "modelTypes": model_types,
+                        "cards_limit": 20,
+                        "boards_limit": 10,
+                    }
+                ),
             )
             data = response.json()
 

@@ -174,7 +174,9 @@ class todoist(Extensions):
                 try:
                     self.auth = MagicalAuth(token=self.api_key)
                 except Exception as e:
-                    logging.error(f"Error initializing Todoist extension auth: {str(e)}")
+                    logging.error(
+                        f"Error initializing Todoist extension auth: {str(e)}"
+                    )
 
     def _get_headers(self):
         """Returns authorization headers for Todoist API requests."""
@@ -204,7 +206,9 @@ class todoist(Extensions):
             logging.error(f"Error verifying/refreshing Todoist token: {str(e)}")
             raise Exception(f"Todoist authentication error: {str(e)}")
 
-    async def get_tasks(self, project_id: str = None, filter_query: str = None, label: str = None):
+    async def get_tasks(
+        self, project_id: str = None, filter_query: str = None, label: str = None
+    ):
         """
         Get a list of active tasks from Todoist.
 
@@ -241,7 +245,9 @@ class todoist(Extensions):
                 priority = task.get("priority", 1)
                 priority_label = {1: "", 2: "🟡", 3: "🟠", 4: "🔴"}.get(priority, "")
                 due = task.get("due", {})
-                due_str = f" (Due: {due.get('string', due.get('date', ''))})" if due else ""
+                due_str = (
+                    f" (Due: {due.get('string', due.get('date', ''))})" if due else ""
+                )
                 labels = task.get("labels", [])
                 label_str = f" [{', '.join(labels)}]" if labels else ""
 
@@ -623,7 +629,9 @@ class todoist(Extensions):
             logging.error(f"Error getting Todoist comments: {str(e)}")
             return f"Error getting comments: {str(e)}"
 
-    async def add_comment(self, content: str, task_id: str = None, project_id: str = None):
+    async def add_comment(
+        self, content: str, task_id: str = None, project_id: str = None
+    ):
         """
         Add a comment to a task or project.
 
