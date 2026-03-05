@@ -1071,12 +1071,27 @@ class Interactions:
                 del args[arg]
         agent_commands = ""
         if "disable_commands" not in kwargs:
-            agent_commands = self.agent.get_commands_prompt(
-                conversation_id=conversation_id,
-                running_command=kwargs.get("running_command", None),
-                selected_commands=selected_commands,
-                workspace_file_tree=kwargs.get("workspace_file_context", None),
-            )
+            # Cache the commands prompt to avoid re-calling extension contexts
+            # (which may make HTTP requests) on every continuation iteration.
+            # The cache is invalidated when selected_commands changes (e.g. via
+            # Optimize Command Selection).
+            _cache_key = tuple(sorted(selected_commands)) if selected_commands else None
+            if (
+                hasattr(self, "_cached_commands_prompt")
+                and self._cached_commands_prompt is not None
+                and hasattr(self, "_cached_commands_key")
+                and self._cached_commands_key == _cache_key
+            ):
+                agent_commands = self._cached_commands_prompt
+            else:
+                agent_commands = self.agent.get_commands_prompt(
+                    conversation_id=conversation_id,
+                    running_command=kwargs.get("running_command", None),
+                    selected_commands=selected_commands,
+                    workspace_file_tree=kwargs.get("workspace_file_context", None),
+                )
+                self._cached_commands_prompt = agent_commands
+                self._cached_commands_key = _cache_key
             # Safety check: if commands prompt is too large, it will crowd out
             # user context, conversation history, and model thinking space.
             # Log a warning so we can identify bloated command sets.
@@ -5214,6 +5229,72 @@ Analyze the actual output shown and continue with your response.
                                 )
                                 # Format as pending remote execution for the response
                                 command_output = f"[REMOTE COMMAND PENDING] This command requires execution on the client.\nRequest ID: {remote_cmd.get('request_id', 'unknown')}\nCommand: {remote_cmd.get('command', 'unknown')}"
+                        # Handle OPTIMIZE_COMMANDS signal from optimize_command_selection
+                        if isinstance(
+                            command_output, str
+                        ) and command_output.startswith("OPTIMIZE_COMMANDS:"):
+                            task_desc = command_output[
+                                len("OPTIMIZE_COMMANDS:") :
+                            ].strip()
+                            logging.info(
+                                f"[execution_agent] OPTIMIZE_COMMANDS signal received: {task_desc}"
+                            )
+                            try:
+                                # Build conversation history for context
+                                _conv_data = c.get_conversation()
+                                _opt_history = ""
+                                if (
+                                    "interactions" in _conv_data
+                                    and _conv_data["interactions"]
+                                ):
+                                    _recent = [
+                                        i
+                                        for i in _conv_data["interactions"]
+                                        if not str(i.get("message", "")).startswith(
+                                            "[ACTIVITY]"
+                                        )
+                                        and not str(i.get("message", "")).startswith(
+                                            "[SUBACTIVITY]"
+                                        )
+                                        and not str(i.get("message", "")).startswith(
+                                            "<audio"
+                                        )
+                                    ][-6:]
+                                    if _recent:
+                                        _opt_history = "\n".join(
+                                            f"{m.get('role', '')}: {str(m.get('message', ''))[:300]}"
+                                            for m in _recent
+                                        )
+                                new_commands = await self.select_commands_for_task(
+                                    user_input=task_desc,
+                                    conversation_name=conversation_name,
+                                    log_output=True,
+                                    thinking_id=thinking_id,
+                                    conversation_history=_opt_history,
+                                )
+                                if new_commands:
+                                    self._selected_commands = new_commands
+                                    self._cached_commands_prompt = (
+                                        None  # Invalidate cache
+                                    )
+                                    command_output = (
+                                        f"Command selection re-optimized for: {task_desc}\n"
+                                        f"Now available: {', '.join(new_commands)}"
+                                    )
+                                else:
+                                    command_output = "Command re-optimization returned no commands. All commands remain available."
+                                    self._selected_commands = None
+                                    self._cached_commands_prompt = (
+                                        None  # Invalidate cache
+                                    )
+                            except Exception as e:
+                                logging.error(
+                                    f"[execution_agent] OPTIMIZE_COMMANDS failed: {e}"
+                                )
+                                command_output = f"Command re-optimization failed: {e}. All commands remain available."
+                                self._selected_commands = None
+                                self._cached_commands_prompt = None  # Invalidate cache
+
                         # Handle different types of command output
                         if isinstance(command_output, (dict, list)):
                             # Already a structured object, serialize directly to JSON
