@@ -804,9 +804,7 @@ async def live_conversation_chunk(
         if isinstance(agent_response, dict):
             choices = agent_response.get("choices", [])
             if choices:
-                assistant_text = (
-                    choices[0].get("message", {}).get("content", "")
-                )
+                assistant_text = choices[0].get("message", {}).get("content", "")
         elif hasattr(agent_response, "choices") and agent_response.choices:
             assistant_text = agent_response.choices[0].message.content or ""
     except Exception as e:
@@ -823,9 +821,7 @@ async def live_conversation_chunk(
         for line in assistant_text.split("\n"):
             line_stripped = line.strip()
             line_upper = line_stripped.upper()
-            if line_upper.startswith("NOTES:") or line_upper.startswith(
-                "## NOTES"
-            ):
+            if line_upper.startswith("NOTES:") or line_upper.startswith("## NOTES"):
                 current_section = "notes"
                 continue
             elif line_upper.startswith("SUGGESTIONS:") or line_upper.startswith(
@@ -833,9 +829,11 @@ async def live_conversation_chunk(
             ):
                 current_section = "suggestions"
                 continue
-            elif line_upper.startswith("ACTION_ITEMS:") or line_upper.startswith(
-                "ACTION ITEMS:"
-            ) or line_upper.startswith("## ACTION"):
+            elif (
+                line_upper.startswith("ACTION_ITEMS:")
+                or line_upper.startswith("ACTION ITEMS:")
+                or line_upper.startswith("## ACTION")
+            ):
                 current_section = "action_items"
                 continue
             elif line_upper.startswith("## "):
