@@ -866,12 +866,33 @@ class EmbeddingResponse(BaseModel):
     usage: Dict[str, int]
 
 
+class AudioTranscriptionSegment(BaseModel):
+    id: int = 0
+    start: float = 0.0
+    end: float = 0.0
+    text: str = ""
+    speaker: Optional[str] = None
+
+
 class AudioTranscriptionResponse(BaseModel):
     text: str
+    segments: Optional[List[AudioTranscriptionSegment]] = None
+    language: Optional[str] = None
 
 
 class AudioTranslationResponse(BaseModel):
     text: str
+
+
+class LiveConversationChunkResponse(BaseModel):
+    session_id: str
+    chunk_index: int
+    transcription: str = ""
+    cumulative_transcription: str = ""
+    notes: str = ""
+    suggestions: List[str] = []
+    action_items: List[str] = []
+    is_final: bool = False
 
 
 class TextToSpeechResponse(BaseModel):

@@ -1,3 +1,4 @@
+import os
 import time
 import uuid
 import re
@@ -25,6 +26,7 @@ from Models import (
     AudioTranslationResponse,
     TextToSpeechResponse,
     ImageGenerationResponse,
+    LiveConversationChunkResponse,
 )
 from XT import AGiXT
 import json
@@ -605,6 +607,9 @@ async def speech_to_text(
     response_format: Optional[str] = Form("json"),
     temperature: Optional[float] = Form(0.0),
     timestamp_granularities: Optional[List[str]] = Form(["segment"]),
+    enable_diarization: Optional[bool] = Form(False),
+    num_speakers: Optional[int] = Form(None),
+    session_id: Optional[str] = Form(None),
     user: str = Depends(verify_api_key),
     authorization: str = Header(None),
 ):
@@ -616,8 +621,261 @@ async def speech_to_text(
     audio_path = f"./WORKSPACE/{uuid.uuid4().hex}.{audio_format}"
     with open(audio_path, "wb") as f:
         f.write(file.file.read())
-    response = await agent.transcribe_audio(audio_path=audio_path)
+    response = await agent.transcribe_audio(
+        audio_path=audio_path,
+        enable_diarization=enable_diarization,
+        num_speakers=num_speakers,
+        session_id=session_id,
+    )
+    # If diarization was requested and we got a dict with segments, return full response
+    if isinstance(response, dict):
+        return response
     return {"text": response}
+
+
+# Live Conversation Transcription endpoint
+# Receives periodic audio chunks during a live recording, transcribes with
+# diarization, maintains a running transcript in an AGiXT conversation, and
+# returns interim notes/suggestions to display on smart glasses.
+@app.post(
+    "/v1/audio/transcriptions/live",
+    tags=["Audio"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Live Conversation Transcription",
+    description=(
+        "Process an audio chunk from an ongoing live conversation recording. "
+        "Transcribes with speaker diarization, appends to a running transcript "
+        "stored in an AGiXT conversation, and returns interim notes, suggested "
+        "questions, and action items for display on smart glasses."
+    ),
+    response_model=LiveConversationChunkResponse,
+)
+async def live_conversation_chunk(
+    file: UploadFile = File(...),
+    agent_name: str = Form("XT"),
+    conversation_name: Optional[str] = Form(None),
+    session_id: Optional[str] = Form(None),
+    chunk_index: int = Form(0),
+    is_final: bool = Form(False),
+    num_speakers: Optional[int] = Form(None),
+    user: str = Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    ApiClient = get_api_client(authorization=authorization)
+
+    # Generate session_id if not provided (first chunk)
+    if not session_id:
+        session_id = uuid.uuid4().hex
+
+    # Sanitize session_id to prevent path traversal — allow only safe chars
+    safe_session_id = re.sub(r"[^A-Za-z0-9_-]", "", session_id)
+    if not safe_session_id:
+        safe_session_id = uuid.uuid4().hex
+    if chunk_index < 0:
+        raise HTTPException(status_code=400, detail="chunk_index must be non-negative")
+
+    # Use session-based conversation name if not provided
+    if not conversation_name:
+        conversation_name = f"Live Meeting {time.strftime('%Y-%m-%d %H:%M')}"
+
+    # Save the audio chunk
+    file_content = file.file.read()
+    audio_format = file.content_type.split("/")[1] if file.content_type else "wav"
+    if audio_format == "x-wav":
+        audio_format = "wav"
+    # Sanitize audio_format as well
+    audio_format = re.sub(r"[^a-zA-Z0-9]", "", audio_format) or "wav"
+    workspace_dir = os.path.abspath("./WORKSPACE")
+    audio_filename = f"{safe_session_id}_chunk_{chunk_index}.{audio_format}"
+    audio_path = os.path.normpath(os.path.join(workspace_dir, audio_filename))
+    if not audio_path.startswith(workspace_dir + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid session or chunk index")
+    with open(audio_path, "wb") as f:
+        f.write(file_content)
+
+    # Transcribe this chunk with diarization
+    agent = Agent(agent_name=agent_name, user=user, ApiClient=ApiClient)
+    try:
+        response = await agent.transcribe_audio(
+            audio_path=audio_path,
+            enable_diarization=True,
+            num_speakers=num_speakers,
+            session_id=session_id,
+        )
+    except Exception as e:
+        logging.error(f"Live transcription error on chunk {chunk_index}: {e}")
+        # Clean up and return empty response
+        try:
+            os.remove(audio_path)
+        except Exception:
+            pass
+        return LiveConversationChunkResponse(
+            session_id=session_id,
+            chunk_index=chunk_index,
+            is_final=is_final,
+        )
+    finally:
+        # Clean up audio file
+        try:
+            os.remove(audio_path)
+        except Exception:
+            pass
+
+    # Extract transcription text (may be dict from diarization or plain string)
+    if isinstance(response, dict):
+        chunk_text = response.get("text", "")
+        segments = response.get("segments", [])
+        # Build speaker-attributed text from segments
+        if segments:
+            lines = []
+            current_speaker = None
+            for seg in segments:
+                speaker = seg.get("speaker", "SPEAKER_00")
+                text = seg.get("text", "").strip()
+                if not text:
+                    continue
+                if speaker != current_speaker:
+                    current_speaker = speaker
+                    lines.append(f"[{speaker}]: {text}")
+                else:
+                    lines[-1] += f" {text}" if lines else text
+            chunk_text = "\n".join(lines)
+    else:
+        chunk_text = response if response else ""
+
+    if not chunk_text.strip():
+        return LiveConversationChunkResponse(
+            session_id=session_id,
+            chunk_index=chunk_index,
+            is_final=is_final,
+        )
+
+    # Build the cumulative transcript from the conversation
+    agixt = AGiXT(
+        user=user,
+        agent_name=agent_name,
+        api_key=authorization,
+        conversation_name=conversation_name,
+    )
+
+    # Store this chunk's transcript as a user message in the conversation
+    agixt.conversation.log_interaction(
+        role="user",
+        message=f"[Live Transcript Chunk {chunk_index}]\n{chunk_text}",
+    )
+
+    # Build the cumulative transcript from conversation history
+    conversation_history = agixt.conversation.get_conversation()
+    cumulative_parts = []
+    for msg in conversation_history:
+        if msg.get("role") == "user" and "[Live Transcript Chunk" in msg.get(
+            "message", ""
+        ):
+            # Extract just the transcript part (after the header line)
+            lines = msg["message"].split("\n", 1)
+            if len(lines) > 1:
+                cumulative_parts.append(lines[1])
+    cumulative_transcription = "\n".join(cumulative_parts)
+
+    # Now ask the agent for notes/suggestions based on the conversation so far
+    if is_final:
+        analysis_prompt = (
+            "The following is the complete speaker-diarized transcript of a "
+            "meeting that just ended. Provide a comprehensive summary:\n\n"
+            "## Summary\nConcise overview of the meeting.\n\n"
+            "## Key Decisions\nDecisions that were made.\n\n"
+            "## Action Items\nAction items grouped by speaker with deadlines "
+            "if mentioned.\n\n"
+            "## Questions & Follow-ups\nUnresolved questions or topics.\n\n"
+            f"Full Transcript:\n{cumulative_transcription}"
+        )
+    else:
+        analysis_prompt = (
+            "You are a real-time meeting assistant displayed on smart glasses. "
+            "Below is the latest chunk of a live meeting transcript (chunk "
+            f"#{chunk_index}). Provide BRIEF, actionable notes.\n\n"
+            "Respond in this exact format (keep each section to 1-3 bullet "
+            "points, be extremely concise — this displays on small glasses):\n\n"
+            "NOTES:\n- (key point from this chunk)\n\n"
+            "SUGGESTIONS:\n- (question to ask or point to raise)\n\n"
+            "ACTION_ITEMS:\n- (who: what they committed to)\n\n"
+            f"Latest transcript chunk:\n{chunk_text}"
+        )
+
+    # Use the AGiXT agent to analyze
+    prompt_obj = ChatCompletions(
+        model=agent_name,
+        messages=[{"role": "user", "content": analysis_prompt}],
+        user=conversation_name,
+    )
+    try:
+        agent_response = await agixt.chat_completions(prompt=prompt_obj)
+        assistant_text = ""
+        if isinstance(agent_response, dict):
+            choices = agent_response.get("choices", [])
+            if choices:
+                assistant_text = choices[0].get("message", {}).get("content", "")
+        elif hasattr(agent_response, "choices") and agent_response.choices:
+            assistant_text = agent_response.choices[0].message.content or ""
+    except Exception as e:
+        logging.error(f"Live conversation analysis error: {e}")
+        assistant_text = ""
+
+    # Parse the structured response
+    notes = ""
+    suggestions = []
+    action_items = []
+
+    if assistant_text:
+        current_section = None
+        for line in assistant_text.split("\n"):
+            line_stripped = line.strip()
+            line_upper = line_stripped.upper()
+            if line_upper.startswith("NOTES:") or line_upper.startswith("## NOTES"):
+                current_section = "notes"
+                continue
+            elif line_upper.startswith("SUGGESTIONS:") or line_upper.startswith(
+                "## SUGGESTIONS"
+            ):
+                current_section = "suggestions"
+                continue
+            elif (
+                line_upper.startswith("ACTION_ITEMS:")
+                or line_upper.startswith("ACTION ITEMS:")
+                or line_upper.startswith("## ACTION")
+            ):
+                current_section = "action_items"
+                continue
+            elif line_upper.startswith("## "):
+                # Other section headers
+                current_section = None
+                continue
+
+            if line_stripped.startswith("- ") or line_stripped.startswith("* "):
+                item = line_stripped[2:].strip()
+                if current_section == "notes":
+                    notes += (", " if notes else "") + item
+                elif current_section == "suggestions":
+                    suggestions.append(item)
+                elif current_section == "action_items":
+                    action_items.append(item)
+            elif line_stripped and current_section == "notes":
+                notes += (" " if notes else "") + line_stripped
+
+        # If parsing didn't find structured sections, use the whole response as notes
+        if not notes and not suggestions and not action_items:
+            notes = assistant_text[:500]
+
+    return LiveConversationChunkResponse(
+        session_id=session_id,
+        chunk_index=chunk_index,
+        transcription=chunk_text,
+        cumulative_transcription=cumulative_transcription,
+        notes=notes,
+        suggestions=suggestions,
+        action_items=action_items,
+        is_final=is_final,
+    )
 
 
 # Audio Translations endpoint
