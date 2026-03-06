@@ -670,6 +670,12 @@ def _get_base_provider_settings(company_id, provider_setting_keys):
             value = config.value
             if config.is_sensitive and value:
                 value = decrypt_config_value(value)
+                if not value:
+                    logging.warning(
+                        f"[_get_base_provider_settings] ServerConfig '{config.name}' "
+                        f"has encrypted value that failed to decrypt. "
+                        f"Re-save this setting to re-encrypt with current key."
+                    )
             if value:
                 merged[config.name] = value
 
@@ -682,6 +688,12 @@ def _get_base_provider_settings(company_id, provider_setting_keys):
             value = setting.setting_value
             if setting.is_sensitive and value:
                 value = decrypt_config_value(value)
+                if not value:
+                    logging.warning(
+                        f"[_get_base_provider_settings] ServerExtensionSetting '{setting.setting_key}' "
+                        f"(ext: {setting.extension_name}) has encrypted value that failed to decrypt. "
+                        f"Re-save this setting to re-encrypt with current key."
+                    )
             if value:
                 merged[setting.setting_key] = value
 
@@ -698,6 +710,12 @@ def _get_base_provider_settings(company_id, provider_setting_keys):
                 value = setting.setting_value
                 if setting.is_sensitive and value:
                     value = decrypt_config_value(value)
+                    if not value:
+                        logging.warning(
+                            f"[_get_base_provider_settings] CompanyExtensionSetting '{setting.setting_key}' "
+                            f"(company: {company_id}) has encrypted value that failed to decrypt. "
+                            f"Re-save this setting to re-encrypt with current key."
+                        )
                 if value == "":
                     merged.pop(setting.setting_key, None)
                 elif value:
@@ -1062,12 +1080,16 @@ class AIProviderManager:
 
         # Filter providers that support the service and have sufficient token limits
         suitable = {}
+        service_capable = (
+            {}
+        )  # Providers that support the service but may exceed token limits
         for name, provider in self.providers.items():
             if name in self.failed_providers:
                 logging.debug(f"[AIProviderManager] Skipping failed provider: {name}")
                 continue
             if service not in provider["services"]:
                 continue
+            service_capable[name] = provider
             if tokens > 0 and provider["max_tokens"] < tokens:
                 continue
             suitable[name] = provider
@@ -1077,6 +1099,21 @@ class AIProviderManager:
             if self.failed_providers:
                 self.failed_providers.clear()
                 return self.get_provider_for_service(service, tokens, use_smartest)
+            # If we have service-capable providers but all were filtered by token limits,
+            # fall back to the provider with the largest max_tokens rather than returning None.
+            # The provider's API will handle context window limits and return an error if truly too large.
+            if service_capable:
+                largest_name = max(
+                    service_capable.keys(),
+                    key=lambda k: service_capable[k]["max_tokens"],
+                )
+                logging.warning(
+                    f"[AIProviderManager] No provider has max_tokens >= {tokens}. "
+                    f"Falling back to largest available: {largest_name} "
+                    f"(max_tokens: {service_capable[largest_name]['max_tokens']}). "
+                    f"All providers: {provider_token_limits}"
+                )
+                return service_capable[largest_name]["instance"]
             return None
 
         suitable_with_tokens = {
@@ -2124,6 +2161,8 @@ class Agent:
         agent_extensions = self.get_agent_extensions()
         if self.company_id:
             agent = self.get_company_agent()
+            if agent is None:
+                return agent_extensions
             company_extensions = agent.get_agent_extensions()
             # Build a dict for O(1) lookup instead of O(N×M) nested loops
             company_enabled = set()
