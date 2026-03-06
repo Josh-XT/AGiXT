@@ -2911,7 +2911,7 @@ Example: If user says "list my files", use:
         # Helper to iterate over stream (handles sync iterators from OpenAI library)
         async def iterate_stream(stream_obj, idle_timeout=180):
             """Iterate over stream, wrapping sync iteration if needed.
-            
+
             Args:
                 stream_obj: The stream object to iterate over.
                 idle_timeout: Maximum seconds to wait between chunks before
