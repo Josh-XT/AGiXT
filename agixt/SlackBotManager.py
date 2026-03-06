@@ -436,12 +436,19 @@ class CompanySlackBot:
 
             # Collect response
             full_response = ""
+            stream_done = False
             async for chunk in agixt_instance.chat_completions_stream(
                 prompt=chat_prompt
             ):
-                if chunk.startswith("data: "):
-                    data = chunk[6:].strip()
+                if stream_done:
+                    break
+                for line in chunk.split("\n"):
+                    line = line.strip()
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:].strip()
                     if data == "[DONE]":
+                        stream_done = True
                         break
                     try:
                         import json

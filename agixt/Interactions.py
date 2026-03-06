@@ -2909,8 +2909,17 @@ Example: If user says "list my files", use:
         _reflection_placeholder_id = None
 
         # Helper to iterate over stream (handles sync iterators from OpenAI library)
-        async def iterate_stream(stream_obj):
-            """Iterate over stream, wrapping sync iteration if needed."""
+        async def iterate_stream(stream_obj, idle_timeout=180):
+            """Iterate over stream, wrapping sync iteration if needed.
+            
+            Args:
+                stream_obj: The stream object to iterate over.
+                idle_timeout: Maximum seconds to wait between chunks before
+                    raising a TimeoutError. Prevents infinite hangs when the
+                    LLM inference stream stalls silently. Default: 180s.
+            """
+            import time as _iter_time
+
             # OpenAI library returns sync iterators, check if it's async or sync
             if hasattr(stream_obj, "__aiter__"):
                 # Async iterator
@@ -2951,9 +2960,11 @@ Example: If user says "list my files", use:
 
                 # Yield chunks as they arrive — use non-blocking get to avoid
                 # blocking the event loop (which would stall SSE delivery)
+                _last_chunk_time = _iter_time.monotonic()
                 while True:
                     try:
                         msg_type, msg_data = chunk_queue.get_nowait()
+                        _last_chunk_time = _iter_time.monotonic()
                         if msg_type == "chunk":
                             yield msg_data
                         elif msg_type == "done":
@@ -2969,6 +2980,26 @@ Example: If user says "list my files", use:
                             if error_holder[0]:
                                 raise error_holder[0]
                             break
+                        # Check for idle timeout — if no chunk arrives within
+                        # idle_timeout seconds, the stream is likely stalled
+                        if _iter_time.monotonic() - _last_chunk_time > idle_timeout:
+                            logging.error(
+                                f"[iterate_stream] Idle timeout after {idle_timeout}s "
+                                f"with no chunks received. Stream appears stalled."
+                            )
+                            # Try to close the underlying stream to free resources
+                            try:
+                                if hasattr(stream_obj, "close"):
+                                    stream_obj.close()
+                                elif hasattr(stream_obj, "response") and hasattr(
+                                    stream_obj.response, "close"
+                                ):
+                                    stream_obj.response.close()
+                            except Exception:
+                                pass
+                            raise TimeoutError(
+                                f"Stream idle timeout: no data received for {idle_timeout}s"
+                            )
 
         try:
             chunk_count = 0
