@@ -671,11 +671,21 @@ def _get_base_provider_settings(company_id, provider_setting_keys):
             if config.is_sensitive and value:
                 value = decrypt_config_value(value)
                 if not value:
-                    logging.warning(
-                        f"[_get_base_provider_settings] ServerConfig '{config.name}' "
-                        f"has encrypted value that failed to decrypt. "
-                        f"Re-save this setting to re-encrypt with current key."
-                    )
+                    # Decrypt failed — try env var fallback
+                    env_value = os.getenv(config.name, "")
+                    if env_value:
+                        value = env_value
+                        logging.warning(
+                            f"[_get_base_provider_settings] ServerConfig '{config.name}' "
+                            f"decrypt failed, using env var fallback. "
+                            f"Re-save this setting to re-encrypt with current key."
+                        )
+                    else:
+                        logging.warning(
+                            f"[_get_base_provider_settings] ServerConfig '{config.name}' "
+                            f"decrypt failed and no env var fallback available. "
+                            f"Re-save this setting to re-encrypt with current key."
+                        )
             if value:
                 merged[config.name] = value
 
@@ -689,11 +699,21 @@ def _get_base_provider_settings(company_id, provider_setting_keys):
             if setting.is_sensitive and value:
                 value = decrypt_config_value(value)
                 if not value:
-                    logging.warning(
-                        f"[_get_base_provider_settings] ServerExtensionSetting '{setting.setting_key}' "
-                        f"(ext: {setting.extension_name}) has encrypted value that failed to decrypt. "
-                        f"Re-save this setting to re-encrypt with current key."
-                    )
+                    # Decrypt failed — try env var fallback
+                    env_value = os.getenv(setting.setting_key, "")
+                    if env_value:
+                        value = env_value
+                        logging.warning(
+                            f"[_get_base_provider_settings] ServerExtensionSetting '{setting.setting_key}' "
+                            f"(ext: {setting.extension_name}) decrypt failed, using env var fallback. "
+                            f"Re-save this setting to re-encrypt with current key."
+                        )
+                    else:
+                        logging.warning(
+                            f"[_get_base_provider_settings] ServerExtensionSetting '{setting.setting_key}' "
+                            f"(ext: {setting.extension_name}) decrypt failed and no env var fallback available. "
+                            f"Re-save this setting to re-encrypt with current key."
+                        )
             if value:
                 merged[setting.setting_key] = value
 
@@ -711,11 +731,21 @@ def _get_base_provider_settings(company_id, provider_setting_keys):
                 if setting.is_sensitive and value:
                     value = decrypt_config_value(value)
                     if not value:
-                        logging.warning(
-                            f"[_get_base_provider_settings] CompanyExtensionSetting '{setting.setting_key}' "
-                            f"(company: {company_id}) has encrypted value that failed to decrypt. "
-                            f"Re-save this setting to re-encrypt with current key."
-                        )
+                        # Decrypt failed — try env var fallback
+                        env_value = os.getenv(setting.setting_key, "")
+                        if env_value:
+                            value = env_value
+                            logging.warning(
+                                f"[_get_base_provider_settings] CompanyExtensionSetting '{setting.setting_key}' "
+                                f"(company: {company_id}) decrypt failed, using env var fallback. "
+                                f"Re-save this setting to re-encrypt with current key."
+                            )
+                        else:
+                            logging.warning(
+                                f"[_get_base_provider_settings] CompanyExtensionSetting '{setting.setting_key}' "
+                                f"(company: {company_id}) decrypt failed and no env var fallback available. "
+                                f"Re-save this setting to re-encrypt with current key."
+                            )
                 if value == "":
                     merged.pop(setting.setting_key, None)
                 elif value:
