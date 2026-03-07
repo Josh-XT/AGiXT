@@ -60,6 +60,7 @@ def is_safe_url(url: str) -> bool:
         bool: True if the URL is safe to request, False otherwise
     """
     try:
+        url = url.replace("\\", "/")
         parsed = urlparse(url)
 
         # Only allow http and https schemes
@@ -2112,6 +2113,7 @@ Your response (true or false):"""
                         return {}
                     if url in ["", None]:
                         return {}
+                    url = url.replace("\\", "/")
                     # SSRF protection: validate URL before making request
                     if not is_safe_url(url):
                         logging.error(f"SSRF protection blocked download from: {url}")
