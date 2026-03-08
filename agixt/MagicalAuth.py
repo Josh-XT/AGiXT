@@ -53,6 +53,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from InternalClient import InternalClient
 from middleware import log_silenced_exception
+import ast
 import importlib
 import pyotp
 import argon2
@@ -737,15 +738,58 @@ def get_oauth_providers():
     # Use recursive discovery to find all extension files
     extension_files = find_extension_files()
     for extension_file in extension_files:
-        # Import the module using the helper function
-        module = import_extension_module(extension_file)
-        if module is None:
-            continue
-
         filename = os.path.basename(extension_file)
         module_name = filename.replace(".py", "")
 
         try:
+            # Use AST parsing to extract module-level OAuth constants.
+            # This avoids import issues where extension files shadow installed
+            # packages (e.g., extensions/github.py shadows PyGithub's 'github'
+            # module because the extensions directory is on sys.path).
+            with open(extension_file, "r", encoding="utf-8") as f:
+                source = f.read()
+            tree = ast.parse(source, filename=extension_file)
+
+            # Extract module-level constants: SCOPES, AUTHORIZE, PKCE_REQUIRED,
+            # SSO_ONLY, LOGIN_CAPABLE
+            scopes = None
+            authorize = None
+            pkce_required = None
+            sso_only = False
+            login_capable = False
+
+            for node in tree.body:
+                if isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if not isinstance(target, ast.Name):
+                            continue
+                        if target.id == "SCOPES" and isinstance(node.value, ast.List):
+                            scopes = [
+                                elt.value
+                                for elt in node.value.elts
+                                if isinstance(elt, ast.Constant)
+                            ]
+                        elif target.id == "AUTHORIZE" and isinstance(
+                            node.value, ast.Constant
+                        ):
+                            authorize = node.value.value
+                        elif target.id == "PKCE_REQUIRED" and isinstance(
+                            node.value, ast.Constant
+                        ):
+                            pkce_required = node.value.value
+                        elif target.id == "SSO_ONLY" and isinstance(
+                            node.value, ast.Constant
+                        ):
+                            sso_only = bool(node.value.value)
+                        elif target.id == "LOGIN_CAPABLE" and isinstance(
+                            node.value, ast.Constant
+                        ):
+                            login_capable = bool(node.value.value)
+
+            # Skip if missing required OAuth attributes
+            if scopes is None or authorize is None or pkce_required is None:
+                continue
+
             # Check for module-specific client ID first
             client_id = getenv(f"{module_name.upper()}_CLIENT_ID")
 
@@ -757,24 +801,16 @@ def get_oauth_providers():
                 elif module_name.startswith("google_"):
                     client_id = getenv("GOOGLE_CLIENT_ID")
 
-            # Only add as OAuth provider if it has the required OAuth attributes
-            if (
-                client_id
-                and hasattr(module, "SCOPES")
-                and hasattr(module, "AUTHORIZE")
-                and hasattr(module, "PKCE_REQUIRED")
-            ):
-                # Check if this provider has SSO_ONLY flag (only for login, no extension commands)
-                sso_only = getattr(module, "SSO_ONLY", False)
-                # Check if this provider can be used for login (either SSO_ONLY or LOGIN_CAPABLE)
-                login_capable = getattr(module, "LOGIN_CAPABLE", False) or sso_only
+            # Only add as OAuth provider if it has configured client ID
+            if client_id:
+                login_capable = login_capable or sso_only
                 providers.append(
                     {
                         "name": module_name,
-                        "scopes": " ".join(module.SCOPES),
-                        "authorize": module.AUTHORIZE,
+                        "scopes": " ".join(scopes),
+                        "authorize": authorize,
                         "client_id": client_id,
-                        "pkce_required": module.PKCE_REQUIRED,
+                        "pkce_required": pkce_required,
                         "sso_only": sso_only,
                         "login_capable": login_capable,
                     }
@@ -8281,6 +8317,7 @@ class MagicalAuth:
         if not referrer:
             app_uri = getenv("APP_URI")
             referrer = f"{app_uri}/user/close/{provider}"
+        logging.info(f"SSO redirect_uri for {provider}: {referrer}")
         # Check if one of the providers in the extensions folder using recursive discovery
         provider = str(provider).lower()
         extension_files = find_extension_files()

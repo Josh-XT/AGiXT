@@ -275,11 +275,19 @@ class InternalClient:
         return result.get("message", "")
 
     def update_agent_settings(
-        self, agent_id: str, settings: Dict[str, Any], agent_name: str = ""
+        self,
+        agent_id: str = None,
+        settings: Dict[str, Any] = None,
+        agent_name: str = "",
     ) -> str:
-        """Update agent settings by ID."""
-        agent = self._get_agent(agent_id=agent_id)
-        return agent.update_agent_config(new_config=settings, config_key="settings")
+        """Update agent settings by ID or name."""
+        if agent_id:
+            agent = self._get_agent(agent_id=agent_id)
+        else:
+            agent = self._get_agent(agent_name=agent_name)
+        return agent.update_agent_config(
+            new_config=settings or {}, config_key="settings"
+        )
 
     def update_agent_commands(
         self,

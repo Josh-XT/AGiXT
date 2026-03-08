@@ -1006,6 +1006,10 @@ async def oauth_login(
     auth = MagicalAuth(token=authorization)
     email = auth.email
     client_ip = request.headers.get("X-Forwarded-For") or request.client.host
+    referrer_value = data["referrer"] if "referrer" in data else getenv("APP_URI")
+    logging.info(
+        f"OAuth2 {provider} - referrer in data: {'referrer' in data}, referrer value: {referrer_value}, data keys: {list(data.keys())}"
+    )
     code_verifier = None
     state = data.get("state")
     if state:

@@ -145,6 +145,7 @@ def sso(code, redirect_uri=None) -> GitHubSSO:
         .replace("%3F", "?")
         .replace("%3D", "=")
     )
+    logging.info(f"GitHub OAuth token exchange - redirect_uri: {redirect_uri}, client_id: {getenv('GITHUB_CLIENT_ID')}")
     response = requests.post(
         f"https://github.com/login/oauth/access_token",
         headers={"Accept": "application/json"},
@@ -160,7 +161,15 @@ def sso(code, redirect_uri=None) -> GitHubSSO:
         logging.error(f"Error getting GitHub access token: {response.text}")
         return None
     data = response.json()
-    access_token = data["access_token"]
+    if "error" in data:
+        logging.error(
+            f"GitHub OAuth error: {data.get('error')} - {data.get('error_description', '')} | redirect_uri used: {redirect_uri}"
+        )
+        return None
+    access_token = data.get("access_token")
+    if not access_token:
+        logging.error(f"No access_token in GitHub response: {data}")
+        return None
     refresh_token = data.get("refresh_token", "Not provided")
     return GitHubSSO(access_token=access_token, refresh_token=refresh_token)
 

@@ -215,9 +215,22 @@ def _build_extension_metadata_cache():
         # Extract class docstring
         class_docstring = ast.get_docstring(extension_class) or ""
 
+        # Extract module-level CATEGORY first (some extensions like SSO providers
+        # define CATEGORY at module level rather than inside the class body)
+        module_category = None
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if (
+                        isinstance(target, ast.Name)
+                        and target.id == "CATEGORY"
+                        and isinstance(node.value, ast.Constant)
+                    ):
+                        module_category = node.value.value
+
         # Extract friendly_name and CATEGORY class attributes
         friendly_name = None
-        category = "Automation"  # Default
+        category = module_category or "Automation"  # Use module-level if found
         for item in extension_class.body:
             if isinstance(item, ast.Assign):
                 for target in item.targets:

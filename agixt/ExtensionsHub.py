@@ -804,26 +804,57 @@ def import_extension_module(file_path: str, base_dir: str = "extensions"):
         The imported module or None if import failed
     """
     import importlib.util
+    import sys
 
     try:
         # Get the module name (filename without .py)
         module_name = os.path.basename(file_path).replace(".py", "")
 
-        # Convert file path to module path for proper importing
-        # e.g., "extensions/hub/my_extension.py" -> "extensions.hub.my_extension"
-        rel_path = os.path.relpath(file_path, ".")
-        module_path = rel_path.replace(os.sep, ".").replace(".py", "")
+        # Use a unique module name to avoid conflicts with installed packages
+        unique_name = f"_ext_{module_name}"
 
-        # Load the module
-        spec = importlib.util.spec_from_file_location(module_path, file_path)
-        if spec and spec.loader:
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            return module
+        # Temporarily remove extension directories from sys.path during import.
+        # Extension directories are added to sys.path so extensions can import
+        # each other, but this causes shadowing when an extension file has the
+        # same name as an installed package (e.g., extensions/github.py shadows
+        # the PyGithub 'github' package). We remove them during import and
+        # restore them afterward.
+        abs_file_dir = os.path.dirname(os.path.abspath(file_path))
+        extension_paths = []
+        for p in list(sys.path):
+            if not p or not os.path.isdir(p):
+                continue
+            abs_p = os.path.abspath(p)
+            # Remove the directory containing this extension file,
+            # and any other known extension directories
+            if (
+                abs_p == abs_file_dir
+                or os.path.basename(abs_p)
+                in (
+                    "extensions",
+                    "hub",
+                )
+                or abs_p.endswith("xtsystems_extensions")
+            ):
+                extension_paths.append(p)
+                sys.path.remove(p)
+
+        try:
+            # Load the module
+            spec = importlib.util.spec_from_file_location(unique_name, file_path)
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                return module
+        finally:
+            # Always restore extension paths
+            for p in extension_paths:
+                if p not in sys.path:
+                    sys.path.insert(0, p)
 
     except Exception as e:
         # Silently fail and return None for failed imports
-        pass
+        logging.debug(f"Failed to import extension module {file_path}: {e}")
 
     return None
 
