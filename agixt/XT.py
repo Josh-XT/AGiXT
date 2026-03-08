@@ -27,7 +27,8 @@ from WorkerRegistry import worker_registry
 from enum import Enum
 from pydantic import BaseModel
 from pptx import Presentation
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
+from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 import ipaddress
 import socket
 import pdfplumber
@@ -47,6 +48,154 @@ import os
 import re
 
 
+def _get_trusted_local_urls():
+    """
+    Build list of trusted local service URLs from environment configuration.
+    These are internal services that AGiXT needs to communicate with.
+    """
+    trusted_local_urls = []
+    ezlocalai_uri = getenv("EZLOCALAI_API_URI") or getenv("EZLOCALAI_URI")
+    if ezlocalai_uri:
+        trusted_local_urls.append(ezlocalai_uri)
+    agixt_uri = getenv("AGIXT_URI")
+    if agixt_uri:
+        trusted_local_urls.append(agixt_uri)
+    return trusted_local_urls
+
+
+def _is_trusted_local_url(hostname: str, port: int) -> bool:
+    """Check if a hostname:port matches a trusted local service."""
+    for trusted_url in _get_trusted_local_urls():
+        if not trusted_url:
+            continue
+        try:
+            trusted_parsed = urlparse(trusted_url)
+            trusted_host = trusted_parsed.hostname
+            trusted_port = trusted_parsed.port
+            if hostname == trusted_host:
+                if port == trusted_port:
+                    return True
+                if trusted_port is None and port in (80, 443, None):
+                    return True
+        except Exception:
+            continue
+    return False
+
+
+# Cloud metadata endpoints that must always be blocked
+_BLOCKED_METADATA_HOSTS = frozenset(
+    [
+        "169.254.169.254",  # AWS/GCP metadata
+        "metadata.google.internal",  # GCP metadata
+        "metadata.google.com",
+        "100.100.100.200",  # Alibaba Cloud metadata
+        "169.254.170.2",  # AWS ECS task metadata
+    ]
+)
+
+# Maximum number of redirects to follow
+_MAX_REDIRECTS = 5
+
+# HTTP redirect status codes
+_REDIRECT_STATUSES = frozenset([301, 302, 303, 307, 308])
+
+
+def _validate_ip(ip_str: str, url: str) -> None:
+    """
+    Validate a single resolved IP address is not internal/private.
+    Raises ValueError if the IP is blocked.
+    """
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        raise ValueError(f"SSRF protection: invalid IP address format: {ip_str}")
+
+    if ip.is_private:
+        raise ValueError(f"SSRF protection: blocked private IP {ip_str} for URL: {url}")
+    if ip.is_loopback:
+        raise ValueError(
+            f"SSRF protection: blocked loopback IP {ip_str} for URL: {url}"
+        )
+    if ip.is_link_local:
+        raise ValueError(
+            f"SSRF protection: blocked link-local IP {ip_str} for URL: {url}"
+        )
+    if ip.is_multicast:
+        raise ValueError(
+            f"SSRF protection: blocked multicast IP {ip_str} for URL: {url}"
+        )
+    if ip.is_reserved:
+        raise ValueError(
+            f"SSRF protection: blocked reserved IP {ip_str} for URL: {url}"
+        )
+
+
+def _validate_url_and_resolve(url: str) -> tuple:
+    """
+    Validate a URL for SSRF safety and resolve its hostname to an IP.
+
+    Performs all SSRF checks (scheme, hostname blocklist, DNS resolution,
+    IP range validation) and returns the parsed components along with the
+    resolved IP for DNS pinning.
+
+    Args:
+        url: The URL to validate (should already be backslash-normalized)
+
+    Returns:
+        tuple: (parsed_url, resolved_ip) where resolved_ip is the validated IP
+               to connect to, preventing DNS rebinding attacks.
+
+    Raises:
+        ValueError: If the URL is unsafe for any reason
+    """
+    parsed = urlparse(url)
+
+    # Only allow http and https schemes
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"SSRF protection: blocked non-http(s) scheme: {url}")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError(f"SSRF protection: no hostname in URL: {url}")
+
+    port = parsed.port
+
+    # Allow trusted local services (ezlocalai, self-references)
+    if _is_trusted_local_url(hostname, port):
+        # For trusted URLs, resolve but don't block private IPs
+        try:
+            addr_info = socket.getaddrinfo(hostname, None, socket.AF_INET)
+            resolved_ip = addr_info[0][4][0] if addr_info else hostname
+        except socket.gaierror:
+            resolved_ip = hostname
+        return parsed, resolved_ip
+
+    # Block cloud metadata endpoints by hostname
+    if hostname in _BLOCKED_METADATA_HOSTS:
+        raise ValueError(f"SSRF protection: blocked cloud metadata endpoint: {url}")
+
+    # Resolve hostname to IP address(es) and validate ALL of them
+    try:
+        addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC)
+        ip_addresses = set()
+        for info in addr_info:
+            ip_str = info[4][0]
+            ip_addresses.add(ip_str)
+    except socket.gaierror:
+        raise ValueError(f"SSRF protection: DNS resolution failed for: {hostname}")
+
+    if not ip_addresses:
+        raise ValueError(f"SSRF protection: no addresses resolved for: {hostname}")
+
+    # Validate every resolved IP — all must be safe
+    for ip_str in ip_addresses:
+        _validate_ip(ip_str, url)
+
+    # Return the first resolved IP for DNS pinning
+    resolved_ip = next(iter(ip_addresses))
+    return parsed, resolved_ip
+
+
 def is_safe_url(url: str) -> bool:
     """
     Validate a URL to prevent SSRF attacks.
@@ -60,129 +209,122 @@ def is_safe_url(url: str) -> bool:
         bool: True if the URL is safe to request, False otherwise
     """
     try:
+        # Normalize backslashes to prevent parser differential attacks
+        # (CVE-2025-0454 style: urlparse vs urllib3 disagree on backslash URLs)
         url = url.replace("\\", "/")
-        parsed = urlparse(url)
-
-        # Only allow http and https schemes
-        if parsed.scheme not in ("http", "https"):
-            logging.warning(f"SSRF protection: blocked non-http(s) scheme: {url}")
-            return False
-
-        hostname = parsed.hostname
-        if not hostname:
-            logging.warning(f"SSRF protection: no hostname in URL: {url}")
-            return False
-
-        port = parsed.port
-
-        # Build list of trusted local URLs from environment configuration
-        # These are internal services that AGiXT needs to communicate with
-        trusted_local_urls = []
-
-        # Check EZLOCALAI_URI / EZLOCALAI_API_URI for ezlocalai service
-        ezlocalai_uri = getenv("EZLOCALAI_API_URI") or getenv("EZLOCALAI_URI")
-        if ezlocalai_uri:
-            trusted_local_urls.append(ezlocalai_uri)
-
-        # Check AGIXT_URI for self-references
-        agixt_uri = getenv("AGIXT_URI")
-        if agixt_uri:
-            trusted_local_urls.append(agixt_uri)
-
-        # Check if the URL matches a trusted local service
-        for trusted_url in trusted_local_urls:
-            if trusted_url:
-                try:
-                    trusted_parsed = urlparse(trusted_url)
-                    trusted_host = trusted_parsed.hostname
-                    trusted_port = trusted_parsed.port
-
-                    # Match if hostname and port match a trusted service
-                    if hostname == trusted_host:
-                        # If ports match (or trusted has no port and we're on default)
-                        if port == trusted_port:
-                            return True
-                        # Also allow if trusted URL didn't specify a port
-                        if trusted_port is None and port in (80, 443, None):
-                            return True
-                except Exception:
-                    continue
-
-        # Block cloud metadata endpoints (AWS, GCP, Azure, etc.)
-        blocked_hosts = [
-            "169.254.169.254",  # AWS/GCP metadata
-            "metadata.google.internal",  # GCP metadata
-            "metadata.google.com",
-            "100.100.100.200",  # Alibaba Cloud metadata
-            "169.254.170.2",  # AWS ECS task metadata
-        ]
-        if hostname in blocked_hosts:
-            logging.warning(f"SSRF protection: blocked cloud metadata endpoint: {url}")
-            return False
-
-        # Resolve hostname to IP address(es)
-        try:
-            # Use getaddrinfo for both IPv4 and IPv6
-            addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC)
-            ip_addresses = set()
-            for info in addr_info:
-                ip_str = info[4][0]
-                ip_addresses.add(ip_str)
-        except socket.gaierror:
-            # DNS resolution failed - could be an invalid domain
-            logging.warning(f"SSRF protection: DNS resolution failed for: {hostname}")
-            return False
-
-        # Check each resolved IP against blocked ranges
-        for ip_str in ip_addresses:
-            try:
-                ip = ipaddress.ip_address(ip_str)
-
-                # Block private networks
-                if ip.is_private:
-                    logging.warning(
-                        f"SSRF protection: blocked private IP {ip_str} for URL: {url}"
-                    )
-                    return False
-
-                # Block loopback addresses (127.0.0.0/8, ::1)
-                if ip.is_loopback:
-                    logging.warning(
-                        f"SSRF protection: blocked loopback IP {ip_str} for URL: {url}"
-                    )
-                    return False
-
-                # Block link-local addresses (169.254.0.0/16, fe80::/10)
-                if ip.is_link_local:
-                    logging.warning(
-                        f"SSRF protection: blocked link-local IP {ip_str} for URL: {url}"
-                    )
-                    return False
-
-                # Block multicast addresses
-                if ip.is_multicast:
-                    logging.warning(
-                        f"SSRF protection: blocked multicast IP {ip_str} for URL: {url}"
-                    )
-                    return False
-
-                # Block reserved addresses
-                if ip.is_reserved:
-                    logging.warning(
-                        f"SSRF protection: blocked reserved IP {ip_str} for URL: {url}"
-                    )
-                    return False
-
-            except ValueError:
-                # Invalid IP address format
-                logging.warning(f"SSRF protection: invalid IP address format: {ip_str}")
-                return False
-
+        _validate_url_and_resolve(url)
         return True
-
+    except ValueError as e:
+        logging.warning(str(e))
+        return False
     except Exception as e:
         logging.error(f"SSRF protection: error validating URL {url}: {e}")
         return False
+
+
+def ssrf_safe_get(url: str, timeout: int = 30, max_redirects: int = _MAX_REDIRECTS):
+    """
+    Make an HTTP GET request with full SSRF protection:
+    - Backslash normalization (prevents parser differential attacks)
+    - DNS pinning / resolve-and-pin (prevents DNS rebinding TOCTOU)
+    - Redirect validation (each hop re-validated, prevents open redirect SSRF)
+
+    Uses urllib3 directly to connect to the pre-validated IP address,
+    bypassing a second DNS lookup that requests/urllib3 would normally do.
+
+    Args:
+        url: The URL to fetch
+        timeout: Request timeout in seconds
+        max_redirects: Maximum number of redirects to follow (default 5)
+
+    Returns:
+        bytes: The response body content
+
+    Raises:
+        ValueError: If any URL in the redirect chain is blocked by SSRF checks
+        Exception: On network/connection errors
+    """
+    # Normalize backslashes before any parsing
+    url = url.replace("\\", "/")
+
+    for redirect_num in range(max_redirects + 1):
+        # Validate URL and resolve DNS — returns the validated IP to pin to
+        parsed, resolved_ip = _validate_url_and_resolve(url)
+
+        hostname = parsed.hostname
+        port = parsed.port
+        scheme = parsed.scheme
+
+        # Build request path (path + query + fragment)
+        path = parsed.path or "/"
+        if parsed.query:
+            path = f"{path}?{parsed.query}"
+
+        # Determine actual port
+        actual_port = port or (443 if scheme == "https" else 80)
+
+        # Build Host header (include port only if non-default)
+        if port and port not in (443 if scheme == "https" else 80,):
+            host_header = f"{hostname}:{port}"
+        else:
+            host_header = hostname
+
+        headers = {"Host": host_header}
+
+        # Connect to the RESOLVED IP directly — this is the DNS pinning.
+        # The hostname we validated is the same IP we connect to,
+        # preventing DNS rebinding (TOCTOU) attacks.
+        try:
+            if scheme == "https":
+                pool = HTTPSConnectionPool(
+                    host=resolved_ip,
+                    port=actual_port,
+                    server_hostname=hostname,  # TLS SNI
+                    assert_hostname=hostname,  # Certificate validation
+                )
+            else:
+                pool = HTTPConnectionPool(
+                    host=resolved_ip,
+                    port=actual_port,
+                )
+
+            response = pool.urlopen(
+                "GET",
+                path,
+                headers=headers,
+                redirect=False,  # We handle redirects ourselves
+                timeout=float(timeout),
+                preload_content=True,
+            )
+        finally:
+            try:
+                pool.close()
+            except Exception:
+                pass
+
+        # Handle redirects — re-validate each hop
+        if response.status in _REDIRECT_STATUSES:
+            location = response.headers.get("Location")
+            if not location:
+                raise ValueError(
+                    f"SSRF protection: redirect (HTTP {response.status}) "
+                    f"with no Location header from {url}"
+                )
+            # Resolve relative redirects against current URL
+            url = urljoin(url, location)
+            # Normalize backslashes in redirect target
+            url = url.replace("\\", "/")
+            logging.info(
+                f"SSRF protection: following redirect {redirect_num + 1}"
+                f"/{max_redirects} -> {url}"
+            )
+            continue
+
+        return response.data
+
+    raise ValueError(
+        f"SSRF protection: too many redirects (>{max_redirects}) from {url}"
+    )
 
 
 def sanitize_command_args_for_logging(command_args: dict) -> dict:
@@ -2113,13 +2255,12 @@ Your response (true or false):"""
                         return {}
                     if url in ["", None]:
                         return {}
-                    url = url.replace("\\", "/")
-                    # SSRF protection: validate URL before making request
-                    if not is_safe_url(url):
-                        logging.error(f"SSRF protection blocked download from: {url}")
-                        return {}
-                    file_download = requests.get(url, timeout=30)
-                    file_data = file_download.content
+                    # SSRF-safe download: validates URL, pins DNS resolution,
+                    # and validates each redirect hop
+                    file_data = ssrf_safe_get(url, timeout=30)
+                except ValueError as e:
+                    logging.error(f"SSRF protection blocked download: {e}")
+                    return {}
                 except Exception as e:
                     logging.error(f"Error downloading file: {e}")
                     return {}
