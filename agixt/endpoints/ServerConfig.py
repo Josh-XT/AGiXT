@@ -6,6 +6,7 @@ through the UI instead of requiring environment variable changes.
 """
 
 import os
+import ast
 from fastapi import APIRouter, Header, HTTPException, Depends, Request
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
@@ -3958,6 +3959,7 @@ class OAuthProviderItem(BaseModel):
     authorize_url: Optional[str] = None
     pkce_required: bool = False
     is_configured: bool = False
+    sso_only: bool = False  # If True, this provider is for login/registration only
     settings: List[OAuthProviderSetting] = []
     bot_invite_url: Optional[str] = (
         None  # For providers with bot functionality (e.g., Discord)
@@ -4014,13 +4016,16 @@ def import_extension_module(extension_file: str):
     try:
         filename = os.path.basename(extension_file)
         module_name = filename.replace(".py", "")
-        spec = importlib.util.spec_from_file_location(module_name, extension_file)
+        # Use a unique module name to avoid conflicts with installed packages
+        # (e.g., github.py extension vs the PyGithub 'github' package)
+        unique_name = f"_ext_{module_name}"
+        spec = importlib.util.spec_from_file_location(unique_name, extension_file)
         if spec and spec.loader:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             return module
-    except Exception:
-        pass
+    except Exception as e:
+        logging.debug(f"Failed to import extension module {extension_file}: {e}")
     return None
 
 
@@ -4045,22 +4050,58 @@ async def get_server_oauth_providers(
     extension_files = find_extension_files()
 
     for extension_file in extension_files:
-        module = import_extension_module(extension_file)
-        if module is None:
-            continue
-
         filename = os.path.basename(extension_file)
         module_name = filename.replace(".py", "")
 
-        # Check if this is an OAuth provider (has SCOPES, AUTHORIZE, SSO class)
-        has_scopes = hasattr(module, "SCOPES")
-        has_authorize = hasattr(module, "AUTHORIZE")
-        has_sso_class = any(
-            hasattr(module, f"{module_name.capitalize()}SSO")
-            or hasattr(module, f"{module_name.upper()}SSO")
-            for _ in [1]
-        )
-        has_sso_function = hasattr(module, "sso")
+        # Use AST parsing to detect OAuth providers without importing
+        # This avoids module import failures (e.g., name collisions with packages)
+        try:
+            with open(extension_file, "r") as f:
+                source = f.read()
+            tree = ast.parse(source)
+        except Exception:
+            continue
+
+        # Look for module-level SCOPES, AUTHORIZE, SSO_ONLY, PKCE_REQUIRED assignments
+        has_scopes = False
+        has_authorize = False
+        sso_only = False
+        pkce_required = False
+        has_sso_class = False
+        has_sso_function = False
+        scopes_value = []
+        authorize_url_value = None
+
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        if target.id == "SCOPES":
+                            has_scopes = True
+                            # Extract scope values from list
+                            if isinstance(node.value, ast.List):
+                                scopes_value = [
+                                    elt.value
+                                    for elt in node.value.elts
+                                    if isinstance(elt, ast.Constant)
+                                ]
+                        elif target.id == "AUTHORIZE":
+                            has_authorize = True
+                            if isinstance(node.value, ast.Constant):
+                                authorize_url_value = node.value.value
+                        elif target.id == "SSO_ONLY" and isinstance(
+                            node.value, ast.Constant
+                        ):
+                            sso_only = bool(node.value.value)
+                        elif target.id == "PKCE_REQUIRED" and isinstance(
+                            node.value, ast.Constant
+                        ):
+                            pkce_required = bool(node.value.value)
+            elif isinstance(node, ast.ClassDef):
+                if node.name.endswith("SSO"):
+                    has_sso_class = True
+            elif isinstance(node, ast.FunctionDef) and node.name == "sso":
+                has_sso_function = True
 
         if not (has_scopes and has_authorize and (has_sso_class or has_sso_function)):
             continue
@@ -4141,10 +4182,11 @@ async def get_server_oauth_providers(
             OAuthProviderItem(
                 provider_name=module_name,
                 friendly_name=module_name.replace("_", " ").title(),
-                scopes=getattr(module, "SCOPES", []),
-                authorize_url=getattr(module, "AUTHORIZE", None),
-                pkce_required=getattr(module, "PKCE_REQUIRED", False),
+                scopes=scopes_value,
+                authorize_url=authorize_url_value,
+                pkce_required=pkce_required,
                 is_configured=bool(client_id and client_secret),
+                sso_only=sso_only,
                 settings=settings,
                 bot_invite_url=bot_invite_url,
             )
