@@ -3704,7 +3704,6 @@ default_extension_categories = [
         "name": "Smart Home & IoT",
         "description": "Control smart home devices, security cameras, and IoT systems",
     },
-
     {
         "name": "Health & Fitness",
         "description": "Track health metrics, fitness data, and wellness information",
@@ -3713,8 +3712,6 @@ default_extension_categories = [
         "name": "Finance & Crypto",
         "description": "Manage cryptocurrencies, trading, and financial operations",
     },
-
-
     {
         "name": "Remote Monitoring",
         "description": "Remote monitoring and management platforms for IT infrastructure, endpoints, and network devices",
@@ -3739,7 +3736,6 @@ default_extension_categories = [
         "name": "Backup & Recovery",
         "description": "Data backup, disaster recovery, and business continuity solutions",
     },
-
     {
         "name": "Endpoint Security",
         "description": "Endpoint detection and response (EDR) and endpoint protection platforms",
