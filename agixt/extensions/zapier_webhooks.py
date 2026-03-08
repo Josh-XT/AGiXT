@@ -51,10 +51,8 @@ class zapier_webhooks(Extensions):
     CATEGORY = "Automation & Integration"
     friendly_name = "Zapier Webhooks"
 
-    def __init__(self, **kwargs):
-        self.default_webhook_url = kwargs.get(
-            "ZAPIER_WEBHOOK_URL", getenv("ZAPIER_WEBHOOK_URL") or ""
-        )
+    def __init__(self, ZAPIER_WEBHOOK_URL: str = "", **kwargs):
+        self.default_webhook_url = ZAPIER_WEBHOOK_URL
         self.commands = {
             "Zapier - Trigger Webhook": self.trigger_webhook,
             "Zapier - Send Data to Webhook": self.send_data_to_webhook,

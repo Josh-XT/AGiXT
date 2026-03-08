@@ -48,13 +48,14 @@ class home_assistant(Extensions):
     CATEGORY = "Smart Home & IoT"
     friendly_name = "Home Assistant"
 
-    def __init__(self, **kwargs):
-        self.base_url = kwargs.get(
-            "HOME_ASSISTANT_URL", getenv("HOME_ASSISTANT_URL", "")
-        )
-        self.token = kwargs.get(
-            "HOME_ASSISTANT_TOKEN", getenv("HOME_ASSISTANT_TOKEN", "")
-        )
+    def __init__(
+        self,
+        HOME_ASSISTANT_URL: str = "",
+        HOME_ASSISTANT_TOKEN: str = "",
+        **kwargs,
+    ):
+        self.base_url = HOME_ASSISTANT_URL
+        self.token = HOME_ASSISTANT_TOKEN
         self.commands = {}
 
         if self.base_url and self.token:

@@ -55,9 +55,14 @@ class obsidian(Extensions):
     CATEGORY = "Productivity & Organization"
     friendly_name = "Obsidian"
 
-    def __init__(self, **kwargs):
-        self.base_url = kwargs.get("OBSIDIAN_API_URL", getenv("OBSIDIAN_API_URL", ""))
-        self.api_key = kwargs.get("OBSIDIAN_API_KEY", getenv("OBSIDIAN_API_KEY", ""))
+    def __init__(
+        self,
+        OBSIDIAN_API_URL: str = "",
+        OBSIDIAN_API_KEY: str = "",
+        **kwargs,
+    ):
+        self.base_url = OBSIDIAN_API_URL
+        self.api_key = OBSIDIAN_API_KEY
         self.commands = {}
 
         if self.base_url and self.api_key:
