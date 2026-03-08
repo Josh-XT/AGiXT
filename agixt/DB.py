@@ -3704,10 +3704,7 @@ default_extension_categories = [
         "name": "Smart Home & IoT",
         "description": "Control smart home devices, security cameras, and IoT systems",
     },
-    {
-        "name": "Robotics",
-        "description": "Control robots, drones, and autonomous vehicles",
-    },
+
     {
         "name": "Health & Fitness",
         "description": "Track health metrics, fitness data, and wellness information",
@@ -3716,14 +3713,8 @@ default_extension_categories = [
         "name": "Finance & Crypto",
         "description": "Manage cryptocurrencies, trading, and financial operations",
     },
-    {
-        "name": "E-commerce & Shopping",
-        "description": "Integrate with online marketplaces and shopping platforms",
-    },
-    {
-        "name": "Entertainment & Media",
-        "description": "Create and manipulate media content, games, and entertainment",
-    },
+
+
     {
         "name": "Remote Monitoring",
         "description": "Remote monitoring and management platforms for IT infrastructure, endpoints, and network devices",
@@ -3748,10 +3739,7 @@ default_extension_categories = [
         "name": "Backup & Recovery",
         "description": "Data backup, disaster recovery, and business continuity solutions",
     },
-    {
-        "name": "Security Training",
-        "description": "Cybersecurity awareness training and phishing simulation platforms",
-    },
+
     {
         "name": "Endpoint Security",
         "description": "Endpoint detection and response (EDR) and endpoint protection platforms",

@@ -184,7 +184,7 @@ class dropbox(Extensions):
     3. Connect your Dropbox account through AGiXT OAuth flow
     """
 
-    CATEGORY = "Cloud Storage"
+    CATEGORY = "Productivity"
     friendly_name = "Dropbox"
 
     def __init__(self, **kwargs):

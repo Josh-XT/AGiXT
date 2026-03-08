@@ -54,7 +54,7 @@ class dji_tello(Extensions):
     - Emergency Stop: Emergency landing
     """
 
-    CATEGORY = "Robotics"
+    CATEGORY = "Smart Home & IoT"
     friendly_name = "DJI Tello"
 
     def __init__(self, TELLO_IP: str = "192.168.10.1", **kwargs):

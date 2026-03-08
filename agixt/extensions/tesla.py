@@ -569,7 +569,7 @@ class tesla(Extensions):
     The extension requires the user to be authenticated with Tesla through OAuth.
     """
 
-    CATEGORY = "Robotics"
+    CATEGORY = "Smart Home & IoT"
 
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key")

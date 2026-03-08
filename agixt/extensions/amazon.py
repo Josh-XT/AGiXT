@@ -167,7 +167,7 @@ class amazon(Extensions):
     for user authentication and basic profile management.
     """
 
-    CATEGORY = "E-commerce & Shopping"
+    CATEGORY = "Productivity"
 
     def __init__(self, **kwargs):
         self.api_key = kwargs.get("api_key")

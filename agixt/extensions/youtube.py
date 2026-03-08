@@ -166,7 +166,7 @@ class youtube(Extensions):
     3. Connect your Google account through AGiXT OAuth with YouTube scopes
     """
 
-    CATEGORY = "Entertainment & Media"
+    CATEGORY = "Social & Communication"
     friendly_name = "YouTube"
 
     def __init__(self, **kwargs):

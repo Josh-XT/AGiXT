@@ -190,7 +190,7 @@ class spotify(Extensions):
     3. Connect your Spotify account through AGiXT OAuth flow
     """
 
-    CATEGORY = "Entertainment & Media"
+    CATEGORY = "Social & Communication"
     friendly_name = "Spotify"
 
     def __init__(self, **kwargs):

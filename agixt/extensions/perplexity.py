@@ -82,7 +82,7 @@ class perplexity(Extensions):
     Documentation: https://docs.perplexity.ai/
     """
 
-    CATEGORY = "AI & Research"
+    CATEGORY = "AI Provider"
     friendly_name = "Perplexity"
 
     def __init__(
