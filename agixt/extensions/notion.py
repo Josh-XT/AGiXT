@@ -235,7 +235,7 @@ class notion(Extensions):
     3. Select your integration
     """
 
-    CATEGORY = "Productivity & Organization"
+    CATEGORY = "Productivity"
     friendly_name = "Notion"
 
     def __init__(self, **kwargs):

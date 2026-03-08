@@ -123,7 +123,7 @@ class trello(Extensions):
     3. Connect your Trello account through AGiXT OAuth flow
     """
 
-    CATEGORY = "Productivity & Organization"
+    CATEGORY = "Productivity"
     friendly_name = "Trello"
 
     def __init__(self, **kwargs):

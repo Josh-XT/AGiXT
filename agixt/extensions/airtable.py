@@ -184,7 +184,7 @@ class airtable(Extensions):
     3. Connect your Airtable account through AGiXT OAuth flow
     """
 
-    CATEGORY = "Productivity & Organization"
+    CATEGORY = "Productivity"
     friendly_name = "Airtable"
 
     def __init__(self, **kwargs):

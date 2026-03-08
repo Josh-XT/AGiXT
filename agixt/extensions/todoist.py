@@ -141,7 +141,7 @@ class todoist(Extensions):
     3. Connect your Todoist account through AGiXT OAuth flow
     """
 
-    CATEGORY = "Productivity & Organization"
+    CATEGORY = "Productivity"
     friendly_name = "Todoist"
 
     def __init__(self, **kwargs):

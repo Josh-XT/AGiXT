@@ -52,7 +52,7 @@ class obsidian(Extensions):
     3. Set OBSIDIAN_API_URL and OBSIDIAN_API_KEY environment variables
     """
 
-    CATEGORY = "Productivity & Organization"
+    CATEGORY = "Productivity"
     friendly_name = "Obsidian"
 
     def __init__(

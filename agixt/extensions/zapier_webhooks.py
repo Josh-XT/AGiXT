@@ -48,7 +48,7 @@ class zapier_webhooks(Extensions):
     3. Set ZAPIER_WEBHOOK_URL environment variable or pass URL directly
     """
 
-    CATEGORY = "Productivity & Organization"
+    CATEGORY = "Productivity"
     friendly_name = "Zapier Webhooks"
 
     def __init__(self, ZAPIER_WEBHOOK_URL: str = "", **kwargs):
