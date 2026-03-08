@@ -793,13 +793,35 @@ def get_oauth_providers():
             # Check for module-specific client ID first
             client_id = getenv(f"{module_name.upper()}_CLIENT_ID")
 
-            # For service-specific OAuth providers (microsoft_sso, microsoft_email, etc.),
-            # also check for the base provider client ID (MICROSOFT_CLIENT_ID, GOOGLE_CLIENT_ID)
+            # For service-specific OAuth providers, check base provider client IDs
+            # Many extensions share credentials with a parent provider
             if not client_id:
-                if module_name.startswith("microsoft_"):
-                    client_id = getenv("MICROSOFT_CLIENT_ID")
-                elif module_name.startswith("google_"):
-                    client_id = getenv("GOOGLE_CLIENT_ID")
+                # Prefix-based fallbacks (e.g., microsoft_email -> MICROSOFT_CLIENT_ID)
+                prefix_fallbacks = {
+                    "microsoft_": "MICROSOFT_CLIENT_ID",
+                    "google_": "GOOGLE_CLIENT_ID",
+                    "github_": "GITHUB_CLIENT_ID",
+                    "linkedin_": "LINKEDIN_CLIENT_ID",
+                    "meta_": "META_APP_ID",
+                    "stripe_": "STRIPE_CLIENT_ID",
+                }
+                for prefix, env_var in prefix_fallbacks.items():
+                    if module_name.startswith(prefix):
+                        client_id = getenv(env_var)
+                        break
+
+            # Exact name fallbacks for extensions that don't follow prefix patterns
+            if not client_id:
+                exact_fallbacks = {
+                    "teams": "MICROSOFT_CLIENT_ID",
+                    "youtube": "GOOGLE_CLIENT_ID",
+                    "amazon": "AWS_CLIENT_ID",
+                    "facebook": "FACEBOOK_APP_ID",
+                    "slack": "SLACK_CLIENT_ID",
+                    "alexa": "ALEXA_CLIENT_ID",
+                }
+                if module_name in exact_fallbacks:
+                    client_id = getenv(exact_fallbacks[module_name])
 
             # Only add as OAuth provider if it has configured client ID
             if client_id:
