@@ -145,7 +145,7 @@ def sso(code, redirect_uri=None) -> GitHubSSO:
         .replace("%3F", "?")
         .replace("%3D", "=")
     )
-    logging.info(f"GitHub OAuth token exchange - redirect_uri: {redirect_uri}, client_id: {getenv('GITHUB_CLIENT_ID')}")
+
     response = requests.post(
         f"https://github.com/login/oauth/access_token",
         headers={"Accept": "application/json"},
