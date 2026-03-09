@@ -77,9 +77,9 @@ class telegram(Extensions):
 
     CATEGORY = "Social & Communication"
 
-    def __init__(self, **kwargs):
+    def __init__(self, TELEGRAM_BOT_TOKEN: str = "", **kwargs):
         self.api_key = kwargs.get("api_key", None)
-        self.bot_token = kwargs.get("TELEGRAM_BOT_TOKEN", None)
+        self.bot_token = TELEGRAM_BOT_TOKEN or kwargs.get("TELEGRAM_BOT_TOKEN", None)
         if not self.bot_token:
             self.bot_token = getenv("TELEGRAM_BOT_TOKEN")
         self.auth = None

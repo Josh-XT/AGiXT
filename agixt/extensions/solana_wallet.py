@@ -96,6 +96,7 @@ class solana_wallet(Extensions):
 
     def __init__(
         self,
+        SOLANA_WALLET_API_KEY: str = "",
         **kwargs,
     ):
         # Use the HelloMoon RPC endpoint
@@ -103,7 +104,7 @@ class solana_wallet(Extensions):
         self.WSOL_MINT = "So11111111111111111111111111111111111111112"
         self.SOLANA_API_URI = SOLANA_API_URI
         self.client = AsyncClient(SOLANA_API_URI)
-        WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
+        WALLET_PRIVATE_KEY = SOLANA_WALLET_API_KEY or kwargs.get("SOLANA_WALLET_API_KEY", None)
 
         if (
             WALLET_PRIVATE_KEY
