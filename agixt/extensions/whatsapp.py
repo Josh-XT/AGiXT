@@ -89,20 +89,18 @@ class whatsapp(Extensions):
 
     CATEGORY = "Social & Communication"
 
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        WHATSAPP_ACCESS_TOKEN: str = "",
+        WHATSAPP_PHONE_NUMBER_ID: str = "",
+        WHATSAPP_BUSINESS_ACCOUNT_ID: str = "",
+        **kwargs,
+    ):
         self.api_key = kwargs.get("api_key", None)
-        self.access_token = kwargs.get("WHATSAPP_ACCESS_TOKEN", None)
-        self.phone_number_id = kwargs.get("WHATSAPP_PHONE_NUMBER_ID", None)
-        self.business_account_id = kwargs.get("WHATSAPP_BUSINESS_ACCOUNT_ID", None)
+        self.access_token = WHATSAPP_ACCESS_TOKEN
+        self.phone_number_id = WHATSAPP_PHONE_NUMBER_ID
+        self.business_account_id = WHATSAPP_BUSINESS_ACCOUNT_ID
         self.auth = None
-
-        # Fallback to environment variables
-        if not self.access_token:
-            self.access_token = getenv("WHATSAPP_ACCESS_TOKEN")
-        if not self.phone_number_id:
-            self.phone_number_id = getenv("WHATSAPP_PHONE_NUMBER_ID")
-        if not self.business_account_id:
-            self.business_account_id = getenv("WHATSAPP_BUSINESS_ACCOUNT_ID")
 
         self.base_url = "https://graph.facebook.com/v18.0"
 
