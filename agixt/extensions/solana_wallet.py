@@ -94,14 +94,13 @@ class solana_wallet(Extensions):
         except Exception:
             return 9
 
-    def __init__(
-        self,        **kwargs,
-    ):
+    def __init__(self, **kwargs):
         # Use the HelloMoon RPC endpoint
         SOLANA_API_URI = "https://rpc.hellomoon.io/15b3c970-4cdc-4718-ac26-3896d5422fb6"
         self.WSOL_MINT = "So11111111111111111111111111111111111111112"
         self.SOLANA_API_URI = SOLANA_API_URI
-        self.client = AsyncClient(SOLANA_API_URI)        WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
+        self.client = AsyncClient(SOLANA_API_URI)
+        WALLET_PRIVATE_KEY = kwargs.get("SOLANA_WALLET_API_KEY", None)
 
         if (
             WALLET_PRIVATE_KEY
