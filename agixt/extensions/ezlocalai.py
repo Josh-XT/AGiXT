@@ -91,7 +91,7 @@ class ezlocalai(Extensions):
         EZLOCALAI_API_KEY: str = "",
         EZLOCALAI_AI_MODEL: str = "unsloth/Qwen3-4B-Instruct-2507-GGUF",
         EZLOCALAI_CODING_MODEL: str = "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
-        EZLOCALAI_MAX_TOKENS: int = 32000,
+        EZLOCALAI_MAX_TOKENS: int = 1000000,
         EZLOCALAI_TEMPERATURE: float = 1.33,
         EZLOCALAI_TOP_P: float = 0.95,
         EZLOCALAI_VOICE: str = "HAL9000",
@@ -122,13 +122,13 @@ class ezlocalai(Extensions):
             EZLOCALAI_API_KEY = getenv("EZLOCALAI_API_KEY", "")
 
         # Get MAX_TOKENS from parameter or environment
-        if not EZLOCALAI_MAX_TOKENS or EZLOCALAI_MAX_TOKENS == 32000:
+        if not EZLOCALAI_MAX_TOKENS or EZLOCALAI_MAX_TOKENS == 1000000:
             env_max_tokens = getenv("EZLOCALAI_MAX_TOKENS", "")
             if env_max_tokens:
                 try:
                     EZLOCALAI_MAX_TOKENS = int(env_max_tokens)
                 except (ValueError, TypeError):
-                    EZLOCALAI_MAX_TOKENS = 32000
+                    EZLOCALAI_MAX_TOKENS = 1000000
 
         # Normalize URI
         if EZLOCALAI_API_URI and not EZLOCALAI_API_URI.endswith("/"):
@@ -156,10 +156,10 @@ class ezlocalai(Extensions):
         # Handle MAX_TOKENS safely - might receive encrypted/invalid values from database
         try:
             self.MAX_TOKENS = (
-                int(EZLOCALAI_MAX_TOKENS) if EZLOCALAI_MAX_TOKENS else 32000
+                int(EZLOCALAI_MAX_TOKENS) if EZLOCALAI_MAX_TOKENS else 1000000
             )
         except (ValueError, TypeError):
-            self.MAX_TOKENS = 32000
+            self.MAX_TOKENS = 1000000
         # Handle TEMPERATURE safely
         try:
             self.AI_TEMPERATURE = (
@@ -298,7 +298,6 @@ class ezlocalai(Extensions):
             payload = {
                 "model": model,
                 "messages": messages,
-                "max_tokens": int(self.MAX_TOKENS),
                 "temperature": float(self.AI_TEMPERATURE),
                 "top_p": float(self.AI_TOP_P),
                 "n": 1,

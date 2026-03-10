@@ -3609,24 +3609,12 @@ Your response (true or false):"""
             async for chunk in self._execute_chat_completions_stream(prompt):
                 yield chunk
         except asyncio.CancelledError:
-            # Handle graceful stop
-            final_chunk = {
-                "id": chunk_id,
-                "object": "chat.completion.chunk",
-                "created": created_time,
-                "model": self.agent_name,
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {"content": "[Conversation stopped by user]"},
-                        "finish_reason": "stop",
-                    }
-                ],
-            }
-            yield f"data: {json.dumps(final_chunk)}\n\n"
-            yield "data: [DONE]\n\n"
+            # Client disconnected (e.g. page refresh) — the work continues in the
+            # background (run_stream is detached in _execute_chat_completions_stream)
+            # so don't tell the user it was "stopped"
             logging.info(
-                f"Streaming chat completion cancelled for conversation {conversation_id}"
+                f"Streaming chat completion client disconnected for conversation {conversation_id}. "
+                f"run_stream continues in background."
             )
             raise
         except Exception as e:
@@ -4936,31 +4924,86 @@ Your response (true or false):"""
 
         except asyncio.CancelledError:
             logging.warning(
-                f"[_execute_chat_completions_stream] CancelledError for conversation {conversation_id}"
+                f"[_execute_chat_completions_stream] CancelledError for conversation {conversation_id}. "
+                f"Detaching run_stream to continue in background."
             )
-            # Cancel the shielded pending task so run_stream doesn't keep running
-            try:
-                if _pending_task is not None and not _pending_task.done():
-                    _pending_task.cancel()
-            except Exception:
-                pass
-            # Close the run_stream async generator to stop LLM inference
-            try:
-                if stream_iter is not None:
-                    await stream_iter.aclose()
-            except Exception:
-                pass
+            # Instead of killing run_stream, let it finish in the background.
+            # run_stream has log_output=True and will save the final answer to the
+            # conversation when it completes, so the user sees it on refresh.
+            if stream_iter is not None:
+
+                async def _drain_stream_background(stream, pending, conv_id, _SEND):
+                    """Drain the run_stream generator to completion in background."""
+                    try:
+                        # If there's a pending task in-flight, let it finish first
+                        if pending is not None and not pending.done():
+                            try:
+                                await asyncio.wait_for(pending, timeout=300)
+                            except (asyncio.TimeoutError, Exception):
+                                pass
+                        # Drain remaining events — run_stream will run its
+                        # continuation loop, execute commands, and log the result
+                        async for _event in stream:
+                            pass  # Just drain; run_stream handles logging
+                        logging.info(
+                            f"[_drain_stream_background] run_stream completed for "
+                            f"conversation {conv_id}"
+                        )
+                    except asyncio.CancelledError:
+                        logging.warning(
+                            f"[_drain_stream_background] Background drain cancelled "
+                            f"for conversation {conv_id}"
+                        )
+                    except Exception as e:
+                        logging.warning(
+                            f"[_drain_stream_background] Background drain error "
+                            f"for conversation {conv_id}: {e}"
+                        )
+
+                asyncio.create_task(
+                    _drain_stream_background(
+                        stream_iter, _pending_task, conversation_id, _STREAM_END
+                    )
+                )
             raise
         except GeneratorExit:
             logging.warning(
-                f"[_execute_chat_completions_stream] GeneratorExit for conversation {conversation_id}"
+                f"[_execute_chat_completions_stream] GeneratorExit for conversation {conversation_id}. "
+                f"Detaching run_stream to continue in background."
             )
-            # Cancel the shielded pending task so run_stream doesn't keep running
-            try:
-                if _pending_task is not None and not _pending_task.done():
-                    _pending_task.cancel()
-            except Exception:
-                pass
+            # Same as CancelledError — let run_stream finish in background
+            if stream_iter is not None:
+
+                async def _drain_stream_on_exit(stream, pending, conv_id, _SEND):
+                    """Drain the run_stream generator to completion in background."""
+                    try:
+                        if pending is not None and not pending.done():
+                            try:
+                                await asyncio.wait_for(pending, timeout=300)
+                            except (asyncio.TimeoutError, Exception):
+                                pass
+                        async for _event in stream:
+                            pass
+                        logging.info(
+                            f"[_drain_stream_on_exit] run_stream completed for "
+                            f"conversation {conv_id}"
+                        )
+                    except asyncio.CancelledError:
+                        logging.warning(
+                            f"[_drain_stream_on_exit] Background drain cancelled "
+                            f"for conversation {conv_id}"
+                        )
+                    except Exception as e:
+                        logging.warning(
+                            f"[_drain_stream_on_exit] Background drain error "
+                            f"for conversation {conv_id}: {e}"
+                        )
+
+                asyncio.create_task(
+                    _drain_stream_on_exit(
+                        stream_iter, _pending_task, conversation_id, _STREAM_END
+                    )
+                )
             raise
         except Exception as e:
             logging.error(f"Streaming error: {str(e)}")
