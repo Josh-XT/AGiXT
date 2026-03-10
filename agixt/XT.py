@@ -552,17 +552,29 @@ class AGiXT:
 
     async def rename_new_conversation(self, user_input: str):
         """
-        Rename a new conversation (one with name "-") based on the user input.
+        Rename a new conversation based on the user input.
         This runs asynchronously and should be called right after user input is logged.
-        The WebSocket will notify the frontend when the rename completes.
+        Sends a WebSocket notification so the frontend sidebar updates immediately.
+
+        Triggers for:
+        - Conversations with name "-" (legacy new conversation pattern)
+        - Conversations whose name equals the agent name (auto-created DMs from the
+          frontend, which use the agent name like "XT" as the initial conversation name)
 
         Uses a direct LLM call (bypassing full inference pipeline) for speed.
 
         Args:
             user_input (str): The user's first message in the conversation
         """
-        if self.conversation_name != "-":
-            return  # Only rename new conversations
+        # Only rename new conversations:
+        # - name == "-" (legacy pattern)
+        # - name == agent_name (auto-created DM pattern from frontend)
+        is_new = self.conversation_name == "-"
+        is_auto_dm = (
+            self.conversation_name == self.agent_name and self.conversation_name != "-"
+        )
+        if not is_new and not is_auto_dm:
+            return
 
         try:
             # Use existing conversation instance instead of creating new one
@@ -684,8 +696,26 @@ Respond with ONLY: {{"suggested_conversation_name": "Different Name Here"}}"""
                         new_name = clean_name
 
             # Apply the rename
+            old_name = self.conversation_name
             c.set_conversation_summary(summary=new_name)
             self.conversation_name = c.rename_conversation(new_name=new_name)
+
+            # Notify the frontend via WebSocket so the sidebar updates immediately
+            try:
+                from endpoints.Conversation import (
+                    notify_user_conversation_renamed,
+                )
+
+                await notify_user_conversation_renamed(
+                    user_id=str(self.user_id),
+                    conversation_id=str(self.conversation_id),
+                    old_name=old_name,
+                    new_name=new_name,
+                )
+            except Exception as ws_err:
+                logging.warning(
+                    f"Failed to send rename WebSocket notification: {ws_err}"
+                )
 
         except Exception as e:
             import traceback
@@ -3481,7 +3511,11 @@ Your response (true or false):"""
                 )
                 # Rename new conversations after response is complete
                 # Run as background task so it doesn't block the response being returned
-                if self.conversation_name == "-":
+                # Also handles auto-created DMs where name == agent_name (e.g., "XT")
+                if (
+                    self.conversation_name == "-"
+                    or self.conversation_name == self.agent_name
+                ):
                     asyncio.create_task(self.rename_new_conversation(new_prompt))
         if isinstance(response, dict):
             response = json.dumps(response, indent=2)
@@ -4818,7 +4852,11 @@ Your response (true or false):"""
                     yield f"data: {json.dumps(error_chunk)}\n\n"
 
             # Handle conversation rename for new conversations
-            if self.conversation_name == "-":
+            # Also handles auto-created DMs where name == agent_name (e.g., "XT")
+            if (
+                self.conversation_name == "-"
+                or self.conversation_name == self.agent_name
+            ):
                 asyncio.create_task(self.rename_new_conversation(new_prompt))
 
             # Generate TTS for any remaining buffered text (partial sentences at end)
