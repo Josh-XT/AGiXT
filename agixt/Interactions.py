@@ -4023,7 +4023,19 @@ Analyze the actual output shown and continue with your response.
                 if has_no_answer:
                     # No answer block at all - prompt to provide one
                     # Use compressed response to prevent context explosion
-                    continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nContinue working on the user's request. If you need to execute more commands to complete the task, do so now. If you have finished all necessary work, provide your response to the user inside <answer></answer> tags. Do not repeat previous thinking or command outputs."
+                    if _consecutive_dedup_iterations >= 1:
+                        # DEDUP RECOVERY: Model keeps regenerating same commands.
+                        # Use a strong prompt telling it to STOP executing and answer.
+                        continuation_prompt = (
+                            f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\n"
+                            f"IMPORTANT: All commands you have generated were ALREADY executed in previous "
+                            f"iterations and their outputs are shown above in <output> tags. Do NOT generate "
+                            f"any more <execute> blocks — regenerating the same commands will be ignored. "
+                            f"Analyze the command outputs already provided and give your complete response "
+                            f"to the user inside <answer></answer> tags now."
+                        )
+                    else:
+                        continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nContinue working on the user's request. If you need to execute more commands to complete the task, do so now. If you have finished all necessary work, provide your response to the user inside <answer></answer> tags. Do not repeat previous thinking or command outputs."
                 else:
                     # Incomplete answer - prompt to continue
                     # Use compressed response to prevent context explosion
@@ -4550,16 +4562,18 @@ Analyze the actual output shown and continue with your response.
                             f"Consecutive dedup iterations: {_consecutive_dedup_iterations}. "
                             f"Treating as non-exec iteration."
                         )
-                        # If we've seen 2+ consecutive all-dedup iterations and already
-                        # have an answer open, the model is stuck regenerating the same
-                        # command. Force-close the answer immediately.
-                        if _consecutive_dedup_iterations >= 2 and has_incomplete_answer:
+                        # If we've seen 2+ consecutive all-dedup iterations, the model
+                        # is stuck regenerating the same commands. Break immediately
+                        # regardless of whether an answer tag is open — the fallback
+                        # answer extraction will handle the response.
+                        if _consecutive_dedup_iterations >= 2:
                             logging.warning(
                                 f"[run_stream] Dedup loop detected at iteration {continuation_count}. "
                                 f"{_consecutive_dedup_iterations} consecutive iterations with all commands "
-                                f"deduplicated. Force-closing answer tag."
+                                f"deduplicated. Breaking out of continuation loop."
                             )
-                            self.response += "</answer>"
+                            if has_incomplete_answer:
+                                self.response += "</answer>"
                             c.log_interaction(
                                 role=self.agent_name,
                                 message="[SUBACTIVITY][CONTINUATION] Finalizing response...",
