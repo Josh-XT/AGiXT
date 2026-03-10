@@ -4128,28 +4128,10 @@ Analyze the actual output shown and continue with your response.
                         else continuation_response
                     )
 
-                    # Check for opening tags - only if we haven't detected this opening tag yet
-                    # Support both <think> and <thinking> forms
-                    _CONTINUATION_OPEN_TAGS = [
-                        ("thinking", "<thinking>"),
-                        ("thinking", "<think>"),  # DeepSeek-R1, Qwen QwQ short form
-                        ("reflection", "<reflection>"),
-                        ("execute", "<execute>"),
-                        ("answer", "<answer>"),
-                    ]
-                    for canonical_name, open_tag in _CONTINUATION_OPEN_TAGS:
-                        if (
-                            open_tag in tag_check_window.lower()
-                            and open_tag not in continuation_detected_tags
-                        ):
-                            continuation_detected_tags.add(open_tag)
-                            continuation_current_tag = canonical_name
-                            continuation_current_tag_content = ""
-                            if canonical_name == "answer":
-                                continuation_in_answer = True
-                            break
-
-                    # Check for closing tags in the window
+                    # Check for CLOSING tags FIRST, then opening tags.
+                    # This ensures that when </thinking><answer> appear in the
+                    # same window, </thinking> is processed before <answer> opens,
+                    # so the thinking content is properly finalized in the DB.
                     # Support both </think> and </thinking> forms
                     _CONTINUATION_CLOSE_TAGS = [
                         ("thinking", "</thinking>"),
@@ -4330,6 +4312,71 @@ Analyze the actual output shown and continue with your response.
                                 open_form = close_tag.replace("/", "")
                                 continuation_detected_tags.discard(open_form)
 
+                    # Check for opening tags AFTER closing tags
+                    # This ensures closing tags are processed first when both appear
+                    # in the same tag_check_window (e.g., </thinking><answer>)
+                    _CONTINUATION_OPEN_TAGS = [
+                        ("thinking", "<thinking>"),
+                        ("thinking", "<think>"),  # DeepSeek-R1, Qwen QwQ short form
+                        ("reflection", "<reflection>"),
+                        ("execute", "<execute>"),
+                        ("answer", "<answer>"),
+                    ]
+                    for canonical_name, open_tag in _CONTINUATION_OPEN_TAGS:
+                        if (
+                            open_tag in tag_check_window.lower()
+                            and open_tag not in continuation_detected_tags
+                        ):
+                            # Finalize the current tag before switching to a new one.
+                            # This prevents thought truncation when a new tag opens
+                            # before the current tag's close is detected (e.g., model
+                            # generates <thinking>content<answer> without </thinking>).
+                            if (
+                                continuation_current_tag
+                                and continuation_current_tag != canonical_name
+                                and continuation_current_tag
+                                in ("thinking", "reflection")
+                            ):
+                                # Save the current tag content to DB before switching
+                                if continuation_current_tag_content:
+                                    tag_type = (
+                                        "THOUGHT"
+                                        if continuation_current_tag == "thinking"
+                                        else "REFLECTION"
+                                    )
+                                    final_msg = f"[SUBACTIVITY][{tag_type}] {continuation_current_tag_content}"
+                                    if continuation_current_tag_message_id:
+                                        c.update_message_by_id(
+                                            continuation_current_tag_message_id,
+                                            final_msg,
+                                        )
+                                    else:
+                                        c.log_interaction(
+                                            role=self.agent_name,
+                                            message=final_msg,
+                                        )
+                                    # Yield the complete thinking/reflection block
+                                    yield {
+                                        "type": continuation_current_tag,
+                                        "content": continuation_current_tag_content,
+                                        "complete": True,
+                                    }
+                                    logging.info(
+                                        f"[run_stream] Finalized unclosed {continuation_current_tag} "
+                                        f"tag ({len(continuation_current_tag_content)} chars) "
+                                        f"before opening {canonical_name}"
+                                    )
+
+                            continuation_detected_tags.add(open_tag)
+                            continuation_current_tag = canonical_name
+                            continuation_current_tag_content = ""
+                            continuation_current_tag_message_id = (
+                                None  # Reset for new tag
+                            )
+                            if canonical_name == "answer":
+                                continuation_in_answer = True
+                            break
+
                     # Break out of stream loop if we're breaking for execution
                     if broke_for_execution:
                         break
@@ -4372,8 +4419,30 @@ Analyze the actual output shown and continue with your response.
 
                         if last_start >= 0:
                             partial = continuation_response[last_start + tag_len :]
-                            if "<" in partial:
-                                partial = partial.split("<")[0]
+                            # Handle partial closing tags at the end of the buffer
+                            # (matches the main stream's approach — only strip partial
+                            # tags at the END, not every '<' in the content)
+                            if continuation_current_tag == "thinking":
+                                partial_close = re.search(
+                                    r"</?t?h?i?n?k?i?n?g?>?$",
+                                    partial,
+                                    re.IGNORECASE,
+                                )
+                            else:
+                                partial_close = re.search(
+                                    r"</?r?e?f?l?e?c?t?i?o?n?>?$",
+                                    partial,
+                                    re.IGNORECASE,
+                                )
+                            if partial_close and partial_close.group().startswith("<"):
+                                partial = partial[: partial_close.start()]
+                            # Also strip any other tag-like patterns at the very end
+                            # (e.g., partial <answer>, <execute>, etc.)
+                            partial_other = re.search(
+                                r"</?[a-zA-Z][a-zA-Z]*>?$", partial
+                            )
+                            if partial_other and partial_other.group().startswith("<"):
+                                partial = partial[: partial_other.start()]
                             if len(partial) > len(continuation_current_tag_content):
                                 delta = partial[len(continuation_current_tag_content) :]
                                 continuation_current_tag_content = partial
@@ -4409,7 +4478,14 @@ Analyze the actual output shown and continue with your response.
 
                     # Yield answer tokens - use extract_top_level_answer to get the LAST answer
                     # (same logic as final_answer extraction to ensure consistency)
-                    if continuation_in_answer:
+                    # IMPORTANT: Suppress answer yields while inside a nested tag
+                    # (thinking, reflection, execute). This prevents thinking/execute
+                    # content from bleeding through to the answer stream in the UI.
+                    if continuation_in_answer and continuation_current_tag not in (
+                        "thinking",
+                        "reflection",
+                        "execute",
+                    ):
                         # Use the same extraction as final answer - gets LAST top-level answer
                         new_answer = extract_top_level_answer(continuation_response)
                         if new_answer:
