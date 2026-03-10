@@ -26,6 +26,32 @@ from sqlalchemy.sql import func, or_, and_, case, exists
 from MagicalAuth import convert_time, get_user_id, get_user_timezone
 from SharedCache import shared_cache
 
+# Regex to strip ANSI escape sequences and non-printable control characters
+# Matches: CSI sequences (\x1b[...X), OSC sequences (\x1b]...BEL), charset selects,
+# cursor/erase sequences, and carriage returns from TTY output
+_ANSI_ESCAPE_RE = re.compile(
+    r"\x1b\[[0-9;]*[a-zA-Z]"
+    r"|\x1b\].*?\x07"
+    r"|\x1b[()][AB012]"
+    r"|\x1b\[[0-9]*[JKH]"
+    r"|\r"
+)
+
+
+def strip_control_chars(text: str) -> str:
+    """Remove ANSI escape codes and non-printable control characters from text.
+
+    These characters appear as small squares in web UIs and cause display issues.
+    Preserves newlines (\n) and tabs (\t) which are meaningful for formatting.
+    """
+    if not text:
+        return text
+    text = _ANSI_ESCAPE_RE.sub("", text)
+    # Remove remaining non-printable control chars (except newline \n=0x0a, tab \t=0x09)
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
+    return text
+
+
 # Module-level timezone constants to avoid repeated pytz.timezone() calls
 _GMT = pytz.timezone("GMT")
 _tz_cache = {}
@@ -2380,7 +2406,7 @@ class Conversations:
         return str(thinking_id)
 
     def log_interaction(self, role, message, timestamp=None, sender_user_id=None):
-        message = str(message)
+        message = strip_control_chars(str(message))
         # Cache conversation_id once at the top (avoids repeated session opens)
         conversation_id = self.get_conversation_id()
 
