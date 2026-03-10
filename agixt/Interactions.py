@@ -3633,6 +3633,13 @@ Example: If user says "list my files", use:
                             cleaned_new_answer,
                             flags=re.DOTALL | re.IGNORECASE,
                         )
+                        # Remove <speak> tags - TTS filler that shouldn't appear in text answer
+                        cleaned_new_answer = re.sub(
+                            r"<speak>.*?</speak>",
+                            "",
+                            cleaned_new_answer,
+                            flags=re.DOTALL | re.IGNORECASE,
+                        )
                         # Partial/unclosed opening tags at end (tag started but not closed)
                         cleaned_new_answer = re.sub(
                             r"<(thinking|reflection|step|reward|count|final)>[^<]*$",
@@ -3652,7 +3659,7 @@ Example: If user says "list my files", use:
                         )
                         # Orphaned closing tags (closing tag without opening)
                         cleaned_new_answer = re.sub(
-                            r"</(thinking|reflection|step|reward|count|final)>",
+                            r"</(thinking|reflection|step|reward|count|final|speak)>",
                             "",
                             cleaned_new_answer,
                             flags=re.IGNORECASE,
@@ -3661,7 +3668,7 @@ Example: If user says "list my files", use:
                         # This handles cases where chunk boundaries split tags like "<reflection>"
                         # into "<" and "reflection>" with the "<" getting cleaned separately
                         cleaned_new_answer = re.sub(
-                            r"(?<![<a-zA-Z])/?(?:thinking|reflection|step|reward|count|final)>",
+                            r"(?<![<a-zA-Z])/?(?:thinking|reflection|step|reward|count|final|speak)>",
                             "",
                             cleaned_new_answer,
                             flags=re.IGNORECASE,
@@ -4457,9 +4464,16 @@ Analyze the actual output shown and continue with your response.
                                 cleaned_new_answer,
                                 flags=re.DOTALL | re.IGNORECASE,
                             )
+                            # Remove <speak> tags - TTS filler that shouldn't appear in text answer
+                            cleaned_new_answer = re.sub(
+                                r"<speak>.*?</speak>",
+                                "",
+                                cleaned_new_answer,
+                                flags=re.DOTALL | re.IGNORECASE,
+                            )
                             # Remove orphaned closing tags
                             cleaned_new_answer = re.sub(
-                                r"</(?:thinking|reflection|step|reward|count|answer|final|execute|output)>",
+                                r"</(?:thinking|reflection|step|reward|count|answer|final|execute|output|speak)>",
                                 "",
                                 cleaned_new_answer,
                                 flags=re.IGNORECASE,
@@ -4646,7 +4660,7 @@ Analyze the actual output shown and continue with your response.
                 if "<answer>" in partial_answer.lower():
                     partial_answer = extract_top_level_answer(partial_answer)
                 if partial_answer:
-                    # Strip thinking/execute/output tags
+                    # Strip thinking/execute/output/speak content blocks
                     partial_answer = re.sub(
                         r"<think(?:ing)?>.*?</think(?:ing)?>",
                         "",
@@ -4661,6 +4675,13 @@ Analyze the actual output shown and continue with your response.
                     )
                     partial_answer = re.sub(
                         r"<output>.*?</output>",
+                        "",
+                        partial_answer,
+                        flags=re.DOTALL | re.IGNORECASE,
+                    )
+                    # Strip <speak> content blocks — TTS filler that shouldn't appear in text
+                    partial_answer = re.sub(
+                        r"<speak>.*?</speak>",
                         "",
                         partial_answer,
                         flags=re.DOTALL | re.IGNORECASE,
