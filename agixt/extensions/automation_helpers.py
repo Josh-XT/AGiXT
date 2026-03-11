@@ -100,6 +100,12 @@ class automation_helpers(Extensions):
         }
         api_url = base_url.rstrip("/") + "/chat/completions"
 
+        # SSRF protection: validate URL before making request
+        from XT import is_safe_url
+
+        if not is_safe_url(api_url):
+            return "Error: URL blocked by SSRF protection. Cannot make requests to internal or private network addresses."
+
         payload = {
             "model": model,
             "messages": [
@@ -464,7 +470,13 @@ class automation_helpers(Extensions):
         str: The name of the created chain
         """
         # Experimental currently.
-        openapi_str = requests.get(openapi_json_url).text
+        # SSRF protection: validate URL before making request
+        from XT import is_safe_url
+
+        if not is_safe_url(openapi_json_url):
+            return "Error: URL blocked by SSRF protection. Cannot fetch from internal or private network addresses."
+
+        openapi_str = requests.get(openapi_json_url, timeout=30).text
         openapi_data = json.loads(openapi_str)
         endpoints = self.parse_openapi(data=openapi_data)
         auth_type = self.get_auth_type(openapi_data=openapi_data)

@@ -513,8 +513,13 @@ class openai(Extensions):
             The transcribed text
         """
         import tempfile
+        from XT import is_safe_url
 
-        audio_data = requests.get(audio_url).content
+        # SSRF protection: validate URL before making request
+        if not is_safe_url(audio_url):
+            return "Error: URL blocked by SSRF protection. Cannot download from internal or private network addresses."
+
+        audio_data = requests.get(audio_url, timeout=30).content
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             f.write(audio_data)
             temp_path = f.name
@@ -535,8 +540,13 @@ class openai(Extensions):
             The translated text in English
         """
         import tempfile
+        from XT import is_safe_url
 
-        audio_data = requests.get(audio_url).content
+        # SSRF protection: validate URL before making request
+        if not is_safe_url(audio_url):
+            return "Error: URL blocked by SSRF protection. Cannot download from internal or private network addresses."
+
+        audio_data = requests.get(audio_url, timeout=30).content
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             f.write(audio_data)
             temp_path = f.name

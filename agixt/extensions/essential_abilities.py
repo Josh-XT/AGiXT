@@ -347,6 +347,12 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         if not url.startswith("https://"):
             return "Error: Only HTTPS URLs are allowed for security reasons. Please provide a URL starting with 'https://'"
 
+        # SSRF protection: validate URL before making request
+        from XT import is_safe_url
+
+        if not is_safe_url(url):
+            return "Error: URL blocked by SSRF protection. Cannot download from internal or private network addresses."
+
         try:
             # Parse headers if provided
             request_headers = {}
@@ -359,7 +365,8 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             # Make the request
             logging.info(f"Downloading file from URL: {url}")
             response = requests.get(
-                url, headers=request_headers, stream=True, timeout=30
+                url, headers=request_headers, stream=True, timeout=30,
+                allow_redirects=False,
             )
             response.raise_for_status()
 
@@ -1712,8 +1719,13 @@ print(output)
         str: The API response
         """
         import requests
+        from XT import is_safe_url
 
         try:
+            # SSRF protection: validate URL before making request
+            if not is_safe_url(url):
+                return "Error: URL blocked by SSRF protection. Cannot make requests to internal or private network addresses."
+
             # Parse headers if provided
             if headers:
                 headers_dict = (
@@ -1722,17 +1734,24 @@ print(output)
             else:
                 headers_dict = {}
 
-            # Make the API call
+            # Make the API call with redirects disabled to prevent
+            # open-redirect SSRF bypass
             if method.upper() in ["POST", "PUT", "PATCH"] and body:
                 response = requests.request(
                     method=method.upper(),
                     url=url,
                     headers=headers_dict,
                     json=json.loads(body) if isinstance(body, str) else body,
+                    allow_redirects=False,
+                    timeout=30,
                 )
             else:
                 response = requests.request(
-                    method=method.upper(), url=url, headers=headers_dict
+                    method=method.upper(),
+                    url=url,
+                    headers=headers_dict,
+                    allow_redirects=False,
+                    timeout=30,
                 )
 
             return f"Status: {response.status_code}\\nResponse: {response.text}"
@@ -10823,6 +10842,12 @@ The map includes:
         # Validate URL
         if not pdf_url.startswith("https://"):
             return "Error: Only HTTPS URLs are allowed for security. Please provide a URL starting with 'https://'"
+
+        # SSRF protection: validate URL before making request
+        from XT import is_safe_url
+
+        if not is_safe_url(pdf_url):
+            return "Error: URL blocked by SSRF protection. Cannot download from internal or private network addresses."
 
         try:
             # Generate filename if not provided

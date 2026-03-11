@@ -3,6 +3,7 @@ import requests
 import json
 from Extensions import Extensions
 from Globals import getenv
+from XT import is_safe_url
 from typing import Optional
 
 logging.basicConfig(
@@ -84,6 +85,10 @@ class zapier_webhooks(Extensions):
             if not url:
                 return "Error: No webhook URL provided and no default ZAPIER_WEBHOOK_URL configured."
 
+            # SSRF protection: validate URL before making request
+            if not is_safe_url(url):
+                return "Error: Webhook URL blocked by SSRF protection. Cannot make requests to internal or private network addresses."
+
             payload = {
                 "event": event_type,
                 "message": message,
@@ -95,6 +100,7 @@ class zapier_webhooks(Extensions):
                 json=payload,
                 headers={"Content-Type": "application/json"},
                 timeout=30,
+                allow_redirects=False,
             )
 
             if response.status_code in (200, 201, 202):
@@ -130,6 +136,10 @@ class zapier_webhooks(Extensions):
             if not url:
                 return "Error: No webhook URL provided and no default ZAPIER_WEBHOOK_URL configured."
 
+            # SSRF protection: validate URL before making request
+            if not is_safe_url(url):
+                return "Error: Webhook URL blocked by SSRF protection. Cannot make requests to internal or private network addresses."
+
             # Parse JSON data
             try:
                 payload = json.loads(data) if isinstance(data, str) else data
@@ -150,6 +160,7 @@ class zapier_webhooks(Extensions):
                 json=payload,
                 headers={"Content-Type": "application/json"},
                 timeout=30,
+                allow_redirects=False,
             )
 
             result = f"Webhook {method} completed.\n"
@@ -192,6 +203,10 @@ class zapier_webhooks(Extensions):
             if not url:
                 return "Error: No webhook URL provided and no default ZAPIER_WEBHOOK_URL configured."
 
+            # SSRF protection: validate URL before making request
+            if not is_safe_url(url):
+                return "Error: Webhook URL blocked by SSRF protection. Cannot make requests to internal or private network addresses."
+
             try:
                 extra_data = json.loads(data) if isinstance(data, str) else data
             except json.JSONDecodeError:
@@ -208,6 +223,7 @@ class zapier_webhooks(Extensions):
                 json=payload,
                 headers={"Content-Type": "application/json"},
                 timeout=30,
+                allow_redirects=False,
             )
 
             if response.status_code in (200, 201, 202):
@@ -232,6 +248,10 @@ class zapier_webhooks(Extensions):
             if not url:
                 return "Error: No webhook URL provided and no default ZAPIER_WEBHOOK_URL configured."
 
+            # SSRF protection: validate URL before making request
+            if not is_safe_url(url):
+                return "Error: Webhook URL blocked by SSRF protection. Cannot make requests to internal or private network addresses."
+
             payload = {
                 "event": "ping",
                 "source": "agixt",
@@ -243,6 +263,7 @@ class zapier_webhooks(Extensions):
                 json=payload,
                 headers={"Content-Type": "application/json"},
                 timeout=15,
+                allow_redirects=False,
             )
 
             result = f"**Webhook Status:**\n\n"
@@ -304,11 +325,18 @@ class zapier_webhooks(Extensions):
 
             for url in urls:
                 try:
+                    # SSRF protection: validate each URL before making request
+                    if not is_safe_url(url):
+                        result += f"- **{url[:50]}...** - Blocked (SSRF protection)\n"
+                        fail_count += 1
+                        continue
+
                     response = requests.post(
                         url,
                         json=payload,
                         headers={"Content-Type": "application/json"},
                         timeout=15,
+                        allow_redirects=False,
                     )
                     if response.status_code in (200, 201, 202):
                         result += (

@@ -135,9 +135,17 @@ class anthropic(Extensions):
 
         messages = []
         if images:
+            from XT import is_safe_url
+
             for image in images:
                 # If the image is a url, download it
                 if image.startswith("http"):
+                    # SSRF protection: validate URL before making request
+                    if not is_safe_url(image):
+                        logging.warning(
+                            f"SSRF protection: blocked image download from {image}"
+                        )
+                        continue
                     image_base64 = base64.b64encode(httpx.get(image).content).decode(
                         "utf-8"
                     )
