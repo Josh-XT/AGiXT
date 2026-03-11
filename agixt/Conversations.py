@@ -31,7 +31,7 @@ from SharedCache import shared_cache
 # cursor/erase sequences, and carriage returns from TTY output
 _ANSI_ESCAPE_RE = re.compile(
     r"\x1b\[[0-9;]*[a-zA-Z]"
-    r"|\x1b\].*?\x07"
+    r"|\x1b\][^\x07]*\x07"
     r"|\x1b[()][AB012]"
     r"|\x1b\[[0-9]*[JKH]"
     r"|\r"
