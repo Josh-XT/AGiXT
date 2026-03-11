@@ -426,22 +426,25 @@ class Chain:
         session.add(chain)
         session.commit()
         chain_id = str(chain.id)
+        session.close()
 
         # Emit webhook event
-        asyncio.create_task(
-            webhook_emitter.emit_event(
-                event_type="chain.created",
-                user_id=self.user,
-                company_id=str(self.company_id) if self.company_id else None,
-                data={
-                    "chain_id": chain_id,
-                    "chain_name": chain_name,
-                    "description": description,
-                },
+        try:
+            asyncio.create_task(
+                webhook_emitter.emit_event(
+                    event_type="chain.created",
+                    user_id=self.user,
+                    company_id=str(self.company_id) if self.company_id else None,
+                    data={
+                        "chain_id": chain_id,
+                        "chain_name": chain_name,
+                        "description": description,
+                    },
+                )
             )
-        )
+        except Exception as e:
+            logging.warning(f"Failed to emit chain.created webhook: {e}")
 
-        session.close()
         return chain_id
 
     def rename_chain(self, chain_name, new_name):

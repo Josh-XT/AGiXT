@@ -62,12 +62,15 @@ async def add_chain_v1(
 ) -> ChainResponse:
     if chain_name.chain_name == "":
         raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
-    chain_id = Chain(user=user).add_chain(
-        chain_name=chain_name.chain_name, description=chain_name.description
-    )
-    return ChainResponse(
-        message=f"Chain '{chain_name.chain_name}' created.", id=chain_id
-    )
+    try:
+        chain_id = Chain(user=user).add_chain(
+            chain_name=chain_name.chain_name, description=chain_name.description
+        )
+        return ChainResponse(
+            message=f"Chain '{chain_name.chain_name}' created.", id=chain_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post(
