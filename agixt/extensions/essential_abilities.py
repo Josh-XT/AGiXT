@@ -365,7 +365,10 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             # Make the request
             logging.info(f"Downloading file from URL: {url}")
             response = requests.get(
-                url, headers=request_headers, stream=True, timeout=30,
+                url,
+                headers=request_headers,
+                stream=True,
+                timeout=30,
                 allow_redirects=False,
             )
             response.raise_for_status()
