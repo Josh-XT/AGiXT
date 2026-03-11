@@ -492,10 +492,15 @@ class ExtensionsHub:
                             except Exception as rm_error:
                                 if attempt == max_retries - 1:
                                     # Last attempt failed, try alternative approach
+                                    # Use subprocess.run with list args to avoid shell injection
                                     logging.warning(
-                                        f"shutil.rmtree failed, trying os.system: {rm_error}"
+                                        f"shutil.rmtree failed, trying subprocess rm: {rm_error}"
                                     )
-                                    os.system(f"rm -rf {hub_path}")
+                                    subprocess.run(
+                                        ["rm", "-rf", hub_path],
+                                        timeout=30,
+                                        check=False,
+                                    )
                                     time.sleep(0.5)
 
                         # Final check that directory is removed
@@ -579,10 +584,15 @@ class ExtensionsHub:
                             except Exception as rm_error:
                                 if attempt == max_retries - 1:
                                     # Last attempt failed, try alternative approach
+                                    # Use subprocess.run with list args to avoid shell injection
                                     logging.warning(
-                                        f"shutil.rmtree failed, trying os.system: {rm_error}"
+                                        f"shutil.rmtree failed, trying subprocess rm: {rm_error}"
                                     )
-                                    os.system(f"rm -rf {hub_path}")
+                                    subprocess.run(
+                                        ["rm", "-rf", hub_path],
+                                        timeout=30,
+                                        check=False,
+                                    )
                                     time.sleep(0.5)
 
                         # Final check that directory is removed

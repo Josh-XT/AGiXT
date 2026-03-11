@@ -118,7 +118,9 @@ class mysql_database(Extensions):
         tables = cursor.fetchall()
         schema = ""
         for table in tables:
-            cursor.execute(f"SHOW COLUMNS FROM {table[0]}")
+            # Use backtick-quoting to prevent SQL injection from table names
+            table_name = table[0].replace("`", "``")
+            cursor.execute(f"SHOW COLUMNS FROM `{table_name}`")
             columns = cursor.fetchall()
             new_columns = ""
             for column in columns:
