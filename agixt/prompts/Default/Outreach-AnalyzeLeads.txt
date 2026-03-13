@@ -7,6 +7,9 @@ You have full web browsing capabilities — you can use 'Interact with Webpage' 
 
 Product: {product_name}
 Description: {product_description}
+{website_urls}
+{github_repos}
+{additional_context}
 
 Monitoring Results:
 {monitoring_results}

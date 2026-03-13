@@ -3,6 +3,15 @@ Today's date is {date}.
 
 You are a growth operations manager. Generate today's outreach daily report for {product_name}.
 
+## Business Context:
+Product: {product_name}
+Description: {product_description}
+Website(s): {website_urls}
+GitHub Repos: {github_repos}
+Additional Context: {additional_context}
+
+Use available business context to make content suggestions more specific and informed. Browse the website or research the repos if you need to reference real features.
+
 ## Warm Leads Found Today:
 {warm_leads}
 

@@ -87,6 +87,9 @@ class CompanyOutreachBot:
         poll_interval_hours: int = 4,
         product_name: str = "",
         product_description: str = "",
+        website_urls: str = "",
+        github_repos: str = "",
+        additional_context: str = "",
         target_competitors: str = "",
         target_subreddits: str = "",
         monitoring_keywords: str = "",
@@ -99,6 +102,9 @@ class CompanyOutreachBot:
         self.poll_interval = int(poll_interval_hours) * 3600  # Convert to seconds
         self.product_name = product_name
         self.product_description = product_description
+        self.website_urls = [u.strip() for u in website_urls.split(",") if u.strip()]
+        self.github_repos = [r.strip() for r in github_repos.split(",") if r.strip()]
+        self.additional_context = additional_context.strip()
         self.target_competitors = [
             c.strip() for c in target_competitors.split(",") if c.strip()
         ]
@@ -113,6 +119,41 @@ class CompanyOutreachBot:
         # Bot state
         self.is_running = False
         self.started_at: Optional[datetime] = None
+
+    def _build_business_context(self) -> str:
+        """Build a rich business context block for prompts.
+
+        Combines product info, website URLs, GitHub repos, and additional
+        context into a structured reference the agent can use to research
+        the business and write informed, authentic content.
+        """
+        parts = []
+        if self.product_name:
+            parts.append(f"Product: {self.product_name}")
+        if self.product_description:
+            parts.append(f"Description: {self.product_description}")
+        if self.website_urls:
+            parts.append(
+                f"Website(s): {', '.join(self.website_urls)}\n"
+                f"  → Browse these with 'Interact with Webpage' to learn about "
+                f"the product's features, pricing, and messaging."
+            )
+        if self.github_repos:
+            repos_str = ", ".join(self.github_repos)
+            parts.append(
+                f"GitHub Repos: {repos_str}\n"
+                f"  → Use GitHub Copilot or clone these repos into your "
+                f"workspace to understand the codebase, README, and "
+                f"technical details. Reference real features and "
+                f"capabilities in content."
+            )
+        if self.target_competitors:
+            parts.append(f"Competitors: {', '.join(self.target_competitors)}")
+        if self.additional_context:
+            parts.append(f"Additional Context:\n{self.additional_context}")
+        if not parts:
+            return "No product context configured yet — research the company to learn more."
+        return "\n".join(parts)
         self.tasks_completed = 0
         self.leads_found = 0
         self.last_scan: Optional[datetime] = None
@@ -214,16 +255,28 @@ class CompanyOutreachBot:
                 else "relevant subreddits"
             )
             product_ctx = self.product_name or "our product"
+            biz_ctx = self._build_business_context()
 
             prompt = (
                 f"You are running an automated outreach scan for {product_ctx}.\n\n"
+                f"## Business Context\n{biz_ctx}\n\n"
                 f"Find warm leads using whatever tools are available to you. You can:\n"
                 f"- Use the Social Monitor extension commands if enabled\n"
                 f"- Use 'Web Search' to search for relevant discussions\n"
                 f"- Use 'Interact with Webpage' to browse Reddit, Twitter, or forums directly\n"
-                f"- Use the Reddit extension if it's configured with OAuth\n\n"
-                f"Search for these keywords"
+                f"- Use the Reddit extension if it's configured with OAuth\n"
             )
+            if self.github_repos:
+                prompt += (
+                    f"- Use GitHub Copilot to research the repos ({', '.join(self.github_repos)}) "
+                    f"for features to highlight\n"
+                )
+            if self.website_urls:
+                prompt += (
+                    f"- Browse the product website ({', '.join(self.website_urls)}) "
+                    f"to understand positioning\n"
+                )
+            prompt += f"\nSearch for these keywords"
             if self.target_subreddits:
                 prompt += f" in {subreddit_str}"
             prompt += ":\n"
@@ -264,7 +317,7 @@ class CompanyOutreachBot:
                 f"using 'Content - Generate Outreach DM'\n"
                 f"3. Include the lead's original problem and context in the message\n"
                 f"4. Provide me with a summary of follow-ups due and suggested messages\n\n"
-                f"Product context: {self.product_name} — {self.product_description}"
+                f"## Business Context\n{self._build_business_context()}"
             )
 
             conversation_name = f"outreach-followups-{self.company_id[:8]}"
@@ -300,10 +353,25 @@ class CompanyOutreachBot:
 
             prompt = (
                 f"Generate today's outreach content for {self.product_name or 'our product'}:\n\n"
-                f"Product: {self.product_name}\n"
-                f"Description: {self.product_description}\n"
-                f"Competitors: {competitors_str}\n"
+                f"## Business Context\n{self._build_business_context()}\n"
                 f"Target subreddits: {subreddits_str}\n\n"
+            )
+            if self.website_urls or self.github_repos:
+                prompt += (
+                    f"IMPORTANT: Before writing content, research the product first.\n"
+                )
+                if self.website_urls:
+                    prompt += (
+                        f"- Browse {', '.join(self.website_urls)} with 'Interact with Webpage' "
+                        f"to understand features, pricing, and value propositions\n"
+                    )
+                if self.github_repos:
+                    prompt += (
+                        f"- Use GitHub Copilot to explore {', '.join(self.github_repos)} "
+                        f"for technical details, README docs, and real capabilities\n"
+                    )
+                prompt += "\n"
+            prompt += (
                 f"Tasks:\n"
                 f"1. Use 'Content - Generate Reddit Post' to create a value-heavy Reddit post "
                 f"about a topic related to our product's problem space\n"
@@ -311,7 +379,8 @@ class CompanyOutreachBot:
                 f"Twitter, LinkedIn, and short-form video\n"
                 f"3. Use 'Content - Generate Build in Public Post' to create a build-in-public "
                 f"update for Twitter\n\n"
-                f"Remember: 80% value, 20% product mention. Never post 'check out my product'."
+                f"Remember: 80% value, 20% product mention. Never post 'check out my product'. "
+                f"Reference real features and use cases from the product's website or repos."
             )
 
             conversation_name = f"outreach-content-{self.company_id[:8]}"
@@ -339,6 +408,7 @@ class CompanyOutreachBot:
 
             prompt = (
                 f"Monitor competitor reviews for outreach opportunities:\n\n"
+                f"## Business Context\n{self._build_business_context()}\n\n"
                 f"For each competitor ({', '.join(self.target_competitors)}):\n"
                 f"1. Search G2, Capterra, or Trustpilot for their reviews "
                 f"(use Review Sites extension or browse the sites directly with 'Interact with Webpage')\n"
@@ -347,8 +417,13 @@ class CompanyOutreachBot:
                 f"4. Find reviewer profiles (LinkedIn, Twitter) when possible\n\n"
                 f"For any reviewers found, log them as leads using 'Leads - Add Lead' "
                 f"with source='review_site'.\n\n"
-                f"Product: {self.product_name} — {self.product_description}"
             )
+            if self.website_urls:
+                prompt += (
+                    f"When analyzing complaints, browse {', '.join(self.website_urls)} "
+                    f"to verify which issues our product actually solves before "
+                    f"suggesting outreach angles.\n"
+                )
 
             conversation_name = f"outreach-reviews-{self.company_id[:8]}"
             result = await self._run_agent_prompt(prompt, conversation_name)
@@ -371,6 +446,7 @@ class CompanyOutreachBot:
         try:
             prompt = (
                 f"Generate today's outreach pipeline report:\n\n"
+                f"## Business Context\n{self._build_business_context()}\n\n"
                 f"1. Use 'Leads - Get Pipeline Summary' for overall pipeline health\n"
                 f"2. Use 'Leads - Get Channel Stats' for performance by source channel\n"
                 f"3. Use 'Monitor - Generate Warm Leads Report' for outreach recommendations\n\n"
@@ -535,6 +611,15 @@ class OutreachBotManager:
                             ),
                             "product_description": settings_dict.get(
                                 "outreach_product_description", ""
+                            ),
+                            "website_urls": settings_dict.get(
+                                "outreach_website_urls", ""
+                            ),
+                            "github_repos": settings_dict.get(
+                                "outreach_github_repos", ""
+                            ),
+                            "additional_context": settings_dict.get(
+                                "outreach_additional_context", ""
                             ),
                             "target_competitors": settings_dict.get(
                                 "outreach_target_competitors", ""
