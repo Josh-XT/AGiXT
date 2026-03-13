@@ -40,6 +40,10 @@ SCOPES = [
     "subscribe",
     "vote",
     "save",
+    "privatemessages",
+    "modconfig",
+    "modself",
+    "flair",
 ]
 AUTHORIZE = "https://www.reddit.com/api/v1/authorize"
 TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
@@ -196,6 +200,15 @@ class reddit(Extensions):
                 "Reddit - Save Post": self.save_post,
                 "Reddit - Get Saved": self.get_saved,
                 "Reddit - Get Trending": self.get_trending,
+                "Reddit - Send Direct Message": self.send_direct_message,
+                "Reddit - Get Inbox": self.get_inbox,
+                "Reddit - Reply to Message": self.reply_to_message,
+                "Reddit - Create Subreddit": self.create_subreddit,
+                "Reddit - Update Subreddit Settings": self.update_subreddit_settings,
+                "Reddit - Cross Post": self.cross_post,
+                "Reddit - Get User Posts": self.get_user_posts,
+                "Reddit - Search Comments": self.search_comments,
+                "Reddit - Get Subreddit Info": self.get_subreddit_info,
             }
             if self.api_key:
                 try:
@@ -861,3 +874,452 @@ class reddit(Extensions):
             return result
         except Exception as e:
             return f"Error getting trending: {str(e)}"
+
+    async def send_direct_message(self, username: str, subject: str, message: str):
+        """
+        Send a direct message (private message) to a Reddit user.
+
+        Args:
+            username (str): Reddit username to message (without u/ prefix).
+            subject (str): Subject line of the message.
+            message (str): Body of the message (supports Markdown).
+
+        Returns:
+            str: Confirmation or error message.
+        """
+        try:
+            self.verify_user()
+            username = username.replace("u/", "").strip()
+
+            response = requests.post(
+                f"{self.base_url}/api/compose",
+                headers=self._get_headers(),
+                data={
+                    "to": username,
+                    "subject": subject,
+                    "text": message,
+                },
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("success") is False:
+                    errors = result.get("jquery", [])
+                    error_msgs = [
+                        str(e) for e in errors if isinstance(e, list) and len(e) > 3
+                    ]
+                    return f"Error sending message: {'; '.join(error_msgs) if error_msgs else result}"
+                return f"Direct message sent to u/{username} successfully."
+            return f"Error sending message: {response.status_code} - {response.text}"
+        except Exception as e:
+            return f"Error sending direct message: {str(e)}"
+
+    async def get_inbox(self, category: str = "inbox", limit: int = 25):
+        """
+        Get the authenticated user's inbox messages.
+
+        Args:
+            category (str): Message category - 'inbox', 'unread', 'sent', 'messages', 'mentions'. Default 'inbox'.
+            limit (int): Number of messages (1-100). Default 25.
+
+        Returns:
+            str: Formatted list of messages or error message.
+        """
+        try:
+            self.verify_user()
+            valid_categories = ["inbox", "unread", "sent", "messages", "mentions"]
+            if category not in valid_categories:
+                category = "inbox"
+
+            response = requests.get(
+                f"{self.base_url}/message/{category}",
+                headers=self._get_headers(),
+                params={"limit": min(int(limit), 100)},
+            )
+            data = response.json()
+
+            messages = data.get("data", {}).get("children", [])
+            if not messages:
+                return f"No messages found in {category}."
+
+            result = f"**{category.title()} Messages:**\n\n"
+            for msg in messages:
+                d = msg.get("data", {})
+                author = d.get("author", "[deleted]")
+                subject = d.get("subject", "(no subject)")
+                body = d.get("body", "")[:300]
+                is_new = d.get("new", False)
+                msg_id = d.get("name", "")
+
+                new_badge = " 🆕" if is_new else ""
+                result += f"- **{subject}**{new_badge}\n"
+                result += f"  From: u/{author} | ID: {msg_id}\n"
+                result += f"  {body}\n\n"
+
+            return result
+        except Exception as e:
+            return f"Error getting inbox: {str(e)}"
+
+    async def reply_to_message(self, message_id: str, text: str):
+        """
+        Reply to a Reddit private message.
+
+        Args:
+            message_id (str): The fullname of the message to reply to (e.g., 't4_xxxxx').
+            text (str): Reply text (supports Markdown).
+
+        Returns:
+            str: Confirmation or error message.
+        """
+        try:
+            self.verify_user()
+            response = requests.post(
+                f"{self.base_url}/api/comment",
+                headers=self._get_headers(),
+                data={
+                    "thing_id": message_id,
+                    "text": text,
+                },
+            )
+
+            if response.status_code == 200:
+                return "Reply sent successfully."
+            return f"Error replying: {response.status_code} - {response.text}"
+        except Exception as e:
+            return f"Error replying to message: {str(e)}"
+
+    async def create_subreddit(
+        self,
+        name: str,
+        title: str,
+        description: str,
+        public_description: str = "",
+        subreddit_type: str = "public",
+    ):
+        """
+        Create a new subreddit. Use this to build an owned community around your niche.
+
+        Args:
+            name (str): Subreddit name (3-21 characters, alphanumeric and underscores only).
+            title (str): Display title for the subreddit.
+            description (str): Sidebar description (supports Markdown).
+            public_description (str): Short description shown in search results.
+            subreddit_type (str): Type - 'public', 'restricted', 'private'. Default 'public'.
+
+        Returns:
+            str: Confirmation with subreddit URL or error message.
+        """
+        try:
+            self.verify_user()
+            name = name.replace("r/", "").strip()
+
+            data = {
+                "name": name,
+                "title": title,
+                "description": description,
+                "public_description": public_description or title,
+                "type": subreddit_type,
+                "link_type": "any",
+                "allow_images": True,
+                "allow_videos": True,
+                "api_type": "json",
+            }
+
+            response = requests.post(
+                f"{self.base_url}/api/site_admin",
+                headers=self._get_headers(),
+                data=data,
+            )
+            result = response.json()
+
+            if "json" in result and "errors" in result["json"]:
+                errors = result["json"]["errors"]
+                if errors:
+                    return f"Error creating subreddit: {errors}"
+
+            return (
+                f"Subreddit r/{name} created successfully!\nhttps://reddit.com/r/{name}"
+            )
+        except Exception as e:
+            return f"Error creating subreddit: {str(e)}"
+
+    async def update_subreddit_settings(
+        self,
+        subreddit: str,
+        title: str = "",
+        description: str = "",
+        public_description: str = "",
+        subreddit_type: str = "",
+    ):
+        """
+        Update settings for a subreddit you moderate.
+
+        Args:
+            subreddit (str): Subreddit name (without r/ prefix).
+            title (str, optional): New display title.
+            description (str, optional): New sidebar description.
+            public_description (str, optional): New public description for search results.
+            subreddit_type (str, optional): New type - 'public', 'restricted', 'private'.
+
+        Returns:
+            str: Confirmation or error message.
+        """
+        try:
+            self.verify_user()
+            subreddit = subreddit.replace("r/", "").strip()
+
+            data = {
+                "sr": subreddit,
+                "api_type": "json",
+            }
+            if title:
+                data["title"] = title
+            if description:
+                data["description"] = description
+            if public_description:
+                data["public_description"] = public_description
+            if subreddit_type:
+                data["type"] = subreddit_type
+
+            response = requests.post(
+                f"{self.base_url}/api/site_admin",
+                headers=self._get_headers(),
+                data=data,
+            )
+            result = response.json()
+
+            if "json" in result and "errors" in result["json"]:
+                errors = result["json"]["errors"]
+                if errors:
+                    return f"Error updating subreddit: {errors}"
+
+            return f"Subreddit r/{subreddit} settings updated successfully."
+        except Exception as e:
+            return f"Error updating subreddit settings: {str(e)}"
+
+    async def cross_post(
+        self,
+        original_post_id: str,
+        target_subreddit: str,
+        title: str = "",
+    ):
+        """
+        Cross-post a Reddit post to another subreddit. Great for driving members
+        from other subreddits back to your owned community.
+
+        Args:
+            original_post_id (str): The fullname of the original post (e.g., 't3_xxxxx').
+            target_subreddit (str): Target subreddit to cross-post to (without r/ prefix).
+            title (str, optional): Custom title for the cross-post. Uses original title if empty.
+
+        Returns:
+            str: Confirmation with cross-post URL or error message.
+        """
+        try:
+            self.verify_user()
+            target_subreddit = target_subreddit.replace("r/", "").strip()
+
+            if not original_post_id.startswith("t3_"):
+                original_post_id = f"t3_{original_post_id}"
+
+            data = {
+                "sr": target_subreddit,
+                "kind": "crosspost",
+                "crosspost_fullname": original_post_id,
+                "resubmit": True,
+                "api_type": "json",
+            }
+            if title:
+                data["title"] = title
+            else:
+                # Fetch original post title
+                info_resp = requests.get(
+                    f"{self.base_url}/api/info",
+                    headers=self._get_headers(),
+                    params={"id": original_post_id},
+                )
+                info_data = info_resp.json()
+                children = info_data.get("data", {}).get("children", [])
+                if children:
+                    data["title"] = (
+                        children[0].get("data", {}).get("title", "Cross-post")
+                    )
+
+            response = requests.post(
+                f"{self.base_url}/api/submit",
+                headers=self._get_headers(),
+                data=data,
+            )
+            result = response.json()
+
+            post_url = result.get("json", {}).get("data", {}).get("url", "")
+            if post_url:
+                return f"Cross-posted to r/{target_subreddit} successfully!\n{post_url}"
+
+            if "json" in result and "errors" in result["json"]:
+                errors = result["json"]["errors"]
+                if errors:
+                    return f"Error cross-posting: {errors}"
+
+            return f"Cross-post submitted. Response: {result}"
+        except Exception as e:
+            return f"Error cross-posting: {str(e)}"
+
+    async def get_user_posts(
+        self,
+        username: str,
+        sort: str = "new",
+        limit: int = 10,
+        time_filter: str = "all",
+    ):
+        """
+        Get a specific user's post history. Useful for researching a user before
+        reaching out via DM.
+
+        Args:
+            username (str): Reddit username (without u/ prefix).
+            sort (str): Sort order - 'new', 'hot', 'top', 'controversial'. Default 'new'.
+            limit (int): Number of posts (1-100). Default 10.
+            time_filter (str): Time filter for 'top' sort - 'hour', 'day', 'week', 'month', 'year', 'all'. Default 'all'.
+
+        Returns:
+            str: Formatted list of user's posts or error message.
+        """
+        try:
+            self.verify_user()
+            username = username.replace("u/", "").strip()
+
+            params = {
+                "sort": sort,
+                "limit": min(int(limit), 100),
+            }
+            if sort == "top":
+                params["t"] = time_filter
+
+            response = requests.get(
+                f"{self.base_url}/user/{username}/submitted",
+                headers=self._get_headers(),
+                params=params,
+            )
+            data = response.json()
+
+            posts = data.get("data", {}).get("children", [])
+            if not posts:
+                return f"No posts found for u/{username}."
+
+            result = f"**Posts by u/{username}:**\n\n"
+            for post in posts:
+                formatted, _ = self._format_post(post)
+                result += formatted + "\n"
+
+            return result
+        except Exception as e:
+            return f"Error getting user posts: {str(e)}"
+
+    async def search_comments(
+        self,
+        query: str,
+        subreddit: str = "",
+        limit: int = 25,
+    ):
+        """
+        Search Reddit comments for specific text. Perfect for finding people
+        who are complaining about competitors or looking for solutions.
+        Try searches like "[competitor] sucks" or "looking for [tool type]"
+        or "frustrated with [problem]".
+
+        Args:
+            query (str): Search query for comment text (e.g., "competitor sucks", "looking for alternative").
+            subreddit (str, optional): Limit search to a specific subreddit.
+            limit (int): Number of results (1-100). Default 25.
+
+        Returns:
+            str: Formatted list of matching comments with author info for outreach.
+        """
+        try:
+            self.verify_user()
+            params = {
+                "q": query,
+                "type": "comment",
+                "limit": min(int(limit), 100),
+                "sort": "new",
+            }
+
+            if subreddit:
+                subreddit = subreddit.replace("r/", "").strip()
+                url = f"{self.base_url}/r/{subreddit}/search"
+                params["restrict_sr"] = True
+            else:
+                url = f"{self.base_url}/search"
+
+            response = requests.get(url, headers=self._get_headers(), params=params)
+            data = response.json()
+
+            comments = data.get("data", {}).get("children", [])
+            if not comments:
+                return f"No comments found matching '{query}'."
+
+            scope = f" in r/{subreddit}" if subreddit else ""
+            result = f"**Comment search results for '{query}'{scope}:**\n\n"
+
+            for comment in comments:
+                d = comment.get("data", {})
+                author = d.get("author", "[deleted]")
+                body = d.get("body", "")[:400]
+                score = d.get("score", 0)
+                subreddit_name = d.get("subreddit_name_prefixed", "")
+                link_title = d.get("link_title", "")
+                permalink = d.get("permalink", "")
+
+                result += f"- **u/{author}** in {subreddit_name} ({score} points)\n"
+                result += f"  Thread: {link_title}\n"
+                result += f"  Comment: {body}\n"
+                result += f"  Link: https://reddit.com{permalink}\n\n"
+
+            return result
+        except Exception as e:
+            return f"Error searching comments: {str(e)}"
+
+    async def get_subreddit_info(self, subreddit: str):
+        """
+        Get detailed information about a subreddit including subscriber count,
+        rules, and description. Useful for evaluating which subreddits to target.
+
+        Args:
+            subreddit (str): Subreddit name (without r/ prefix).
+
+        Returns:
+            str: Detailed subreddit information or error message.
+        """
+        try:
+            self.verify_user()
+            subreddit = subreddit.replace("r/", "").strip()
+
+            response = requests.get(
+                f"{self.base_url}/r/{subreddit}/about",
+                headers=self._get_headers(),
+            )
+            data = response.json()
+
+            sub = data.get("data", {})
+            if not sub:
+                return f"Subreddit r/{subreddit} not found."
+
+            result = f"**r/{sub.get('display_name', subreddit)}**\n\n"
+            result += f"- **Title:** {sub.get('title', '')}\n"
+            result += f"- **Subscribers:** {sub.get('subscribers', 0):,}\n"
+            result += f"- **Active Users:** {sub.get('accounts_active', 0):,}\n"
+            result += f"- **Type:** {sub.get('subreddit_type', 'public')}\n"
+            result += f"- **Created:** {sub.get('created_utc', 'unknown')}\n"
+
+            description = sub.get("public_description", "")
+            if description:
+                result += f"\n**Description:** {description[:500]}\n"
+
+            submit_text = sub.get("submit_text", "")
+            if submit_text:
+                result += f"\n**Submission Rules:** {submit_text[:500]}\n"
+
+            return result
+        except Exception as e:
+            return f"Error getting subreddit info: {str(e)}"

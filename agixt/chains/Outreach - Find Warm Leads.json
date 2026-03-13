@@ -1,0 +1,45 @@
+{
+    "chain_name": "Outreach - Find Warm Leads",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Monitor - Check All Platforms",
+                "user_input": ""
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Outreach-AnalyzeLeads",
+                "monitoring_results": "{STEP1}",
+                "product_name": "{product_name}",
+                "product_description": "{product_description}"
+            }
+        },
+        {
+            "step": 3,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Leads - Get Follow Ups Due",
+                "include_overdue": "true"
+            }
+        },
+        {
+            "step": 4,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Outreach-DailyReport",
+                "warm_leads": "{STEP2}",
+                "follow_ups_due": "{STEP3}",
+                "product_name": "{product_name}"
+            }
+        }
+    ]
+}

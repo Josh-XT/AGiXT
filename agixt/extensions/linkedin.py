@@ -218,6 +218,10 @@ class linkedin(Extensions):
                 "LinkedIn - Get Company Page Details": self.get_company_page_details,
                 "LinkedIn - Comment on Post": self.comment_on_post,
                 "LinkedIn - React to Post": self.react_to_post,
+                "LinkedIn - Send Message": self.send_message,
+                "LinkedIn - Send Connection Request": self.send_connection_request,
+                "LinkedIn - Search Posts": self.search_posts,
+                "LinkedIn - Get Post Comments": self.get_post_comments,
             }
 
             if self.api_key:
@@ -1212,3 +1216,235 @@ class linkedin(Extensions):
         except Exception as e:
             logging.error(f"Error reacting to LinkedIn post: {str(e)}")
             return {"success": False, "message": f"Failed to add reaction: {str(e)}"}
+
+    async def send_message(self, recipient_urn: str, message_text: str):
+        """
+        Send a direct message to a LinkedIn user. Note: LinkedIn Messaging API
+        requires partnership approval for most use cases. This uses the
+        available messaging endpoints.
+
+        Args:
+            recipient_urn (str): LinkedIn member URN or ID of the recipient (e.g., "urn:li:person:xxxxx" or just the ID).
+            message_text (str): The message text to send.
+
+        Returns:
+            dict: Response containing success status.
+        """
+        try:
+            self.verify_user()
+            member_urn = self._get_member_urn()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+                "X-Restli-Protocol-Version": "2.0.0",
+                "LinkedIn-Version": "202401",
+            }
+
+            if not recipient_urn.startswith("urn:li:"):
+                recipient_urn = f"urn:li:person:{recipient_urn}"
+
+            message_data = {
+                "recipients": [recipient_urn],
+                "body": message_text,
+                "messageType": "MEMBER_TO_MEMBER",
+            }
+
+            response = requests.post(
+                "https://api.linkedin.com/rest/messages",
+                headers=headers,
+                json=message_data,
+            )
+
+            if response.status_code in [200, 201, 202]:
+                return {
+                    "success": True,
+                    "message": "Message sent successfully.",
+                }
+            elif response.status_code == 403:
+                return {
+                    "success": False,
+                    "message": "LinkedIn Messaging API requires partnership approval. "
+                    "Consider using LinkedIn's website for direct messaging, or apply "
+                    "for the LinkedIn Marketing Developer Platform partnership.",
+                }
+            else:
+                raise Exception(f"Failed to send message: {response.text}")
+
+        except Exception as e:
+            logging.error(f"Error sending LinkedIn message: {str(e)}")
+            return {"success": False, "message": f"Failed to send message: {str(e)}"}
+
+    async def send_connection_request(self, recipient_urn: str, message: str = ""):
+        """
+        Send a connection request to a LinkedIn user with an optional personalized note.
+
+        Args:
+            recipient_urn (str): LinkedIn member URN or ID of the person to connect with.
+            message (str, optional): Personalized note to include with the request (max 300 chars).
+
+        Returns:
+            dict: Response containing success status.
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+                "X-Restli-Protocol-Version": "2.0.0",
+                "LinkedIn-Version": "202401",
+            }
+
+            if not recipient_urn.startswith("urn:li:"):
+                recipient_urn = f"urn:li:person:{recipient_urn}"
+
+            invitation_data = {
+                "invitee": recipient_urn,
+            }
+
+            if message:
+                if len(message) > 300:
+                    message = message[:297] + "..."
+                invitation_data["message"] = message
+
+            response = requests.post(
+                "https://api.linkedin.com/rest/invitations?action=invite",
+                headers=headers,
+                json=invitation_data,
+            )
+
+            if response.status_code in [200, 201, 202]:
+                return {
+                    "success": True,
+                    "message": "Connection request sent successfully.",
+                }
+            elif response.status_code == 403:
+                return {
+                    "success": False,
+                    "message": "Connection invitations API may require additional permissions. "
+                    "Ensure your LinkedIn app has the appropriate scopes.",
+                }
+            else:
+                raise Exception(f"Failed to send connection request: {response.text}")
+
+        except Exception as e:
+            logging.error(f"Error sending LinkedIn connection request: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Failed to send connection request: {str(e)}",
+            }
+
+    async def search_posts(self, query: str, max_results: int = 20):
+        """
+        Search for LinkedIn posts by keyword. Useful for finding discussions about
+        problems you solve or competitors people are frustrated with.
+
+        Note: LinkedIn's post search API has limited availability. This searches
+        using the available feed endpoints.
+
+        Args:
+            query (str): Search query (e.g., "frustrated with [tool]", "looking for [solution]").
+            max_results (int): Maximum number of results to return. Default 20.
+
+        Returns:
+            list: List of matching posts or message about API limitations.
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json",
+                "X-Restli-Protocol-Version": "2.0.0",
+                "LinkedIn-Version": "202401",
+            }
+
+            # LinkedIn doesn't have a public post search API for most developers
+            # Use the available endpoints to search
+            response = requests.get(
+                f"https://api.linkedin.com/rest/posts?q=search&keywords={requests.utils.quote(query)}&count={max_results}",
+                headers=headers,
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                posts = []
+                for post in data.get("elements", []):
+                    posts.append(
+                        {
+                            "id": post.get("id", ""),
+                            "text": post.get("commentary", "")[:500],
+                            "author": post.get("author", ""),
+                            "created_at": post.get("createdAt", ""),
+                            "visibility": post.get("visibility", ""),
+                        }
+                    )
+                return posts if posts else "No posts found matching the query."
+
+            elif response.status_code == 403:
+                return {
+                    "message": "LinkedIn post search requires Marketing Developer Platform access. "
+                    "For outreach, consider using the web_browsing extension to search LinkedIn "
+                    "directly, or monitor relevant hashtags and keywords through the LinkedIn website."
+                }
+            else:
+                return {
+                    "message": f"Post search returned status {response.status_code}. "
+                    "LinkedIn restricts post search to approved partners. "
+                    "Use the web browsing extension for LinkedIn searches instead."
+                }
+
+        except Exception as e:
+            logging.error(f"Error searching LinkedIn posts: {str(e)}")
+            return {"error": str(e)}
+
+    async def get_post_comments(self, post_id: str, max_results: int = 20):
+        """
+        Get comments on a LinkedIn post. Useful for finding engaged users to connect with.
+
+        Args:
+            post_id (str): The post ID/URN to get comments for.
+            max_results (int): Maximum number of comments. Default 20.
+
+        Returns:
+            list: List of comments with author information.
+        """
+        try:
+            self.verify_user()
+
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "X-Restli-Protocol-Version": "2.0.0",
+                "LinkedIn-Version": "202401",
+            }
+
+            if not post_id.startswith("urn:li:"):
+                post_id = f"urn:li:share:{post_id}"
+
+            response = requests.get(
+                f"https://api.linkedin.com/rest/socialActions/{post_id}/comments?count={max_results}",
+                headers=headers,
+            )
+
+            if response.status_code != 200:
+                raise Exception(f"Failed to get comments: {response.text}")
+
+            data = response.json()
+            comments = []
+
+            for comment in data.get("elements", []):
+                comments.append(
+                    {
+                        "author": comment.get("actor", ""),
+                        "text": comment.get("message", {}).get("text", ""),
+                        "created_at": comment.get("created", {}).get("time", ""),
+                        "likes": comment.get("likesSummary", {}).get("totalLikes", 0),
+                    }
+                )
+
+            return comments if comments else "No comments found on this post."
+
+        except Exception as e:
+            logging.error(f"Error getting LinkedIn post comments: {str(e)}")
+            return {"error": str(e)}

@@ -1,0 +1,57 @@
+{
+    "chain_name": "Outreach - SEO Content Strategy",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "SEO - Get Autocomplete Suggestions",
+                "seed_keyword": "{seed_keyword}"
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "SEO - Get People Also Ask",
+                "query": "{seed_keyword}"
+            }
+        },
+        {
+            "step": 3,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "SEO - Generate Blog Topics",
+                "seed_keywords": "{seed_keyword}",
+                "product_name": "{product_name}",
+                "num_topics": "10"
+            }
+        },
+        {
+            "step": 4,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "SEO - Find Content Gaps",
+                "seed_keywords": "{seed_keyword}",
+                "your_domain": "{your_domain}"
+            }
+        },
+        {
+            "step": 5,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Outreach-SEOStrategy",
+                "autocomplete": "{STEP1}",
+                "people_also_ask": "{STEP2}",
+                "blog_topics": "{STEP3}",
+                "content_gaps": "{STEP4}",
+                "product_name": "{product_name}"
+            }
+        }
+    ]
+}

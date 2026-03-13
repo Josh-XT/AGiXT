@@ -1,0 +1,59 @@
+{
+    "chain_name": "Outreach - Content Recycling Pipeline",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Content - Generate Reddit Post",
+                "topic": "{topic}",
+                "product_name": "{product_name}",
+                "product_description": "{product_description}",
+                "target_subreddits": "{target_subreddits}"
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Content - Reddit to Twitter Thread",
+                "reddit_post_text": "{STEP1}",
+                "product_mention": "{product_name}"
+            }
+        },
+        {
+            "step": 3,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Content - Twitter to LinkedIn Post",
+                "thread_text": "{STEP2}",
+                "professional_context": ""
+            }
+        },
+        {
+            "step": 4,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Content - Post to Video Script",
+                "post_text": "{STEP1}",
+                "video_length": "60"
+            }
+        },
+        {
+            "step": 5,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Outreach-ContentSummary",
+                "reddit_post": "{STEP1}",
+                "twitter_thread": "{STEP2}",
+                "linkedin_post": "{STEP3}",
+                "video_script": "{STEP4}"
+            }
+        }
+    ]
+}
