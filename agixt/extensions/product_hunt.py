@@ -237,9 +237,13 @@ class product_hunt(Extensions):
         """
         try:
             parsed = urlparse(product_slug)
-            if parsed.scheme in ("http", "https") and parsed.hostname and (
-                parsed.hostname == "producthunt.com"
-                or parsed.hostname.endswith(".producthunt.com")
+            if (
+                parsed.scheme in ("http", "https")
+                and parsed.hostname
+                and (
+                    parsed.hostname == "producthunt.com"
+                    or parsed.hostname.endswith(".producthunt.com")
+                )
             ):
                 path_parts = [p for p in parsed.path.rstrip("/").split("/") if p]
                 if path_parts:
@@ -519,9 +523,13 @@ class product_hunt(Extensions):
         """
         try:
             parsed = urlparse(product_slug)
-            if parsed.scheme in ("http", "https") and parsed.hostname and (
-                parsed.hostname == "producthunt.com"
-                or parsed.hostname.endswith(".producthunt.com")
+            if (
+                parsed.scheme in ("http", "https")
+                and parsed.hostname
+                and (
+                    parsed.hostname == "producthunt.com"
+                    or parsed.hostname.endswith(".producthunt.com")
+                )
             ):
                 path_parts = [p for p in parsed.path.rstrip("/").split("/") if p]
                 if path_parts:
@@ -613,9 +621,13 @@ class product_hunt(Extensions):
         """
         try:
             parsed = urlparse(product_slug)
-            if parsed.scheme in ("http", "https") and parsed.hostname and (
-                parsed.hostname == "producthunt.com"
-                or parsed.hostname.endswith(".producthunt.com")
+            if (
+                parsed.scheme in ("http", "https")
+                and parsed.hostname
+                and (
+                    parsed.hostname == "producthunt.com"
+                    or parsed.hostname.endswith(".producthunt.com")
+                )
             ):
                 path_parts = [p for p in parsed.path.rstrip("/").split("/") if p]
                 if path_parts:

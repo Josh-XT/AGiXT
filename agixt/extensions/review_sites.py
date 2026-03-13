@@ -463,9 +463,13 @@ class review_sites(Extensions):
         try:
             company_domain = company_domain.strip()
             parsed = urlparse(company_domain)
-            if parsed.scheme in ("http", "https") and parsed.hostname and (
-                parsed.hostname == "trustpilot.com"
-                or parsed.hostname.endswith(".trustpilot.com")
+            if (
+                parsed.scheme in ("http", "https")
+                and parsed.hostname
+                and (
+                    parsed.hostname == "trustpilot.com"
+                    or parsed.hostname.endswith(".trustpilot.com")
+                )
             ):
                 base_url = company_domain.rstrip("/")
             else:
