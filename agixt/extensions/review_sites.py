@@ -1,6 +1,7 @@
 import logging
 import requests
 import re
+from urllib.parse import urlparse
 from Extensions import Extensions
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
@@ -460,7 +461,12 @@ class review_sites(Extensions):
             str: Formatted list of negative reviews with reviewer names.
         """
         try:
-            if "trustpilot.com" in company_domain:
+            company_domain = company_domain.strip()
+            parsed = urlparse(company_domain)
+            if parsed.scheme in ("http", "https") and parsed.hostname and (
+                parsed.hostname == "trustpilot.com"
+                or parsed.hostname.endswith(".trustpilot.com")
+            ):
                 base_url = company_domain.rstrip("/")
             else:
                 base_url = f"https://www.trustpilot.com/review/{company_domain}"

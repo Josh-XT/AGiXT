@@ -1,6 +1,7 @@
 import logging
 import re
 import requests
+from urllib.parse import urlparse
 from Extensions import Extensions
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
@@ -235,8 +236,14 @@ class product_hunt(Extensions):
             str: Detailed product information.
         """
         try:
-            if "producthunt.com" in product_slug:
-                product_slug = product_slug.rstrip("/").split("/")[-1]
+            parsed = urlparse(product_slug)
+            if parsed.scheme in ("http", "https") and parsed.hostname and (
+                parsed.hostname == "producthunt.com"
+                or parsed.hostname.endswith(".producthunt.com")
+            ):
+                path_parts = [p for p in parsed.path.rstrip("/").split("/") if p]
+                if path_parts:
+                    product_slug = path_parts[-1]
 
             # Try GraphQL API first
             if self.api_token:
@@ -511,8 +518,14 @@ class product_hunt(Extensions):
             str: Product comments with author info.
         """
         try:
-            if "producthunt.com" in product_slug:
-                product_slug = product_slug.rstrip("/").split("/")[-1]
+            parsed = urlparse(product_slug)
+            if parsed.scheme in ("http", "https") and parsed.hostname and (
+                parsed.hostname == "producthunt.com"
+                or parsed.hostname.endswith(".producthunt.com")
+            ):
+                path_parts = [p for p in parsed.path.rstrip("/").split("/") if p]
+                if path_parts:
+                    product_slug = path_parts[-1]
             limit = min(int(limit), 50)
 
             # Try API first
@@ -599,8 +612,14 @@ class product_hunt(Extensions):
             str: Confirmation or instructions for manual posting.
         """
         try:
-            if "producthunt.com" in product_slug:
-                product_slug = product_slug.rstrip("/").split("/")[-1]
+            parsed = urlparse(product_slug)
+            if parsed.scheme in ("http", "https") and parsed.hostname and (
+                parsed.hostname == "producthunt.com"
+                or parsed.hostname.endswith(".producthunt.com")
+            ):
+                path_parts = [p for p in parsed.path.rstrip("/").split("/") if p]
+                if path_parts:
+                    product_slug = path_parts[-1]
 
             if not self.api_token:
                 url = f"https://www.producthunt.com/posts/{product_slug}"
