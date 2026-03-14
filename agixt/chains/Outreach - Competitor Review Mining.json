@@ -1,0 +1,46 @@
+{
+    "chain_name": "Outreach - Competitor Review Mining",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Review Sites - Search G2",
+                "product_name": "{competitor_name}"
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "Review Sites - Analyze Complaints",
+                "reviews_text": "{STEP1}"
+            }
+        },
+        {
+            "step": 3,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Command",
+            "prompt": {
+                "command_name": "SEO - Generate Comparison Pages",
+                "your_product": "{product_name}",
+                "competitors": "{competitor_name}"
+            }
+        },
+        {
+            "step": 4,
+            "agent_name": "{agent_name}",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Outreach-CompetitorAnalysis",
+                "reviews": "{STEP1}",
+                "complaints": "{STEP2}",
+                "comparison_pages": "{STEP3}",
+                "your_product": "{product_name}",
+                "competitor": "{competitor_name}"
+            }
+        }
+    ]
+}
