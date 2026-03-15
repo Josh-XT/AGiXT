@@ -119,6 +119,13 @@ class CompanyOutreachBot:
         # Bot state
         self.is_running = False
         self.started_at: Optional[datetime] = None
+        self.tasks_completed = 0
+        self.leads_found = 0
+        self.last_scan: Optional[datetime] = None
+        self.next_scan: Optional[datetime] = None
+
+        # Internal client for AI calls
+        self.internal_client = InternalClient()
 
     def _build_business_context(self) -> str:
         """Build a rich business context block for prompts.
@@ -154,13 +161,6 @@ class CompanyOutreachBot:
         if not parts:
             return "No product context configured yet — research the company to learn more."
         return "\n".join(parts)
-        self.tasks_completed = 0
-        self.leads_found = 0
-        self.last_scan: Optional[datetime] = None
-        self.next_scan: Optional[datetime] = None
-
-        # Internal client for AI calls
-        self.internal_client = InternalClient()
 
     async def _get_user_token(self) -> Optional[str]:
         """Get token for the bot owner to run agent commands."""

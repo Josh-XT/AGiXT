@@ -19,6 +19,8 @@ from Globals import getenv
 
 # Track Discord Bot Manager task
 discord_bot_manager_task: Optional[asyncio.Task] = None
+# Track Outreach Bot Manager task
+outreach_bot_manager_task: Optional[asyncio.Task] = None
 
 
 class StartupTimer:
@@ -401,6 +403,11 @@ async def start_service(is_restart=False):
         await start_discord_bots()
         startup_timer.section_end("Discord Bot Manager startup", section_start)
 
+        # Start Outreach Bot Manager as a background task (non-blocking)
+        section_start = startup_timer.section_start()
+        await start_outreach_bots()
+        startup_timer.section_end("Outreach Bot Manager startup", section_start)
+
         # Print the startup timing report
         startup_timer.report(logger)
 
@@ -446,6 +453,44 @@ async def stop_discord_bots():
         logger.error(f"Error stopping Discord Bot Manager: {e}")
 
 
+async def start_outreach_bots():
+    """Start the Outreach Bot Manager as a background task."""
+    global outreach_bot_manager_task
+
+    try:
+        from OutreachBotManager import start_outreach_bot_manager
+
+        outreach_bot_manager_task = asyncio.create_task(start_outreach_bot_manager())
+        logger.info("✅ Outreach Bot Manager started")
+    except ImportError as e:
+        logger.warning(f"Outreach Bot Manager not available: {e}")
+    except Exception as e:
+        logger.error(f"Failed to start Outreach Bot Manager: {e}")
+
+
+async def stop_outreach_bots():
+    """Stop the Outreach Bot Manager."""
+    global outreach_bot_manager_task
+
+    try:
+        from OutreachBotManager import get_outreach_bot_manager
+
+        manager = get_outreach_bot_manager()
+        if manager:
+            await manager.stop()
+
+        if outreach_bot_manager_task and not outreach_bot_manager_task.done():
+            outreach_bot_manager_task.cancel()
+            try:
+                await outreach_bot_manager_task
+            except asyncio.CancelledError:
+                pass
+
+        logger.info("Outreach Bot Manager stopped")
+    except Exception as e:
+        logger.error(f"Error stopping Outreach Bot Manager: {e}")
+
+
 async def restart_service():
     """Kill and restart the uvicorn process."""
     global uvicorn_process, last_restart_time
@@ -462,8 +507,9 @@ async def restart_service():
     logger.warning("Attempting to restart AGiXT service...")
 
     try:
-        # Stop Discord bots first (clears Redis status)
+        # Stop bot managers first
         await stop_discord_bots()
+        await stop_outreach_bots()
 
         # Kill existing uvicorn process if any
         if uvicorn_process and uvicorn_process.poll() is None:
@@ -562,9 +608,11 @@ async def main():
     except KeyboardInterrupt:
         logger.info("Shutting down health check monitor...")
         await stop_discord_bots()
+        await stop_outreach_bots()
     except Exception as e:
         logger.error(f"Fatal error: {e}")
         await stop_discord_bots()
+        await stop_outreach_bots()
         sys.exit(1)
 
 
