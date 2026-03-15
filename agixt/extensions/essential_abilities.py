@@ -423,19 +423,30 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
     def safe_join(self, paths) -> str:
         """
-        Safely join paths together
+        Safely join paths together, ensuring the result stays within
+        the agent's WORKING_DIRECTORY to prevent path traversal attacks.
 
         Args:
         paths (str): The paths to join
 
         Returns:
         str: The joined path
+
+        Raises:
+        PermissionError: If the resolved path escapes WORKING_DIRECTORY
         """
         if "/path/to/" in paths:
             paths = paths.replace("/path/to/", "")
-        new_path = os.path.normpath(
-            os.path.join(self.WORKING_DIRECTORY, *paths.split("/"))
+        # Use realpath (not just normpath) to resolve symlinks and ..
+        base = os.path.realpath(self.WORKING_DIRECTORY)
+        new_path = os.path.realpath(
+            os.path.normpath(os.path.join(self.WORKING_DIRECTORY, *paths.split("/")))
         )
+        # Verify the resolved path is within the workspace
+        if not (new_path.startswith(base + os.sep) or new_path == base):
+            raise PermissionError(
+                f"Path traversal detected: refusing to access path outside workspace"
+            )
         path_dir = os.path.dirname(new_path)
         os.makedirs(path_dir, exist_ok=True)
         return new_path
