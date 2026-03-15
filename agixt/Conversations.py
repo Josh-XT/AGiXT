@@ -27,14 +27,13 @@ from MagicalAuth import convert_time, get_user_id, get_user_timezone
 from SharedCache import shared_cache
 
 # Regex to strip ANSI escape sequences and non-printable control characters
-# Matches: CSI sequences (\x1b[...X), OSC sequences (\x1b]...BEL), charset selects,
-# cursor/erase sequences, and carriage returns from TTY output
+# Matches: CSI sequences (\x1b[...X), OSC sequences (\x1b]...BEL), charset
+# selects, and carriage returns from TTY output.
+# The OSC branch uses [^\x07\x1b]* (not [^\x07]*) so each probe is bounded by the
+# distance to the next ESC, preventing O(n^2) backtracking on adversarial input
+# with many \x1b] openers and no \x07 terminator (CWE-1333 / py/polynomial-redos).
 _ANSI_ESCAPE_RE = re.compile(
-    r"\x1b\[[0-9;]*[a-zA-Z]"
-    r"|\x1b\][^\x07]*\x07"
-    r"|\x1b[()][AB012]"
-    r"|\x1b\[[0-9]*[JKH]"
-    r"|\r"
+    r"\x1b\[[0-9;]*[a-zA-Z]" r"|\x1b\](?:[^\x07\x1b]*\x07)?" r"|\x1b[()][AB012]" r"|\r"
 )
 
 
