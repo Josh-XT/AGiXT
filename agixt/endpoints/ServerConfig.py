@@ -1990,9 +1990,7 @@ def _auto_enable_bot_commands(platform: str, agent_id: str, token: str):
         agent = Agent(agent_id=agent_id, api_key=token)
         # Build commands dict - only enable, never disable existing ones
         commands_to_enable = {cmd: True for cmd in required_commands}
-        agent.update_agent_config(
-            new_config=commands_to_enable, config_key="commands"
-        )
+        agent.update_agent_config(new_config=commands_to_enable, config_key="commands")
         logging.info(
             f"Auto-enabled {len(required_commands)} commands on agent {agent_id} "
             f"for {platform} bot deployment"

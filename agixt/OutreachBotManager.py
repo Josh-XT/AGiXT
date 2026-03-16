@@ -534,15 +534,22 @@ class CompanyOutreachBot:
                     )
                     self._log_activity(task_name, f"Running task: {task_name}")
                     await task_map[task_name]()
-                    self._log_activity(task_name, f"Task '{task_name}' completed", "success")
+                    self._log_activity(
+                        task_name, f"Task '{task_name}' completed", "success"
+                    )
                 except Exception as e:
                     logger.error(
                         f"Outreach bot ({self.company_name}): Task '{task_name}' failed: {e}"
                     )
-                    self._log_activity(task_name, f"Task '{task_name}' failed: {e}", "error")
+                    self._log_activity(
+                        task_name, f"Task '{task_name}' failed: {e}", "error"
+                    )
 
         self.next_scan = datetime.utcnow() + timedelta(seconds=self.poll_interval)
-        self._log_activity("cycle", f"Cycle complete. Next scan at {self.next_scan.strftime('%H:%M:%S')}")
+        self._log_activity(
+            "cycle",
+            f"Cycle complete. Next scan at {self.next_scan.strftime('%H:%M:%S')}",
+        )
         logger.info(
             f"Outreach bot ({self.company_name}): Cycle complete. "
             f"Next scan at {self.next_scan.strftime('%H:%M:%S')}"
@@ -581,7 +588,10 @@ class CompanyOutreachBot:
         """Start the outreach bot."""
         self.is_running = True
         self.started_at = datetime.utcnow()
-        self._log_activity("startup", f"Bot started (interval: {self.poll_interval // 3600}h, tasks: {', '.join(self.active_tasks)})")
+        self._log_activity(
+            "startup",
+            f"Bot started (interval: {self.poll_interval // 3600}h, tasks: {', '.join(self.active_tasks)})",
+        )
         logger.info(
             f"Outreach bot started for {self.company_name} "
             f"(interval: {self.poll_interval // 3600}h, tasks: {self.active_tasks})"
@@ -860,13 +870,19 @@ class OutreachBotManager:
                 statuses[cid] = {
                     "company_id": status.company_id,
                     "company_name": status.company_name,
-                    "started_at": status.started_at.isoformat() if status.started_at else None,
+                    "started_at": (
+                        status.started_at.isoformat() if status.started_at else None
+                    ),
                     "is_running": status.is_running,
                     "error": status.error,
                     "tasks_completed": status.tasks_completed,
                     "leads_found": status.leads_found,
-                    "last_scan": status.last_scan.isoformat() if status.last_scan else None,
-                    "next_scan": status.next_scan.isoformat() if status.next_scan else None,
+                    "last_scan": (
+                        status.last_scan.isoformat() if status.last_scan else None
+                    ),
+                    "next_scan": (
+                        status.next_scan.isoformat() if status.next_scan else None
+                    ),
                     "active_tasks": status.active_tasks,
                 }
 
@@ -955,13 +971,19 @@ def get_outreach_bot_status_from_redis(company_id: str) -> Optional[OutreachBotS
         return OutreachBotStatus(
             company_id=s["company_id"],
             company_name=s["company_name"],
-            started_at=datetime.fromisoformat(s["started_at"]) if s["started_at"] else None,
+            started_at=(
+                datetime.fromisoformat(s["started_at"]) if s["started_at"] else None
+            ),
             is_running=s["is_running"],
             error=s.get("error"),
             tasks_completed=s.get("tasks_completed", 0),
             leads_found=s.get("leads_found", 0),
-            last_scan=datetime.fromisoformat(s["last_scan"]) if s.get("last_scan") else None,
-            next_scan=datetime.fromisoformat(s["next_scan"]) if s.get("next_scan") else None,
+            last_scan=(
+                datetime.fromisoformat(s["last_scan"]) if s.get("last_scan") else None
+            ),
+            next_scan=(
+                datetime.fromisoformat(s["next_scan"]) if s.get("next_scan") else None
+            ),
             active_tasks=s.get("active_tasks", []),
         )
     except Exception as e:
