@@ -22,6 +22,9 @@ from Globals import getenv, DEFAULT_USER
 
 # Removed textacy dependency - using spaCy-based keyword extraction
 from youtube_transcript_api import YouTubeTranscriptApi
+
+# Suppress onnxruntime C++ GPU device discovery warnings in containers without GPUs
+os.environ.setdefault("ORT_LOG_LEVEL", "3")  # ERROR level only
 from onnxruntime import InferenceSession
 from tokenizers import Tokenizer
 from typing import List, cast, Union, Sequence
