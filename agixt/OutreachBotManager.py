@@ -46,6 +46,13 @@ from SharedCache import shared_cache
 logger = logging.getLogger(__name__)
 
 
+# Redis keys for cross-process status sharing
+OUTREACH_STATUS_REDIS_KEY = "agixt:outreach_bot_status"
+OUTREACH_MANAGER_RUNNING_KEY = "agixt:outreach_bot_manager_running"
+OUTREACH_ACTIVITY_LOG_KEY = "agixt:outreach_bot_activity:{company_id}"
+OUTREACH_ACTIVITY_LOG_MAX = 200  # Max log entries per company
+
+
 @dataclass
 class OutreachBotStatus:
     company_id: str
@@ -509,6 +516,7 @@ class CompanyOutreachBot:
         """Run one complete outreach cycle with all configured tasks."""
         logger.info(f"Outreach bot ({self.company_name}): Starting outreach cycle")
         self.last_scan = datetime.utcnow()
+        self._log_activity("cycle", "Starting outreach cycle")
 
         task_map = {
             "monitor": self._task_monitor_social,
@@ -524,13 +532,17 @@ class CompanyOutreachBot:
                     logger.info(
                         f"Outreach bot ({self.company_name}): Running task '{task_name}'"
                     )
+                    self._log_activity(task_name, f"Running task: {task_name}")
                     await task_map[task_name]()
+                    self._log_activity(task_name, f"Task '{task_name}' completed", "success")
                 except Exception as e:
                     logger.error(
                         f"Outreach bot ({self.company_name}): Task '{task_name}' failed: {e}"
                     )
+                    self._log_activity(task_name, f"Task '{task_name}' failed: {e}", "error")
 
         self.next_scan = datetime.utcnow() + timedelta(seconds=self.poll_interval)
+        self._log_activity("cycle", f"Cycle complete. Next scan at {self.next_scan.strftime('%H:%M:%S')}")
         logger.info(
             f"Outreach bot ({self.company_name}): Cycle complete. "
             f"Next scan at {self.next_scan.strftime('%H:%M:%S')}"
@@ -546,10 +558,30 @@ class CompanyOutreachBot:
             if self.is_running:
                 await self._run_cycle()
 
+    def _log_activity(self, task_name: str, message: str, level: str = "info"):
+        """Log a bot activity entry to Redis for UI visibility."""
+        try:
+            entry = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "task": task_name,
+                "message": message,
+                "level": level,
+            }
+            key = OUTREACH_ACTIVITY_LOG_KEY.format(company_id=self.company_id)
+            # Use SharedCache's Redis connection if available
+            redis_client = getattr(shared_cache, "_redis", None)
+            if redis_client:
+                redis_client.lpush(key, json.dumps(entry))
+                redis_client.ltrim(key, 0, OUTREACH_ACTIVITY_LOG_MAX - 1)
+                redis_client.expire(key, 86400 * 7)  # 7 day TTL
+        except Exception:
+            pass  # Don't let logging errors affect bot operation
+
     async def start(self):
         """Start the outreach bot."""
         self.is_running = True
         self.started_at = datetime.utcnow()
+        self._log_activity("startup", f"Bot started (interval: {self.poll_interval // 3600}h, tasks: {', '.join(self.active_tasks)})")
         logger.info(
             f"Outreach bot started for {self.company_name} "
             f"(interval: {self.poll_interval // 3600}h, tasks: {self.active_tasks})"
@@ -559,6 +591,7 @@ class CompanyOutreachBot:
     async def stop(self):
         """Stop the outreach bot."""
         self.is_running = False
+        self._log_activity("shutdown", "Bot stopped")
         logger.info(f"Outreach bot stopped for {self.company_name}")
 
     def get_status(self) -> OutreachBotStatus:
@@ -721,10 +754,46 @@ class OutreachBotManager:
         if company_id in self.bots:
             del self.bots[company_id]
 
+    def _publish_status_to_redis(self):
+        """Publish all bot statuses to Redis for cross-process access."""
+        try:
+            redis_client = getattr(shared_cache, "_redis", None)
+            if not redis_client:
+                return
+
+            statuses = {}
+            for cid, bot in self.bots.items():
+                status = bot.get_status()
+                statuses[cid] = {
+                    "company_id": status.company_id,
+                    "company_name": status.company_name,
+                    "started_at": status.started_at.isoformat() if status.started_at else None,
+                    "is_running": status.is_running,
+                    "error": status.error,
+                    "tasks_completed": status.tasks_completed,
+                    "leads_found": status.leads_found,
+                    "last_scan": status.last_scan.isoformat() if status.last_scan else None,
+                    "next_scan": status.next_scan.isoformat() if status.next_scan else None,
+                    "active_tasks": status.active_tasks,
+                }
+
+            redis_client.set(OUTREACH_STATUS_REDIS_KEY, json.dumps(statuses), ex=120)
+            redis_client.set(OUTREACH_MANAGER_RUNNING_KEY, "1", ex=120)
+        except Exception as e:
+            logger.debug(f"Failed to publish outreach status to Redis: {e}")
+
+    async def _status_publisher_loop(self):
+        """Background task to periodically publish status to Redis."""
+        while self._running:
+            self._publish_status_to_redis()
+            await asyncio.sleep(5)  # Update every 5 seconds
+
     async def start(self):
         """Start the outreach bot manager."""
         self._running = True
         logger.info("Outreach bot manager started")
+        # Start status publisher as a background task
+        self._status_task = asyncio.create_task(self._status_publisher_loop())
         await self.sync_bots()
         while self._running:
             await asyncio.sleep(60)  # Re-sync every 60 seconds
@@ -733,6 +802,21 @@ class OutreachBotManager:
     async def stop(self):
         """Stop all outreach bots."""
         self._running = False
+        # Cancel status publisher
+        if hasattr(self, "_status_task") and self._status_task:
+            self._status_task.cancel()
+            try:
+                await self._status_task
+            except asyncio.CancelledError:
+                pass
+        # Clean up Redis status
+        try:
+            redis_client = getattr(shared_cache, "_redis", None)
+            if redis_client:
+                redis_client.delete(OUTREACH_STATUS_REDIS_KEY)
+                redis_client.delete(OUTREACH_MANAGER_RUNNING_KEY)
+        except Exception:
+            pass
         for cid in list(self.bots.keys()):
             await self._stop_bot(cid)
         logger.info("Outreach bot manager stopped")
@@ -754,6 +838,57 @@ _manager: Optional[OutreachBotManager] = None
 def get_outreach_bot_manager() -> Optional[OutreachBotManager]:
     """Get the singleton outreach bot manager instance."""
     return _manager
+
+
+def get_outreach_bot_status_from_redis(company_id: str) -> Optional[OutreachBotStatus]:
+    """Get outreach bot status from Redis (for uvicorn worker processes)."""
+    try:
+        redis_client = getattr(shared_cache, "_redis", None)
+        if not redis_client:
+            return None
+
+        if not redis_client.get(OUTREACH_MANAGER_RUNNING_KEY):
+            return None
+
+        status_data = redis_client.get(OUTREACH_STATUS_REDIS_KEY)
+        if not status_data:
+            return None
+
+        statuses = json.loads(status_data)
+        if company_id not in statuses:
+            return None
+
+        s = statuses[company_id]
+        return OutreachBotStatus(
+            company_id=s["company_id"],
+            company_name=s["company_name"],
+            started_at=datetime.fromisoformat(s["started_at"]) if s["started_at"] else None,
+            is_running=s["is_running"],
+            error=s.get("error"),
+            tasks_completed=s.get("tasks_completed", 0),
+            leads_found=s.get("leads_found", 0),
+            last_scan=datetime.fromisoformat(s["last_scan"]) if s.get("last_scan") else None,
+            next_scan=datetime.fromisoformat(s["next_scan"]) if s.get("next_scan") else None,
+            active_tasks=s.get("active_tasks", []),
+        )
+    except Exception as e:
+        logger.debug(f"Error reading outreach bot status from Redis: {e}")
+        return None
+
+
+def get_outreach_bot_activity_log(company_id: str, limit: int = 50) -> List[dict]:
+    """Get activity log entries for an outreach bot from Redis."""
+    try:
+        redis_client = getattr(shared_cache, "_redis", None)
+        if not redis_client:
+            return []
+
+        key = OUTREACH_ACTIVITY_LOG_KEY.format(company_id=company_id)
+        entries = redis_client.lrange(key, 0, limit - 1)
+        return [json.loads(e) for e in entries]
+    except Exception as e:
+        logger.debug(f"Error reading outreach bot activity log: {e}")
+        return []
 
 
 async def start_outreach_bot_manager():

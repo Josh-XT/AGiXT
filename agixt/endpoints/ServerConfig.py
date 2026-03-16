@@ -1970,9 +1970,9 @@ def _get_bot_manager(platform: str):
 
             return asyncio.get_event_loop().run_until_complete(get_github_bot_manager())
         elif platform == "outreach":
-            from OutreachBotManager import get_outreach_bot_manager
-
-            return get_outreach_bot_manager()
+            # Outreach bot manager runs in parent process, not uvicorn workers.
+            # Return None here; status is handled via Redis in _get_bot_status_for_platform.
+            return None
         return None
     except Exception as e:
         logging.warning(f"Error getting bot manager for {platform}: {e}")
@@ -2020,6 +2020,42 @@ def _get_bot_status_for_platform(
                     if hasattr(status, "guild_count")
                     else None
                 ),
+            )
+
+        # Special handling for Outreach - it also uses Redis for cross-process status
+        if platform == "outreach":
+            from OutreachBotManager import get_outreach_bot_status_from_redis
+
+            status = get_outreach_bot_status_from_redis(company_id)
+            if not status:
+                return BotStatusResponse(
+                    company_id=company_id,
+                    company_name=company_name,
+                    platform=platform,
+                    is_running=False,
+                )
+
+            extra = {}
+            if status.tasks_completed:
+                extra["tasks_completed"] = status.tasks_completed
+            if status.leads_found:
+                extra["leads_found"] = status.leads_found
+            if status.last_scan:
+                extra["last_scan"] = status.last_scan.isoformat()
+            if status.next_scan:
+                extra["next_scan"] = status.next_scan.isoformat()
+            if status.active_tasks:
+                extra["active_tasks"] = status.active_tasks
+
+            return BotStatusResponse(
+                company_id=company_id,
+                company_name=status.company_name or company_name,
+                platform=platform,
+                is_running=status.is_running,
+                started_at=status.started_at.isoformat() if status.started_at else None,
+                messages_processed=status.tasks_completed,
+                error=status.error,
+                extra=extra if extra else None,
             )
 
         # For other platforms, use the manager pattern
@@ -2345,6 +2381,41 @@ async def get_company_deployed_bots(
         paused_count=paused_count,
         error_count=error_count,
     )
+
+
+@app.get(
+    "/v1/company/{company_id}/bots/{platform}/activity-log",
+    tags=["Company Bots"],
+    summary="Get bot activity log",
+    description="Get recent activity log entries for a bot. Currently supported for outreach bots.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_bot_activity_log(
+    company_id: str,
+    platform: str,
+    limit: int = 50,
+    authorization: str = Header(None),
+):
+    """Get activity log for a bot."""
+    auth = MagicalAuth(token=authorization)
+    auth.validate_user()
+
+    user_role = auth.get_user_role(company_id)
+    is_super_admin = auth.is_super_admin()
+
+    if user_role > 2 and not is_super_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied. Only company admins can view bot activity logs.",
+        )
+
+    if platform == "outreach":
+        from OutreachBotManager import get_outreach_bot_activity_log
+
+        entries = get_outreach_bot_activity_log(company_id, limit=min(limit, 200))
+        return {"entries": entries, "platform": platform, "company_id": company_id}
+
+    return {"entries": [], "platform": platform, "company_id": company_id}
 
 
 @app.get(
