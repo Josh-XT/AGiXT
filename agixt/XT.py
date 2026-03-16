@@ -3467,6 +3467,17 @@ Your response (true or false):"""
                     pass
                 answer = response.split("<answer>")[-1]
                 answer = answer.split("</answer>")[0]
+                # Strip any leaked <interaction> XML from the answer.
+                # These are internal web-browsing control tags, not real content.
+                if "<interaction" in answer.lower():
+                    import re
+
+                    answer = re.sub(
+                        r"<interaction[^>]*>.*?</interaction>",
+                        "",
+                        answer,
+                        flags=re.DOTALL | re.IGNORECASE,
+                    ).strip()
                 response = answer
             if log_output:
                 if thoughts_and_reflections:
@@ -3531,6 +3542,21 @@ Your response (true or false):"""
                 logging.error(f"Error getting response: {response}")
         response = self.remove_tagged_content(response, "execute")
         response = self.remove_tagged_content(response, "output")
+
+        # Strip leaked web-browsing <interaction> XML from the final response.
+        # These are internal control tags used by the Interact with Webpage
+        # command and should never appear in user-facing output.
+        if "<interaction" in response.lower():
+            import re
+
+            response = re.sub(
+                r"<interaction[^>]*>.*?</interaction>",
+                "",
+                response,
+                flags=re.DOTALL | re.IGNORECASE,
+            ).strip()
+            if not response:
+                response = "The task has been completed."
 
         # Check if there are pending remote commands (client-defined tools)
         pending_commands = getattr(

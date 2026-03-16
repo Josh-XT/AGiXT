@@ -262,7 +262,18 @@ class CompanyOutreachBot:
                     .get("message", {})
                     .get("content", "")
                 )
-                return content
+                # Strip any leaked <interaction> XML tags — these are internal
+                # web-browsing control tags and should never be in bot output.
+                if content and "<interaction" in content.lower():
+                    import re
+
+                    content = re.sub(
+                        r"<interaction[^>]*>.*?</interaction>",
+                        "",
+                        content,
+                        flags=re.DOTALL | re.IGNORECASE,
+                    ).strip()
+                return content if content else None
 
             return None
 
