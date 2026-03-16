@@ -731,6 +731,8 @@ class OutreachBotManager:
     async def _start_bot(self, config: Dict):
         """Start a new outreach bot for a company."""
         try:
+            # Auto-enable required commands on the agent before starting
+            self._ensure_agent_commands(config)
             bot = CompanyOutreachBot(**config)
             self.bots[config["company_id"]] = bot
             self.bot_tasks[config["company_id"]] = asyncio.create_task(bot.start())
@@ -753,6 +755,97 @@ class OutreachBotManager:
             del self.bot_tasks[company_id]
         if company_id in self.bots:
             del self.bots[company_id]
+
+    def _ensure_agent_commands(self, config: Dict):
+        """Ensure the bot's agent has the required outreach commands enabled.
+
+        This runs each time a bot starts (including after server restart)
+        to ensure the agent always has the necessary commands available.
+        Only enables commands, never disables existing ones.
+        """
+        agent_id = config.get("bot_agent_id")
+        owner_id = config.get("bot_owner_id")
+        if not agent_id or not owner_id:
+            return
+
+        try:
+            from Agent import impersonate_user
+
+            token = impersonate_user(owner_id)
+            if not token:
+                logger.warning(
+                    f"Could not impersonate owner {owner_id} to enable agent commands"
+                )
+                return
+
+            from Agent import Agent
+
+            agent = Agent(agent_id=agent_id, api_key=token)
+
+            # All Marketing & Growth commands the outreach bot needs
+            required_commands = [
+                # Lead Tracker
+                "Leads - Add Lead",
+                "Leads - Update Lead Status",
+                "Leads - Log Interaction",
+                "Leads - Schedule Follow Up",
+                "Leads - Get Follow Ups Due",
+                "Leads - Get Lead Details",
+                "Leads - Search Leads",
+                "Leads - Get Pipeline Summary",
+                "Leads - Get Channel Stats",
+                "Leads - List All Leads",
+                # Content Repurpose
+                "Content - Reddit to Twitter Thread",
+                "Content - Twitter to LinkedIn Post",
+                "Content - Post to Video Script",
+                "Content - Generate Reddit Post",
+                "Content - Generate Comparison Post",
+                "Content - Generate Build in Public Post",
+                "Content - Repurpose to All Platforms",
+                "Content - Generate Outreach DM",
+                # Social Monitor
+                "Monitor - Create Watch Rule",
+                "Monitor - List Watch Rules",
+                "Monitor - Delete Watch Rule",
+                "Monitor - Check Reddit",
+                "Monitor - Check Twitter",
+                "Monitor - Check All Platforms",
+                "Monitor - Get New Matches",
+                "Monitor - Generate Warm Leads Report",
+                # Review Sites
+                "Reviews - Search G2",
+                "Reviews - Search Capterra",
+                "Reviews - Search Trustpilot",
+                "Reviews - Get G2 Reviews",
+                "Reviews - Get Capterra Reviews",
+                "Reviews - Get Trustpilot Reviews",
+                "Reviews - Analyze Complaints",
+                "Reviews - Find Reviewer Profile",
+                # SEO Research
+                "SEO - Get Autocomplete Suggestions",
+                "SEO - Get People Also Ask",
+                "SEO - Get Related Searches",
+                "SEO - Get SERP Results",
+                "SEO - Generate Comparison Pages",
+                "SEO - Generate Blog Topics",
+                "SEO - Analyze Competitor Content",
+                "SEO - Find Content Gaps",
+            ]
+
+            commands_to_enable = {cmd: True for cmd in required_commands}
+            agent.update_agent_config(
+                new_config=commands_to_enable, config_key="commands"
+            )
+            logger.info(
+                f"Ensured {len(required_commands)} commands enabled on agent {agent_id} "
+                f"for outreach bot ({config.get('company_name', 'unknown')})"
+            )
+        except Exception as e:
+            logger.warning(
+                f"Could not ensure agent commands for outreach bot "
+                f"({config.get('company_name', 'unknown')}): {e}"
+            )
 
     def _publish_status_to_redis(self):
         """Publish all bot statuses to Redis for cross-process access."""

@@ -1916,6 +1916,92 @@ BOT_PLATFORM_SETTINGS = {
     },
 }
 
+# Commands that each bot platform needs auto-enabled on the agent.
+# Only outreach needs this since other bots are message-response based
+# and rely on the agent's existing commands. The outreach bot proactively
+# runs tasks that require specific Marketing & Growth extensions.
+BOT_REQUIRED_COMMANDS = {
+    "outreach": [
+        # Lead Tracker
+        "Leads - Add Lead",
+        "Leads - Update Lead Status",
+        "Leads - Log Interaction",
+        "Leads - Schedule Follow Up",
+        "Leads - Get Follow Ups Due",
+        "Leads - Get Lead Details",
+        "Leads - Search Leads",
+        "Leads - Get Pipeline Summary",
+        "Leads - Get Channel Stats",
+        "Leads - List All Leads",
+        # Content Repurpose
+        "Content - Reddit to Twitter Thread",
+        "Content - Twitter to LinkedIn Post",
+        "Content - Post to Video Script",
+        "Content - Generate Reddit Post",
+        "Content - Generate Comparison Post",
+        "Content - Generate Build in Public Post",
+        "Content - Repurpose to All Platforms",
+        "Content - Generate Outreach DM",
+        # Social Monitor
+        "Monitor - Create Watch Rule",
+        "Monitor - List Watch Rules",
+        "Monitor - Delete Watch Rule",
+        "Monitor - Check Reddit",
+        "Monitor - Check Twitter",
+        "Monitor - Check All Platforms",
+        "Monitor - Get New Matches",
+        "Monitor - Generate Warm Leads Report",
+        # Review Sites
+        "Reviews - Search G2",
+        "Reviews - Search Capterra",
+        "Reviews - Search Trustpilot",
+        "Reviews - Get G2 Reviews",
+        "Reviews - Get Capterra Reviews",
+        "Reviews - Get Trustpilot Reviews",
+        "Reviews - Analyze Complaints",
+        "Reviews - Find Reviewer Profile",
+        # SEO Research
+        "SEO - Get Autocomplete Suggestions",
+        "SEO - Get People Also Ask",
+        "SEO - Get Related Searches",
+        "SEO - Get SERP Results",
+        "SEO - Generate Comparison Pages",
+        "SEO - Generate Blog Topics",
+        "SEO - Analyze Competitor Content",
+        "SEO - Find Content Gaps",
+    ],
+}
+
+
+def _auto_enable_bot_commands(platform: str, agent_id: str, token: str):
+    """Auto-enable required commands on the bot's agent when a bot is deployed.
+
+    This ensures the agent has the necessary extension commands enabled
+    so the bot can actually execute its tasks. Without this, the bot
+    would prompt the agent to use commands that aren't available.
+    """
+    required_commands = BOT_REQUIRED_COMMANDS.get(platform)
+    if not required_commands:
+        return
+
+    try:
+        from Agent import Agent
+
+        agent = Agent(agent_id=agent_id, api_key=token)
+        # Build commands dict - only enable, never disable existing ones
+        commands_to_enable = {cmd: True for cmd in required_commands}
+        agent.update_agent_config(
+            new_config=commands_to_enable, config_key="commands"
+        )
+        logging.info(
+            f"Auto-enabled {len(required_commands)} commands on agent {agent_id} "
+            f"for {platform} bot deployment"
+        )
+    except Exception as e:
+        logging.warning(
+            f"Could not auto-enable commands for {platform} bot on agent {agent_id}: {e}"
+        )
+
 
 def _get_bot_manager(platform: str):
     """Get the bot manager for a specific platform."""
@@ -3599,6 +3685,15 @@ async def enable_company_bot(
             status_code=500,
             detail=f"Bot enable failed: {type(e).__name__}: {e}",
         )
+
+    # Auto-enable required agent commands for bots that need specific extensions
+    if request.enabled and request.agent_id:
+        try:
+            _auto_enable_bot_commands(platform, request.agent_id, authorization)
+        except Exception as e:
+            logging.warning(
+                f"Failed to auto-enable commands for {platform} bot agent {request.agent_id}: {e}"
+            )
 
     # Trigger bot sync
     try:
