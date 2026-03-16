@@ -481,7 +481,12 @@ class web_browsing(Extensions):
 
         # Call ezlocalai directly to get raw LLM response
         # The AGiXT endpoint filters thinking tags - we need the full response for XML parsing
-        ezlocalai_url = os.environ.get("EZLOCALAI_URL", "http://localhost:8091")
+        ezlocalai_url = os.environ.get("EZLOCALAI_URL", "http://localhost:8091").rstrip("/")
+        # If URL already ends with /v1, don't add it again
+        if ezlocalai_url.endswith("/v1"):
+            url = f"{ezlocalai_url}/chat/completions"
+        else:
+            url = f"{ezlocalai_url}/v1/chat/completions"
 
         # Build chat completions request for ezlocalai
         messages = [{"role": "user", "content": user_input}]
@@ -499,8 +504,6 @@ class web_browsing(Extensions):
         headers = {
             "Content-Type": "application/json",
         }
-
-        url = f"{ezlocalai_url}/v1/chat/completions"
 
         async def do_streaming_request():
             response_text = ""
