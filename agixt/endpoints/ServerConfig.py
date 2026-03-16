@@ -3274,9 +3274,7 @@ async def enable_company_bot(
         logging.error(
             f"enable_company_bot: company lookup failed for {company_id}: {e}\n{traceback.format_exc()}"
         )
-        raise HTTPException(
-            status_code=500, detail=f"Company lookup error: {e}"
-        )
+        raise HTTPException(status_code=500, detail=f"Company lookup error: {e}")
 
     # Check authorization
     try:
@@ -3286,9 +3284,7 @@ async def enable_company_bot(
         logging.error(
             f"enable_company_bot: role check failed for {company_id}: {e}\n{traceback.format_exc()}"
         )
-        raise HTTPException(
-            status_code=500, detail=f"Role check error: {e}"
-        )
+        raise HTTPException(status_code=500, detail=f"Role check error: {e}")
 
     if user_role > 2 and not is_super_admin:
         raise HTTPException(
@@ -3303,126 +3299,197 @@ async def enable_company_bot(
         enabled_setting_key = "DISCORD_BOT_ENABLED"
 
     try:
-      with get_db_session() as db:
-        # If enabling, check that required settings exist or OAuth is connected
-        if request.enabled:
-            oauth_provider = platform_config.get("oauth_provider")
+        with get_db_session() as db:
+            # If enabling, check that required settings exist or OAuth is connected
+            if request.enabled:
+                oauth_provider = platform_config.get("oauth_provider")
 
-            if oauth_provider and request.agent_id:
-                # For OAuth-based platforms, check if agent has OAuth credentials
-                from MagicalAuth import get_agent_oauth_credentials
+                if oauth_provider and request.agent_id:
+                    # For OAuth-based platforms, check if agent has OAuth credentials
+                    from MagicalAuth import get_agent_oauth_credentials
 
-                agent_creds = get_agent_oauth_credentials(
-                    request.agent_id, oauth_provider
-                )
-
-                if not agent_creds:
-                    provider_display = platform_config.get(
-                        "oauth_provider_display", oauth_provider.title()
+                    agent_creds = get_agent_oauth_credentials(
+                        request.agent_id, oauth_provider
                     )
+
+                    if not agent_creds:
+                        provider_display = platform_config.get(
+                            "oauth_provider_display", oauth_provider.title()
+                        )
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Please connect your {provider_display} account first. Go to Settings → Connections to link your account.",
+                        )
+                elif oauth_provider and not request.agent_id:
+                    # OAuth platform but no agent selected - need to select agent first
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Please connect your {provider_display} account first. Go to Settings → Connections to link your account.",
+                        detail="Please select an agent first. The bot will use the agent's connected OAuth credentials.",
                     )
-            elif oauth_provider and not request.agent_id:
-                # OAuth platform but no agent selected - need to select agent first
-                raise HTTPException(
-                    status_code=400,
-                    detail="Please select an agent first. The bot will use the agent's connected OAuth credentials.",
-                )
-            else:
-                # Non-OAuth platform - check required settings as before
-                for required_key in platform_config["required"]:
-                    # Check if provided in request
-                    provided = (
-                        request.settings
-                        and required_key in request.settings
-                        and request.settings[required_key]
-                    )
+                else:
+                    # Non-OAuth platform - check required settings as before
+                    for required_key in platform_config["required"]:
+                        # Check if provided in request
+                        provided = (
+                            request.settings
+                            and required_key in request.settings
+                            and request.settings[required_key]
+                        )
 
-                    # Check if exists in database
+                        # Check if exists in database
+                        existing = (
+                            db.query(CompanyExtensionSetting)
+                            .filter(
+                                CompanyExtensionSetting.company_id == company_id,
+                                CompanyExtensionSetting.extension_name
+                                == extension_name,
+                                CompanyExtensionSetting.setting_key == required_key,
+                            )
+                            .first()
+                        )
+
+                        if not provided and (
+                            not existing or not existing.setting_value
+                        ):
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Required setting '{required_key}' is missing. Required settings: {platform_config['required']}",
+                            )
+
+            # Save all provided settings
+            if request.settings:
+                for key, value in request.settings.items():
+                    if value is None:
+                        continue
+
                     existing = (
                         db.query(CompanyExtensionSetting)
                         .filter(
                             CompanyExtensionSetting.company_id == company_id,
                             CompanyExtensionSetting.extension_name == extension_name,
-                            CompanyExtensionSetting.setting_key == required_key,
+                            CompanyExtensionSetting.setting_key == key,
                         )
                         .first()
                     )
 
-                    if not provided and (not existing or not existing.setting_value):
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Required setting '{required_key}' is missing. Required settings: {platform_config['required']}",
+                    # Determine if sensitive - use specific patterns to avoid false positives like MAX_TOKENS
+                    upper_key = key.upper()
+                    is_sensitive = any(
+                        kw in upper_key
+                        for kw in [
+                            "API_KEY",
+                            "SECRET",
+                            "PASSWORD",
+                            "PRIVATE_KEY",
+                            "ACCESS_TOKEN",
+                            "REFRESH_TOKEN",
+                            "AUTH_TOKEN",
+                            "BEARER_TOKEN",
+                        ]
+                    )
+
+                    # Encrypt if sensitive
+                    final_value = encrypt_config_value(value) if is_sensitive else value
+
+                    if existing:
+                        existing.setting_value = final_value
+                        existing.is_sensitive = is_sensitive
+                    else:
+                        from DB import get_new_id
+
+                        new_setting = CompanyExtensionSetting(
+                            id=get_new_id(),
+                            company_id=company_id,
+                            extension_name=extension_name,
+                            setting_key=key,
+                            setting_value=final_value,
+                            is_sensitive=is_sensitive,
                         )
+                        db.add(new_setting)
 
-        # Save all provided settings
-        if request.settings:
-            for key, value in request.settings.items():
-                if value is None:
-                    continue
-
-                existing = (
+            # Save agent_id if provided
+            if request.agent_id:
+                agent_id_key = f"{extension_name}_bot_agent_id"
+                existing_agent = (
                     db.query(CompanyExtensionSetting)
                     .filter(
                         CompanyExtensionSetting.company_id == company_id,
                         CompanyExtensionSetting.extension_name == extension_name,
-                        CompanyExtensionSetting.setting_key == key,
+                        CompanyExtensionSetting.setting_key == agent_id_key,
                     )
                     .first()
                 )
-
-                # Determine if sensitive - use specific patterns to avoid false positives like MAX_TOKENS
-                upper_key = key.upper()
-                is_sensitive = any(
-                    kw in upper_key
-                    for kw in [
-                        "API_KEY",
-                        "SECRET",
-                        "PASSWORD",
-                        "PRIVATE_KEY",
-                        "ACCESS_TOKEN",
-                        "REFRESH_TOKEN",
-                        "AUTH_TOKEN",
-                        "BEARER_TOKEN",
-                    ]
-                )
-
-                # Encrypt if sensitive
-                final_value = encrypt_config_value(value) if is_sensitive else value
-
-                if existing:
-                    existing.setting_value = final_value
-                    existing.is_sensitive = is_sensitive
+                if existing_agent:
+                    existing_agent.setting_value = request.agent_id
                 else:
                     from DB import get_new_id
 
-                    new_setting = CompanyExtensionSetting(
-                        id=get_new_id(),
-                        company_id=company_id,
-                        extension_name=extension_name,
-                        setting_key=key,
-                        setting_value=final_value,
-                        is_sensitive=is_sensitive,
+                    db.add(
+                        CompanyExtensionSetting(
+                            id=get_new_id(),
+                            company_id=company_id,
+                            extension_name=extension_name,
+                            setting_key=agent_id_key,
+                            setting_value=request.agent_id,
+                            is_sensitive=False,
+                        )
                     )
-                    db.add(new_setting)
 
-        # Save agent_id if provided
-        if request.agent_id:
-            agent_id_key = f"{extension_name}_bot_agent_id"
-            existing_agent = (
+            # Save permission_mode if provided
+            if request.permission_mode:
+                # Validate permission mode
+                valid_modes = [
+                    "owner_only",
+                    "recognized_users",
+                    "allowlist",
+                    "app_users",
+                    "anyone",
+                ]
+                if request.permission_mode not in valid_modes:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid permission_mode: {request.permission_mode}. Valid modes: {valid_modes}",
+                    )
+
+                permission_key = f"{extension_name}_bot_permission_mode"
+                existing_perm = (
+                    db.query(CompanyExtensionSetting)
+                    .filter(
+                        CompanyExtensionSetting.company_id == company_id,
+                        CompanyExtensionSetting.extension_name == extension_name,
+                        CompanyExtensionSetting.setting_key == permission_key,
+                    )
+                    .first()
+                )
+                if existing_perm:
+                    existing_perm.setting_value = request.permission_mode
+                else:
+                    from DB import get_new_id
+
+                    db.add(
+                        CompanyExtensionSetting(
+                            id=get_new_id(),
+                            company_id=company_id,
+                            extension_name=extension_name,
+                            setting_key=permission_key,
+                            setting_value=request.permission_mode,
+                            is_sensitive=False,
+                        )
+                    )
+
+            # Save owner_id (the user who is enabling this bot)
+            owner_id_key = f"{extension_name}_bot_owner_id"
+            existing_owner = (
                 db.query(CompanyExtensionSetting)
                 .filter(
                     CompanyExtensionSetting.company_id == company_id,
                     CompanyExtensionSetting.extension_name == extension_name,
-                    CompanyExtensionSetting.setting_key == agent_id_key,
+                    CompanyExtensionSetting.setting_key == owner_id_key,
                 )
                 .first()
             )
-            if existing_agent:
-                existing_agent.setting_value = request.agent_id
-            else:
+            if not existing_owner:
+                # Only set owner on first enable, don't overwrite
                 from DB import get_new_id
 
                 db.add(
@@ -3430,109 +3497,41 @@ async def enable_company_bot(
                         id=get_new_id(),
                         company_id=company_id,
                         extension_name=extension_name,
-                        setting_key=agent_id_key,
-                        setting_value=request.agent_id,
+                        setting_key=owner_id_key,
+                        setting_value=str(auth.user_id),
                         is_sensitive=False,
                     )
                 )
 
-        # Save permission_mode if provided
-        if request.permission_mode:
-            # Validate permission mode
-            valid_modes = [
-                "owner_only",
-                "recognized_users",
-                "allowlist",
-                "app_users",
-                "anyone",
-            ]
-            if request.permission_mode not in valid_modes:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid permission_mode: {request.permission_mode}. Valid modes: {valid_modes}",
-                )
-
-            permission_key = f"{extension_name}_bot_permission_mode"
-            existing_perm = (
+            # Update enabled setting
+            existing_enabled = (
                 db.query(CompanyExtensionSetting)
                 .filter(
                     CompanyExtensionSetting.company_id == company_id,
                     CompanyExtensionSetting.extension_name == extension_name,
-                    CompanyExtensionSetting.setting_key == permission_key,
+                    CompanyExtensionSetting.setting_key == enabled_setting_key,
                 )
                 .first()
             )
-            if existing_perm:
-                existing_perm.setting_value = request.permission_mode
+
+            enabled_value = "true" if request.enabled else "false"
+
+            if existing_enabled:
+                existing_enabled.setting_value = enabled_value
             else:
                 from DB import get_new_id
 
-                db.add(
-                    CompanyExtensionSetting(
-                        id=get_new_id(),
-                        company_id=company_id,
-                        extension_name=extension_name,
-                        setting_key=permission_key,
-                        setting_value=request.permission_mode,
-                        is_sensitive=False,
-                    )
-                )
-
-        # Save owner_id (the user who is enabling this bot)
-        owner_id_key = f"{extension_name}_bot_owner_id"
-        existing_owner = (
-            db.query(CompanyExtensionSetting)
-            .filter(
-                CompanyExtensionSetting.company_id == company_id,
-                CompanyExtensionSetting.extension_name == extension_name,
-                CompanyExtensionSetting.setting_key == owner_id_key,
-            )
-            .first()
-        )
-        if not existing_owner:
-            # Only set owner on first enable, don't overwrite
-            from DB import get_new_id
-
-            db.add(
-                CompanyExtensionSetting(
+                new_setting = CompanyExtensionSetting(
                     id=get_new_id(),
                     company_id=company_id,
                     extension_name=extension_name,
-                    setting_key=owner_id_key,
-                    setting_value=str(auth.user_id),
+                    setting_key=enabled_setting_key,
+                    setting_value=enabled_value,
                     is_sensitive=False,
                 )
-            )
+                db.add(new_setting)
 
-        # Update enabled setting
-        existing_enabled = (
-            db.query(CompanyExtensionSetting)
-            .filter(
-                CompanyExtensionSetting.company_id == company_id,
-                CompanyExtensionSetting.extension_name == extension_name,
-                CompanyExtensionSetting.setting_key == enabled_setting_key,
-            )
-            .first()
-        )
-
-        enabled_value = "true" if request.enabled else "false"
-
-        if existing_enabled:
-            existing_enabled.setting_value = enabled_value
-        else:
-            from DB import get_new_id
-
-            new_setting = CompanyExtensionSetting(
-                id=get_new_id(),
-                company_id=company_id,
-                extension_name=extension_name,
-                setting_key=enabled_setting_key,
-                setting_value=enabled_value,
-                is_sensitive=False,
-            )
-            db.add(new_setting)
-
-        db.commit()
+            db.commit()
     except HTTPException:
         raise
     except Exception as e:
