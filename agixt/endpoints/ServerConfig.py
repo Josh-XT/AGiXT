@@ -14,6 +14,7 @@ from MagicalAuth import MagicalAuth, verify_api_key, send_email
 from DB import (
     ServerConfig,
     get_session,
+    get_db_session,
     SERVER_CONFIG_DEFINITIONS,
     encrypt_config_value,
     decrypt_config_value,
@@ -3223,11 +3224,21 @@ async def enable_company_bot(
 ):
     """Enable or disable a bot platform for a company."""
     import traceback
+    import uuid as uuid_module
 
     if platform not in BOT_PLATFORM_SETTINGS:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
+        )
+
+    # Validate company_id is a valid UUID early to avoid Postgres DataError
+    try:
+        uuid_module.UUID(company_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid company_id format: '{company_id}' is not a valid UUID.",
         )
 
     try:
@@ -3250,7 +3261,7 @@ async def enable_company_bot(
 
     # Validate company exists
     try:
-        with get_session() as db:
+        with get_db_session() as db:
             company = db.query(Company).filter(Company.id == company_id).first()
             if not company:
                 raise HTTPException(
@@ -3292,7 +3303,7 @@ async def enable_company_bot(
         enabled_setting_key = "DISCORD_BOT_ENABLED"
 
     try:
-      with get_session() as db:
+      with get_db_session() as db:
         # If enabling, check that required settings exist or OAuth is connected
         if request.enabled:
             oauth_provider = platform_config.get("oauth_provider")
