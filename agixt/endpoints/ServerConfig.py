@@ -3231,6 +3231,15 @@ async def enable_company_bot(
     auth = MagicalAuth(token=authorization)
     auth.validate_user()
 
+    # Validate company exists
+    with get_session() as db:
+        company = db.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            raise HTTPException(
+                status_code=404,
+                detail="Company not found.",
+            )
+
     # Check authorization
     user_role = auth.get_user_role(company_id)
     is_super_admin = auth.is_super_admin()

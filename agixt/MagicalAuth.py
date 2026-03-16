@@ -7483,8 +7483,15 @@ class MagicalAuth:
             return str(user_company.company_id) if user_company else None
 
     def get_user_role(self, company_id: str = None) -> int:
+        requesting_own_company = company_id is None
         if company_id is None:
             company_id = self.get_user_company_id()
+        if not company_id:
+            # User has no company at all - should not happen in normal flow
+            logging.warning(
+                f"get_user_role: user {self.user_id} has no company_id"
+            )
+            return 3
         with get_session() as db:
             user_company = (
                 db.query(UserCompany)
@@ -7527,7 +7534,13 @@ class MagicalAuth:
 
                 current_id = parent_id
 
-            return 3  # Default to User role if no membership found
+            if requesting_own_company:
+                # User's own company lookup failed - data integrity issue
+                logging.error(
+                    f"get_user_role: user {self.user_id} has company_id "
+                    f"{company_id} but no UserCompany record found"
+                )
+            return 3
 
     def convert_uuid_to_str(self, obj):
         if isinstance(obj, dict):
