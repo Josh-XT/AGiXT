@@ -3222,27 +3222,62 @@ async def enable_company_bot(
     authorization: str = Header(None),
 ):
     """Enable or disable a bot platform for a company."""
+    import traceback
+
     if platform not in BOT_PLATFORM_SETTINGS:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
         )
 
-    auth = MagicalAuth(token=authorization)
-    auth.validate_user()
+    try:
+        auth = MagicalAuth(token=authorization)
+    except Exception as e:
+        logging.error(
+            f"enable_company_bot: MagicalAuth init failed: {e}\n{traceback.format_exc()}"
+        )
+        raise HTTPException(status_code=500, detail=f"Auth init error: {e}")
+
+    try:
+        auth.validate_user()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(
+            f"enable_company_bot: validate_user failed: {e}\n{traceback.format_exc()}"
+        )
+        raise HTTPException(status_code=500, detail=f"Validation error: {e}")
 
     # Validate company exists
-    with get_session() as db:
-        company = db.query(Company).filter(Company.id == company_id).first()
-        if not company:
-            raise HTTPException(
-                status_code=404,
-                detail="Company not found.",
-            )
+    try:
+        with get_session() as db:
+            company = db.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Company not found.",
+                )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(
+            f"enable_company_bot: company lookup failed for {company_id}: {e}\n{traceback.format_exc()}"
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Company lookup error: {e}"
+        )
 
     # Check authorization
-    user_role = auth.get_user_role(company_id)
-    is_super_admin = auth.is_super_admin()
+    try:
+        user_role = auth.get_user_role(company_id)
+        is_super_admin = auth.is_super_admin()
+    except Exception as e:
+        logging.error(
+            f"enable_company_bot: role check failed for {company_id}: {e}\n{traceback.format_exc()}"
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Role check error: {e}"
+        )
 
     if user_role > 2 and not is_super_admin:
         raise HTTPException(
@@ -3256,7 +3291,8 @@ async def enable_company_bot(
     if platform == "discord":
         enabled_setting_key = "DISCORD_BOT_ENABLED"
 
-    with get_session() as db:
+    try:
+      with get_session() as db:
         # If enabling, check that required settings exist or OAuth is connected
         if request.enabled:
             oauth_provider = platform_config.get("oauth_provider")
@@ -3486,6 +3522,17 @@ async def enable_company_bot(
             db.add(new_setting)
 
         db.commit()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(
+            f"enable_company_bot: DB operation failed for company {company_id}, platform {platform}: "
+            f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Bot enable failed: {type(e).__name__}: {e}",
+        )
 
     # Trigger bot sync
     try:
