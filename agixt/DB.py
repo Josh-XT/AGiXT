@@ -231,7 +231,9 @@ def get_db_session():
 
 
 def get_new_id():
-    return str(uuid.uuid4())
+    if DATABASE_TYPE == "sqlite":
+        return str(uuid.uuid4())
+    return uuid.uuid4()
 
 
 class UserRole(Base):

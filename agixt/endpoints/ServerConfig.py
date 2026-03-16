@@ -3395,10 +3395,7 @@ async def enable_company_bot(
                         existing.setting_value = final_value
                         existing.is_sensitive = is_sensitive
                     else:
-                        from DB import get_new_id
-
                         new_setting = CompanyExtensionSetting(
-                            id=get_new_id(),
                             company_id=company_id,
                             extension_name=extension_name,
                             setting_key=key,
@@ -3422,11 +3419,8 @@ async def enable_company_bot(
                 if existing_agent:
                     existing_agent.setting_value = request.agent_id
                 else:
-                    from DB import get_new_id
-
                     db.add(
                         CompanyExtensionSetting(
-                            id=get_new_id(),
                             company_id=company_id,
                             extension_name=extension_name,
                             setting_key=agent_id_key,
@@ -3464,11 +3458,8 @@ async def enable_company_bot(
                 if existing_perm:
                     existing_perm.setting_value = request.permission_mode
                 else:
-                    from DB import get_new_id
-
                     db.add(
                         CompanyExtensionSetting(
-                            id=get_new_id(),
                             company_id=company_id,
                             extension_name=extension_name,
                             setting_key=permission_key,
@@ -3490,11 +3481,8 @@ async def enable_company_bot(
             )
             if not existing_owner:
                 # Only set owner on first enable, don't overwrite
-                from DB import get_new_id
-
                 db.add(
                     CompanyExtensionSetting(
-                        id=get_new_id(),
                         company_id=company_id,
                         extension_name=extension_name,
                         setting_key=owner_id_key,
@@ -3519,10 +3507,7 @@ async def enable_company_bot(
             if existing_enabled:
                 existing_enabled.setting_value = enabled_value
             else:
-                from DB import get_new_id
-
                 new_setting = CompanyExtensionSetting(
-                    id=get_new_id(),
                     company_id=company_id,
                     extension_name=extension_name,
                     setting_key=enabled_setting_key,
