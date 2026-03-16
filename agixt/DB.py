@@ -7798,11 +7798,14 @@ def decrypt_config_value(encrypted_value: str) -> str:
         # If decryption fails, the encryption key has likely changed.
         # Return empty string so callers treat this as "not configured"
         # rather than leaking the raw Fernet ciphertext to external APIs.
-        logging.warning(
-            "Failed to decrypt sensitive config value. "
-            "The AGIXT_API_KEY may have changed since this value was encrypted. "
-            "Please re-save the setting to re-encrypt it with the current key."
-        )
+        # Only log once per process to avoid startup spam.
+        if not getattr(decrypt_config_value, "_warned", False):
+            decrypt_config_value._warned = True
+            logging.warning(
+                "Failed to decrypt one or more sensitive config values. "
+                "The AGIXT_API_KEY may have changed since these values were encrypted. "
+                "Please re-save the affected settings to re-encrypt them with the current key."
+            )
         return ""
 
 

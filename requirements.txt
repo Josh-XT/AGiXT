@@ -80,3 +80,5 @@ spacy==3.8.7
 spacy-legacy==3.0.12
 spacy-loggers==1.0.5
 discord.py>=2.0.0
+botbuilder-core==4.17.1
+slack-sdk==3.41.0

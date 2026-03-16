@@ -481,7 +481,12 @@ class web_browsing(Extensions):
 
         # Call ezlocalai directly to get raw LLM response
         # The AGiXT endpoint filters thinking tags - we need the full response for XML parsing
-        ezlocalai_url = os.environ.get("EZLOCALAI_URL", "http://localhost:8091").rstrip("/")
+        # Check both EZLOCALAI_URI (standard) and EZLOCALAI_URL (legacy) env vars
+        ezlocalai_url = (
+            os.environ.get("EZLOCALAI_URI")
+            or os.environ.get("EZLOCALAI_URL")
+            or "http://localhost:8091"
+        ).rstrip("/")
         # If URL already ends with /v1, don't add it again
         if ezlocalai_url.endswith("/v1"):
             url = f"{ezlocalai_url}/chat/completions"
