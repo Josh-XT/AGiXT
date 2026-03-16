@@ -963,7 +963,7 @@ async def get_company_extension_settings(
     user_role = auth.get_user_role(company_id)
     is_super_admin = auth.is_super_admin()
 
-    if user_role > 2 and not is_super_admin:
+    if (user_role is None or user_role > 2) and not is_super_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Only company admins or super admins can manage company extension settings.",
@@ -1092,7 +1092,7 @@ async def update_company_extension_settings(
     user_role = auth.get_user_role(company_id)
     is_super_admin = auth.is_super_admin()
 
-    if user_role > 2 and not is_super_admin:
+    if (user_role is None or user_role > 2) and not is_super_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Only company admins or super admins can manage company extension settings.",
@@ -1192,7 +1192,7 @@ async def delete_company_extension_setting(
     user_role = auth.get_user_role(company_id)
     is_super_admin = auth.is_super_admin()
 
-    if user_role > 2 and not is_super_admin:
+    if (user_role is None or user_role > 2) and not is_super_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Only company admins or super admins can manage company extension settings.",
@@ -1270,7 +1270,7 @@ async def get_company_discord_bot_status(
     user_role = auth.get_user_role(company_id)
     is_super_admin = auth.is_super_admin()
 
-    if user_role > 2 and not is_super_admin:
+    if (user_role is None or user_role > 2) and not is_super_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Only company admins or super admins can view Discord bot status.",
@@ -1331,7 +1331,7 @@ async def enable_company_discord_bot(
     user_role = auth.get_user_role(company_id)
     is_super_admin = auth.is_super_admin()
 
-    if user_role > 2 and not is_super_admin:
+    if (user_role is None or user_role > 2) and not is_super_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Only company admins or super admins can manage Discord bot.",
@@ -1451,7 +1451,7 @@ async def restart_company_discord_bot(
     user_role = auth.get_user_role(company_id)
     is_super_admin = auth.is_super_admin()
 
-    if user_role > 2 and not is_super_admin:
+    if (user_role is None or user_role > 2) and not is_super_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Only company admins or super admins can restart Discord bot.",
@@ -2091,7 +2091,7 @@ async def get_company_all_bots_status(
     user_role = auth.get_user_role(company_id)
     is_super_admin = auth.is_super_admin()
 
-    if user_role > 2 and not is_super_admin:
+    if (user_role is None or user_role > 2) and not is_super_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Only company admins or super admins can view bot status.",
@@ -2143,7 +2143,7 @@ async def get_company_deployed_bots(
     user_role = auth.get_user_role(company_id)
     is_super_admin = auth.is_super_admin()
 
-    if user_role > 2 and not is_super_admin:
+    if (user_role is None or user_role > 2) and not is_super_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Only company admins can view deployed bots.",
@@ -2611,7 +2611,7 @@ async def pause_company_bot(
     user_role = auth.get_user_role(company_id)
     is_super_admin = auth.is_super_admin()
 
-    if user_role > 2 and not is_super_admin:
+    if (user_role is None or user_role > 2) and not is_super_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Only company admins can pause bots.",
@@ -2683,7 +2683,7 @@ async def remove_company_bot(
     user_role = auth.get_user_role(company_id)
     is_super_admin = auth.is_super_admin()
 
-    if user_role > 2 and not is_super_admin:
+    if (user_role is None or user_role > 2) and not is_super_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Only company admins can remove bots.",
@@ -3055,7 +3055,7 @@ async def get_company_bot_status(
     user_role = auth.get_user_role(company_id)
     is_super_admin = auth.is_super_admin()
 
-    if user_role > 2 and not is_super_admin:
+    if (user_role is None or user_role > 2) and not is_super_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Only company admins or super admins can view bot status.",
@@ -3105,7 +3105,7 @@ async def get_company_bot_settings(
     user_role = auth.get_user_role(company_id)
     is_super_admin = auth.is_super_admin()
 
-    if user_role > 2 and not is_super_admin:
+    if (user_role is None or user_role > 2) and not is_super_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Only company admins can view bot settings.",
@@ -3235,7 +3235,7 @@ async def enable_company_bot(
     user_role = auth.get_user_role(company_id)
     is_super_admin = auth.is_super_admin()
 
-    if user_role > 2 and not is_super_admin:
+    if (user_role is None or user_role > 2) and not is_super_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Only company admins can manage bots.",
@@ -3521,7 +3521,7 @@ async def restart_company_bot(
     user_role = auth.get_user_role(company_id)
     is_super_admin = auth.is_super_admin()
 
-    if user_role > 2 and not is_super_admin:
+    if (user_role is None or user_role > 2) and not is_super_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Only company admins can restart bots.",
