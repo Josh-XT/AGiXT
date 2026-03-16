@@ -35,11 +35,13 @@ from DB import (
     CompanyExtensionSetting,
     ServerExtensionSetting,
     Company,
+    User,
 )
 from Globals import getenv
-from MagicalAuth import impersonate_user
+from Agent import impersonate_user
 from InternalClient import InternalClient
 from Models import ChatCompletions
+from SharedCache import shared_cache
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +174,27 @@ class CompanyOutreachBot:
             logger.error(f"Error impersonating bot owner: {e}")
             return None
 
+    def _get_user_email(self) -> Optional[str]:
+        """Get the email for the bot owner from their user ID."""
+        if not self.bot_owner_id:
+            return None
+        cache_key = f"user_email:{self.bot_owner_id}"
+        email = shared_cache.get(cache_key)
+        if email is not None:
+            return email
+        try:
+            session = get_session()
+            user = session.query(User).filter(User.id == self.bot_owner_id).first()
+            if user:
+                email = user.email
+                shared_cache.set(cache_key, email, ttl=300)
+                session.close()
+                return email
+            session.close()
+        except Exception as e:
+            logger.error(f"Error getting bot owner email: {e}")
+        return None
+
     async def _get_agent_name(self) -> str:
         """Get the configured agent name or default."""
         if self.bot_agent_id:
@@ -199,19 +222,32 @@ class CompanyOutreachBot:
                 )
                 return None
 
+            user_email = self._get_user_email()
+            if not user_email:
+                logger.warning(
+                    f"No user email found for bot owner {self.bot_owner_id} (company: {self.company_name})"
+                )
+                return None
+
             agent_name = await self._get_agent_name()
             if not conversation_name:
                 conversation_name = f"outreach-bot-{self.company_id[:8]}-{datetime.now().strftime('%Y%m%d')}"
 
-            chat = ChatCompletions(
+            from XT import AGiXT
+
+            agixt = AGiXT(
+                user=user_email,
                 agent_name=agent_name,
                 api_key=user_token,
-            )
-            response = await chat.chat_completions(
-                messages=[{"role": "user", "content": prompt}],
                 conversation_name=conversation_name,
-                context_results=5,
             )
+
+            chat_prompt = ChatCompletions(
+                model=agent_name,
+                user=conversation_name,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            response = await agixt.chat_completions(prompt=chat_prompt)
 
             if response and isinstance(response, dict):
                 content = (
