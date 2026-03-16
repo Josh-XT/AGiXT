@@ -1161,7 +1161,7 @@ class CompanyDiscordBot:
             auth = MagicalAuth(token=user_jwt)
             if auth.user_id:
                 role_id = auth.get_user_role()
-                return role_id is not None and role_id <= 2
+                return role_id <= 2
         except Exception as e:
             logger.warning(f"Could not check admin status for {user_email}: {e}")
         return False

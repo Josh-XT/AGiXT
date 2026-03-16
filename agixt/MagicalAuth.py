@@ -697,7 +697,7 @@ def is_admin(email: str = "USER", api_key: str = None):
         auth = MagicalAuth(token=api_key)
         if auth.user_id:
             role_id = auth.get_user_role()
-            if role_id is not None and role_id <= 2:
+            if role_id <= 2:
                 return True
     except Exception:
         pass
@@ -5430,7 +5430,7 @@ class MagicalAuth:
 
         # Users can only assign roles at or below their own level
         caller_role = self.get_user_role(company_id)
-        if caller_role is not None and role_id < caller_role:
+        if role_id < caller_role:
             session.close()
             raise HTTPException(
                 status_code=403,
@@ -7123,7 +7123,7 @@ class MagicalAuth:
                     invitation.role_id = 3
                 # Users can only invite users at or below their own role level
                 user_role = self.get_user_role(invitation.company_id)
-                if user_role is not None and int(invitation.role_id) < user_role:
+                if int(invitation.role_id) < user_role:
                     raise HTTPException(
                         status_code=403,
                         detail="Unauthorized. Insufficient permissions.",
@@ -7527,7 +7527,7 @@ class MagicalAuth:
 
                 current_id = parent_id
 
-            return None
+            return 3  # Default to User role if no membership found
 
     def convert_uuid_to_str(self, obj):
         if isinstance(obj, dict):
