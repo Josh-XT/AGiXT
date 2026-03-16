@@ -15,7 +15,7 @@ Automates the growth outreach playbook for getting first 100 paying users:
 
 When platform-specific API keys (Reddit OAuth, etc.) are configured, the bot
 uses those for faster/more reliable access. Without them, it falls back to
-browsing the web directly via 'Interact with Webpage' and 'Web Search'.
+browsing the web directly and searching online.
 
 Each company configures:
 - Product name and description (so the bot knows what to promote)
@@ -151,7 +151,7 @@ class CompanyOutreachBot:
         if self.website_urls:
             parts.append(
                 f"Website(s): {', '.join(self.website_urls)}\n"
-                f"  → Browse these with 'Interact with Webpage' to learn about "
+                f"  → Browse these websites to learn about "
                 f"the product's features, pricing, and messaging."
             )
         if self.github_repos:
@@ -262,17 +262,7 @@ class CompanyOutreachBot:
                     .get("message", {})
                     .get("content", "")
                 )
-                # Strip any leaked <interaction> XML tags — these are internal
-                # web-browsing control tags and should never be in bot output.
-                if content and "<interaction" in content.lower():
-                    import re
 
-                    content = re.sub(
-                        r"<interaction[^>]*>.*?</interaction>",
-                        "",
-                        content,
-                        flags=re.DOTALL | re.IGNORECASE,
-                    ).strip()
                 return content if content else None
 
             return None
@@ -316,8 +306,8 @@ class CompanyOutreachBot:
                 f"## Business Context\n{biz_ctx}\n\n"
                 f"Find warm leads using whatever tools are available to you. You can:\n"
                 f"- Use the Social Monitor extension commands if enabled\n"
-                f"- Use 'Web Search' to search for relevant discussions\n"
-                f"- Use 'Interact with Webpage' to browse Reddit, Twitter, or forums directly\n"
+                f"- Search the web for relevant discussions\n"
+                f"- Browse Reddit, Twitter, or forums directly to find leads\n"
                 f"- Use the Reddit extension if it's configured with OAuth\n"
             )
             if self.github_repos:
@@ -416,7 +406,7 @@ class CompanyOutreachBot:
                 )
                 if self.website_urls:
                     prompt += (
-                        f"- Browse {', '.join(self.website_urls)} with 'Interact with Webpage' "
+                        f"- Browse {', '.join(self.website_urls)} "
                         f"to understand features, pricing, and value propositions\n"
                     )
                 if self.github_repos:
@@ -465,7 +455,7 @@ class CompanyOutreachBot:
                 f"## Business Context\n{self._build_business_context()}\n\n"
                 f"For each competitor ({', '.join(self.target_competitors)}):\n"
                 f"1. Search G2, Capterra, or Trustpilot for their reviews "
-                f"(use Review Sites extension or browse the sites directly with 'Interact with Webpage')\n"
+                f"(use Review Sites extension or browse the review sites directly)\n"
                 f"2. Focus on 1-2 star negative reviews\n"
                 f"3. Analyze the complaints to understand common pain points\n"
                 f"4. Find reviewer profiles (LinkedIn, Twitter) when possible\n\n"
