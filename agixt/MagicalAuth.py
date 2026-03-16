@@ -7488,9 +7488,7 @@ class MagicalAuth:
             company_id = self.get_user_company_id()
         if not company_id:
             # User has no company at all - should not happen in normal flow
-            logging.warning(
-                f"get_user_role: user {self.user_id} has no company_id"
-            )
+            logging.warning(f"get_user_role: user {self.user_id} has no company_id")
             return 3
         with get_session() as db:
             user_company = (
