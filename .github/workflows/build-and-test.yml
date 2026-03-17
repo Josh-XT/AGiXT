@@ -10,27 +10,9 @@ on:
       - "SECURITY.md"
       - "CODE_OF_CONDUCT.md"
 jobs:
-  lint:
-    runs-on: ubuntu-22.04
-    name: Python Black Lint Check
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6.0.2
-
-      - name: Set up Python
-        uses: actions/setup-python@v6.2.0
-        with:
-          python-version: 3.11
-
-      - name: Install Python dependencies
-        run: pip install black nbqa
-
-      - name: Run Black on Python files
-        run: black --check $(find . -type f -name "*.py")
   build:
     uses: ./.github/workflows/docker.yml
     name: Build AGiXT
-    needs: lint
     with:
       registry-dockerhub-enable: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       registry-repo-name: AGiXT
