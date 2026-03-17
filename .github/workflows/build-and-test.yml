@@ -15,12 +15,12 @@ jobs:
     name: Python Black Lint Check
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@v6.0.2
 
       - name: Set up Python
-        uses: actions/setup-python@v5.3.0
+        uses: actions/setup-python@v6.2.0
         with:
-          python-version: 3.8
+          python-version: 3.11
 
       - name: Install Python dependencies
         run: pip install black nbqa
@@ -29,6 +29,7 @@ jobs:
         run: black --check $(find . -type f -name "*.py")
   build:
     uses: ./.github/workflows/docker.yml
+    needs: lint
     with:
       registry-dockerhub-enable: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       registry-repo-name: AGiXT
