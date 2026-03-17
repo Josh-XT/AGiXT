@@ -3532,6 +3532,16 @@ Your response (true or false):"""
         response = self.remove_tagged_content(response, "execute")
         response = self.remove_tagged_content(response, "output")
 
+        # Handle any leaked <interaction> XML that survived the streaming engine.
+        # Convert 'respond' operations to plain text, strip the rest.
+        if "<interaction" in response.lower():
+            from Interactions import _convert_interaction_to_execute
+
+            response = _convert_interaction_to_execute(response)
+            # If conversion produced <execute> tags (from browser actions), strip them
+            # since we're past the execution phase here.
+            response = self.remove_tagged_content(response, "execute")
+
         # Check if there are pending remote commands (client-defined tools)
         pending_commands = getattr(
             self.agent_interactions, "_pending_remote_commands", []

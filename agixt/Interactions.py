@@ -69,6 +69,9 @@ _RE_REWARD_TAG = re.compile(r"<reward>(.*?)</reward>", re.DOTALL | re.IGNORECASE
 _RE_COUNT_TAG = re.compile(r"<count>(.*?)</count>", re.DOTALL | re.IGNORECASE)
 _RE_RATE_TAG = re.compile(r"<rate>.*?</rate>", re.DOTALL)
 _RE_EXECUTE_TAG = re.compile(r"<execute>.*?</execute>", re.DOTALL | re.IGNORECASE)
+_RE_INTERACTION_TAG = re.compile(
+    r"<interaction\b[^>]*>.*?</interaction>", re.DOTALL | re.IGNORECASE
+)
 _RE_OUTPUT_TAG = re.compile(r"<output>.*?</output>", re.DOTALL)
 _RE_NAME_TAG = re.compile(r"<name>.*?</name>", re.DOTALL)
 _RE_THINKING_BLOCK = re.compile(
@@ -80,6 +83,74 @@ _RE_REFLECTION_BLOCK = re.compile(
 _RE_MULTI_NEWLINE = re.compile(r"\n\s*\n\s*\n")
 _RE_TRIPLE_NEWLINE = re.compile(r"\n{3,}")
 _RE_CUSTOM_FORMAT = re.compile(r"(?<!{){([^{}\n]+)}(?!})")
+
+
+def _convert_interaction_to_execute(response: str) -> str:
+    """
+    Detect leaked <interaction> XML in the agent's response and convert it
+    to a proper <execute> call for 'Interact with Webpage'.
+
+    The web browsing extension uses <interaction><step>...</step></interaction>
+    as an internal browser control protocol. When the outer agent outputs this
+    format directly (instead of using <execute>), it means the LLM confused
+    the internal protocol with the command API.
+
+    - 'respond' operations: the value IS the agent's answer — extract it
+    - 'done' operations: task complete signal — remove the block
+    - browser actions (click, fill, etc.): convert to <execute> so the
+      web browsing command can handle them properly
+    """
+    import xml.etree.ElementTree as ET
+
+    for match in _RE_INTERACTION_TAG.finditer(response):
+        block = match.group(0)
+        try:
+            root = ET.fromstring(block)
+            steps = root.findall(".//step")
+            if not steps:
+                # Empty interaction block — remove it
+                response = response.replace(block, "", 1)
+                continue
+
+            step = steps[0]
+            operation = (step.findtext("operation") or "").strip().lower()
+            value = (step.findtext("value") or "").strip()
+            description = (step.findtext("description") or "").strip()
+
+            if operation == "respond":
+                # Agent wants to report findings — the value IS the answer
+                logging.info(
+                    "[interaction_convert] Extracted 'respond' value "
+                    f"({len(value)} chars) from leaked <interaction> XML"
+                )
+                response = response.replace(block, value, 1)
+            elif operation == "done":
+                logging.info("[interaction_convert] Removed 'done' <interaction> block")
+                response = response.replace(block, "", 1)
+            else:
+                # Browser action — convert to proper <execute> call
+                task = description if description else f"{operation}: {value}"
+                execute_block = (
+                    f"<execute>\n"
+                    f"<name>Interact with Webpage</name>\n"
+                    f"<url>search.brave.com</url>\n"
+                    f"<task>{task}</task>\n"
+                    f"</execute>"
+                )
+                logging.info(
+                    f"[interaction_convert] Converted '{operation}' <interaction> "
+                    f"to <execute> for 'Interact with Webpage': {task[:100]}"
+                )
+                response = response.replace(block, execute_block, 1)
+        except ET.ParseError as e:
+            logging.warning(
+                f"[interaction_convert] Could not parse <interaction> XML: {e}"
+            )
+            continue
+
+    return response
+
+
 _RE_DOT_SPACE = re.compile(r"\. ")
 _RE_OUTPUT_BLOCK = re.compile(r"<output>(.*?)</output>", re.DOTALL | re.IGNORECASE)
 _RE_THINKING_CONTENT = re.compile(
@@ -3083,6 +3154,15 @@ Example: If user says "list my files", use:
                 # This handles cases where <thinking> appears INSIDE <answer> blocks
                 in_answer = is_inside_top_level_answer(full_response)
 
+                # Detect leaked <interaction> XML and convert to proper <execute>
+                # The web browsing extension uses <interaction> as an internal
+                # browser control protocol.  When the outer agent outputs this
+                # format directly, convert it so the execute machinery handles it.
+                if "</interaction>" in full_response.lower():
+                    converted = _convert_interaction_to_execute(full_response)
+                    if converted != full_response:
+                        full_response = converted
+
                 # Check for execute tag completion - allow commands inside thinking, reflection, and answer blocks
                 # Execute tags should be processed regardless of nesting to support agentic workflows
                 for match in re.finditer(_RE_EXECUTE_TAG, full_response):
@@ -4118,6 +4198,14 @@ Analyze the actual output shown and continue with your response.
 
                     prev_len = len(continuation_response)
                     continuation_response += token
+
+                    # Detect leaked <interaction> XML in continuation and convert
+                    if "</interaction>" in continuation_response.lower():
+                        converted = _convert_interaction_to_execute(
+                            continuation_response
+                        )
+                        if converted != continuation_response:
+                            continuation_response = converted
 
                     # Process tags in continuation (thinking, reflection, execute, answer)
                     # Check a sliding window of the last 20 chars for tags (enough for </reflection>)
