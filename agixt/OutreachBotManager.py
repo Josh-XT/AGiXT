@@ -1043,9 +1043,7 @@ class OutreachBotManager:
             self._status_task.cancel()
             try:
                 await self._status_task
-            pt Exception:
-            pass
-        for except asyncio.CancelledError:
+            except asyncio.CancelledError:
                 pass
         # Clean up Redis status
         try:
@@ -1138,7 +1136,6 @@ def get_outreach_bot_status_from_redis(
 def get_outreach_bot_activity_log(
     company_id: str, limit: int = 50, instance_id: str = "default"
 ) -> List[dict]:
-    """Get activity log entries for an outreach bot from Redis."""
     try:
         redis_client = getattr(shared_cache, "_redis", None)
         if not redis_client:
@@ -1148,7 +1145,6 @@ def get_outreach_bot_activity_log(
         if instance_id != "default":
             key = f"{key}:{instance_id}"
 
-        key = OUTREACH_ACTIVITY_LOG_KEY.format(company_id=company_id)
         entries = redis_client.lrange(key, 0, limit - 1)
         return [json.loads(e) for e in entries]
     except Exception as e:
