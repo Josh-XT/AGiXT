@@ -2803,6 +2803,16 @@ async def pause_company_bot(
 
         db.commit()
 
+    # Signal the outreach bot manager to re-sync immediately so the
+    # pause/unpause takes effect within seconds instead of up to 60s.
+    if platform == "outreach":
+        try:
+            from OutreachBotManager import request_outreach_sync
+
+            request_outreach_sync()
+        except Exception:
+            pass
+
     action = "paused" if request.paused else "unpaused"
     platform_name = _get_platform_display_name(platform)
 

@@ -51,6 +51,7 @@ OUTREACH_STATUS_REDIS_KEY = "agixt:outreach_bot_status"
 OUTREACH_MANAGER_RUNNING_KEY = "agixt:outreach_bot_manager_running"
 OUTREACH_ACTIVITY_LOG_KEY = "agixt:outreach_bot_activity:{company_id}"
 OUTREACH_ACTIVITY_LOG_MAX = 200  # Max log entries per company
+OUTREACH_SYNC_REQUEST_KEY = "agixt:outreach_bot_sync_request"
 
 
 @dataclass
@@ -665,6 +666,16 @@ class OutreachBotManager:
                     for s in all_settings:
                         settings_dict[s.setting_key] = s.setting_value
 
+                    # Skip paused bots — treat them like disabled
+                    if (
+                        settings_dict.get("outreach_bot_paused", "false").lower()
+                        == "true"
+                    ):
+                        logger.debug(
+                            f"Skipping paused outreach bot for company {company_id}"
+                        )
+                        continue
+
                     # Get company name
                     company = (
                         session.query(Company)
@@ -722,14 +733,24 @@ class OutreachBotManager:
         return companies
 
     async def sync_bots(self):
-        """Sync running bots with database configuration."""
+        """Sync running bots with database configuration.
+
+        Bots that are disabled or paused are not returned by
+        ``_get_companies_with_outreach_bot``, so they will be stopped
+        automatically when their company_id drops out of the active set.
+        When the user unpauses, the company reappears and the bot restarts.
+        """
         async with self._sync_lock:
             companies = await self._get_companies_with_outreach_bot()
             company_ids = {c["company_id"] for c in companies}
 
-            # Stop removed bots
+            # Stop removed / disabled / paused bots
             for cid in list(self.bots.keys()):
                 if cid not in company_ids:
+                    logger.info(
+                        f"Stopping outreach bot for company {cid} "
+                        f"(disabled, paused, or removed)"
+                    )
                     await self._stop_bot(cid)
 
             # Start new or update existing bots
@@ -906,8 +927,29 @@ class OutreachBotManager:
         self._status_task = asyncio.create_task(self._status_publisher_loop())
         await self.sync_bots()
         while self._running:
-            await asyncio.sleep(60)  # Re-sync every 60 seconds
-            await self.sync_bots()
+            # Poll every 5 seconds but only full-sync on request or every 60s
+            for _ in range(12):  # 12 × 5s = 60s
+                if not self._running:
+                    break
+                await asyncio.sleep(5)
+                if self._check_sync_requested():
+                    logger.info("Outreach bot sync requested via Redis")
+                    await self.sync_bots()
+                    break
+            else:
+                # No early sync triggered — run the periodic 60s sync
+                await self.sync_bots()
+
+    def _check_sync_requested(self) -> bool:
+        """Check Redis for a sync request from a worker process."""
+        try:
+            redis_client = getattr(shared_cache, "_redis", None)
+            if redis_client:
+                val = redis_client.getdel(OUTREACH_SYNC_REQUEST_KEY)
+                return val is not None
+        except Exception:
+            pass
+        return False
 
     async def stop(self):
         """Stop all outreach bots."""
@@ -948,6 +990,20 @@ _manager: Optional[OutreachBotManager] = None
 def get_outreach_bot_manager() -> Optional[OutreachBotManager]:
     """Get the singleton outreach bot manager instance."""
     return _manager
+
+
+def request_outreach_sync():
+    """Signal the parent-process OutreachBotManager to re-sync immediately.
+
+    Safe to call from any uvicorn worker — sets a Redis key that the
+    manager's main loop polls every 5 seconds.
+    """
+    try:
+        redis_client = getattr(shared_cache, "_redis", None)
+        if redis_client:
+            redis_client.set(OUTREACH_SYNC_REQUEST_KEY, "1", ex=30)
+    except Exception:
+        pass
 
 
 def get_outreach_bot_status_from_redis(company_id: str) -> Optional[OutreachBotStatus]:
