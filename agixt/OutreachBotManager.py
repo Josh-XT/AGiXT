@@ -633,8 +633,50 @@ class OutreachBotManager:
         self._sync_lock = asyncio.Lock()
         self._running = False
 
+    def _resolve_agent_id(
+        self, session, agent_id: str, owner_id: str, company_id
+    ) -> str:
+        """Return *agent_id* if non-empty, otherwise resolve the owner's default agent."""
+        if agent_id:
+            return agent_id
+        if not owner_id:
+            return ""
+        try:
+            from DB import Agent as AgentModel, UserPreferences
+
+            pref = (
+                session.query(UserPreferences)
+                .filter(
+                    UserPreferences.user_id == owner_id,
+                    UserPreferences.pref_key == "agent_id",
+                )
+                .first()
+            )
+            if pref and pref.pref_value:
+                resolved = str(pref.pref_value)
+                logger.info(
+                    f"Auto-resolved default agent {resolved} for outreach bot "
+                    f"(owner={owner_id}, company={company_id})"
+                )
+                return resolved
+            first_agent = (
+                session.query(AgentModel).filter(AgentModel.user_id == owner_id).first()
+            )
+            if first_agent:
+                resolved = str(first_agent.id)
+                logger.info(
+                    f"Auto-resolved first owned agent {resolved} for outreach bot "
+                    f"(owner={owner_id}, company={company_id})"
+                )
+                return resolved
+        except Exception as e:
+            logger.warning(f"Could not auto-resolve agent for outreach bot: {e}")
+        return ""
+
     async def _get_companies_with_outreach_bot(self) -> List[Dict]:
         """Query DB for companies with outreach bot enabled."""
+        from DB import Agent as AgentModel, UserPreferences
+
         companies = []
         try:
             with get_session() as session:
@@ -691,8 +733,11 @@ class OutreachBotManager:
                             "bot_owner_id": settings_dict.get(
                                 "outreach_bot_owner_id", ""
                             ),
-                            "bot_agent_id": settings_dict.get(
-                                "outreach_bot_agent_id", ""
+                            "bot_agent_id": self._resolve_agent_id(
+                                session,
+                                settings_dict.get("outreach_bot_agent_id", ""),
+                                settings_dict.get("outreach_bot_owner_id", ""),
+                                setting.company_id,
                             ),
                             "poll_interval_hours": int(
                                 settings_dict.get("outreach_poll_interval_hours", "4")

@@ -3689,6 +3689,7 @@ async def enable_company_bot(
     if platform == "discord":
         enabled_setting_key = "DISCORD_BOT_ENABLED"
 
+    resolved_agent_id = request.agent_id
     try:
         with get_db_session() as db:
             # If enabling, check that required settings exist or OAuth is connected
@@ -3795,8 +3796,44 @@ async def enable_company_bot(
                         )
                         db.add(new_setting)
 
-            # Save agent_id if provided
-            if request.agent_id:
+            # Resolve agent_id: use provided value, or auto-resolve user's default agent
+            if not resolved_agent_id and request.enabled:
+                # Auto-resolve the user's default agent so the bot always has one
+                try:
+                    from DB import Agent as AgentModel, UserPreferences
+
+                    user_id = auth.user_id
+                    # First try user's preferred default agent
+                    default_pref = (
+                        db.query(UserPreferences)
+                        .filter(
+                            UserPreferences.user_id == user_id,
+                            UserPreferences.pref_key == "agent_id",
+                        )
+                        .first()
+                    )
+                    if default_pref and default_pref.pref_value:
+                        resolved_agent_id = str(default_pref.pref_value)
+                    else:
+                        # Fall back to first owned agent
+                        first_agent = (
+                            db.query(AgentModel)
+                            .filter(AgentModel.user_id == user_id)
+                            .first()
+                        )
+                        if first_agent:
+                            resolved_agent_id = str(first_agent.id)
+                    if resolved_agent_id:
+                        logging.info(
+                            f"Auto-resolved default agent {resolved_agent_id} for "
+                            f"{platform} bot in company {company_id}"
+                        )
+                except Exception as e:
+                    logging.warning(
+                        f"Could not auto-resolve default agent for {platform} bot: {e}"
+                    )
+
+            if resolved_agent_id:
                 agent_id_key = f"{extension_name}_bot_agent_id"
                 existing_agent = (
                     db.query(CompanyExtensionSetting)
@@ -3808,14 +3845,14 @@ async def enable_company_bot(
                     .first()
                 )
                 if existing_agent:
-                    existing_agent.setting_value = request.agent_id
+                    existing_agent.setting_value = resolved_agent_id
                 else:
                     db.add(
                         CompanyExtensionSetting(
                             company_id=company_id,
                             extension_name=extension_name,
                             setting_key=agent_id_key,
-                            setting_value=request.agent_id,
+                            setting_value=resolved_agent_id,
                             is_sensitive=False,
                         )
                     )
@@ -3921,12 +3958,12 @@ async def enable_company_bot(
         )
 
     # Auto-enable required agent commands for bots that need specific extensions
-    if request.enabled and request.agent_id:
+    if request.enabled and resolved_agent_id:
         try:
-            _auto_enable_bot_commands(platform, request.agent_id, authorization)
+            _auto_enable_bot_commands(platform, resolved_agent_id, authorization)
         except Exception as e:
             logging.warning(
-                f"Failed to auto-enable commands for {platform} bot agent {request.agent_id}: {e}"
+                f"Failed to auto-enable commands for {platform} bot agent {resolved_agent_id}: {e}"
             )
 
     # Trigger bot sync
