@@ -978,6 +978,11 @@ class CompanyExtensionSetting(Base):
     is_sensitive = Column(Boolean, default=False)
     # Human-readable description
     description = Column(Text, nullable=True)
+    # Bot instance identifier — allows multiple bots of the same type per company.
+    # Non-bot settings always use "default".
+    bot_instance_id = Column(
+        String, nullable=False, server_default="default", default="default"
+    )
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -986,6 +991,7 @@ class CompanyExtensionSetting(Base):
             "company_id",
             "extension_name",
             "setting_key",
+            "bot_instance_id",
             name="uix_company_ext_setting",
         ),
     )
@@ -8261,3 +8267,102 @@ def migrate_user_company_sort_order():
                         session.commit()
     except Exception as e:
         logging.warning(f"UserCompany sort_order migration error: {e}", exc_info=True)
+
+
+def migrate_bot_instance_id():
+    """
+    Add bot_instance_id column to company_extension_setting table.
+    This allows multiple bot instances of the same type per company
+    (e.g. two outreach bots for one company).
+    Existing rows get 'default' as their instance id.
+    The unique constraint is updated to include bot_instance_id.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                # Check if column already exists
+                result = session.execute(
+                    text("PRAGMA table_info(company_extension_setting)")
+                )
+                existing_columns = [row[1] for row in result.fetchall()]
+
+                if "bot_instance_id" not in existing_columns:
+                    # Add the column with default value
+                    session.execute(
+                        text(
+                            "ALTER TABLE company_extension_setting "
+                            "ADD COLUMN bot_instance_id TEXT NOT NULL DEFAULT 'default'"
+                        )
+                    )
+                    session.commit()
+
+                    # SQLite doesn't support ALTER CONSTRAINT, so we need to
+                    # recreate the table. However, since all existing rows now
+                    # have 'default', the new unique constraint won't conflict.
+                    # We drop the old unique index and create a new one.
+                    try:
+                        session.execute(
+                            text("DROP INDEX IF EXISTS uix_company_ext_setting")
+                        )
+                        session.commit()
+                    except Exception:
+                        session.rollback()
+
+                    session.execute(
+                        text(
+                            "CREATE UNIQUE INDEX IF NOT EXISTS uix_company_ext_setting "
+                            "ON company_extension_setting(company_id, extension_name, setting_key, bot_instance_id)"
+                        )
+                    )
+                    session.commit()
+                    logging.info(
+                        "Added bot_instance_id column to company_extension_setting"
+                    )
+            else:
+                # PostgreSQL
+                result = session.execute(
+                    text(
+                        """
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'company_extension_setting'
+                        AND column_name = 'bot_instance_id'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    session.execute(
+                        text(
+                            "ALTER TABLE company_extension_setting "
+                            "ADD COLUMN bot_instance_id VARCHAR NOT NULL DEFAULT 'default'"
+                        )
+                    )
+                    session.commit()
+
+                    # Drop old constraint and create new one
+                    try:
+                        session.execute(
+                            text(
+                                "ALTER TABLE company_extension_setting "
+                                "DROP CONSTRAINT IF EXISTS uix_company_ext_setting"
+                            )
+                        )
+                        session.commit()
+                    except Exception:
+                        session.rollback()
+
+                    session.execute(
+                        text(
+                            "ALTER TABLE company_extension_setting "
+                            "ADD CONSTRAINT uix_company_ext_setting "
+                            "UNIQUE (company_id, extension_name, setting_key, bot_instance_id)"
+                        )
+                    )
+                    session.commit()
+                    logging.info(
+                        "Added bot_instance_id column to company_extension_setting (PostgreSQL)"
+                    )
+    except Exception as e:
+        logging.warning(f"bot_instance_id migration error: {e}", exc_info=True)

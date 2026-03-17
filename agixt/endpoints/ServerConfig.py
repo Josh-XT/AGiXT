@@ -1555,6 +1555,9 @@ class BotEnableRequest(BaseModel):
     settings: Optional[Dict[str, str]] = None  # Platform-specific settings
     agent_id: Optional[str] = None  # The specific agent ID to use for this bot
     permission_mode: Optional[str] = None  # owner_only, recognized_users, or anyone
+    instance_id: Optional[str] = (
+        None  # Bot instance ID (omit or "new" for a new instance)
+    )
 
 
 class AllBotsStatusResponse(BaseModel):
@@ -1576,9 +1579,11 @@ class AllBotsStatusResponse(BaseModel):
 class DeployedBotInfo(BaseModel):
     """Information about a deployed bot."""
 
-    id: str  # Unique identifier (company_id + platform)
+    id: str  # Unique identifier (company_id + platform + instance_id)
     platform: str  # Platform identifier (discord, slack, etc.)
     platform_name: str  # Display name
+    instance_id: str = "default"  # Bot instance identifier
+    instance_name: Optional[str] = None  # User-friendly instance name
     company_id: str
     company_name: str
     agent_id: Optional[str] = None
@@ -2064,7 +2069,10 @@ def _get_bot_manager(platform: str):
 
 
 def _get_bot_status_for_platform(
-    platform: str, company_id: str, company_name: str
+    platform: str,
+    company_id: str,
+    company_name: str,
+    instance_id: str = "default",
 ) -> Optional[BotStatusResponse]:
     """Get bot status for a specific platform and company."""
     try:
@@ -2110,7 +2118,9 @@ def _get_bot_status_for_platform(
         if platform == "outreach":
             from OutreachBotManager import get_outreach_bot_status_from_redis
 
-            status = get_outreach_bot_status_from_redis(company_id)
+            status = get_outreach_bot_status_from_redis(
+                company_id, instance_id=instance_id
+            )
             if not status:
                 return BotStatusResponse(
                     company_id=company_id,
@@ -2287,176 +2297,203 @@ async def get_company_deployed_bots(
             if platform == "discord":
                 enabled_key = "DISCORD_BOT_ENABLED"
 
-            enabled_setting = (
+            # Find ALL enabled instances for this platform
+            enabled_settings = (
                 db.query(CompanyExtensionSetting)
                 .filter(
                     CompanyExtensionSetting.company_id == company_id,
                     CompanyExtensionSetting.extension_name == extension_name,
                     CompanyExtensionSetting.setting_key == enabled_key,
                 )
-                .first()
+                .all()
             )
 
-            is_enabled = (
-                enabled_setting
-                and enabled_setting.setting_value
-                and enabled_setting.setting_value.lower() == "true"
-            )
-
-            if not is_enabled:
-                continue  # Skip non-deployed bots
-
-            # Get agent info
-            agent_id_key = f"{platform}_bot_agent_id"
-            if platform == "discord":
-                agent_id_key = "discord_bot_agent_id"
-
-            agent_setting = (
-                db.query(CompanyExtensionSetting)
-                .filter(
-                    CompanyExtensionSetting.company_id == company_id,
-                    CompanyExtensionSetting.extension_name == extension_name,
-                    CompanyExtensionSetting.setting_key == agent_id_key,
+            for enabled_setting in enabled_settings:
+                is_enabled = (
+                    enabled_setting
+                    and enabled_setting.setting_value
+                    and enabled_setting.setting_value.lower() == "true"
                 )
-                .first()
-            )
-            agent_id = agent_setting.setting_value if agent_setting else None
-            agent_name = None
 
-            if agent_id:
-                agent = db.query(Agent).filter(Agent.id == agent_id).first()
-                agent_name = agent.name if agent else None
+                if not is_enabled:
+                    continue  # Skip non-deployed instances
 
-            # Get permission mode
-            perm_mode_key = f"{platform}_bot_permission_mode"
-            if platform == "discord":
-                perm_mode_key = "discord_bot_permission_mode"
+                instance_id = getattr(enabled_setting, "bot_instance_id", "default")
 
-            perm_setting = (
-                db.query(CompanyExtensionSetting)
-                .filter(
-                    CompanyExtensionSetting.company_id == company_id,
-                    CompanyExtensionSetting.extension_name == extension_name,
-                    CompanyExtensionSetting.setting_key == perm_mode_key,
+                # Get agent info
+                agent_id_key = f"{platform}_bot_agent_id"
+                if platform == "discord":
+                    agent_id_key = "discord_bot_agent_id"
+
+                agent_setting = (
+                    db.query(CompanyExtensionSetting)
+                    .filter(
+                        CompanyExtensionSetting.company_id == company_id,
+                        CompanyExtensionSetting.extension_name == extension_name,
+                        CompanyExtensionSetting.setting_key == agent_id_key,
+                        CompanyExtensionSetting.bot_instance_id == instance_id,
+                    )
+                    .first()
                 )
-                .first()
-            )
-            permission_mode = (
-                perm_setting.setting_value if perm_setting else "recognized_users"
-            )
+                agent_id = agent_setting.setting_value if agent_setting else None
+                agent_name = None
 
-            # Get permission mode label and privacy using app-name substitution
-            perm_modes = get_permission_modes_with_app_name()
-            perm_mode_label = "Recognized Users"
-            perm_privacy = "private"
-            for mode in perm_modes:
-                if mode["value"] == permission_mode:
-                    perm_mode_label = mode["label"]
-                    perm_privacy = mode.get("privacy", "private")
-                    break
+                if agent_id:
+                    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+                    agent_name = agent.name if agent else None
 
-            # Check if bot is paused
-            paused_key = f"{platform}_bot_paused"
-            paused_setting = (
-                db.query(CompanyExtensionSetting)
-                .filter(
-                    CompanyExtensionSetting.company_id == company_id,
-                    CompanyExtensionSetting.extension_name == extension_name,
-                    CompanyExtensionSetting.setting_key == paused_key,
+                # Get permission mode
+                perm_mode_key = f"{platform}_bot_permission_mode"
+                if platform == "discord":
+                    perm_mode_key = "discord_bot_permission_mode"
+
+                perm_setting = (
+                    db.query(CompanyExtensionSetting)
+                    .filter(
+                        CompanyExtensionSetting.company_id == company_id,
+                        CompanyExtensionSetting.extension_name == extension_name,
+                        CompanyExtensionSetting.setting_key == perm_mode_key,
+                        CompanyExtensionSetting.bot_instance_id == instance_id,
+                    )
+                    .first()
                 )
-                .first()
-            )
-            is_paused = bool(
-                paused_setting
-                and paused_setting.setting_value
-                and paused_setting.setting_value.lower() == "true"
-            )
-
-            # Get runtime status
-            runtime_status = _get_bot_status_for_platform(
-                platform, company_id, company_name
-            )
-            is_running = runtime_status.is_running if runtime_status else False
-            started_at = runtime_status.started_at if runtime_status else None
-            messages_processed = (
-                runtime_status.messages_processed if runtime_status else 0
-            )
-            error = runtime_status.error if runtime_status else None
-
-            # Determine status
-            if error:
-                status = "error"
-                status_message = error
-                error_count += 1
-            elif is_paused:
-                status = "paused"
-                status_message = "Bot is paused"
-                paused_count += 1
-            elif is_running:
-                status = "running"
-                status_message = "Bot is running"
-                running_count += 1
-            else:
-                status = "offline"
-                status_message = "Bot is not running"
-
-            # Check OAuth connection for OAuth-based platforms
-            uses_oauth = bool(config.get("oauth_provider"))
-            oauth_connected = False
-            oauth_provider = config.get("oauth_provider")
-
-            if uses_oauth and agent_id:
-                from MagicalAuth import get_agent_oauth_credentials
-
-                agent_creds = get_agent_oauth_credentials(agent_id, oauth_provider)
-                oauth_connected = agent_creds is not None
-
-            # Get platform display name
-            platform_name = _get_platform_display_name(platform)
-
-            # Get timestamps from settings (use enabled setting as proxy for created_at)
-            created_at = None
-            updated_at = None
-            if enabled_setting:
-                if (
-                    hasattr(enabled_setting, "created_at")
-                    and enabled_setting.created_at
-                ):
-                    created_at = enabled_setting.created_at.isoformat()
-                if (
-                    hasattr(enabled_setting, "updated_at")
-                    and enabled_setting.updated_at
-                ):
-                    updated_at = enabled_setting.updated_at.isoformat()
-
-            deployed_bots.append(
-                DeployedBotInfo(
-                    id=f"{company_id}_{platform}",
-                    platform=platform,
-                    platform_name=platform_name,
-                    company_id=company_id,
-                    company_name=company_name,
-                    agent_id=agent_id,
-                    agent_name=agent_name,
-                    enabled=is_enabled,
-                    is_running=is_running,
-                    is_paused=is_paused,
-                    is_server_level=False,  # Company-level bot
-                    permission_mode=permission_mode,
-                    permission_mode_label=perm_mode_label,
-                    permission_privacy=perm_privacy,
-                    status=status,
-                    status_message=status_message,
-                    started_at=started_at,
-                    messages_processed=messages_processed,
-                    uses_oauth=uses_oauth,
-                    oauth_connected=oauth_connected,
-                    oauth_provider=oauth_provider,
-                    created_at=created_at,
-                    updated_at=updated_at,
-                    error=error,
+                permission_mode = (
+                    perm_setting.setting_value if perm_setting else "recognized_users"
                 )
-            )
+
+                # Get permission mode label and privacy using app-name substitution
+                perm_modes = get_permission_modes_with_app_name()
+                perm_mode_label = "Recognized Users"
+                perm_privacy = "private"
+                for mode in perm_modes:
+                    if mode["value"] == permission_mode:
+                        perm_mode_label = mode["label"]
+                        perm_privacy = mode.get("privacy", "private")
+                        break
+
+                # Check if bot is paused
+                paused_key = f"{platform}_bot_paused"
+                paused_setting = (
+                    db.query(CompanyExtensionSetting)
+                    .filter(
+                        CompanyExtensionSetting.company_id == company_id,
+                        CompanyExtensionSetting.extension_name == extension_name,
+                        CompanyExtensionSetting.setting_key == paused_key,
+                        CompanyExtensionSetting.bot_instance_id == instance_id,
+                    )
+                    .first()
+                )
+                is_paused = bool(
+                    paused_setting
+                    and paused_setting.setting_value
+                    and paused_setting.setting_value.lower() == "true"
+                )
+
+                # Get instance name if set
+                instance_name_setting = (
+                    db.query(CompanyExtensionSetting)
+                    .filter(
+                        CompanyExtensionSetting.company_id == company_id,
+                        CompanyExtensionSetting.extension_name == extension_name,
+                        CompanyExtensionSetting.setting_key
+                        == f"{extension_name}_bot_instance_name",
+                        CompanyExtensionSetting.bot_instance_id == instance_id,
+                    )
+                    .first()
+                )
+                instance_name = (
+                    instance_name_setting.setting_value
+                    if instance_name_setting
+                    else None
+                )
+
+                # Get runtime status
+                runtime_status = _get_bot_status_for_platform(
+                    platform, company_id, company_name, instance_id=instance_id
+                )
+                is_running = runtime_status.is_running if runtime_status else False
+                started_at = runtime_status.started_at if runtime_status else None
+                messages_processed = (
+                    runtime_status.messages_processed if runtime_status else 0
+                )
+                error = runtime_status.error if runtime_status else None
+
+                # Determine status
+                if error:
+                    status = "error"
+                    status_message = error
+                    error_count += 1
+                elif is_paused:
+                    status = "paused"
+                    status_message = "Bot is paused"
+                    paused_count += 1
+                elif is_running:
+                    status = "running"
+                    status_message = "Bot is running"
+                    running_count += 1
+                else:
+                    status = "offline"
+                    status_message = "Bot is not running"
+
+                # Check OAuth connection for OAuth-based platforms
+                uses_oauth = bool(config.get("oauth_provider"))
+                oauth_connected = False
+                oauth_provider = config.get("oauth_provider")
+
+                if uses_oauth and agent_id:
+                    from MagicalAuth import get_agent_oauth_credentials
+
+                    agent_creds = get_agent_oauth_credentials(agent_id, oauth_provider)
+                    oauth_connected = agent_creds is not None
+
+                # Get platform display name
+                platform_name = _get_platform_display_name(platform)
+
+                # Get timestamps from settings (use enabled setting as proxy for created_at)
+                created_at = None
+                updated_at = None
+                if enabled_setting:
+                    if (
+                        hasattr(enabled_setting, "created_at")
+                        and enabled_setting.created_at
+                    ):
+                        created_at = enabled_setting.created_at.isoformat()
+                    if (
+                        hasattr(enabled_setting, "updated_at")
+                        and enabled_setting.updated_at
+                    ):
+                        updated_at = enabled_setting.updated_at.isoformat()
+
+                deployed_bots.append(
+                    DeployedBotInfo(
+                        id=f"{company_id}_{platform}_{instance_id}",
+                        platform=platform,
+                        platform_name=platform_name,
+                        instance_id=instance_id,
+                        instance_name=instance_name,
+                        company_id=company_id,
+                        company_name=company_name,
+                        agent_id=agent_id,
+                        agent_name=agent_name,
+                        enabled=is_enabled,
+                        is_running=is_running,
+                        is_paused=is_paused,
+                        is_server_level=False,  # Company-level bot
+                        permission_mode=permission_mode,
+                        permission_mode_label=perm_mode_label,
+                        permission_privacy=perm_privacy,
+                        status=status,
+                        status_message=status_message,
+                        started_at=started_at,
+                        messages_processed=messages_processed,
+                        uses_oauth=uses_oauth,
+                        oauth_connected=oauth_connected,
+                        oauth_provider=oauth_provider,
+                        created_at=created_at,
+                        updated_at=updated_at,
+                        error=error,
+                    )
+                )
 
     return DeployedBotsResponse(
         bots=deployed_bots,
@@ -2522,167 +2559,198 @@ async def get_user_deployed_bots(
                 if platform == "discord":
                     enabled_key = "DISCORD_BOT_ENABLED"
 
-                enabled_setting = (
+                # Find ALL enabled instances for this platform
+                enabled_settings = (
                     db.query(CompanyExtensionSetting)
                     .filter(
                         CompanyExtensionSetting.company_id == cid,
                         CompanyExtensionSetting.extension_name == extension_name,
                         CompanyExtensionSetting.setting_key == enabled_key,
                     )
-                    .first()
+                    .all()
                 )
 
-                is_enabled = (
-                    enabled_setting
-                    and enabled_setting.setting_value
-                    and enabled_setting.setting_value.lower() == "true"
-                )
-
-                if not is_enabled:
-                    continue
-
-                agent_id_key = f"{platform}_bot_agent_id"
-                if platform == "discord":
-                    agent_id_key = "discord_bot_agent_id"
-
-                agent_setting = (
-                    db.query(CompanyExtensionSetting)
-                    .filter(
-                        CompanyExtensionSetting.company_id == cid,
-                        CompanyExtensionSetting.extension_name == extension_name,
-                        CompanyExtensionSetting.setting_key == agent_id_key,
+                for enabled_setting in enabled_settings:
+                    is_enabled = (
+                        enabled_setting
+                        and enabled_setting.setting_value
+                        and enabled_setting.setting_value.lower() == "true"
                     )
-                    .first()
-                )
-                agent_id = agent_setting.setting_value if agent_setting else None
-                agent_name = None
 
-                if agent_id:
-                    agent = db.query(Agent).filter(Agent.id == agent_id).first()
-                    agent_name = agent.name if agent else None
+                    if not is_enabled:
+                        continue
 
-                perm_mode_key = f"{platform}_bot_permission_mode"
-                if platform == "discord":
-                    perm_mode_key = "discord_bot_permission_mode"
+                    instance_id = getattr(enabled_setting, "bot_instance_id", "default")
 
-                perm_setting = (
-                    db.query(CompanyExtensionSetting)
-                    .filter(
-                        CompanyExtensionSetting.company_id == cid,
-                        CompanyExtensionSetting.extension_name == extension_name,
-                        CompanyExtensionSetting.setting_key == perm_mode_key,
+                    agent_id_key = f"{platform}_bot_agent_id"
+                    if platform == "discord":
+                        agent_id_key = "discord_bot_agent_id"
+
+                    agent_setting = (
+                        db.query(CompanyExtensionSetting)
+                        .filter(
+                            CompanyExtensionSetting.company_id == cid,
+                            CompanyExtensionSetting.extension_name == extension_name,
+                            CompanyExtensionSetting.setting_key == agent_id_key,
+                            CompanyExtensionSetting.bot_instance_id == instance_id,
+                        )
+                        .first()
                     )
-                    .first()
-                )
-                permission_mode = (
-                    perm_setting.setting_value if perm_setting else "recognized_users"
-                )
+                    agent_id = agent_setting.setting_value if agent_setting else None
+                    agent_name = None
 
-                perm_modes = get_permission_modes_with_app_name()
-                perm_mode_label = "Recognized Users"
-                perm_privacy = "private"
-                for mode in perm_modes:
-                    if mode["value"] == permission_mode:
-                        perm_mode_label = mode["label"]
-                        perm_privacy = mode.get("privacy", "private")
-                        break
+                    if agent_id:
+                        agent = db.query(Agent).filter(Agent.id == agent_id).first()
+                        agent_name = agent.name if agent else None
 
-                paused_key = f"{platform}_bot_paused"
-                paused_setting = (
-                    db.query(CompanyExtensionSetting)
-                    .filter(
-                        CompanyExtensionSetting.company_id == cid,
-                        CompanyExtensionSetting.extension_name == extension_name,
-                        CompanyExtensionSetting.setting_key == paused_key,
+                    perm_mode_key = f"{platform}_bot_permission_mode"
+                    if platform == "discord":
+                        perm_mode_key = "discord_bot_permission_mode"
+
+                    perm_setting = (
+                        db.query(CompanyExtensionSetting)
+                        .filter(
+                            CompanyExtensionSetting.company_id == cid,
+                            CompanyExtensionSetting.extension_name == extension_name,
+                            CompanyExtensionSetting.setting_key == perm_mode_key,
+                            CompanyExtensionSetting.bot_instance_id == instance_id,
+                        )
+                        .first()
                     )
-                    .first()
-                )
-                is_paused = bool(
-                    paused_setting
-                    and paused_setting.setting_value
-                    and paused_setting.setting_value.lower() == "true"
-                )
-
-                runtime_status = _get_bot_status_for_platform(
-                    platform, cid, company_name
-                )
-                is_running = runtime_status.is_running if runtime_status else False
-                started_at = runtime_status.started_at if runtime_status else None
-                messages_processed = (
-                    runtime_status.messages_processed if runtime_status else 0
-                )
-                error = runtime_status.error if runtime_status else None
-
-                if error:
-                    status = "error"
-                    status_message = error
-                    error_count += 1
-                elif is_paused:
-                    status = "paused"
-                    status_message = "Bot is paused"
-                    paused_count += 1
-                elif is_running:
-                    status = "running"
-                    status_message = "Bot is running"
-                    running_count += 1
-                else:
-                    status = "offline"
-                    status_message = "Bot is not running"
-
-                uses_oauth = bool(config.get("oauth_provider"))
-                oauth_connected = False
-                oauth_provider = config.get("oauth_provider")
-
-                if uses_oauth and agent_id:
-                    from MagicalAuth import get_agent_oauth_credentials
-
-                    agent_creds = get_agent_oauth_credentials(agent_id, oauth_provider)
-                    oauth_connected = agent_creds is not None
-
-                platform_name = _get_platform_display_name(platform)
-
-                created_at = None
-                updated_at = None
-                if enabled_setting:
-                    if (
-                        hasattr(enabled_setting, "created_at")
-                        and enabled_setting.created_at
-                    ):
-                        created_at = enabled_setting.created_at.isoformat()
-                    if (
-                        hasattr(enabled_setting, "updated_at")
-                        and enabled_setting.updated_at
-                    ):
-                        updated_at = enabled_setting.updated_at.isoformat()
-
-                deployed_bots.append(
-                    DeployedBotInfo(
-                        id=f"{cid}_{platform}",
-                        platform=platform,
-                        platform_name=platform_name,
-                        company_id=cid,
-                        company_name=company_name,
-                        agent_id=agent_id,
-                        agent_name=agent_name,
-                        enabled=is_enabled,
-                        is_running=is_running,
-                        is_paused=is_paused,
-                        is_server_level=False,
-                        permission_mode=permission_mode,
-                        permission_mode_label=perm_mode_label,
-                        permission_privacy=perm_privacy,
-                        status=status,
-                        status_message=status_message,
-                        started_at=started_at,
-                        messages_processed=messages_processed,
-                        uses_oauth=uses_oauth,
-                        oauth_connected=oauth_connected,
-                        oauth_provider=oauth_provider,
-                        created_at=created_at,
-                        updated_at=updated_at,
-                        error=error,
+                    permission_mode = (
+                        perm_setting.setting_value
+                        if perm_setting
+                        else "recognized_users"
                     )
-                )
+
+                    perm_modes = get_permission_modes_with_app_name()
+                    perm_mode_label = "Recognized Users"
+                    perm_privacy = "private"
+                    for mode in perm_modes:
+                        if mode["value"] == permission_mode:
+                            perm_mode_label = mode["label"]
+                            perm_privacy = mode.get("privacy", "private")
+                            break
+
+                    paused_key = f"{platform}_bot_paused"
+                    paused_setting = (
+                        db.query(CompanyExtensionSetting)
+                        .filter(
+                            CompanyExtensionSetting.company_id == cid,
+                            CompanyExtensionSetting.extension_name == extension_name,
+                            CompanyExtensionSetting.setting_key == paused_key,
+                            CompanyExtensionSetting.bot_instance_id == instance_id,
+                        )
+                        .first()
+                    )
+                    is_paused = bool(
+                        paused_setting
+                        and paused_setting.setting_value
+                        and paused_setting.setting_value.lower() == "true"
+                    )
+
+                    runtime_status = _get_bot_status_for_platform(
+                        platform, cid, company_name, instance_id=instance_id
+                    )
+                    is_running = runtime_status.is_running if runtime_status else False
+                    started_at = runtime_status.started_at if runtime_status else None
+                    messages_processed = (
+                        runtime_status.messages_processed if runtime_status else 0
+                    )
+                    error = runtime_status.error if runtime_status else None
+
+                    if error:
+                        status = "error"
+                        status_message = error
+                        error_count += 1
+                    elif is_paused:
+                        status = "paused"
+                        status_message = "Bot is paused"
+                        paused_count += 1
+                    elif is_running:
+                        status = "running"
+                        status_message = "Bot is running"
+                        running_count += 1
+                    else:
+                        status = "offline"
+                        status_message = "Bot is not running"
+
+                    uses_oauth = bool(config.get("oauth_provider"))
+                    oauth_connected = False
+                    oauth_provider = config.get("oauth_provider")
+
+                    if uses_oauth and agent_id:
+                        from MagicalAuth import get_agent_oauth_credentials
+
+                        agent_creds = get_agent_oauth_credentials(
+                            agent_id, oauth_provider
+                        )
+                        oauth_connected = agent_creds is not None
+
+                    platform_name = _get_platform_display_name(platform)
+
+                    # Get instance name
+                    instance_name_setting = (
+                        db.query(CompanyExtensionSetting)
+                        .filter(
+                            CompanyExtensionSetting.company_id == cid,
+                            CompanyExtensionSetting.extension_name == extension_name,
+                            CompanyExtensionSetting.setting_key
+                            == f"{extension_name}_bot_instance_name",
+                            CompanyExtensionSetting.bot_instance_id == instance_id,
+                        )
+                        .first()
+                    )
+                    instance_name = (
+                        instance_name_setting.setting_value
+                        if instance_name_setting
+                        else None
+                    )
+
+                    created_at = None
+                    updated_at = None
+                    if enabled_setting:
+                        if (
+                            hasattr(enabled_setting, "created_at")
+                            and enabled_setting.created_at
+                        ):
+                            created_at = enabled_setting.created_at.isoformat()
+                        if (
+                            hasattr(enabled_setting, "updated_at")
+                            and enabled_setting.updated_at
+                        ):
+                            updated_at = enabled_setting.updated_at.isoformat()
+
+                    deployed_bots.append(
+                        DeployedBotInfo(
+                            id=f"{cid}_{platform}_{instance_id}",
+                            platform=platform,
+                            platform_name=platform_name,
+                            instance_id=instance_id,
+                            instance_name=instance_name,
+                            company_id=cid,
+                            company_name=company_name,
+                            agent_id=agent_id,
+                            agent_name=agent_name,
+                            enabled=is_enabled,
+                            is_running=is_running,
+                            is_paused=is_paused,
+                            is_server_level=False,
+                            permission_mode=permission_mode,
+                            permission_mode_label=perm_mode_label,
+                            permission_privacy=perm_privacy,
+                            status=status,
+                            status_message=status_message,
+                            started_at=started_at,
+                            messages_processed=messages_processed,
+                            uses_oauth=uses_oauth,
+                            oauth_connected=oauth_connected,
+                            oauth_provider=oauth_provider,
+                            created_at=created_at,
+                            updated_at=updated_at,
+                            error=error,
+                        )
+                    )
 
     return DeployedBotsResponse(
         bots=deployed_bots,
@@ -2705,6 +2773,7 @@ async def get_bot_activity_log(
     platform: str,
     limit: int = 50,
     authorization: str = Header(None),
+    instance_id: str = "default",
 ):
     """Get activity log for a bot."""
     auth = MagicalAuth(token=authorization)
@@ -2722,7 +2791,9 @@ async def get_bot_activity_log(
     if platform == "outreach":
         from OutreachBotManager import get_outreach_bot_activity_log
 
-        entries = get_outreach_bot_activity_log(company_id, limit=min(limit, 200))
+        entries = get_outreach_bot_activity_log(
+            company_id, limit=min(limit, 200), instance_id=instance_id
+        )
         return {"entries": entries, "platform": platform, "company_id": company_id}
 
     return {"entries": [], "platform": platform, "company_id": company_id}
@@ -2978,6 +3049,7 @@ async def pause_company_bot(
     platform: str,
     request: BotPauseRequest,
     authorization: str = Header(None),
+    instance_id: str = "default",
 ):
     """Pause or unpause a bot."""
     if platform not in BOT_PLATFORM_SETTINGS:
@@ -3011,6 +3083,7 @@ async def pause_company_bot(
                 CompanyExtensionSetting.company_id == company_id,
                 CompanyExtensionSetting.extension_name == extension_name,
                 CompanyExtensionSetting.setting_key == paused_key,
+                CompanyExtensionSetting.bot_instance_id == instance_id,
             )
             .first()
         )
@@ -3024,6 +3097,7 @@ async def pause_company_bot(
                 setting_key=paused_key,
                 setting_value="true" if request.paused else "false",
                 is_sensitive=False,
+                bot_instance_id=instance_id,
             )
             db.add(new_setting)
 
@@ -3060,6 +3134,7 @@ async def remove_company_bot(
     company_id: str,
     platform: str,
     authorization: str = Header(None),
+    instance_id: str = "default",
 ):
     """Remove/disconnect a deployed bot."""
     if platform not in BOT_PLATFORM_SETTINGS:
@@ -3097,6 +3172,7 @@ async def remove_company_bot(
                 CompanyExtensionSetting.company_id == company_id,
                 CompanyExtensionSetting.extension_name == extension_name,
                 CompanyExtensionSetting.setting_key == enabled_key,
+                CompanyExtensionSetting.bot_instance_id == instance_id,
             )
             .first()
         )
@@ -3109,7 +3185,7 @@ async def remove_company_bot(
     try:
         manager = _get_bot_manager(platform)
         if manager and hasattr(manager, "stop_bot"):
-            manager.stop_bot(company_id)
+            manager.stop_bot(company_id, instance_id=instance_id)
     except Exception as e:
         logging.warning(f"Error stopping {platform} bot during removal: {e}")
 
@@ -3432,6 +3508,7 @@ async def get_company_bot_status(
     company_id: str,
     platform: str,
     authorization: str = Header(None),
+    instance_id: str = "default",
 ):
     """Get the status of a specific bot platform for a company."""
     if platform not in BOT_PLATFORM_SETTINGS:
@@ -3458,7 +3535,9 @@ async def get_company_bot_status(
         company = db.query(Company).filter(Company.id == company_id).first()
         company_name = company.name if company else "Unknown"
 
-    status = _get_bot_status_for_platform(platform, company_id, company_name)
+    status = _get_bot_status_for_platform(
+        platform, company_id, company_name, instance_id=instance_id
+    )
     if not status:
         return BotStatusResponse(
             company_id=company_id,
@@ -3482,6 +3561,7 @@ async def get_company_bot_settings(
     company_id: str,
     platform: str,
     authorization: str = Header(None),
+    instance_id: str = "default",
 ):
     """Get the settings for a specific bot platform."""
     if platform not in BOT_PLATFORM_SETTINGS:
@@ -3517,6 +3597,7 @@ async def get_company_bot_settings(
                     CompanyExtensionSetting.company_id == company_id,
                     CompanyExtensionSetting.extension_name == extension_name,
                     CompanyExtensionSetting.setting_key == setting_key,
+                    CompanyExtensionSetting.bot_instance_id == instance_id,
                 )
                 .first()
             )
@@ -3549,6 +3630,7 @@ async def get_company_bot_settings(
                     CompanyExtensionSetting.extension_name == extension_name,
                     CompanyExtensionSetting.setting_key
                     == f"{extension_name}_bot_agent_id",
+                    CompanyExtensionSetting.bot_instance_id == instance_id,
                 )
                 .first()
             )
@@ -3622,6 +3704,11 @@ async def enable_company_bot(
             status_code=400,
             detail=f"Invalid platform: {platform}. Valid platforms: {list(BOT_PLATFORM_SETTINGS.keys())}",
         )
+
+    # Resolve instance_id: "new" generates a UUID, None/empty defaults to "default"
+    instance_id = request.instance_id or "default"
+    if instance_id == "new":
+        instance_id = str(uuid_module.uuid4())
 
     # Validate company_id is a valid UUID early to avoid Postgres DataError
     try:
@@ -3736,6 +3823,7 @@ async def enable_company_bot(
                                 CompanyExtensionSetting.extension_name
                                 == extension_name,
                                 CompanyExtensionSetting.setting_key == required_key,
+                                CompanyExtensionSetting.bot_instance_id == instance_id,
                             )
                             .first()
                         )
@@ -3760,6 +3848,7 @@ async def enable_company_bot(
                             CompanyExtensionSetting.company_id == company_id,
                             CompanyExtensionSetting.extension_name == extension_name,
                             CompanyExtensionSetting.setting_key == key,
+                            CompanyExtensionSetting.bot_instance_id == instance_id,
                         )
                         .first()
                     )
@@ -3793,6 +3882,7 @@ async def enable_company_bot(
                             setting_key=key,
                             setting_value=final_value,
                             is_sensitive=is_sensitive,
+                            bot_instance_id=instance_id,
                         )
                         db.add(new_setting)
 
@@ -3841,6 +3931,7 @@ async def enable_company_bot(
                         CompanyExtensionSetting.company_id == company_id,
                         CompanyExtensionSetting.extension_name == extension_name,
                         CompanyExtensionSetting.setting_key == agent_id_key,
+                        CompanyExtensionSetting.bot_instance_id == instance_id,
                     )
                     .first()
                 )
@@ -3854,6 +3945,7 @@ async def enable_company_bot(
                             setting_key=agent_id_key,
                             setting_value=resolved_agent_id,
                             is_sensitive=False,
+                            bot_instance_id=instance_id,
                         )
                     )
 
@@ -3880,6 +3972,7 @@ async def enable_company_bot(
                         CompanyExtensionSetting.company_id == company_id,
                         CompanyExtensionSetting.extension_name == extension_name,
                         CompanyExtensionSetting.setting_key == permission_key,
+                        CompanyExtensionSetting.bot_instance_id == instance_id,
                     )
                     .first()
                 )
@@ -3893,6 +3986,7 @@ async def enable_company_bot(
                             setting_key=permission_key,
                             setting_value=request.permission_mode,
                             is_sensitive=False,
+                            bot_instance_id=instance_id,
                         )
                     )
 
@@ -3904,6 +3998,7 @@ async def enable_company_bot(
                     CompanyExtensionSetting.company_id == company_id,
                     CompanyExtensionSetting.extension_name == extension_name,
                     CompanyExtensionSetting.setting_key == owner_id_key,
+                    CompanyExtensionSetting.bot_instance_id == instance_id,
                 )
                 .first()
             )
@@ -3916,6 +4011,7 @@ async def enable_company_bot(
                         setting_key=owner_id_key,
                         setting_value=str(auth.user_id),
                         is_sensitive=False,
+                        bot_instance_id=instance_id,
                     )
                 )
 
@@ -3926,6 +4022,7 @@ async def enable_company_bot(
                     CompanyExtensionSetting.company_id == company_id,
                     CompanyExtensionSetting.extension_name == extension_name,
                     CompanyExtensionSetting.setting_key == enabled_setting_key,
+                    CompanyExtensionSetting.bot_instance_id == instance_id,
                 )
                 .first()
             )
@@ -3941,6 +4038,7 @@ async def enable_company_bot(
                     setting_key=enabled_setting_key,
                     setting_value=enabled_value,
                     is_sensitive=False,
+                    bot_instance_id=instance_id,
                 )
                 db.add(new_setting)
 
@@ -3980,6 +4078,7 @@ async def enable_company_bot(
     return {
         "status": "success",
         "message": f"{platform.title()} bot {action} for company. Bot will start/stop within 60 seconds.",
+        "instance_id": instance_id,
     }
 
 
@@ -3994,6 +4093,7 @@ async def restart_company_bot(
     company_id: str,
     platform: str,
     authorization: str = Header(None),
+    instance_id: str = "default",
 ):
     """Restart a bot platform for a company."""
     if platform not in BOT_PLATFORM_SETTINGS:

@@ -58,6 +58,7 @@ OUTREACH_SYNC_REQUEST_KEY = "agixt:outreach_bot_sync_request"
 class OutreachBotStatus:
     company_id: str
     company_name: str
+    instance_id: str = "default"
     started_at: Optional[datetime] = None
     is_running: bool = False
     error: Optional[str] = None
@@ -104,9 +105,11 @@ class CompanyOutreachBot:
         target_subreddits: str = "",
         monitoring_keywords: str = "",
         outreach_tasks: str = "monitor,follow_ups,content",
+        instance_id: str = "default",
     ):
         self.company_id = company_id
         self.company_name = company_name
+        self.instance_id = instance_id
         self.bot_owner_id = bot_owner_id
         self.bot_agent_id = bot_agent_id
         self.poll_interval = int(poll_interval_hours) * 3600  # Convert to seconds
@@ -577,6 +580,8 @@ class CompanyOutreachBot:
                 "level": level,
             }
             key = OUTREACH_ACTIVITY_LOG_KEY.format(company_id=self.company_id)
+            if self.instance_id != "default":
+                key = f"{key}:{self.instance_id}"
             # Use SharedCache's Redis connection if available
             redis_client = getattr(shared_cache, "_redis", None)
             if redis_client:
@@ -611,6 +616,7 @@ class CompanyOutreachBot:
         return OutreachBotStatus(
             company_id=self.company_id,
             company_name=self.company_name,
+            instance_id=self.instance_id,
             started_at=self.started_at,
             is_running=self.is_running,
             tasks_completed=self.tasks_completed,
@@ -680,7 +686,7 @@ class OutreachBotManager:
         companies = []
         try:
             with get_session() as session:
-                # Find all companies with outreach bot enabled
+                # Find all companies with outreach bot enabled (all instances)
                 enabled_settings = (
                     session.query(CompanyExtensionSetting)
                     .filter(
@@ -693,13 +699,15 @@ class OutreachBotManager:
 
                 for setting in enabled_settings:
                     company_id = str(setting.company_id)
+                    instance_id = getattr(setting, "bot_instance_id", "default")
 
-                    # Get all outreach settings for this company
+                    # Get all outreach settings for this company AND instance
                     all_settings = (
                         session.query(CompanyExtensionSetting)
                         .filter(
                             CompanyExtensionSetting.company_id == setting.company_id,
                             CompanyExtensionSetting.extension_name == "outreach",
+                            CompanyExtensionSetting.bot_instance_id == instance_id,
                         )
                         .all()
                     )
@@ -730,6 +738,7 @@ class OutreachBotManager:
                         {
                             "company_id": company_id,
                             "company_name": company_name,
+                            "instance_id": instance_id,
                             "bot_owner_id": settings_dict.get(
                                 "outreach_bot_owner_id", ""
                             ),
@@ -782,56 +791,83 @@ class OutreachBotManager:
 
         Bots that are disabled or paused are not returned by
         ``_get_companies_with_outreach_bot``, so they will be stopped
-        automatically when their company_id drops out of the active set.
-        When the user unpauses, the company reappears and the bot restarts.
+        automatically when their key drops out of the active set.
+        When the user unpauses, the key reappears and the bot restarts.
+
+        Bots are keyed by ``{company_id}:{instance_id}`` to support
+        multiple instances of the same bot type per company.
         """
         async with self._sync_lock:
             companies = await self._get_companies_with_outreach_bot()
-            company_ids = {c["company_id"] for c in companies}
+            active_keys = {
+                f"{c['company_id']}:{c.get('instance_id', 'default')}"
+                for c in companies
+            }
 
             # Stop removed / disabled / paused bots
-            for cid in list(self.bots.keys()):
-                if cid not in company_ids:
+            for bot_key in list(self.bots.keys()):
+                if bot_key not in active_keys:
                     logger.info(
-                        f"Stopping outreach bot for company {cid} "
+                        f"Stopping outreach bot {bot_key} "
                         f"(disabled, paused, or removed)"
                     )
-                    await self._stop_bot(cid)
+                    await self._stop_bot(bot_key)
 
             # Start new or update existing bots
             for config in companies:
-                cid = config["company_id"]
-                if cid not in self.bots:
+                bot_key = (
+                    f"{config['company_id']}:{config.get('instance_id', 'default')}"
+                )
+                if bot_key not in self.bots:
                     await self._start_bot(config)
                 # Could add config change detection here
 
     async def _start_bot(self, config: Dict):
-        """Start a new outreach bot for a company."""
-        try:
-            # Auto-enable required commands on the agent before starting
-            self._ensure_agent_commands(config)
-            bot = CompanyOutreachBot(**config)
-            self.bots[config["company_id"]] = bot
-            self.bot_tasks[config["company_id"]] = asyncio.create_task(bot.start())
-            logger.info(f"Outreach bot started for company: {config['company_name']}")
-        except Exception as e:
-            logger.error(
-                f"Error starting outreach bot for {config.get('company_name', 'unknown')}: {e}"
-            )
+        """Start an outreach bot for a company configuration."""
+        company_id = config["company_id"]
+        instance_id = config.get("instance_id", "default")
+        bot_key = f"{company_id}:{instance_id}"
+        bot = CompanyOutreachBot(
+            company_id=company_id,
+            company_name=config["company_name"],
+            bot_owner_id=config.get("bot_owner_id"),
+            bot_agent_id=config.get("bot_agent_id"),
+            poll_interval_hours=int(config.get("poll_interval_hours", 4)),
+            product_name=config.get("product_name", ""),
+            product_description=config.get("product_description", ""),
+            website_urls=config.get("website_urls", ""),
+            github_repos=config.get("github_repos", ""),
+            additional_context=config.get("additional_context", ""),
+            target_competitors=config.get("target_competitors", ""),
+            target_subreddits=config.get("target_subreddits", ""),
+            monitoring_keywords=config.get("monitoring_keywords", ""),
+            outreach_tasks=config.get("outreach_tasks", "monitor,follow_ups,content"),
+            instance_id=instance_id,
+        )
 
-    async def _stop_bot(self, company_id: str):
-        """Stop an outreach bot."""
-        if company_id in self.bots:
-            await self.bots[company_id].stop()
-        if company_id in self.bot_tasks:
-            self.bot_tasks[company_id].cancel()
+        # Auto-enable required commands on the agent before starting
+        self._ensure_agent_commands(config)
+
+        self.bots[bot_key] = bot
+        self.bot_tasks[bot_key] = asyncio.create_task(bot.start())
+        logger.info(
+            f"Outreach bot started for company: {config['company_name']} "
+            f"(instance: {instance_id})"
+        )
+
+    async def _stop_bot(self, bot_key: str):
+        """Stop an outreach bot by its composite key (company_id:instance_id)."""
+        if bot_key in self.bots:
+            await self.bots[bot_key].stop()
+        if bot_key in self.bot_tasks:
+            self.bot_tasks[bot_key].cancel()
             try:
-                await self.bot_tasks[company_id]
+                await self.bot_tasks[bot_key]
             except asyncio.CancelledError:
                 pass
-            del self.bot_tasks[company_id]
-        if company_id in self.bots:
-            del self.bots[company_id]
+            del self.bot_tasks[bot_key]
+        if bot_key in self.bots:
+            del self.bots[bot_key]
 
     def _ensure_agent_commands(self, config: Dict):
         """Ensure the bot's agent has the required outreach commands enabled.
@@ -927,16 +963,19 @@ class OutreachBotManager:
     def _publish_status_to_redis(self):
         """Publish all bot statuses to Redis for cross-process access."""
         try:
+            from Globals import shared_cache
+
             redis_client = getattr(shared_cache, "_redis", None)
             if not redis_client:
                 return
 
             statuses = {}
-            for cid, bot in self.bots.items():
+            for bot_key, bot in self.bots.items():
                 status = bot.get_status()
-                statuses[cid] = {
+                statuses[bot_key] = {
                     "company_id": status.company_id,
                     "company_name": status.company_name,
+                    "instance_id": status.instance_id,
                     "started_at": (
                         status.started_at.isoformat() if status.started_at else None
                     ),
@@ -1004,7 +1043,9 @@ class OutreachBotManager:
             self._status_task.cancel()
             try:
                 await self._status_task
-            except asyncio.CancelledError:
+            pt Exception:
+            pass
+        for except asyncio.CancelledError:
                 pass
         # Clean up Redis status
         try:
@@ -1014,18 +1055,25 @@ class OutreachBotManager:
                 redis_client.delete(OUTREACH_MANAGER_RUNNING_KEY)
         except Exception:
             pass
-        for cid in list(self.bots.keys()):
-            await self._stop_bot(cid)
+        for bot_key in list(self.bots.keys()):
+            await self._stop_bot(bot_key)
         logger.info("Outreach bot manager stopped")
 
-    def get_all_status(self) -> List[OutreachBotStatus]:
-        """Get status of all running outreach bots."""
-        return [bot.get_status() for bot in self.bots.values()]
-
-    def get_bot_status(self, company_id: str) -> Optional[OutreachBotStatus]:
-        """Get status of a specific company's outreach bot."""
-        bot = self.bots.get(company_id)
+    def get_bot_status(
+        self, company_id: str, instance_id: str = "default"
+    ) -> Optional[OutreachBotStatus]:
+        """Get status of a specific company's outreach bot instance."""
+        bot_key = f"{company_id}:{instance_id}"
+        bot = self.bots.get(bot_key)
         return bot.get_status() if bot else None
+
+    def stop_bot(self, company_id: str, instance_id: str = "default"):
+        """Stop a specific bot instance (called from endpoints)."""
+        import asyncio
+
+        bot_key = f"{company_id}:{instance_id}"
+        if bot_key in self.bots:
+            asyncio.create_task(self._stop_bot(bot_key))
 
 
 # Module-level globals
@@ -1037,21 +1085,9 @@ def get_outreach_bot_manager() -> Optional[OutreachBotManager]:
     return _manager
 
 
-def request_outreach_sync():
-    """Signal the parent-process OutreachBotManager to re-sync immediately.
-
-    Safe to call from any uvicorn worker — sets a Redis key that the
-    manager's main loop polls every 5 seconds.
-    """
-    try:
-        redis_client = getattr(shared_cache, "_redis", None)
-        if redis_client:
-            redis_client.set(OUTREACH_SYNC_REQUEST_KEY, "1", ex=30)
-    except Exception:
-        pass
-
-
-def get_outreach_bot_status_from_redis(company_id: str) -> Optional[OutreachBotStatus]:
+def get_outreach_bot_status_from_redis(
+    company_id: str, instance_id: str = "default"
+) -> Optional[OutreachBotStatus]:
     """Get outreach bot status from Redis (for uvicorn worker processes)."""
     try:
         redis_client = getattr(shared_cache, "_redis", None)
@@ -1066,17 +1102,23 @@ def get_outreach_bot_status_from_redis(company_id: str) -> Optional[OutreachBotS
             return None
 
         statuses = json.loads(status_data)
-        if company_id not in statuses:
-            return None
+        bot_key = f"{company_id}:{instance_id}"
+        if bot_key not in statuses:
+            # Backwards compat: try bare company_id for old data
+            if company_id in statuses:
+                bot_key = company_id
+            else:
+                return None
 
-        s = statuses[company_id]
+        s = statuses[bot_key]
         return OutreachBotStatus(
-            company_id=s["company_id"],
-            company_name=s["company_name"],
+            company_id=s.get("company_id", company_id),
+            company_name=s.get("company_name", ""),
+            instance_id=s.get("instance_id", "default"),
             started_at=(
-                datetime.fromisoformat(s["started_at"]) if s["started_at"] else None
+                datetime.fromisoformat(s["started_at"]) if s.get("started_at") else None
             ),
-            is_running=s["is_running"],
+            is_running=s.get("is_running", False),
             error=s.get("error"),
             tasks_completed=s.get("tasks_completed", 0),
             leads_found=s.get("leads_found", 0),
@@ -1093,12 +1135,18 @@ def get_outreach_bot_status_from_redis(company_id: str) -> Optional[OutreachBotS
         return None
 
 
-def get_outreach_bot_activity_log(company_id: str, limit: int = 50) -> List[dict]:
+def get_outreach_bot_activity_log(
+    company_id: str, limit: int = 50, instance_id: str = "default"
+) -> List[dict]:
     """Get activity log entries for an outreach bot from Redis."""
     try:
         redis_client = getattr(shared_cache, "_redis", None)
         if not redis_client:
             return []
+
+        key = OUTREACH_ACTIVITY_LOG_KEY.format(company_id=company_id)
+        if instance_id != "default":
+            key = f"{key}:{instance_id}"
 
         key = OUTREACH_ACTIVITY_LOG_KEY.format(company_id=company_id)
         entries = redis_client.lrange(key, 0, limit - 1)

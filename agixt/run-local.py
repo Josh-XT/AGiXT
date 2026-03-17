@@ -142,6 +142,7 @@ async def initialize_database(is_restart=False):
 
         section_start = startup_timer.section_start()
         DB.migrate_user_company_sort_order()
+        DB.migrate_bot_instance_id()
         DB.cleanup_expired_cache()
         startup_timer.section_end("final_migrations_and_cleanup", section_start)
 
