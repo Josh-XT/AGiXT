@@ -29,6 +29,7 @@ jobs:
         run: black --check $(find . -type f -name "*.py")
   build:
     uses: ./.github/workflows/docker.yml
+    name: Build AGiXT
     needs: lint
     with:
       registry-dockerhub-enable: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
@@ -70,7 +71,7 @@ jobs:
     permissions:
       contents: read
       packages: read
-    name: Deploy to dev server
+    name: Deploy to Production
     needs: test-agixt-postgres
     if: github.ref == 'refs/heads/main'
     steps:
