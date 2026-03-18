@@ -3916,11 +3916,14 @@ Example: If user says "list my files", use:
             # Also check if there's NO answer at all - we need to prompt for one
             has_no_answer = "<answer>" not in self.response.lower()
 
-            # After several consecutive non-exec no-answer iterations, the model is
+            # After many consecutive non-exec no-answer iterations, the model is
             # generating useful content but not wrapping in <answer> tags.
             # Inject <answer> to transition to has_incomplete_answer mode where
             # the prompt tells the model to close the answer block.
-            if _no_answer_non_exec_streak >= 5 and has_no_answer:
+            # We use a very generous threshold here — the agent should be
+            # free to think and act as long as it needs without being
+            # forced into answering prematurely.
+            if _no_answer_non_exec_streak >= 100 and has_no_answer:
                 self.response += "\n<answer>"
                 has_no_answer = False
                 has_incomplete_answer = True
@@ -3961,18 +3964,18 @@ Example: If user says "list my files", use:
             # even if they fail — the model may need several tries to fix errors.
             # We only track iterations where the model just generated thinking/answer
             # without executing code.
-            if len(_continuation_iter_lengths) >= 6 and not has_new_execution:
-                _last4 = _continuation_iter_lengths[-6:]
+            if len(_continuation_iter_lengths) >= 15 and not has_new_execution:
+                _last4 = _continuation_iter_lengths[-15:]
                 _avg = sum(_last4) / len(_last4)
-                _all_small = all(l < 2000 for l in _last4)
-                _all_similar = all(abs(l - _avg) < 300 for l in _last4)
+                _all_small = all(l < 5000 for l in _last4)
+                _all_similar = all(abs(l - _avg) < 500 for l in _last4)
                 if _all_small and _all_similar:
                     if has_incomplete_answer:
                         # Model opened <answer> but keeps generating without closing.
                         # Force-close it — the answer content is already there.
                         logging.warning(
                             f"[run_stream] Stuck loop detected (incomplete answer) at iteration {continuation_count}. "
-                            f"Last 6 non-exec lengths: {_last4}. Force-closing answer tag."
+                            f"Last 15 non-exec lengths: {_last4}. Force-closing answer tag."
                         )
                         self.response += "</answer>"
                         c.log_interaction(
@@ -3985,7 +3988,7 @@ Example: If user says "list my files", use:
                         # Break out and use fallback answer extraction.
                         logging.warning(
                             f"[run_stream] Stuck loop detected (no answer) at iteration {continuation_count}. "
-                            f"Last 6 non-exec lengths: {_last4}. Breaking to extract best available answer."
+                            f"Last 15 non-exec lengths: {_last4}. Breaking to extract best available answer."
                         )
                         c.log_interaction(
                             role=self.agent_name,
@@ -4110,7 +4113,7 @@ Analyze the actual output shown and continue with your response.
                 if has_no_answer:
                     # No answer block at all - prompt to provide one
                     # Use compressed response to prevent context explosion
-                    if _consecutive_dedup_iterations >= 1:
+                    if _consecutive_dedup_iterations >= 3:
                         # DEDUP RECOVERY: Model keeps regenerating same commands.
                         # Use a strong prompt telling it to STOP executing and answer.
                         continuation_prompt = (
@@ -4122,7 +4125,7 @@ Analyze the actual output shown and continue with your response.
                             f"to the user inside <answer></answer> tags now."
                         )
                     else:
-                        continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nContinue working on the user's request. If you need to execute more commands to complete the task, do so now. If you have finished all necessary work, provide your response to the user inside <answer></answer> tags. Do not repeat previous thinking or command outputs."
+                        continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nContinue working on the user's request. You may continue thinking, analyzing, and executing commands as needed — take as much time as you need to do thorough work. When you have fully completed all necessary work and are ready to respond, provide your response inside <answer></answer> tags. Do not repeat previous thinking or command outputs."
                 else:
                     # Incomplete answer - prompt to continue
                     # Use compressed response to prevent context explosion
@@ -4744,7 +4747,7 @@ Analyze the actual output shown and continue with your response.
                         # is stuck regenerating the same commands. Break immediately
                         # regardless of whether an answer tag is open — the fallback
                         # answer extraction will handle the response.
-                        if _consecutive_dedup_iterations >= 2:
+                        if _consecutive_dedup_iterations >= 4:
                             logging.warning(
                                 f"[run_stream] Dedup loop detected at iteration {continuation_count}. "
                                 f"{_consecutive_dedup_iterations} consecutive iterations with all commands "
@@ -4798,9 +4801,10 @@ Analyze the actual output shown and continue with your response.
                     continue
 
                 # If <answer> is open but not closed and this inference didn't
-                # produce a command to execute, the model gave its answer in
-                # this inference but didn't emit the closing tag. Close it now
-                # rather than looping back — re-inferring just causes repetition.
+                # produce a command to execute, let the model continue in the
+                # next iteration rather than force-closing. The model may have
+                # hit its output token limit while writing a long answer and
+                # should be given a chance to finish it properly.
                 if (
                     "<answer>" in self.response.lower()
                     and not has_complete_answer(self.response)
@@ -4808,10 +4812,9 @@ Analyze the actual output shown and continue with your response.
                 ):
                     logging.info(
                         f"[run_stream] Inference opened <answer> without closing it "
-                        f"at iteration {continuation_count}. Auto-closing </answer>."
+                        f"at iteration {continuation_count}. Continuing to let agent finish."
                     )
-                    self.response += "</answer>"
-                    break
+                    continue
 
             except asyncio.CancelledError:
                 logging.warning(
