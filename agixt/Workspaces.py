@@ -769,7 +769,10 @@ class WorkspaceManager(SecurityValidationMixin):
             ):
                 return None
 
-            stat = entry.stat()
+            try:
+                stat = entry.stat()
+            except (PermissionError, OSError):
+                return None
             rel_path = entry.relative_to(root_path).as_posix()
             item = {
                 "id": self._generate_item_id(agent_id, conversation_id, rel_path),
@@ -782,22 +785,29 @@ class WorkspaceManager(SecurityValidationMixin):
             }
 
             if entry.is_dir() and recursive:
-                children = [
-                    serialize_entry(child)
-                    for child in sorted(
-                        entry.iterdir(),
-                        key=lambda p: (not p.is_dir(), p.name.lower()),
-                    )
-                ]
+                try:
+                    children = [
+                        serialize_entry(child)
+                        for child in sorted(
+                            entry.iterdir(),
+                            key=lambda p: (not p.is_dir(), p.name.lower()),
+                        )
+                    ]
+                except (PermissionError, OSError):
+                    children = []
                 item["children"] = [c for c in children if c is not None]
 
             return item
 
         entries = []
-        for entry in sorted(
-            target_path.iterdir(),
-            key=lambda p: (not p.is_dir(), p.name.lower()),
-        ):
+        try:
+            sorted_entries = sorted(
+                target_path.iterdir(),
+                key=lambda p: (not p.is_dir(), p.name.lower()),
+            )
+        except (PermissionError, OSError):
+            sorted_entries = []
+        for entry in sorted_entries:
             serialized = serialize_entry(entry)
             if serialized is not None:
                 entries.append(serialized)
