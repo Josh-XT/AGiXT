@@ -3923,7 +3923,7 @@ Example: If user says "list my files", use:
             # We use a very generous threshold here — the agent should be
             # free to think and act as long as it needs without being
             # forced into answering prematurely.
-            if _no_answer_non_exec_streak >= 100 and has_no_answer:
+            if _no_answer_non_exec_streak >= 25 and has_no_answer:
                 self.response += "\n<answer>"
                 has_no_answer = False
                 has_incomplete_answer = True

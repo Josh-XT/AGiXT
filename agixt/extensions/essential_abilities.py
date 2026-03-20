@@ -281,6 +281,8 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             "Search PubMed Central": self.search_pubmed_central,
             "Download Paper PDF": self.download_paper_pdf,
             "Convert PDF to Markdown": self.convert_pdf_to_markdown,
+            # Package Tracking
+            "Track Package": self.track_package,
         }
         self.WORKING_DIRECTORY = (
             kwargs["conversation_directory"]
@@ -11065,3 +11067,394 @@ The markdown file is now available in your workspace for reading and analysis.""
         except Exception as e:
             logging.error(f"[convert_pdf_to_markdown] Error: {str(e)}")
             return f"Error converting PDF to markdown: {str(e)}"
+
+    def _detect_carrier(self, tracking_number: str) -> str:
+        """
+        Detect the shipping carrier from a tracking number based on format patterns.
+
+        Args:
+            tracking_number (str): The package tracking number
+
+        Returns:
+            str: Detected carrier name (ups, fedex, usps, dhl, or unknown)
+        """
+        tn = tracking_number.strip().upper()
+
+        # UPS: 1Z + 6 alphanumeric (shipper) + 2 digit service + 8 digit package
+        if re.match(r"^1Z[A-Z0-9]{16}$", tn):
+            return "ups"
+        # UPS: T + 10 digits (upgrade tracking)
+        if re.match(r"^T\d{10}$", tn):
+            return "ups"
+        # UPS: 9-digit reference numbers
+        if re.match(r"^\d{9}$", tn):
+            return "ups"
+        # UPS: Mail Innovations
+        if re.match(r"^MI\d{6}\d{16,22}$", tn):
+            return "ups"
+
+        # FedEx: 12-digit (Express/Ground)
+        if re.match(r"^\d{12}$", tn):
+            return "fedex"
+        # FedEx: 15-digit
+        if re.match(r"^\d{15}$", tn):
+            return "fedex"
+        # FedEx: 20-digit (Door Tag)
+        if re.match(r"^\d{20}$", tn):
+            return "fedex"
+        # FedEx: 22-digit
+        if re.match(r"^\d{22}$", tn):
+            return "fedex"
+        # FedEx: SmartPost (starts with 61 or 92, 22 digits)
+        if re.match(r"^(61|92)\d{20}$", tn):
+            return "fedex"
+        # FedEx: 34-digit
+        if re.match(r"^\d{34}$", tn):
+            return "fedex"
+
+        # USPS: 20-22 digit (most common: starts with 94, 93, 92, 95, 70, 14, 23)
+        if re.match(r"^(94|93|92|95|70|14|23|03)\d{18,20}$", tn):
+            return "usps"
+        # USPS: 13-char international (2 letters + 9 digits + US)
+        if re.match(r"^[A-Z]{2}\d{9}US$", tn):
+            return "usps"
+        # USPS: 30-digit S10
+        if re.match(r"^420\d{27,31}$", tn):
+            return "usps"
+
+        # DHL: 10-digit (Express)
+        if re.match(r"^\d{10}$", tn):
+            return "dhl"
+        # DHL: JD + 18 digits
+        if re.match(r"^JD\d{18}$", tn):
+            return "dhl"
+        # DHL: 3-4 letter prefix + 7+ digits
+        if re.match(r"^[A-Z]{3,4}\d{7,}$", tn):
+            return "dhl"
+        # DHL eCommerce: GM, LX, RX prefixes
+        if re.match(r"^(GM|LX|RX)\d+$", tn):
+            return "dhl"
+
+        return "unknown"
+
+    def _get_tracking_urls(self, tracking_number: str, carrier: str) -> dict:
+        """
+        Get tracking URLs for a package across carriers.
+
+        Args:
+            tracking_number (str): The tracking number
+            carrier (str): Detected or specified carrier
+
+        Returns:
+            dict: Carrier names mapped to tracking URLs
+        """
+        urls = {}
+        tn = tracking_number.strip()
+        if carrier in ("ups", "unknown"):
+            urls["UPS"] = f"https://www.ups.com/track?tracknum={tn}"
+        if carrier in ("fedex", "unknown"):
+            urls["FedEx"] = f"https://www.fedex.com/fedextrack/?trknbr={tn}"
+        if carrier in ("usps", "unknown"):
+            urls["USPS"] = f"https://tools.usps.com/go/TrackConfirmAction?tLabels={tn}"
+        if carrier in ("dhl", "unknown"):
+            urls["DHL"] = (
+                f"https://www.dhl.com/us-en/home/tracking/tracking-parcel.html?submit=1&tracking-id={tn}"
+            )
+        return urls
+
+    async def _scrape_tracking_page(
+        self, url: str, carrier: str, tracking_number: str
+    ) -> str:
+        """
+        Render a tracking page with Playwright and extract visible text content.
+        Uses headless Chromium with stealth settings to bypass bot detection.
+        Tries ship24.com first as a universal aggregator, then falls back to
+        the direct carrier tracking page.
+
+        Args:
+            url (str): The direct carrier tracking page URL (used as fallback)
+            carrier (str): The carrier key (ups, fedex, usps, dhl)
+            tracking_number (str): The tracking number being looked up
+
+        Returns:
+            str: Extracted tracking-relevant text content, or empty string on failure
+        """
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            logging.warning(
+                "[track_package] playwright not available for page rendering"
+            )
+            return ""
+
+        # URLs to try in order: ship24.com aggregator first, then direct carrier
+        urls_to_try = [
+            f"https://www.ship24.com/tracking?p={tracking_number}",
+            url,
+        ]
+
+        for attempt_url in urls_to_try:
+            result = await self._render_and_extract(attempt_url, tracking_number)
+            if result and len(result) > 50:
+                return result
+
+        return ""
+
+    async def _render_and_extract(self, url: str, tracking_number: str) -> str:
+        """
+        Render a single URL with Playwright and extract tracking text.
+
+        Args:
+            url (str): The URL to render
+            tracking_number (str): The tracking number to look for in the page
+
+        Returns:
+            str: Extracted text content or empty string on failure
+        """
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            return ""
+
+        browser = None
+        pw = None
+        try:
+            pw = await async_playwright().start()
+            browser = await pw.chromium.launch(headless=True)
+            context = await browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 900},
+                locale="en-US",
+            )
+            # Basic stealth: hide webdriver flag
+            await context.add_init_script(
+                """
+                Object.defineProperty(navigator, 'webdriver', {get: () => false});
+                window.chrome = { runtime: {} };
+                """
+            )
+            page = await context.new_page()
+
+            # Navigate with generous timeout
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            except Exception as nav_err:
+                logging.warning(
+                    f"[track_package] Navigation to {url} failed: {nav_err}"
+                )
+                await browser.close()
+                await pw.stop()
+                return ""
+
+            # Wait for dynamic content to load
+            await page.wait_for_timeout(5000)
+
+            # Poll for content stability (text stops changing)
+            prev_text = ""
+            for _ in range(6):
+                cur_text = await page.evaluate("document.body.innerText")
+                if cur_text and len(cur_text) > 300 and cur_text == prev_text:
+                    break
+                prev_text = cur_text
+                await page.wait_for_timeout(2000)
+
+            # Get the rendered text directly from the page (cleaner than HTML parsing)
+            page_text = await page.evaluate("document.body.innerText")
+            await browser.close()
+            await pw.stop()
+
+            if not page_text or len(page_text) < 50:
+                return ""
+
+            # Find tracking number in text and extract relevant section
+            tn_upper = tracking_number.upper()
+            text_upper = page_text.upper()
+            idx = text_upper.find(tn_upper)
+
+            if idx < 0:
+                return ""
+
+            # Find the start of the tracking section - start from the tracking number
+            # Skip Ship24-specific "Tracking results" header and help questions
+            tracking_section_markers = [
+                "filter:",
+                "filter: all",
+            ]
+            section_start = idx
+            text_lower = page_text.lower()
+            for marker in tracking_section_markers:
+                marker_idx = text_lower.rfind(marker, 0, idx)
+                if marker_idx >= 0:
+                    section_start = marker_idx
+                    break
+            else:
+                # No marker found, start from tracking number with minimal context
+                section_start = max(0, idx - 50)
+
+            # Find the end of tracking section (stop before footer content)
+            footer_markers = [
+                "discover more",
+                "ship24 lets you track",
+                "ship24 offers",
+                "by continuing, you consent",
+                "we use cookies",
+                "© 20",
+                "all rights reserved",
+                "privacy policy\nterms",
+                "shopify tracking app",
+            ]
+            section_end = len(page_text)
+            for marker in footer_markers:
+                marker_idx = text_lower.find(marker, idx)
+                if marker_idx >= 0:
+                    section_end = marker_idx
+                    break
+
+            result_text = page_text[section_start:section_end].strip()
+
+            # Clean up: collapse blank lines
+            cleaned_lines = []
+            for line in result_text.split("\n"):
+                line = line.strip()
+                if not line:
+                    if cleaned_lines and cleaned_lines[-1] != "":
+                        cleaned_lines.append("")
+                    continue
+                cleaned_lines.append(line)
+
+            return "\n".join(cleaned_lines).strip()
+
+        except Exception as e:
+            logging.error(
+                f"[track_package] Playwright scraping error for {url}: {str(e)}"
+            )
+            if browser:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
+            if pw:
+                try:
+                    await pw.stop()
+                except Exception:
+                    pass
+            return ""
+
+    async def track_package(self, tracking_number: str, carrier: str = "") -> str:
+        """
+        Track a package by its tracking number. Automatically detects the carrier
+        (UPS, FedEx, USPS, DHL, etc.) from the tracking number format, or accepts
+        an explicit carrier name. Returns package tracking information scraped from
+        the carrier's website including status, location history, and delivery details.
+
+        Args:
+            tracking_number (str): The package tracking number to look up
+            carrier (str): Optional carrier name (e.g., 'UPS', 'FedEx', 'USPS', 'DHL').
+                          If not provided, the carrier is auto-detected from the tracking number format.
+
+        Returns:
+            str: Tracking details extracted from the carrier's website, including current status,
+                 delivery information, and tracking history. Also provides direct tracking URLs.
+
+        Notes:
+            - Supports UPS, FedEx, USPS, DHL, and other major carriers
+            - Carrier is auto-detected from tracking number format when not specified
+            - Uses headless browser rendering to extract tracking data from carrier websites
+            - Always provides direct tracking URLs for manual lookup
+            - Example UPS tracking number format: 1Z followed by 16 alphanumeric characters
+            - Example FedEx format: 12, 15, or 22 digits
+            - Example USPS format: 20-22 digits, often starting with 94, 93, or 92
+        """
+        try:
+            tracking_number = tracking_number.strip()
+            if not tracking_number:
+                return "Error: No tracking number provided. Please provide a valid tracking number."
+
+            # Detect or normalize carrier
+            if carrier:
+                carrier_key = carrier.strip().lower().replace(" ", "")
+                carrier_map = {
+                    "ups": "ups",
+                    "fedex": "fedex",
+                    "usps": "usps",
+                    "dhl": "dhl",
+                    "unitedparcelservice": "ups",
+                    "federalexpress": "fedex",
+                    "unitedstatespostalservice": "usps",
+                }
+                detected_carrier = carrier_map.get(carrier_key, "unknown")
+            else:
+                detected_carrier = self._detect_carrier(tracking_number)
+
+            carrier_display = {
+                "ups": "UPS",
+                "fedex": "FedEx",
+                "usps": "USPS",
+                "dhl": "DHL",
+                "unknown": "Unknown Carrier",
+            }
+            carrier_name = carrier_display.get(detected_carrier, "Unknown Carrier")
+
+            # Get tracking URLs for all potential carriers
+            tracking_urls = self._get_tracking_urls(tracking_number, detected_carrier)
+
+            # Determine which URL to scrape (prefer detected carrier)
+            scrape_url = None
+            if detected_carrier == "ups":
+                scrape_url = (
+                    f"https://www.ups.com/track?tracknum={tracking_number}&loc=en_US"
+                )
+            elif detected_carrier == "fedex":
+                scrape_url = (
+                    f"https://www.fedex.com/fedextrack/?trknbr={tracking_number}"
+                )
+            elif detected_carrier == "usps":
+                scrape_url = f"https://tools.usps.com/go/TrackConfirmAction?tLabels={tracking_number}"
+            elif detected_carrier == "dhl":
+                scrape_url = f"https://www.dhl.com/us-en/home/tracking/tracking-parcel.html?submit=1&tracking-id={tracking_number}"
+            elif tracking_urls:
+                # Unknown carrier - try the first available URL
+                scrape_url = next(iter(tracking_urls.values()))
+
+            # Scrape the tracking page with Playwright
+            scraped_text = ""
+            if scrape_url:
+                logging.info(
+                    f"[track_package] Scraping {carrier_name} tracking page for {tracking_number}"
+                )
+                scraped_text = await self._scrape_tracking_page(
+                    scrape_url, detected_carrier, tracking_number
+                )
+
+            # Format the response
+            lines = []
+            lines.append(f"## Package Tracking: {tracking_number}")
+            lines.append(f"**Detected Carrier:** {carrier_name}")
+            lines.append("")
+
+            if scraped_text and len(scraped_text) > 50:
+                lines.append("### Tracking Information")
+                lines.append("")
+                lines.append(scraped_text)
+            else:
+                lines.append(
+                    "**Could not retrieve tracking data automatically.** "
+                    "The carrier's website may be temporarily unavailable or "
+                    "the package may not yet be in the system."
+                )
+                lines.append("Please use the tracking links below to check directly.")
+
+            # Always add tracking URLs for reference
+            lines.append("")
+            lines.append("### Track Online")
+            for name, url in tracking_urls.items():
+                lines.append(f"- [{name} Tracking]({url})")
+
+            return "\n".join(lines)
+
+        except Exception as e:
+            logging.error(f"[track_package] Error: {str(e)}")
+            return f"Error tracking package: {str(e)}"
