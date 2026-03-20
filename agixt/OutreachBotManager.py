@@ -882,18 +882,21 @@ class OutreachBotManager:
             return
 
         try:
-            from Agent import impersonate_user
-
-            token = impersonate_user(owner_id)
-            if not token:
-                logger.warning(
-                    f"Could not impersonate owner {owner_id} to enable agent commands"
-                )
-                return
-
+            from DB import get_session, User
             from Agent import Agent
 
-            agent = Agent(agent_id=agent_id, api_key=token)
+            session = get_session()
+            user = session.query(User).filter(User.id == owner_id).first()
+            if not user:
+                session.close()
+                logger.warning(
+                    f"Could not find owner {owner_id} to enable agent commands"
+                )
+                return
+            user_email = user.email
+            session.close()
+
+            agent = Agent(agent_id=agent_id, user=user_email)
 
             # All Marketing & Growth commands the outreach bot needs
             required_commands = [
