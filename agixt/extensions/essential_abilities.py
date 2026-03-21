@@ -448,11 +448,18 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         stripped = paths
         for prefix in ["/workspace/", "/agixt/"]:
             if stripped.startswith(prefix):
-                stripped = stripped[len(prefix) :]
+                stripped = stripped[len(prefix):]
         # Also strip the full WORKING_DIRECTORY prefix if the model included it
         base = os.path.realpath(self.WORKING_DIRECTORY)
         if stripped.startswith(base):
-            stripped = stripped[len(base) :].lstrip("/")
+            stripped = stripped[len(base):].lstrip("/")
+        # Strip relative WORKSPACE/agent_*/conv_id/ prefixes (model may include
+        # the internal workspace structure from context or previous errors)
+        import re as _re
+
+        stripped = _re.sub(
+            r"^WORKSPACE/agent_[0-9a-f]+/[0-9a-f-]+/", "", stripped
+        )
         # Use the cleaned path
         paths = stripped
 

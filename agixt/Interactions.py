@@ -1040,7 +1040,7 @@ class Interactions:
         if "workspace_file_context" in kwargs and kwargs["workspace_file_context"]:
             workspace_file_info = kwargs["workspace_file_context"]
             context.append(
-                f"## Files in Workspace\nThe following files are available in the assistant's workspace directory and can be accessed using file operation commands (Read File, Write to File, Modify File, Delete File, List Directory, Search Files, Search File Content, Grep Search, Execute Python File, Run Data Analysis, Execute Python Code):\n{workspace_file_info}\nUse these file commands to read, analyze, modify, or create files as needed.\n"
+                f"## Files in Workspace\nThe following files are available in the assistant's workspace directory and can be accessed using file operation commands (Read File, Write to File, Modify File, Delete File, List Directory, Search Files, Search File Content, Grep Search, Execute Python File, Run Data Analysis, Execute Python Code):\n{workspace_file_info}\n\n**IMPORTANT: When using file commands, use ONLY the relative path from the tree above.** For example, if the tree shows `CandleLaunchGame/src/App.tsx`, use `CandleLaunchGame/src/App.tsx` as the filename — do NOT prepend `/agixt/`, `/workspace/`, `WORKSPACE/`, or any absolute path. The system automatically resolves relative paths to the correct location.\n"
             )
         if vision_response != "":
             context.append(
@@ -2089,6 +2089,24 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
             if cmd not in valid_commands:
                 valid_commands.append(cmd)
 
+        # Essential commands that must always be available when commands are enabled.
+        # These are the foundational abilities for file operations, code execution,
+        # and web interaction — without them the agent cannot perform basic tasks.
+        ESSENTIAL_COMMANDS = [
+            "Read File",
+            "Modify File",
+            "Write to File",
+            "List Directory",
+            "Search Files",
+            "Execute Python Code",
+            "Use Terminal in Workspace",
+            "Interact with Webpage",
+            "Web Search",
+        ]
+        for cmd in ESSENTIAL_COMMANDS:
+            if cmd in all_command_names and cmd not in valid_commands:
+                valid_commands.append(cmd)
+
         # Remove duplicates while preserving order
         seen = set()
         unique_commands = []
@@ -2098,8 +2116,8 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                 unique_commands.append(cmd)
         valid_commands = unique_commands
 
-        # Cap at 20 commands to keep execution prompt within context budget
-        MAX_COMMANDS = 20
+        # Cap at 25 commands to keep execution prompt within context budget
+        MAX_COMMANDS = 25
         if len(valid_commands) > MAX_COMMANDS:
             # Keep explicitly requested first, then LLM-selected in order
             prioritized = [
