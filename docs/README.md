@@ -33,7 +33,7 @@ AGiXT is not just another AI framework—it's a complete automation platform tha
 
 Documentation for AGiXT has moved to our central documentation site:
 
-**[📖 View AGiXT Documentation](https://docs.devxt.com/?service=agixt.com)**
+**[📖 View AGiXT Documentation](https://docs.agixt.com)**
 
 The documentation site includes:
 
@@ -48,7 +48,7 @@ The documentation site includes:
 ## Quick Links
 
 - **AGiXT Platform**: [agixt.com](https://agixt.com)
-- **Documentation**: [docs.devxt.com/?service=agixt.com](https://docs.devxt.com/?service=agixt.com)
+- **Documentation**: [docs.agixt.com](https://docs.agixt.com)
 - **GitHub**: [github.com/Josh-XT/AGiXT](https://github.com/Josh-XT/AGiXT)
 - **Discord**: [discord.gg/d3TkHRZcjD](https://discord.gg/d3TkHRZcjD)
 
@@ -59,4 +59,4 @@ pip install agixt
 agixt start
 ```
 
-For detailed installation and configuration instructions, please visit the [documentation site](https://docs.devxt.com/?service=agixt.com).
+For detailed installation and configuration instructions, please visit the [documentation site](https://docs.agixt.com).
