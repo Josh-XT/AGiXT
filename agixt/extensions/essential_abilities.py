@@ -428,6 +428,10 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         Safely join paths together, ensuring the result stays within
         the agent's WORKING_DIRECTORY to prevent path traversal attacks.
 
+        If the resolved path does not exist, attempts to find a matching
+        file within the workspace by searching for the given relative path
+        as a suffix of existing files.
+
         Args:
         paths (str): The paths to join
 
@@ -439,8 +443,19 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         """
         if "/path/to/" in paths:
             paths = paths.replace("/path/to/", "")
-        # Use realpath (not just normpath) to resolve symlinks and ..
+        # Strip absolute prefixes that models sometimes hallucinate
+        # e.g. /workspace/, /agixt/, or the full host path
+        stripped = paths
+        for prefix in ["/workspace/", "/agixt/"]:
+            if stripped.startswith(prefix):
+                stripped = stripped[len(prefix) :]
+        # Also strip the full WORKING_DIRECTORY prefix if the model included it
         base = os.path.realpath(self.WORKING_DIRECTORY)
+        if stripped.startswith(base):
+            stripped = stripped[len(base) :].lstrip("/")
+        # Use the cleaned path
+        paths = stripped
+
         new_path = os.path.realpath(
             os.path.normpath(os.path.join(self.WORKING_DIRECTORY, *paths.split("/")))
         )
@@ -449,6 +464,22 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             raise PermissionError(
                 f"Path traversal detected: refusing to access path outside workspace"
             )
+        # If the file doesn't exist, search the workspace for a matching suffix
+        if not os.path.exists(new_path) and paths:
+            normalized_suffix = paths.replace("\\", "/").strip("/")
+            for root, dirs, files in os.walk(self.WORKING_DIRECTORY):
+                for f in files:
+                    full = os.path.join(root, f)
+                    rel = os.path.relpath(full, self.WORKING_DIRECTORY).replace(
+                        "\\", "/"
+                    )
+                    if rel.endswith(normalized_suffix):
+                        candidate = os.path.realpath(full)
+                        if candidate.startswith(base + os.sep):
+                            logging.info(
+                                f"[safe_join] Resolved '{paths}' -> '{rel}' via suffix match"
+                            )
+                            return candidate
         path_dir = os.path.dirname(new_path)
         os.makedirs(path_dir, exist_ok=True)
         return new_path
