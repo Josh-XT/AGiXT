@@ -11,7 +11,7 @@ when they are first needed.
 import os
 import logging
 from typing import Dict, List, Any, Optional
-from Globals import getenv
+from Globals import getenv, get_jwt_secret
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -581,7 +581,7 @@ class InternalClient:
                 return None
 
             # Generate JWT token - similar to what MagicalAuth.send_magic_link returns
-            agixt_api_key = os.getenv("AGIXT_API_KEY", "")
+            jwt_secret = get_jwt_secret()
             token_data = {
                 "sub": str(user.id),
                 "email": user.email,
@@ -590,7 +590,7 @@ class InternalClient:
                 + timedelta(days=365),  # Long-lived internal token
                 "iat": datetime.utcnow().timestamp(),
             }
-            token = jwt.encode(token_data, agixt_api_key, algorithm="HS256")
+            token = jwt.encode(token_data, jwt_secret, algorithm="HS256")
 
             # Update instance state
             self.api_key = token

@@ -3,7 +3,7 @@ import logging
 import jwt
 import hashlib
 from fastapi import Header, HTTPException
-from Globals import getenv
+from Globals import getenv, get_jwt_secret
 from datetime import datetime, timedelta
 
 logging.basicConfig(
@@ -76,6 +76,7 @@ def validate_personal_access_token(token: str):
 def verify_api_key(authorization: str = Header(None)):
     USING_JWT = True if getenv("USING_JWT").lower() == "true" else False
     AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
+    jwt_secret = get_jwt_secret()
     DEFAULT_USER = getenv("DEFAULT_USER")
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     if DEFAULT_USER == "" or DEFAULT_USER is None or DEFAULT_USER == "None":
@@ -88,7 +89,7 @@ def verify_api_key(authorization: str = Header(None)):
     try:
         token = jwt.decode(
             jwt=authorization,
-            key=AGIXT_API_KEY,
+            key=jwt_secret,
             algorithms=["HS256"],
             leeway=timedelta(hours=5),
         )
@@ -111,7 +112,7 @@ def verify_api_key(authorization: str = Header(None)):
             try:
                 token = jwt.decode(
                     jwt=authorization,
-                    key=AGIXT_API_KEY,
+                    key=jwt_secret,
                     algorithms=["HS256"],
                     leeway=timedelta(hours=5),
                 )

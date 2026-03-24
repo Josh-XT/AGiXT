@@ -37,7 +37,7 @@ from MagicalAuth import (
 from middleware import send_discord_new_user_notification
 from Agent import Agent
 from typing import List
-from Globals import getenv
+from Globals import getenv, get_jwt_secret
 import logging
 import pyotp
 import jwt
@@ -729,10 +729,10 @@ async def logout_user(
 
     # Decode token to get expiration time
     try:
-        AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
+        jwt_secret = get_jwt_secret()
         decoded = jwt.decode(
             jwt=token,
-            key=AGIXT_API_KEY,
+            key=jwt_secret,
             algorithms=["HS256"],
             options={"verify_exp": False},  # Don't verify expiration for blacklisting
         )

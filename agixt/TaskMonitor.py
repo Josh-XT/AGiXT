@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from DB import get_session, TaskItem, User
-from Globals import getenv
+from Globals import getenv, get_jwt_secret
 from Task import Task
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def impersonate_user(user_id: str):
-    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
+    jwt_secret = get_jwt_secret()
     # Get users email
     session = get_session()
     user = session.query(User).filter(User.id == user_id).first()
@@ -33,7 +33,7 @@ def impersonate_user(user_id: str):
             "email": email,
             "exp": datetime.now() + timedelta(days=1),
         },
-        AGIXT_API_KEY,
+        jwt_secret,
         algorithm="HS256",
     )
     return token

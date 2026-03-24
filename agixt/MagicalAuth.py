@@ -47,7 +47,7 @@ from Models import (
 )
 from typing import List, Optional
 from fastapi import Header, HTTPException
-from Globals import getenv, get_default_agent
+from Globals import getenv, get_default_agent, get_jwt_secret
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
@@ -1096,6 +1096,7 @@ def get_admin_user():
 
 def verify_api_key(authorization: str = Header(None)):
     AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
+    jwt_secret = get_jwt_secret()
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     if AGIXT_API_KEY:
         if authorization == AGIXT_API_KEY:
@@ -1152,7 +1153,7 @@ def verify_api_key(authorization: str = Header(None)):
 
                 token = jwt.decode(
                     jwt=authorization,
-                    key=AGIXT_API_KEY,
+                    key=jwt_secret,
                     algorithms=["HS256"],
                     leeway=timedelta(hours=5),
                 )
@@ -1366,13 +1367,13 @@ def get_user_by_email(email: str):
 
 def impersonate_user(email: str):
     # Get token for the user
-    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
+    jwt_secret = get_jwt_secret()
     token = jwt.encode(
         {
             "sub": str(get_user_id(email)),
             "email": email,
         },
-        AGIXT_API_KEY,
+        jwt_secret,
         algorithm="HS256",
     )
     return token
@@ -1570,6 +1571,7 @@ class MagicalAuth:
         encryption_key = os.getenv("AGIXT_API_KEY", "")
         self.link = getenv("APP_URI")
         self.encryption_key = encryption_key
+        self.jwt_secret = get_jwt_secret()
         if token:
             token = str(token)
             if token.startswith("Bearer ") or token.startswith("bearer "):
@@ -1582,7 +1584,7 @@ class MagicalAuth:
             # Decode jwt
             decoded = jwt.decode(
                 jwt=token,
-                key=self.encryption_key,
+                key=self.jwt_secret,
                 algorithms=["HS256"],
                 leeway=timedelta(hours=5),
             )
@@ -1744,7 +1746,7 @@ class MagicalAuth:
                 "exp": expiration,
                 "iat": datetime.now().timestamp(),
             },
-            self.encryption_key,
+            self.jwt_secret,
             algorithm="HS256",
         )
         return token
@@ -3187,7 +3189,7 @@ class MagicalAuth:
                 "exp": expiration,
                 "iat": datetime.now().timestamp(),
             },
-            self.encryption_key,
+            self.jwt_secret,
             algorithm="HS256",
         )
 
@@ -3306,7 +3308,7 @@ class MagicalAuth:
                 "exp": expiration,
                 "iat": datetime.now().timestamp(),  # This makes each token unique
             },
-            self.encryption_key,
+            self.jwt_secret,
             algorithm="HS256",
         )
 
@@ -3390,7 +3392,7 @@ class MagicalAuth:
         try:
             user_info = jwt.decode(
                 jwt=self.token,
-                key=self.encryption_key,
+                key=self.jwt_secret,
                 algorithms=["HS256"],
                 leeway=timedelta(hours=5),
             )
@@ -9471,7 +9473,7 @@ def refresh_expiring_oauth_tokens():
                         "email": user.email,
                         "exp": datetime.now() + timedelta(hours=1),
                     },
-                    os.getenv("AGIXT_API_KEY", ""),
+                    get_jwt_secret(),
                     algorithm="HS256",
                 )
 

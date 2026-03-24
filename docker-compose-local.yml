@@ -28,6 +28,7 @@ services:
     restart: unless-stopped
     environment:
       AGIXT_API_KEY: ${AGIXT_API_KEY:-None}
+      AGIXT_JWT_SECRET: ${AGIXT_JWT_SECRET:-}
       AGIXT_URI: ${AGIXT_URI:-http://localhost:7437}
       APP_URI: ${APP_URI:-http://localhost:3437}
       AGENT_NAME: ${AGIXT_AGENT:-XT}

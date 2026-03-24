@@ -41,6 +41,7 @@ from SharedCache import (
 )
 from Globals import (
     getenv,
+    get_jwt_secret,
     get_tokens,
     DEFAULT_SETTINGS,
     DEFAULT_USER,
@@ -583,7 +584,7 @@ def create_solana_wallet() -> Tuple[str, str, str]:
 
 
 def impersonate_user(user_id: str):
-    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
+    jwt_secret = get_jwt_secret()
     # Get user email with SharedCache to avoid DB query on every Agent() construction
     cache_key = f"user_email:{user_id}"
     email = shared_cache.get(cache_key)
@@ -603,7 +604,7 @@ def impersonate_user(user_id: str):
             "email": email,
             "exp": datetime.now() + timedelta(days=1),
         },
-        AGIXT_API_KEY,
+        jwt_secret,
         algorithm="HS256",
     )
     return token

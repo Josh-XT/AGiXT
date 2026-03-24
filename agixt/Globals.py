@@ -4,6 +4,8 @@ import json
 import subprocess
 import importlib.util
 import tiktoken
+import hashlib
+import hmac
 from dotenv import load_dotenv
 from multiprocessing import Manager
 
@@ -82,6 +84,7 @@ _ENV_ONLY_SETTINGS = {
     "INITIAL_STARTUP_DELAY",
     "SEED_DATA",
     "AGIXT_API_KEY",
+    "AGIXT_JWT_SECRET",
     "DEFAULT_USER",
     "USING_JWT",
     "ALLOWED_DOMAINS",
@@ -93,6 +96,44 @@ _ENV_ONLY_SETTINGS = {
     "DISABLED_PROVIDERS",
     "SUPERADMIN_EMAIL",
 }
+
+
+# Cached JWT secret — computed once per process
+_jwt_secret_cache = None
+
+
+def get_jwt_secret() -> str:
+    """
+    Get the secret used exclusively for JWT signing and verification.
+
+    If AGIXT_JWT_SECRET is set, use it directly.  Otherwise derive a dedicated
+    signing key from AGIXT_API_KEY via HMAC-SHA256 so that the raw API key
+    (which is shared with clients) is never used as the JWT secret.
+
+    This prevents anyone who knows the AGIXT_API_KEY from forging JWTs for
+    arbitrary users (CWE-287).
+    """
+    global _jwt_secret_cache
+    if _jwt_secret_cache is not None:
+        return _jwt_secret_cache
+
+    explicit = os.getenv("AGIXT_JWT_SECRET", "")
+    if explicit:
+        _jwt_secret_cache = explicit
+        return _jwt_secret_cache
+
+    api_key = os.getenv("AGIXT_API_KEY", "")
+    if api_key:
+        # Derive a separate key so the raw API key cannot sign JWTs
+        _jwt_secret_cache = hmac.new(
+            api_key.encode(),
+            b"agixt-jwt-signing-key",
+            hashlib.sha256,
+        ).hexdigest()
+    else:
+        _jwt_secret_cache = ""
+
+    return _jwt_secret_cache
 
 
 def load_server_config_cache():
