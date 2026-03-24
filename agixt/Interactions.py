@@ -2964,7 +2964,11 @@ Example: If user says "list my files", use:
             )
             raise
         except Exception as e:
-            logging.error(f"Error starting streaming inference: {e}")
+            # agent.inference() already attempted provider rotation internally.
+            # If we reach here, all providers have been exhausted.
+            logging.error(
+                f"Error starting streaming inference (all providers exhausted): {e}"
+            )
             yield {"type": "error", "content": str(e), "complete": True}
             return
 
@@ -3907,6 +3911,22 @@ Example: If user says "list my files", use:
 
         # Track the length of processed content to detect new executions
         processed_length = len(self.response)
+
+        # Snapshot current user message IDs so we can detect new ones mid-task
+        _known_user_msg_ids = set()
+        try:
+            _snap_conv = Conversations(
+                conversation_name=conversation_name,
+                user=self.user,
+                conversation_id=conversation_id,
+            )
+            _snap_data = _snap_conv.get_conversation()
+            for _msg in _snap_data.get("interactions", []):
+                if str(_msg.get("role", "")).lower() == "user":
+                    _known_user_msg_ids.add(str(_msg.get("id", "")))
+        except Exception:
+            pass
+
         logging.info(
             f"[run_stream] Entering continuation logic. Response length: {len(self.response)}. "
             f"has_complete_answer: {has_complete_answer(self.response)}. "
@@ -4155,6 +4175,39 @@ Analyze the actual output shown and continue with your response.
                         continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe <answer> block is now open. Provide a COMPLETE response to the user's question. Include ALL key findings, numerical results, computed values, and analysis conclusions directly in your answer. Do NOT just reference output files or say 'see attached' - present the actual results. Close with </answer> when done."
                     else:
                         continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
+
+            # Check for new user messages sent during processing (mid-task steering)
+            try:
+                _iter_conv = Conversations(
+                    conversation_name=conversation_name,
+                    user=self.user,
+                    conversation_id=conversation_id,
+                )
+                _iter_data = _iter_conv.get_conversation()
+                _new_user_msgs = []
+                for _msg in _iter_data.get("interactions", []):
+                    if (
+                        str(_msg.get("role", "")).lower() == "user"
+                        and str(_msg.get("id", "")) not in _known_user_msg_ids
+                    ):
+                        _new_user_msgs.append(str(_msg.get("message", "")))
+                        _known_user_msg_ids.add(str(_msg.get("id", "")))
+                if _new_user_msgs:
+                    _steering = "\n".join(_new_user_msgs)
+                    continuation_prompt += (
+                        f"\n\n## New User Message\n"
+                        f"The user sent a follow-up message while you were working. "
+                        f"Incorporate this feedback into your current task:\n\n"
+                        f"{_steering}\n"
+                    )
+                    logging.info(
+                        f"[run_stream] Detected {len(_new_user_msgs)} new user message(s) "
+                        f"during continuation iteration {continuation_count}"
+                    )
+            except Exception as e:
+                logging.debug(
+                    f"[run_stream] Failed to check for new user messages: {e}"
+                )
 
             try:
                 # Send keepalive before starting new inference to prevent
@@ -4914,6 +4967,15 @@ Analyze the actual output shown and continue with your response.
                 )
 
                 if is_retryable:
+                    # Mark current provider as failed so rotation picks a different one
+                    if hasattr(self.agent, "ai_provider_manager"):
+                        try:
+                            provider_mgr = self.agent.ai_provider_manager
+                            # Clear failed providers to allow fresh rotation
+                            provider_mgr.failed_providers.clear()
+                        except Exception:
+                            pass
+
                     # Track retry attempts for this iteration
                     if not hasattr(self, "_continuation_retry_count"):
                         self._continuation_retry_count = 0

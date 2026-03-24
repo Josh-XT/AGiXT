@@ -2655,15 +2655,18 @@ class Agent:
 
             try:
                 if stream:
-                    # For streaming, return the stream object for the caller to handle
-                    # Note: streaming doesn't support retry since we return the stream directly
-                    return await provider.inference(
+                    # For streaming, attempt to get the stream object.
+                    # If the provider fails to start the stream (connection error,
+                    # auth failure, etc.), the exception falls through to the
+                    # retry/rotation logic below — same as non-streaming.
+                    stream_obj = await provider.inference(
                         prompt=prompt,
                         tokens=input_tokens,
                         images=images,
                         stream=True,
                         use_smartest=use_smartest,
                     )
+                    return stream_obj
                 else:
                     # Non-streaming path
                     answer = await provider.inference(
