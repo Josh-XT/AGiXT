@@ -994,14 +994,11 @@ class AIProviderManager:
         and module imports. Only the per-agent instantiation + configured check
         happens on each call.
         """
-        # Log env vars directly for diagnostics - helps debug Docker issues
-        ezlocalai_env = os.getenv(
-            "EZLOCALAI_URI", os.getenv("EZLOCALAI_API_URI", "NOT_SET")
-        )
-        openai_env = "SET" if os.getenv("OPENAI_API_KEY") else "NOT_SET"
+        # Log env var presence for diagnostics - never log actual values (CWE-532)
         logging.info(
             f"[AIProviderManager] Provider discovery starting. "
-            f"EZLOCALAI_URI env={ezlocalai_env}, OPENAI_API_KEY env={openai_env}"
+            f"EZLOCALAI_URI env={'SET' if os.getenv('EZLOCALAI_URI', os.getenv('EZLOCALAI_API_URI')) else 'NOT_SET'}, "
+            f"OPENAI_API_KEY env={'SET' if os.getenv('OPENAI_API_KEY') else 'NOT_SET'}"
         )
 
         # Get merged settings from all configuration levels
@@ -1046,13 +1043,13 @@ class AIProviderManager:
                 else:
                     # Log more details for ezlocalai specifically since it's the most common
                     if provider_name == "ezlocalai":
-                        uri = getattr(provider_instance, "API_URI", "N/A")
-                        raw_env_uri = os.getenv("EZLOCALAI_URI", "NOT_SET")
-                        raw_env_api_uri = os.getenv("EZLOCALAI_API_URI", "NOT_SET")
+                        has_uri = bool(getattr(provider_instance, "API_URI", None))
                         logging.warning(
                             f"[AIProviderManager] ezlocalai not configured. "
-                            f"instance.API_URI='{uri}', configured={getattr(provider_instance, 'configured', 'N/A')}. "
-                            f"os.getenv: EZLOCALAI_URI='{raw_env_uri}', EZLOCALAI_API_URI='{raw_env_api_uri}'"
+                            f"instance.API_URI={'SET' if has_uri else 'NOT_SET'}, "
+                            f"configured={getattr(provider_instance, 'configured', 'N/A')}. "
+                            f"EZLOCALAI_URI env={'SET' if os.getenv('EZLOCALAI_URI') else 'NOT_SET'}, "
+                            f"EZLOCALAI_API_URI env={'SET' if os.getenv('EZLOCALAI_API_URI') else 'NOT_SET'}"
                         )
                     else:
                         logging.debug(
@@ -1060,13 +1057,12 @@ class AIProviderManager:
                         )
 
             except Exception as e:
+                # Log only exception type and message, not the full traceback.
+                # traceback.format_exc() would expose API key values from the
+                # provider_class(**merged_settings) call in the stack trace (CWE-532).
                 logging.warning(
-                    f"[AIProviderManager] Could not load provider {provider_name}: {e}"
-                )
-                import traceback
-
-                logging.warning(
-                    f"[AIProviderManager] Traceback: {traceback.format_exc()}"
+                    f"[AIProviderManager] Could not load provider {provider_name}: "
+                    f"{type(e).__name__}: {e}"
                 )
 
         if not self.providers:
