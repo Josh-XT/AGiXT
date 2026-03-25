@@ -6,6 +6,8 @@ import importlib.util
 import tiktoken
 import hashlib
 import hmac
+import logging
+import secrets
 from dotenv import load_dotenv
 from multiprocessing import Manager
 
@@ -97,6 +99,11 @@ _ENV_ONLY_SETTINGS = {
     "SUPERADMIN_EMAIL",
 }
 
+# Path to persist auto-generated JWT secret across restarts
+_JWT_SECRET_FILE = os.path.join(
+    os.environ.get("WORKING_DIRECTORY", os.path.join(os.getcwd(), "WORKSPACE")),
+    ".jwt_secret",
+)
 
 # Cached JWT secret — computed once per process
 _jwt_secret_cache = None
@@ -106,32 +113,53 @@ def get_jwt_secret() -> str:
     """
     Get the secret used exclusively for JWT signing and verification.
 
-    If AGIXT_JWT_SECRET is set, use it directly.  Otherwise derive a dedicated
-    signing key from AGIXT_API_KEY via HMAC-SHA256 so that the raw API key
-    (which is shared with clients) is never used as the JWT secret.
+    Priority:
+    1. AGIXT_JWT_SECRET environment variable (recommended for production).
+    2. Auto-generated random secret persisted to disk — created on first
+       start and reused across restarts so existing tokens stay valid.
 
-    This prevents anyone who knows the AGIXT_API_KEY from forging JWTs for
-    arbitrary users (CWE-287).
+    The previous behaviour of deriving a key from AGIXT_API_KEY has been
+    removed because anyone who knows the API key could reproduce the
+    derivation and forge JWTs (CWE-287).  A truly independent secret is
+    required to prevent token forgery.
     """
     global _jwt_secret_cache
     if _jwt_secret_cache is not None:
         return _jwt_secret_cache
 
+    # 1. Explicit env var — best option
     explicit = os.getenv("AGIXT_JWT_SECRET", "")
     if explicit:
         _jwt_secret_cache = explicit
         return _jwt_secret_cache
 
-    api_key = os.getenv("AGIXT_API_KEY", "")
-    if api_key:
-        # Derive a separate key so the raw API key cannot sign JWTs
-        _jwt_secret_cache = hmac.new(
-            api_key.encode(),
-            b"agixt-jwt-signing-key",
-            hashlib.sha256,
-        ).hexdigest()
-    else:
-        _jwt_secret_cache = ""
+    # 2. Auto-generated file-persisted secret
+    logging.warning(
+        "AGIXT_JWT_SECRET is not set.  Generating a random JWT signing key.  "
+        "Set AGIXT_JWT_SECRET in production for stable, secure operation."
+    )
+    try:
+        if os.path.isfile(_JWT_SECRET_FILE):
+            with open(_JWT_SECRET_FILE, "r") as f:
+                persisted = f.read().strip()
+            if persisted:
+                _jwt_secret_cache = persisted
+                return _jwt_secret_cache
+
+        # Generate and persist
+        generated = secrets.token_hex(32)
+        os.makedirs(os.path.dirname(_JWT_SECRET_FILE), exist_ok=True)
+        with open(_JWT_SECRET_FILE, "w") as f:
+            f.write(generated)
+        _jwt_secret_cache = generated
+    except OSError:
+        # Cannot write to disk (read-only FS, etc.) — use ephemeral secret
+        logging.warning(
+            "Could not persist auto-generated JWT secret to %s.  "
+            "JWTs will not survive process restarts.",
+            _JWT_SECRET_FILE,
+        )
+        _jwt_secret_cache = secrets.token_hex(32)
 
     return _jwt_secret_cache
 
