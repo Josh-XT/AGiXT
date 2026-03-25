@@ -677,16 +677,9 @@ def is_admin(email: str = "USER", api_key: str = None):
     Returns:
         bool: True if user has admin access, False otherwise
     """
-    import os
-
-    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     if api_key is None:
         api_key = ""
     api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
-
-    # Check if using the master API key
-    if AGIXT_API_KEY and api_key == AGIXT_API_KEY:
-        return True
 
     # Check if user has admin flag set (legacy super admin)
     if is_agixt_admin(email=email, api_key=api_key):
@@ -869,8 +862,6 @@ def get_sso_instance(provider: str):
 
 
 def is_agixt_admin(email: str = "", api_key: str = ""):
-    if api_key == os.getenv("AGIXT_API_KEY", ""):
-        return True
     api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
     session = get_session()
     try:
@@ -1098,8 +1089,6 @@ def verify_api_key(authorization: str = Header(None)):
     AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     if AGIXT_API_KEY:
-        if authorization == AGIXT_API_KEY:
-            return get_admin_user()
         try:
 
             # Check if this is a Personal Access Token (starts with "agixt_")
