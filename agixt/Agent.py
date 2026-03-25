@@ -449,7 +449,10 @@ def get_agent_commands_only(agent_id: str, user_id: str) -> dict:
         agent = session.query(AgentModel).filter(AgentModel.id == agent_id).first()
         if not agent:
             return {}
-
+        if str(agent.user_id) != str(user_id):
+            can_access, _, _ = can_user_access_agent(user_id=user_id, agent_id=agent_id)
+            if not can_access:
+                return {}
         # Get all commands using cache
         all_commands = get_all_commands_cached(session)
 

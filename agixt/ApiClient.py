@@ -74,17 +74,23 @@ def validate_personal_access_token(token: str):
 
 
 def verify_api_key(authorization: str = Header(None)):
-    USING_JWT = True if getenv("USING_JWT").lower() == "true" else False
     AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     DEFAULT_USER = getenv("DEFAULT_USER")
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     if DEFAULT_USER == "" or DEFAULT_USER is None or DEFAULT_USER == "None":
         DEFAULT_USER = "user"
 
+    if not AGIXT_API_KEY:
+        return DEFAULT_USER
+
+    if authorization is None:
+        raise HTTPException(status_code=401, detail="Authorization header is missing")
+
     # Check for Personal Access Token (PAT) format
-    if authorization and authorization.startswith("agixt_"):
+    if authorization.startswith("agixt_"):
         return validate_personal_access_token(authorization)
 
+    # Try JWT decode
     try:
         token = jwt.decode(
             jwt=authorization,
@@ -94,36 +100,7 @@ def verify_api_key(authorization: str = Header(None)):
         )
         return token["email"]
     except Exception as e:
-        if authorization == AGIXT_API_KEY:
-            return DEFAULT_USER
-        if authorization != AGIXT_API_KEY:
-            raise HTTPException(status_code=401, detail="Invalid API Key")
-    if AGIXT_API_KEY:
-        if authorization is None:
-            logging.info("Authorization header is missing")
-            raise HTTPException(
-                status_code=401, detail="Authorization header is missing"
-            )
-        authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
-        if AGIXT_API_KEY == authorization:
-            return DEFAULT_USER
-        if USING_JWT:
-            try:
-                token = jwt.decode(
-                    jwt=authorization,
-                    key=AGIXT_API_KEY,
-                    algorithms=["HS256"],
-                    leeway=timedelta(hours=5),
-                )
-                return token["email"]
-            except Exception as e:
-                if authorization != AGIXT_API_KEY:
-                    raise HTTPException(status_code=401, detail="Invalid API Key")
-                return DEFAULT_USER
-        if authorization != AGIXT_API_KEY:
-            raise HTTPException(status_code=401, detail="Invalid API Key")
-    else:
-        return DEFAULT_USER
+        raise HTTPException(status_code=401, detail="Invalid API Key")
 
 
 def get_api_client(authorization: str = Header(None)):
