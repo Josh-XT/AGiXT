@@ -83,6 +83,7 @@ class ezlocalai(Extensions):
         "translation",
         "vision",
         "embeddings",
+        "video",
     ]
 
     def __init__(
@@ -197,6 +198,10 @@ class ezlocalai(Extensions):
         self.commands = {
             "Generate Text with ezLocalai": self.generate_text_command,
             "Generate Image with ezLocalai": self.generate_image_command,
+            "Edit Image with ezLocalai": self.edit_image_command,
+            "Generate Video with ezLocalai": self.generate_video_command,
+            "Image to Video with ezLocalai": self.image_to_video_command,
+            "Video to Video with ezLocalai": self.video_to_video_command,
             "Text to Speech with ezLocalai": self.text_to_speech_command,
             "Transcribe Audio with ezLocalai": self.transcribe_audio_command,
         }
@@ -212,6 +217,7 @@ class ezlocalai(Extensions):
             "translation",
             "vision",
             "embeddings",
+            "video",
         ]
 
     def get_max_tokens(self):
@@ -582,9 +588,9 @@ class ezlocalai(Extensions):
 
         payload = {
             "prompt": prompt,
-            "model": "stabilityai/sdxl-turbo",
+            "model": "unsloth/FLUX.2-klein-4B-GGUF",
             "n": 1,
-            "size": "512x512",
+            "size": "1024x1024",
             "response_format": "url",
         }
         resp = requests.post(api_url, headers=headers, json=payload, timeout=120)
@@ -597,7 +603,110 @@ class ezlocalai(Extensions):
         # Download the image and return as base64
         image_data = requests.get(url).content
         return base64.b64encode(image_data).decode("utf-8")
-        return f"{agixt_uri}/outputs/{filename}"
+
+    async def edit_image(self, prompt: str, image: str) -> str:
+        """
+        Edit an image using a text prompt via ezLocalai.
+
+        Args:
+            prompt: Text description of the edit to apply
+            image: Base64-encoded image, data URL, or HTTP URL of image to edit
+
+        Returns:
+            Base64 encoded edited image data
+        """
+        if not self.configured:
+            raise Exception("ezLocalai provider not configured")
+
+        api_key = self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        api_url = self.API_URI.rstrip("/") + "/images/edits"
+
+        payload = {
+            "image": image,
+            "prompt": prompt,
+            "model": "unsloth/FLUX.2-klein-4B-GGUF",
+            "n": 1,
+            "size": "1024x1024",
+            "response_format": "url",
+        }
+        resp = requests.post(api_url, headers=headers, json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+
+        logging.info(f"Image Edited for prompt: {prompt}")
+        url = data["data"][0]["url"]
+
+        image_data = requests.get(url).content
+        return base64.b64encode(image_data).decode("utf-8")
+
+    async def generate_video(
+        self,
+        prompt: str,
+        size: str = "768x512",
+        num_frames: int = 121,
+        num_inference_steps: int = 40,
+        guidance_scale: float = 4.0,
+        frame_rate: int = 24,
+        image: str = None,
+        conditions: list = None,
+    ) -> str:
+        """
+        Generate a video with audio using ezLocalai.
+
+        Supports three modes:
+        - Text-to-video: provide only prompt
+        - Image-to-video: provide prompt + image
+        - Video-to-video: provide prompt + conditions (list of frame dicts)
+
+        Args:
+            prompt: Text description of the video to generate
+            size: Video resolution as "WIDTHxHEIGHT" (default: "768x512")
+            num_frames: Number of frames to generate (default: 121)
+            num_inference_steps: Denoising steps (default: 40)
+            guidance_scale: CFG scale (default: 4.0)
+            frame_rate: Output frame rate (default: 24)
+            image: Base64-encoded image for image-to-video mode
+            conditions: List of condition frame dicts for video-to-video mode
+
+        Returns:
+            URL to the generated video file
+        """
+        if not self.configured:
+            raise Exception("ezLocalai provider not configured")
+
+        api_key = self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        api_url = self.API_URI.rstrip("/") + "/videos/generations"
+
+        payload = {
+            "prompt": prompt,
+            "model": "unsloth/LTX-2.3-GGUF",
+            "n": 1,
+            "size": size,
+            "num_frames": num_frames,
+            "num_inference_steps": num_inference_steps,
+            "guidance_scale": guidance_scale,
+            "frame_rate": frame_rate,
+            "response_format": "url",
+        }
+        if image:
+            payload["image"] = image
+        if conditions:
+            payload["conditions"] = conditions
+
+        resp = requests.post(api_url, headers=headers, json=payload, timeout=600)
+        resp.raise_for_status()
+        data = resp.json()
+
+        logging.info(f"Video Generated for prompt: {prompt}")
+        return data["data"][0]["url"]
 
     def embeddings(self, input) -> np.ndarray:
         """
@@ -649,17 +758,134 @@ class ezlocalai(Extensions):
 
     async def generate_image_command(self, prompt: str) -> str:
         """
-        Generate an image using ezLocalai's image generation capabilities.
+        Generate an image using ezLocalai's FLUX.2-klein-4B image generation.
         Use this when you need to create images locally without external API calls.
 
         Args:
             prompt: Description of the image to generate
 
         Returns:
-            URL to the generated image
+            Base64 image data with markdown display
         """
-        url = await self.generate_image(prompt=prompt)
-        return f"Generated image: ![{prompt[:50]}]({url})"
+        image_b64 = await self.generate_image(prompt=prompt)
+        return f"Generated image: ![{prompt[:50]}](data:image/png;base64,{image_b64})"
+
+    async def edit_image_command(self, prompt: str, image_url: str) -> str:
+        """
+        Edit an image using a text prompt with ezLocalai's FLUX.2-klein-4B model.
+        Use this when you need to modify or transform an existing image based on
+        a text description. The model takes the input image and applies the
+        described transformation.
+
+        Args:
+            prompt: Description of the edit to apply to the image
+            image_url: URL or base64-encoded data of the image to edit
+
+        Returns:
+            Base64 edited image data with markdown display
+        """
+        image_b64 = await self.edit_image(prompt=prompt, image=image_url)
+        return f"Edited image: ![{prompt[:50]}](data:image/png;base64,{image_b64})"
+
+    async def generate_video_command(
+        self,
+        prompt: str,
+        size: str = "768x512",
+        num_frames: str = "121",
+        num_inference_steps: str = "40",
+    ) -> str:
+        """
+        Generate a video with synchronized audio from a text prompt using ezLocalai's
+        LTX-2.3 model. Use this when you need to create videos locally from text
+        descriptions. Produces MP4 files with both video and audio tracks.
+
+        Args:
+            prompt: Description of the video to generate
+            size: Video resolution as WIDTHxHEIGHT (default: 768x512)
+            num_frames: Number of frames to generate (default: 121)
+            num_inference_steps: Number of denoising steps, higher is better quality but slower (default: 40)
+
+        Returns:
+            URL to the generated video
+        """
+        url = await self.generate_video(
+            prompt=prompt,
+            size=size,
+            num_frames=int(num_frames),
+            num_inference_steps=int(num_inference_steps),
+        )
+        return f"Generated video: [{prompt[:50]}]({url})"
+
+    async def image_to_video_command(
+        self,
+        prompt: str,
+        image_url: str,
+        size: str = "768x512",
+        num_frames: str = "121",
+        num_inference_steps: str = "40",
+    ) -> str:
+        """
+        Generate a video from an image and text prompt using ezLocalai's LTX-2.3 model.
+        The provided image is used as the first frame and the video is generated to
+        match the text description. Produces MP4 files with video and audio tracks.
+
+        Args:
+            prompt: Description of what should happen in the video
+            image_url: URL or base64-encoded data of the starting image
+            size: Video resolution as WIDTHxHEIGHT (default: 768x512)
+            num_frames: Number of frames to generate (default: 121)
+            num_inference_steps: Number of denoising steps (default: 40)
+
+        Returns:
+            URL to the generated video
+        """
+        url = await self.generate_video(
+            prompt=prompt,
+            size=size,
+            num_frames=int(num_frames),
+            num_inference_steps=int(num_inference_steps),
+            image=image_url,
+        )
+        return f"Generated video from image: [{prompt[:50]}]({url})"
+
+    async def video_to_video_command(
+        self,
+        prompt: str,
+        start_frame_url: str,
+        end_frame_url: str,
+        size: str = "768x512",
+        num_frames: str = "121",
+        num_inference_steps: str = "40",
+    ) -> str:
+        """
+        Generate a video conditioned on start and end frames using ezLocalai's LTX-2.3
+        model. Provide a start frame and end frame, and the model generates a smooth
+        video transition between them guided by the text prompt. Useful for style
+        transfer, interpolation, and video-to-video transformation.
+
+        Args:
+            prompt: Description of the video transition or transformation
+            start_frame_url: URL or base64-encoded data of the starting frame
+            end_frame_url: URL or base64-encoded data of the ending frame
+            size: Video resolution as WIDTHxHEIGHT (default: 768x512)
+            num_frames: Number of frames to generate (default: 121)
+            num_inference_steps: Number of denoising steps (default: 40)
+
+        Returns:
+            URL to the generated video
+        """
+        conditions = [
+            {"image": start_frame_url, "index": 0, "strength": 1.0},
+            {"image": end_frame_url, "index": -1, "strength": 1.0},
+        ]
+        url = await self.generate_video(
+            prompt=prompt,
+            size=size,
+            num_frames=int(num_frames),
+            num_inference_steps=int(num_inference_steps),
+            conditions=conditions,
+        )
+        return f"Generated video from frames: [{prompt[:50]}]({url})"
 
     async def text_to_speech_command(self, text: str) -> str:
         """
