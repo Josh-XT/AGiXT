@@ -1,5 +1,6 @@
-safeexecute==0.0.25
+safeexecute==0.0.27
 docker==7.1.0
 pyjwt==2.12.0
 botbuilder-core==4.17.1
 slack-sdk==3.41.0
+requests==2.33.0
