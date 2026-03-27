@@ -13,6 +13,7 @@ provider rotation system when configured with a valid API URI.
 import base64
 import json
 import logging
+import os
 import random
 import re
 import uuid
@@ -185,10 +186,20 @@ class ezlocalai(Extensions):
             EZLOCALAI_TRANSCRIPTION_MODEL if EZLOCALAI_TRANSCRIPTION_MODEL else "base"
         )
 
-        # Output URL for generated files
+        # Output URL for generated files on the ezlocalai server
         self.OUTPUT_URL = (
             self.API_URI.replace("/v1/", "/outputs/") if self.API_URI else ""
         )
+
+        # Workspace directory for saving generated files (injected by Extensions)
+        self.WORKING_DIRECTORY = (
+            kwargs["conversation_directory"]
+            if "conversation_directory" in kwargs
+            else os.path.join(os.getcwd(), "WORKSPACE")
+        )
+        if not os.path.exists(self.WORKING_DIRECTORY):
+            os.makedirs(self.WORKING_DIRECTORY, exist_ok=True)
+        self.output_url = kwargs.get("output_url", "")
 
         # Failure tracking for rotation
         self.FAILURES = []
@@ -643,6 +654,15 @@ class ezlocalai(Extensions):
         image_data = requests.get(url).content
         return base64.b64encode(image_data).decode("utf-8")
 
+    def _save_to_workspace(self, content: bytes, filename: str) -> str:
+        """Save file content to the agent workspace and return the workspace URL."""
+        file_path = os.path.join(self.WORKING_DIRECTORY, os.path.basename(filename))
+        with open(file_path, "wb") as f:
+            f.write(content)
+        if self.output_url:
+            return f"{self.output_url}/{os.path.basename(filename)}"
+        return file_path
+
     def _resolve_image_to_base64(self, image_input: str) -> str:
         """Convert an image input (HTTP URL, data URL, or raw base64) to base64 string."""
         if not image_input:
@@ -720,11 +740,10 @@ class ezlocalai(Extensions):
         url = data["data"][0].get("url")
         if not url:
             raise Exception("Video generation failed: no URL returned")
-        # Rewrite internal ezlocalai URLs to the public output URL
-        if self.OUTPUT_URL and "/outputs/" in url:
-            filename = url.split("/outputs/", 1)[-1]
-            url = f"{self.OUTPUT_URL}{filename}"
-        return url
+        # Download the video to agent workspace
+        video_data = requests.get(url, timeout=120).content
+        filename = url.split("/")[-1] if "/" in url else f"{uuid.uuid4()}.mp4"
+        return self._save_to_workspace(video_data, filename)
 
     def embeddings(self, input) -> np.ndarray:
         """
@@ -786,7 +805,10 @@ class ezlocalai(Extensions):
             Base64 image data with markdown display
         """
         image_b64 = await self.generate_image(prompt=prompt)
-        return f"Generated image: ![{prompt[:50]}](data:image/png;base64,{image_b64})"
+        image_data = base64.b64decode(image_b64)
+        filename = f"{uuid.uuid4()}.png"
+        workspace_url = self._save_to_workspace(image_data, filename)
+        return f"Generated image: ![{prompt[:50]}]({workspace_url})"
 
     async def edit_image_command(self, prompt: str, image_url: str) -> str:
         """
@@ -803,7 +825,10 @@ class ezlocalai(Extensions):
             Base64 edited image data with markdown display
         """
         image_b64 = await self.edit_image(prompt=prompt, image=image_url)
-        return f"Edited image: ![{prompt[:50]}](data:image/png;base64,{image_b64})"
+        image_data = base64.b64decode(image_b64)
+        filename = f"{uuid.uuid4()}.png"
+        workspace_url = self._save_to_workspace(image_data, filename)
+        return f"Edited image: ![{prompt[:50]}]({workspace_url})"
 
     async def generate_video_command(
         self,
