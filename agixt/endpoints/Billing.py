@@ -2220,6 +2220,62 @@ async def admin_delete_user(
         session.close()
 
 
+class AdminResetPasswordRequest(BaseModel):
+    new_password: str
+    confirm_password: str
+
+
+@app.post(
+    "/v1/admin/users/{user_id}/password",
+    tags=["Admin"],
+    summary="Reset a user's password (super admin only)",
+    description="Sets a new password for any user. Requires super admin permissions.",
+)
+async def admin_reset_user_password(
+    user_id: str,
+    request: AdminResetPasswordRequest,
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    if request.new_password != request.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+
+    password_error = MagicalAuth._validate_password_strength(request.new_password)
+    if password_error:
+        raise HTTPException(status_code=400, detail=password_error)
+
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user.password_hash = MagicalAuth.hash_password(request.new_password)
+        session.commit()
+
+        return {
+            "success": True,
+            "user_id": user_id,
+            "email": user.email,
+            "message": f"Password has been reset for user '{user.email}'",
+        }
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error resetting user password: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to reset user password")
+    finally:
+        session.close()
+
+
 @app.delete(
     "/v1/admin/companies/{company_id}/users/{user_id}",
     tags=["Admin"],
