@@ -1,2 +1,3 @@
 safeexecute==0.0.27
-onnxruntime==1.24.4
+onnxruntime
+tokenizers
