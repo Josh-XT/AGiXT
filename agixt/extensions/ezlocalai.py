@@ -643,6 +643,17 @@ class ezlocalai(Extensions):
         image_data = requests.get(url).content
         return base64.b64encode(image_data).decode("utf-8")
 
+    def _resolve_image_to_base64(self, image_input: str) -> str:
+        """Convert an image input (HTTP URL, data URL, or raw base64) to base64 string."""
+        if not image_input:
+            return image_input
+        if image_input.startswith(("http://", "https://")):
+            resp = requests.get(image_input, timeout=30)
+            resp.raise_for_status()
+            return base64.b64encode(resp.content).decode("utf-8")
+        # data URLs and raw base64 are passed through as-is
+        return image_input
+
     async def generate_video(
         self,
         prompt: str,
@@ -706,7 +717,14 @@ class ezlocalai(Extensions):
         data = resp.json()
 
         logging.info(f"Video Generated for prompt: {prompt}")
-        return data["data"][0]["url"]
+        url = data["data"][0].get("url")
+        if not url:
+            raise Exception("Video generation failed: no URL returned")
+        # Rewrite internal ezlocalai URLs to the public output URL
+        if self.OUTPUT_URL and "/outputs/" in url:
+            filename = url.split("/outputs/", 1)[-1]
+            url = f"{self.OUTPUT_URL}{filename}"
+        return url
 
     def embeddings(self, input) -> np.ndarray:
         """
@@ -839,12 +857,13 @@ class ezlocalai(Extensions):
         Returns:
             URL to the generated video
         """
+        image_b64 = self._resolve_image_to_base64(image_url)
         url = await self.generate_video(
             prompt=prompt,
             size=size,
             num_frames=int(num_frames),
             num_inference_steps=int(num_inference_steps),
-            image=image_url,
+            image=image_b64,
         )
         return f"Generated video from image: [{prompt[:50]}]({url})"
 
@@ -874,9 +893,11 @@ class ezlocalai(Extensions):
         Returns:
             URL to the generated video
         """
+        start_b64 = self._resolve_image_to_base64(start_frame_url)
+        end_b64 = self._resolve_image_to_base64(end_frame_url)
         conditions = [
-            {"image": start_frame_url, "index": 0, "strength": 1.0},
-            {"image": end_frame_url, "index": -1, "strength": 1.0},
+            {"image": start_b64, "index": 0, "strength": 1.0},
+            {"image": end_b64, "index": -1, "strength": 1.0},
         ]
         url = await self.generate_video(
             prompt=prompt,
