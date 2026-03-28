@@ -569,11 +569,13 @@ class AGiXT:
         # Only rename new conversations:
         # - name == "-" (legacy pattern)
         # - name == agent_name (auto-created DM pattern from frontend)
+        # - name starts with "agent_name - " (forceNew DM pattern, e.g. "XT - Mar 28, 1:38 PM")
         is_new = self.conversation_name == "-"
         is_auto_dm = (
             self.conversation_name == self.agent_name and self.conversation_name != "-"
         )
-        if not is_new and not is_auto_dm:
+        is_force_new_dm = self.conversation_name.startswith(f"{self.agent_name} - ")
+        if not is_new and not is_auto_dm and not is_force_new_dm:
             return
 
         try:
@@ -3512,9 +3514,11 @@ Your response (true or false):"""
                 # Rename new conversations after response is complete
                 # Run as background task so it doesn't block the response being returned
                 # Also handles auto-created DMs where name == agent_name (e.g., "XT")
+                # or forceNew DMs (e.g., "XT - Mar 28, 1:38 PM")
                 if (
                     self.conversation_name == "-"
                     or self.conversation_name == self.agent_name
+                    or self.conversation_name.startswith(f"{self.agent_name} - ")
                 ):
                     asyncio.create_task(self.rename_new_conversation(new_prompt))
         if isinstance(response, dict):
@@ -4863,9 +4867,11 @@ Your response (true or false):"""
 
             # Handle conversation rename for new conversations
             # Also handles auto-created DMs where name == agent_name (e.g., "XT")
+            # or forceNew DMs (e.g., "XT - Mar 28, 1:38 PM")
             if (
                 self.conversation_name == "-"
                 or self.conversation_name == self.agent_name
+                or self.conversation_name.startswith(f"{self.agent_name} - ")
             ):
                 asyncio.create_task(self.rename_new_conversation(new_prompt))
 
