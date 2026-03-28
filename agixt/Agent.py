@@ -2839,6 +2839,9 @@ class Agent:
 
         safe_agent_id = Agent.sanitize_path_component(self.agent_id)
         safe_conversation_id = Agent.sanitize_path_component(conversation_id)
+        # Use hashed agent folder name to match serve_file/_get_local_cache_path
+        agent_hash = hashlib.sha256(str(self.agent_id).encode()).hexdigest()[:16]
+        agent_folder = f"agent_{agent_hash}"
 
         with tempfile.TemporaryDirectory() as temp_base:
             secure_filename = f"image_{timestamp}.png"
@@ -2860,12 +2863,12 @@ class Agent:
                 return resolved
 
             workspace_outputs = safe_workspace_path(
-                workspace_base, safe_agent_id, safe_conversation_id
+                workspace_base, agent_folder, safe_conversation_id
             )
             os.makedirs(workspace_outputs, exist_ok=True)
 
             final_image_path = safe_workspace_path(
-                workspace_base, safe_agent_id, safe_conversation_id, secure_filename
+                workspace_base, agent_folder, safe_conversation_id, secure_filename
             )
             shutil.move(temp_image_path, final_image_path)
 
@@ -2917,6 +2920,9 @@ class Agent:
             # Validate agent_id and conversation_id to prevent path traversal
             safe_agent_id = Agent.sanitize_path_component(self.agent_id)
             safe_conversation_id = Agent.sanitize_path_component(conversation_id)
+            # Use hashed agent folder name to match serve_file/_get_local_cache_path
+            agent_hash = hashlib.sha256(str(self.agent_id).encode()).hexdigest()[:16]
+            agent_folder = f"agent_{agent_hash}"
 
             # Create secure temporary directory completely isolated from user input
             with tempfile.TemporaryDirectory() as temp_base:
@@ -2946,7 +2952,7 @@ class Agent:
 
                 # Construct paths using only sanitized components
                 workspace_outputs = safe_workspace_path(
-                    workspace_base, safe_agent_id, safe_conversation_id
+                    workspace_base, agent_folder, safe_conversation_id
                 )
                 os.makedirs(
                     workspace_outputs, exist_ok=True
@@ -2954,7 +2960,7 @@ class Agent:
 
                 # Construct final path using only validated components
                 final_audio_path = safe_workspace_path(
-                    workspace_base, safe_agent_id, safe_conversation_id, secure_filename
+                    workspace_base, agent_folder, safe_conversation_id, secure_filename
                 )
                 shutil.move(
                     temp_audio_path, final_audio_path

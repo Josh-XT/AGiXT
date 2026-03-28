@@ -76,15 +76,16 @@ def validate_personal_access_token(token: str):
 def verify_api_key(authorization: str = Header(None)):
     AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     DEFAULT_USER = getenv("DEFAULT_USER")
-    authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     if DEFAULT_USER == "" or DEFAULT_USER is None or DEFAULT_USER == "None":
         DEFAULT_USER = "user"
 
     if not AGIXT_API_KEY:
         return DEFAULT_USER
 
-    if authorization is None:
+    if authorization is None or authorization == "" or authorization == "None":
         raise HTTPException(status_code=401, detail="Authorization header is missing")
+
+    authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
 
     # Check for Personal Access Token (PAT) format
     if authorization.startswith("agixt_"):
