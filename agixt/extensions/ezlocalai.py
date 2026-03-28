@@ -805,6 +805,69 @@ class ezlocalai(Extensions):
             Base64 image data with markdown display
         """
         image_b64 = await self.generate_image(prompt=prompt)
+
+        # Vision verification loop: use the LLM's vision to check if the
+        # generated image matches the prompt, and edit if it doesn't.
+        max_edits = 3
+        for attempt in range(max_edits):
+            data_url = f"data:image/png;base64,{image_b64}"
+            verification_prompt = (
+                f"You are an image QA reviewer. The user requested this image:\n\n"
+                f'"{prompt}"\n\n'
+                f"Look at the generated image carefully. Does it match the request? "
+                f"Pay close attention to text content, capitalization, colors, layout, "
+                f"and any specific details mentioned in the request.\n"
+                f"If it matches well enough, respond with exactly: PASS\n"
+                f"If it does NOT match, respond with a brief description of what "
+                f"specifically needs to change (do NOT say PASS). Focus only on the "
+                f"most important differences from the request."
+            )
+            try:
+                verdict = await self.inference(
+                    prompt=verification_prompt,
+                    images=[data_url],
+                )
+            except Exception as e:
+                logging.warning(
+                    f"[generate_image_command] Vision verification failed: {e}"
+                )
+                break
+
+            verdict_stripped = verdict.strip()
+            # Check for PASS anywhere in a short response to handle
+            # variations like "PASS." or "PASS - looks good"
+            verdict_upper = verdict_stripped.upper()
+            if verdict_upper.startswith("PASS") or (
+                len(verdict_stripped) < 50 and "PASS" in verdict_upper
+            ):
+                logging.info(
+                    f"[generate_image_command] Image passed vision verification "
+                    f"on attempt {attempt + 1}."
+                )
+                break
+
+            logging.info(
+                f"[generate_image_command] Vision verification attempt "
+                f"{attempt + 1}/{max_edits}: needs edits — "
+                f"{verdict_stripped[:200]}"
+            )
+
+            # Edit the image with the feedback
+            edit_prompt = (
+                f"Original request: {prompt}\n" f"Required changes: {verdict_stripped}"
+            )
+            try:
+                image_b64 = await self.edit_image(
+                    prompt=edit_prompt,
+                    image=image_b64,
+                )
+            except Exception as e:
+                logging.warning(
+                    f"[generate_image_command] Image edit failed on attempt "
+                    f"{attempt + 1}: {e}"
+                )
+                break
+
         image_data = base64.b64decode(image_b64)
         filename = f"{uuid.uuid4()}.png"
         workspace_url = self._save_to_workspace(image_data, filename)

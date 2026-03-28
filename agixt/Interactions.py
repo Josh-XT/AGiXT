@@ -3908,6 +3908,9 @@ Example: If user says "list my files", use:
         _consecutive_dedup_iterations = (
             0  # Track consecutive iterations where ALL commands were deduplicated
         )
+        _incomplete_answer_non_exec_count = (
+            0  # Track consecutive non-exec iterations with incomplete answer
+        )
 
         # Track the length of processed content to detect new executions
         processed_length = len(self.response)
@@ -4002,8 +4005,17 @@ Example: If user says "list my files", use:
             # even if they fail — the model may need several tries to fix errors.
             # We only track iterations where the model just generated thinking/answer
             # without executing code.
-            if len(_continuation_iter_lengths) >= 15 and not has_new_execution:
-                _last4 = _continuation_iter_lengths[-15:]
+            #
+            # For incomplete answers, use a shorter window (8 iterations) since
+            # the model is clearly stuck re-opening <answer> without closing it.
+            # For no-answer cases, use the original 15-iteration window since
+            # the model may be doing useful thinking/analysis.
+            _stuck_window = 8 if has_incomplete_answer else 15
+            if (
+                len(_continuation_iter_lengths) >= _stuck_window
+                and not has_new_execution
+            ):
+                _last4 = _continuation_iter_lengths[-_stuck_window:]
                 _avg = sum(_last4) / len(_last4)
                 _all_small = all(l < 5000 for l in _last4)
                 _all_similar = all(abs(l - _avg) < 500 for l in _last4)
@@ -4013,7 +4025,7 @@ Example: If user says "list my files", use:
                         # Force-close it — the answer content is already there.
                         logging.warning(
                             f"[run_stream] Stuck loop detected (incomplete answer) at iteration {continuation_count}. "
-                            f"Last 15 non-exec lengths: {_last4}. Force-closing answer tag."
+                            f"Last {_stuck_window} non-exec lengths: {_last4}. Force-closing answer tag."
                         )
                         self.response += "</answer>"
                         c.log_interaction(
@@ -4033,6 +4045,29 @@ Example: If user says "list my files", use:
                             message="[SUBACTIVITY][CONTINUATION] Finalizing response...",
                         )
                         break
+
+            # --- Hard cap for incomplete answer iterations ---
+            # If the model has been in has_incomplete_answer mode for 10+
+            # consecutive non-exec iterations, it's almost certainly stuck
+            # reopening <answer> without closing it (e.g. hitting output token
+            # limits repeatedly). Force-close regardless of similarity checks.
+            if has_incomplete_answer and not has_new_execution:
+                _incomplete_answer_non_exec_count += 1
+                if _incomplete_answer_non_exec_count >= 10:
+                    logging.warning(
+                        f"[run_stream] Incomplete answer hard cap reached at iteration "
+                        f"{continuation_count}. {_incomplete_answer_non_exec_count} consecutive "
+                        f"non-exec iterations with incomplete answer. Force-closing."
+                    )
+                    self.response += "</answer>"
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message="[SUBACTIVITY][CONTINUATION] Finalizing response...",
+                    )
+                    break
+            else:
+                if has_new_execution:
+                    _incomplete_answer_non_exec_count = 0
 
             # Log a visible subactivity so the user sees continuation progress
             # Build a descriptive status message so the user knows what's happening

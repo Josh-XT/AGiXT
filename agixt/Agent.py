@@ -2831,6 +2831,62 @@ class Agent:
         # Get the base64 encoded image from the provider
         image_content = await provider.generate_image(prompt=prompt)
 
+        # Vision verification loop: verify image matches the prompt spec
+        # and edit with feedback if it doesn't, up to 3 attempts.
+        vision_provider = self.ai_provider_manager.get_provider_for_service("vision")
+        has_edit = hasattr(provider, "edit_image") and callable(
+            getattr(provider, "edit_image", None)
+        )
+        if vision_provider is not None and has_edit:
+            max_edits = 3
+            for attempt in range(max_edits):
+                data_url = f"data:image/png;base64,{image_content}"
+                verification_prompt = (
+                    f"You are an image QA reviewer. The user requested this image:\n\n"
+                    f'"{prompt}"\n\n'
+                    f"Look at the generated image carefully. Does it match the request? "
+                    f"If it matches well enough, respond with exactly: PASS\n"
+                    f"If it does NOT match, respond with a brief description of what "
+                    f"specifically needs to change (do NOT say PASS). Focus only on the "
+                    f"most important differences from the request."
+                )
+                try:
+                    verdict = await self.vision_inference(
+                        prompt=verification_prompt,
+                        images=[data_url],
+                    )
+                except Exception as e:
+                    logging.warning(f"[generate_image] Vision verification failed: {e}")
+                    break
+
+                verdict_stripped = verdict.strip()
+                if verdict_stripped.upper().startswith("PASS"):
+                    logging.info(
+                        f"[generate_image] Image passed vision verification on attempt {attempt + 1}."
+                    )
+                    break
+
+                logging.info(
+                    f"[generate_image] Vision verification attempt {attempt + 1}/{max_edits}: "
+                    f"needs edits — {verdict_stripped[:200]}"
+                )
+
+                # Edit the image with the feedback
+                edit_prompt = (
+                    f"Original request: {prompt}\n"
+                    f"Required changes: {verdict_stripped}"
+                )
+                try:
+                    image_content = await provider.edit_image(
+                        prompt=edit_prompt,
+                        image=image_content,
+                    )
+                except Exception as e:
+                    logging.warning(
+                        f"[generate_image] Image edit failed on attempt {attempt + 1}: {e}"
+                    )
+                    break
+
         # Handle the image storage similar to TTS
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
