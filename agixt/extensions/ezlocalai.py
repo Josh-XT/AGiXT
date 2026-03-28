@@ -743,7 +743,11 @@ class ezlocalai(Extensions):
         data = resp.json()
 
         logging.info(f"Video Generated for prompt: {prompt}")
-        url = data["data"][0].get("url")
+        first_item = data["data"][0]
+        error = first_item.get("error")
+        if error:
+            raise Exception(f"Video generation failed: {error}")
+        url = first_item.get("url")
         if not url:
             raise Exception("Video generation failed: no URL returned")
         # Download the video to agent workspace
