@@ -140,8 +140,8 @@ def sso(code, redirect_uri=None) -> GoogleMarketingSSO:
         .replace("%3D", "=")
     )
     response = requests.post(
-        "https://accounts.google.com/o/oauth2/token",
-        params={
+        "https://oauth2.googleapis.com/token",
+        data={
             "code": code,
             "client_id": getenv("GOOGLE_CLIENT_ID"),
             "client_secret": getenv("GOOGLE_CLIENT_SECRET"),
