@@ -104,9 +104,15 @@ class ezlocalai(Extensions):
         import os as _os
         import logging as _logging
 
-        # Extension base initialization
+        # Extension base initialization (matches essential_abilities pattern)
         self.agent_name = kwargs.get("agent_name", "AGiXT")
+        self.agent_id = kwargs.get("agent_id")
         self.ApiClient = kwargs.get("ApiClient", None)
+        self.user = kwargs.get("user", None)
+        self.user_id = kwargs.get("user_id", None)
+        self.conversation_name = kwargs.get("conversation_name", "")
+        self.conversation_id = kwargs.get("conversation_id", "")
+        self.activity_id = kwargs.get("activity_id", None)
 
         # Get URI from parameter or environment
         if not EZLOCALAI_API_URI:
@@ -804,6 +810,18 @@ class ezlocalai(Extensions):
         Returns:
             Base64 image data with markdown display
         """
+        from Conversations import Conversations
+
+        c = Conversations(
+            conversation_name=self.conversation_name,
+            user=self.user,
+            conversation_id=self.conversation_id,
+        )
+
+        c.log_interaction(
+            role=self.agent_name,
+            message="[SUBACTIVITY] Generating image...",
+        )
         image_b64 = await self.generate_image(prompt=prompt)
 
         # Vision verification loop: use the LLM's vision to check if the
@@ -811,6 +829,10 @@ class ezlocalai(Extensions):
         max_edits = 3
         for attempt in range(max_edits):
             data_url = f"data:image/png;base64,{image_b64}"
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY] Reviewing generated image (attempt {attempt + 1}/{max_edits})...",
+            )
             verification_prompt = (
                 f"You are an image QA reviewer. The user requested this image:\n\n"
                 f'"{prompt}"\n\n'
@@ -831,6 +853,10 @@ class ezlocalai(Extensions):
                 logging.warning(
                     f"[generate_image_command] Vision verification failed: {e}"
                 )
+                c.log_interaction(
+                    role=self.agent_name,
+                    message="[SUBACTIVITY] Vision review unavailable, using image as-is.",
+                )
                 break
 
             verdict_stripped = verdict.strip()
@@ -844,6 +870,10 @@ class ezlocalai(Extensions):
                     f"[generate_image_command] Image passed vision verification "
                     f"on attempt {attempt + 1}."
                 )
+                c.log_interaction(
+                    role=self.agent_name,
+                    message="[SUBACTIVITY] Image passed quality review.",
+                )
                 break
 
             logging.info(
@@ -851,10 +881,18 @@ class ezlocalai(Extensions):
                 f"{attempt + 1}/{max_edits}: needs edits — "
                 f"{verdict_stripped[:200]}"
             )
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY] Image needs edits: {verdict_stripped[:300]}",
+            )
 
             # Edit the image with the feedback
             edit_prompt = (
                 f"Original request: {prompt}\n" f"Required changes: {verdict_stripped}"
+            )
+            c.log_interaction(
+                role=self.agent_name,
+                message="[SUBACTIVITY] Editing image to address feedback...",
             )
             try:
                 image_b64 = await self.edit_image(
@@ -865,6 +903,10 @@ class ezlocalai(Extensions):
                 logging.warning(
                     f"[generate_image_command] Image edit failed on attempt "
                     f"{attempt + 1}: {e}"
+                )
+                c.log_interaction(
+                    role=self.agent_name,
+                    message="[SUBACTIVITY] Image edit failed, using current image.",
                 )
                 break
 

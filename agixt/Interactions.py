@@ -1928,6 +1928,25 @@ Example: memories, persona, files"""
             if cmd_name.lower() in user_input_lower:
                 explicitly_requested_commands.append(cmd_name)
 
+        # Keyword-based command boosting: when user mentions specific media types,
+        # always include the relevant generation commands so the LLM doesn't have to
+        # guess across hundreds of commands split into batches.
+        KEYWORD_COMMAND_MAP = {
+            "video": ["Generate Video", "Image to Video", "Video to Video"],
+            "image": ["Generate Image", "Edit Image"],
+            "picture": ["Generate Image", "Edit Image"],
+            "photo": ["Generate Image", "Edit Image"],
+            "speech": ["Text to Speech"],
+            "transcri": ["Transcribe Audio"],
+        }
+        for keyword, prefixes in KEYWORD_COMMAND_MAP.items():
+            if keyword in user_input_lower:
+                for cmd_name in all_command_names:
+                    cmd_lower = cmd_name.lower()
+                    if any(p.lower() in cmd_lower for p in prefixes):
+                        if cmd_name not in explicitly_requested_commands:
+                            explicitly_requested_commands.append(cmd_name)
+
         # Build context about files, extensions, and conversation history
         context_parts = []
         if conversation_history:
