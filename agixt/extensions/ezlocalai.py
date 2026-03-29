@@ -738,7 +738,7 @@ class ezlocalai(Extensions):
         if conditions:
             payload["conditions"] = conditions
 
-        resp = requests.post(api_url, headers=headers, json=payload, timeout=600)
+        resp = requests.post(api_url, headers=headers, json=payload, timeout=1800)
         resp.raise_for_status()
         data = resp.json()
 
