@@ -582,8 +582,15 @@ class AGiXT:
             # Use existing conversation instance instead of creating new one
             c = self.conversation
 
-            # Default fallback name
-            new_name = datetime.now().strftime("Conversation Created %Y-%m-%d %I:%M %p")
+            # Default fallback name: use first words of user input instead of a
+            # generic timestamp so conversations are identifiable even when the
+            # LLM provider is unavailable.
+            _fallback_words = " ".join(user_input.split()[:8]).strip()[:60]
+            new_name = (
+                _fallback_words
+                if _fallback_words
+                else datetime.now().strftime("Conversation Created %Y-%m-%d %I:%M %p")
+            )
 
             # Get list of existing conversations to avoid duplicates
             conversation_list = c.get_conversations()
@@ -685,8 +692,12 @@ Respond with ONLY: {{"suggested_conversation_name": "Different Name Here"}}"""
                     new_name = parsed_json.get("suggested_conversation_name", new_name)
 
                     if new_name in conversation_list:
-                        new_name = datetime.now().strftime(
-                            "Conversation Created %Y-%m-%d %I:%M %p"
+                        new_name = (
+                            _fallback_words
+                            if _fallback_words
+                            else datetime.now().strftime(
+                                "Conversation Created %Y-%m-%d %I:%M %p"
+                            )
                         )
 
             except Exception as e:

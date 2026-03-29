@@ -2536,11 +2536,11 @@ class Conversations:
 
         message_id = str(new_message.id)
 
-        # Notify WebSocket listeners about the new message
-        # The WebSocket endpoint polling will pick this up on the next check,
-        # but for USER messages we can also trigger an immediate notification
-        # to improve responsiveness
-        # Note: The actual WebSocket sending happens in the WebSocket endpoint's polling loop
+        # Mark the conversation as updated so the WebSocket poll loop's
+        # SharedCache fast-path won't skip the DB query on the next cycle.
+        # Without this, agent responses stored via log_interaction() would
+        # be invisible to WebSocket clients until the cache TTL expires.
+        mark_conversation_updated(str(conversation_id))
 
         session.close()
         return message_id
@@ -3178,6 +3178,9 @@ class Conversations:
             logging.debug(
                 f"Message {message_id} successfully updated - committed to database"
             )
+            # Mark conversation updated so the WebSocket poll loop detects
+            # this change through the SharedCache fast-path.
+            mark_conversation_updated(str(conversation.id))
         except Exception as e:
             logging.error(f"Error updating message: {e}")
             session.rollback()
