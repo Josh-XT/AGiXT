@@ -23,6 +23,7 @@ import sys
 import time
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -2801,10 +2802,15 @@ def _start_all(local: bool = False, env_updates: Optional[dict] = None) -> None:
     print("\n" + "=" * 80)
     print("All services started successfully!")
     print("=" * 80)
+    local_ip = get_local_ip()
+    agixt_port = os.getenv("AGIXT_PORT", "7437")
+    app_port = os.getenv("AGIXT_INTERACTIVE_PORT", "3437")
+    api_url = os.getenv("AGIXT_URI", f"http://{local_ip}:{agixt_port}")
+    app_url = os.getenv("APP_URI", f"http://{local_ip}:{app_port}")
     print("\nService URLs:")
-    print(f"  AGiXT API:        http://localhost:7437")
-    print(f"  Web Interface:    http://localhost:3437")
-    print(f"  ezLocalai API:    http://localhost:8091")
+    print(f"  AGiXT API:        {api_url}")
+    print(f"  Web Interface:    {app_url}")
+    print(f"  ezLocalai API:    http://{local_ip}:8091")
     print("=" * 80)
 
 
@@ -3039,8 +3045,15 @@ def _start_local(env_updates: Optional[dict] = None) -> None:
             except requests.RequestException:
                 response = requests.Response()
                 response.status_code = 500
+    local_ip = get_local_ip()
+    agixt_port = os.getenv("AGIXT_PORT", "7437")
+    app_port = os.getenv("AGIXT_INTERACTIVE_PORT", "3437")
+    api_url = os.getenv("AGIXT_URI", f"http://{local_ip}:{agixt_port}")
+    app_url = os.getenv("APP_URI", f"http://{local_ip}:{app_port}")
     print(f"AGiXT started successfully!")
-    print(f"View logs at: {LOCAL_LOG_FILE}")
+    print(f"  API:  {api_url}")
+    print(f"  App:  {app_url}")
+    print(f"  Logs: {LOCAL_LOG_FILE}")
     cleanup_log_files()
 
 
@@ -3175,7 +3188,14 @@ def _start_docker(env_updates: Optional[dict] = None) -> None:
     try:
         command = f"docker compose -f {dockerfile} up -d"
         subprocess.run(command, shell=True, cwd=REPO_ROOT, check=True)
+        local_ip = get_local_ip()
+        agixt_port = env_vars.get("AGIXT_PORT", "7437")
+        app_port = env_vars.get("AGIXT_INTERACTIVE_PORT", "3437")
+        api_url = env_vars.get("AGIXT_URI", f"http://{local_ip}:{agixt_port}")
+        app_url = env_vars.get("APP_URI", f"http://{local_ip}:{app_port}")
         print("AGiXT Docker services started successfully.")
+        print(f"  API: {api_url}")
+        print(f"  App: {app_url}")
     except KeyboardInterrupt:
         print("\nStopping AGiXT containers...")
         subprocess.run(

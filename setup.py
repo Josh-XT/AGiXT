@@ -9,13 +9,24 @@ readme_path = os.path.join(this_directory, "docs", "README.md")
 with open(readme_path, encoding="utf-8") as f:
     long_description = f.read()
 
-# Get requirements from requirements.txt to a list
+# Full requirements from requirements.txt (only needed for local server mode)
 with open(os.path.join(this_directory, "requirements.txt"), encoding="utf-8") as f:
     install_requires = f.read().splitlines()
-requirements = []
+full_requirements = []
 for reqs in install_requires:
     if "--" not in reqs and ":" not in reqs and "#" not in reqs:
-        requirements.append(reqs)
+        full_requirements.append(reqs)
+
+# CLI-only requirements (lightweight - just what the CLI needs)
+cli_requirements = [
+    "python-dotenv>=1.0.0",
+    "requests>=2.28.0",
+    "agixtsdk>=0.0.82",
+    "websocket-client>=1.6.0",
+    "pyotp",
+    "docker>=7.0.0",
+]
+
 # Get version from version file in agixt/version
 with open(os.path.join(this_directory, "agixt/version"), encoding="utf-8") as f:
     version = f.read().strip()
@@ -25,12 +36,15 @@ setup(
     version=version,
     description="An Artificial Intelligence Automation Platform. AI Instruction management from various providers, has an adaptive memory, and a versatile plugin system with many commands including web browsing. Supports many AI providers and models and growing support every day.",
     long_description=long_description,
-    long_description_content_type="text/markdown",  # This should match the format of your README
+    long_description_content_type="text/markdown",
     author="Josh XT",
     author_email="josh@devxt.com",
     packages=find_packages(),
     python_requires=">=3.10",
-    install_requires=requirements,
+    install_requires=cli_requirements,
+    extras_require={
+        "local": full_requirements,
+    },
     entry_points={
         "console_scripts": ["agixt=agixt.cli:main"],
     },
