@@ -7804,13 +7804,12 @@ def decrypt_config_value(encrypted_value: str) -> str:
         # If decryption fails, the encryption key has likely changed.
         # Return empty string so callers treat this as "not configured"
         # rather than leaking the raw Fernet ciphertext to external APIs.
-        # Only log once per process to avoid startup spam.
+        # Values with matching env vars will be auto-re-encrypted on next startup.
         if not getattr(decrypt_config_value, "_warned", False):
             decrypt_config_value._warned = True
-            logging.warning(
+            logging.debug(
                 "Failed to decrypt one or more sensitive config values. "
-                "The AGIXT_API_KEY may have changed since these values were encrypted. "
-                "Please re-save the affected settings to re-encrypt them with the current key."
+                "Values with matching environment variables will be re-encrypted automatically on startup."
             )
         return ""
 
@@ -7964,6 +7963,20 @@ def seed_server_config_from_env():
                     existing.value = new_value
                     updated_count += 1
                     logging.info(f"Synced {name} from environment variable")
+            elif is_sensitive and existing.value and env_value:
+                # For sensitive values, verify we can still decrypt them.
+                # If decryption fails (e.g. AGIXT_API_KEY changed), re-encrypt
+                # from the environment variable with the current key.
+                try:
+                    key = get_server_config_encryption_key()
+                    f = Fernet(key)
+                    f.decrypt(existing.value.encode())
+                except Exception:
+                    existing.value = encrypt_config_value(env_value)
+                    updated_count += 1
+                    logging.info(
+                        f"Re-encrypted {name} from environment (encryption key changed)"
+                    )
             elif env_value and not existing.value:
                 # Update existing entry with empty value if env has a value
                 # This handles the case where token was added after initial setup

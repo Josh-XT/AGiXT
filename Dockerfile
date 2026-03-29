@@ -1,4 +1,4 @@
-FROM joshxt/aicontainer:sha-7a4c3aa
+FROM joshxt/aicontainer:sha-b255782
 WORKDIR /
 COPY docker-requirements.txt .
 RUN pip install --no-cache-dir -r docker-requirements.txt
