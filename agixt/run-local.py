@@ -70,103 +70,80 @@ class StartupTimer:
 startup_timer: Optional[StartupTimer] = None
 
 
-async def initialize_database(is_restart=False):
-    """Initialize database like DB.py does, with concurrent migration groups"""
+async def initialize_database_schema():
+    """Initialize database schema (tables + migrations). Fast phase that must
+    complete before uvicorn can start."""
     global startup_timer
+    import DB
+
+    section_start = startup_timer.section_start()
+    startup_timer.section_end("DB module import", section_start)
+
+    # Create tables
+    section_start = startup_timer.section_start()
+    DB.Base.metadata.create_all(DB.engine)
+    startup_timer.section_end("Create tables (metadata.create_all)", section_start)
+
+    # Run schema migrations only if needed (fast-path skip for established servers)
+    section_start = startup_timer.section_start()
+    if DB.check_schema_migrations_needed():
+        DB.run_all_schema_migrations()
+        startup_timer.section_end("schema_migrations (applied)", section_start)
+    else:
+        startup_timer.section_end("schema_migrations (skipped)", section_start)
+
+    return DB
+
+
+def _run_extension_and_role_setup(DB, hub_ready_event=None):
+    """Run hub clone, extension table init, role/scope setup, and config seeding.
+    This is the slow phase that can run in parallel with uvicorn startup.
+    If hub_ready_event is provided, it is set once hub clone + extension tables
+    are ready so seed_data can start import_extensions."""
     try:
-        # Import DB module to trigger database initialization
+        # Clone/update extensions hub FIRST so extension tables include hub models
         section_start = startup_timer.section_start()
-        import DB
+        try:
+            from ExtensionsHub import ExtensionsHub, initialize_global_cache
 
-        startup_timer.section_end("DB module import", section_start)
+            hub = ExtensionsHub(skip_global_cache=True)
+            hub_success = hub.clone_or_update_hub_sync()
 
-        # Create tables
-        section_start = startup_timer.section_start()
-        DB.Base.metadata.create_all(DB.engine)
-        startup_timer.section_end("Create tables (metadata.create_all)", section_start)
+            if hub_success:
+                from Extensions import invalidate_extension_cache
 
-        # Run schema migrations that must be sequential (table/column creation order matters)
-        # Group 1: Core schema migrations (must run first, in order)
-        section_start = startup_timer.section_start()
-        DB.migrate_company_table()
-        DB.migrate_payment_transaction_table()
-        DB.migrate_extension_table()
-        DB.migrate_webhook_outgoing_table()
-        DB.migrate_user_table()
-        startup_timer.section_end("core_schema_migrations", section_start)
+                invalidate_extension_cache()
 
-        # Group 2: Independent migrations that touch different tables - run in parallel
-        section_start = startup_timer.section_start()
-        with ThreadPoolExecutor(max_workers=6) as executor:
-            futures = [
-                executor.submit(DB.migrate_auth_username_password),
-                executor.submit(DB.migrate_group_chat_tables),
-                executor.submit(DB.migrate_message_reaction_table),
-                executor.submit(DB.migrate_message_pinning),
-                executor.submit(DB.migrate_performance_indexes),
-                executor.submit(DB.migrate_conversation_table),
-            ]
-            for f in futures:
-                f.result()  # raise any exceptions
-        startup_timer.section_end("parallel_migrations_group_1", section_start)
-
-        # Group 3: More independent migrations in parallel
-        section_start = startup_timer.section_start()
-        with ThreadPoolExecutor(max_workers=6) as executor:
-            futures = [
-                executor.submit(DB.migrate_extract_data_urls_from_messages),
-                executor.submit(DB.migrate_backfill_channel_participants),
-                executor.submit(DB.migrate_discarded_context_table),
-                executor.submit(DB.migrate_cleanup_duplicate_wallet_settings),
-                executor.submit(DB.migrate_extension_settings_tables),
-                executor.submit(DB.migrate_server_config_categories),
-            ]
-            for f in futures:
-                f.result()
-        startup_timer.section_end("parallel_migrations_group_2", section_start)
-
-        # Group 4: Remaining independent migrations in parallel
-        section_start = startup_timer.section_start()
-        with ThreadPoolExecutor(max_workers=6) as executor:
-            futures = [
-                executor.submit(DB.migrate_company_storage_settings_table),
-                executor.submit(DB.migrate_tiered_prompts_chains_tables),
-                executor.submit(DB.migrate_response_cache_table),
-                executor.submit(DB.migrate_task_item_table),
-                executor.submit(DB.migrate_user_oauth_table),
-                executor.submit(DB.migrate_conversation_participant_notification_mode),
-            ]
-            for f in futures:
-                f.result()
-        startup_timer.section_end("parallel_migrations_group_3", section_start)
+            startup_timer.section_end("extensions_hub_clone", section_start)
+        except Exception as e:
+            logger.warning(f"Failed to initialize extensions hub: {e}")
+            startup_timer.section_end("extensions_hub_clone (failed)", section_start)
 
         section_start = startup_timer.section_start()
-        DB.migrate_user_company_sort_order()
-        DB.migrate_bot_instance_id()
         DB.cleanup_expired_cache()
-        startup_timer.section_end("final_migrations_and_cleanup", section_start)
+        startup_timer.section_end("cleanup_expired_cache", section_start)
 
-        # Initialize extension tables
+        # Initialize extension tables (discovers extension-defined DB models)
+        # Now includes hub extensions since hub was cloned above
         section_start = startup_timer.section_start()
         DB.initialize_extension_tables()
         startup_timer.section_end("initialize_extension_tables", section_start)
 
-        # Extension categories + category migration in parallel with role setup
+        # Signal that hub is cloned and extension tables are ready
+        # so seed_data can start import_extensions in parallel
+        if hub_ready_event is not None:
+            hub_ready_event.set()
+
+        # Extension categories + role setup in parallel
         section_start = startup_timer.section_start()
         with ThreadPoolExecutor(max_workers=2) as executor:
-            # These two are independent: categories vs roles
             ext_future = executor.submit(
                 lambda: (
                     DB.setup_default_extension_categories(),
                     DB.migrate_extensions_to_new_categories(),
                 )
             )
-            role_future = executor.submit(
-                lambda: (
-                    DB.migrate_role_table(),
-                    DB.setup_default_roles(),
-                )
-            )
+            role_future = executor.submit(DB.setup_default_roles)
             ext_future.result()
             role_future.result()
         startup_timer.section_end("parallel_ext_categories_and_roles", section_start)
@@ -176,13 +153,15 @@ async def initialize_database(is_restart=False):
         DB.setup_default_scopes()
         startup_timer.section_end("setup_default_scopes", section_start)
 
-        # Role scopes + server config can run in parallel
+        # Role scopes + server config in parallel
         section_start = startup_timer.section_start()
-        with ThreadPoolExecutor(max_workers=2) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             scope_future = executor.submit(DB.setup_default_role_scopes)
             config_future = executor.submit(DB.seed_server_config_from_env)
+            cat_future = executor.submit(DB.migrate_server_config_categories)
             scope_future.result()
             config_future.result()
+            cat_future.result()
         startup_timer.section_end("parallel_role_scopes_and_config", section_start)
 
         startup_timer.mark("Database initialization complete")
@@ -207,8 +186,19 @@ async def initialize_database(is_restart=False):
                 "No AI Provider environment variables detected. Providers will rely on database settings."
             )
 
+        # Initialize global extensions cache AFTER hub clone + extension setup
+        try:
+            from ExtensionsHub import initialize_global_cache
+
+            initialize_global_cache()
+            logger.info("Initialized global extensions cache for worker efficiency")
+        except Exception as e:
+            logger.warning(f"Failed to initialize global extensions cache: {e}")
     except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
+        logger.error(f"Extension/role setup failed: {e}")
+        # Ensure event is set even on failure so seed_data doesn't hang
+        if hub_ready_event is not None and not hub_ready_event.is_set():
+            hub_ready_event.set()
         raise
 
 
@@ -279,10 +269,20 @@ async def start_service(is_restart=False):
             except Exception as e:
                 logger.warning(f"Could not delete extension cache: {e}")
 
-        # Initialize database first (like DB.py does)
+        # Also delete extension scopes cache since metadata cache was cleared
+        extension_scopes_cache = os.path.join(
+            os.path.dirname(__file__), "models", ".extension_scopes_cache.json"
+        )
+        if os.path.exists(extension_scopes_cache):
+            try:
+                os.remove(extension_scopes_cache)
+            except Exception:
+                pass
+
+        # Phase 1: Fast schema initialization (must complete before uvicorn)
         section_start = startup_timer.section_start()
-        await initialize_database(is_restart=is_restart)
-        startup_timer.section_end("Total database initialization", section_start)
+        DB = await initialize_database_schema()
+        startup_timer.section_end("Schema initialization", section_start)
 
         # Start uvicorn process with custom logging config to redact sensitive data
         cmd = [
@@ -315,6 +315,18 @@ async def start_service(is_restart=False):
         )
         startup_timer.section_end("Uvicorn process spawn", section_start)
 
+        # Phase 2: Run extension/role/scope setup in parallel with uvicorn startup
+        # This overlaps the expensive DB work (~8s) with uvicorn worker initialization (~15s)
+        section_start_ext = startup_timer.section_start()
+        loop = asyncio.get_event_loop()
+        # threading.Event coordinates hub readiness between ext_setup and seed_data
+        import threading
+
+        hub_ready_event = threading.Event()
+        ext_setup_future = loop.run_in_executor(
+            None, _run_extension_and_role_setup, DB, hub_ready_event
+        )
+
         # Run seed_data import in a background thread while we wait for Uvicorn
         # This overlaps the expensive import_all_data with Uvicorn worker startup
         seed_future = None
@@ -328,7 +340,7 @@ async def start_service(is_restart=False):
                 def _run_seed_data():
                     from SeedImports import import_all_data
 
-                    import_all_data()
+                    import_all_data(hub_ready_event=hub_ready_event)
 
                 seed_future = loop.run_in_executor(None, _run_seed_data)
 
@@ -387,6 +399,16 @@ async def start_service(is_restart=False):
             except Exception as e:
                 logger.error(f"Seed data import failed: {e}")
                 seed_error = e
+
+        # Wait for extension/role setup to finish (ran in parallel with uvicorn)
+        try:
+            await ext_setup_future
+            startup_timer.section_end(
+                "Extension/role setup (parallel)", section_start_ext
+            )
+        except Exception as e:
+            logger.error(f"Extension/role setup failed: {e}")
+            raise
 
         if uvicorn_process.poll() is not None:
             logger.error(

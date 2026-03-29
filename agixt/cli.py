@@ -2467,7 +2467,6 @@ def set_environment(env_updates=None, mode="docker"):
                 print(f"Warning: Failed to pull Docker images: {e}")
 
     if str(env_vars["WITH_EZLOCALAI"]).lower() == "true":
-        print("Starting ezLocalai, this can take several minutes...")
         start_ezlocalai()
 
     return env_vars
@@ -2475,7 +2474,7 @@ def set_environment(env_updates=None, mode="docker"):
 
 def start_ezlocalai():
     """Start ezLocalai using the ezlocalai CLI."""
-    print("Starting ezLocalai...")
+    print("Starting ezLocalai, this can take several minutes...")
     try:
         subprocess.run(["ezlocalai", "start"], check=True)
     except FileNotFoundError:

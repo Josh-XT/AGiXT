@@ -2960,11 +2960,33 @@ def get_extension_features(extension_name: str) -> dict:
     return features
 
 
+# Disk cache for extension scopes to avoid re-parsing every startup
+_extension_scopes_cache_file = os.path.join(
+    os.path.dirname(__file__), "models", ".extension_scopes_cache.json"
+)
+
+
 def generate_extension_scopes():
     """
     Generate per-extension scopes dynamically based on discovered extensions.
     Each extension gets three scopes: read, execute, and configure.
+    Uses a disk cache keyed on the newest extension file mtime to avoid
+    re-parsing all extension files on every startup.
     """
+    # Try disk cache first
+    try:
+        if os.path.exists(_extension_scopes_cache_file):
+            with open(_extension_scopes_cache_file, "r") as f:
+                cached = json.load(f)
+            # Check staleness by comparing to newest extension file mtime
+            from Extensions import _get_newest_extension_mtime
+
+            newest_mtime = _get_newest_extension_mtime()
+            if newest_mtime <= cached.get("built_at", 0):
+                return cached["scopes"]
+    except Exception as e:
+        logging.debug(f"Could not load extension scopes cache: {e}")
+
     extension_scopes = []
     extension_names = get_extension_names()
 
@@ -3036,6 +3058,17 @@ def generate_extension_scopes():
                         "category": "Extensions",
                     }
                 )
+
+    # Save to disk cache
+    try:
+        import time as _time
+
+        cache_data = {"built_at": _time.time(), "scopes": extension_scopes}
+        os.makedirs(os.path.dirname(_extension_scopes_cache_file), exist_ok=True)
+        with open(_extension_scopes_cache_file, "w") as f:
+            json.dump(cache_data, f)
+    except Exception as e:
+        logging.debug(f"Could not save extension scopes cache: {e}")
 
     return extension_scopes
 
@@ -4139,11 +4172,10 @@ def migrate_extensions_to_new_categories():
     extensions from extension hubs that may not be directly importable.
     """
     try:
-        # Load the extension metadata cache (AST-parsed, includes hub extensions)
-        from Extensions import _build_extension_metadata_cache
+        # Load the extension metadata cache (uses disk cache if available)
+        from Extensions import _get_extension_metadata_cache
 
-        # Force rebuild to get fresh category info
-        metadata = _build_extension_metadata_cache()
+        metadata = _get_extension_metadata_cache()
 
         with get_db_session() as session:
             # Build a map of category names to IDs
@@ -4963,9 +4995,11 @@ def setup_default_scopes():
     all_scopes = default_scopes + extension_scopes
 
     with get_session() as db:
+        # Batch-load existing scope names to avoid N queries
+        existing_scope_names = {s.name for s in db.query(Scope.name).all()}
+
         for scope_data in all_scopes:
-            existing_scope = db.query(Scope).filter_by(name=scope_data["name"]).first()
-            if not existing_scope:
+            if scope_data["name"] not in existing_scope_names:
                 new_scope = Scope(
                     name=scope_data["name"],
                     resource=scope_data["resource"],
@@ -4990,6 +5024,11 @@ def setup_default_role_scopes():
         # Get all scopes for pattern matching
         all_scopes = db.query(Scope).all()
         scope_map = {s.name: s for s in all_scopes}
+
+        # Batch-load ALL existing role-scope mappings to avoid N queries per role
+        existing_mappings = set()
+        for rs in db.query(DefaultRoleScope.role_id, DefaultRoleScope.scope_id).all():
+            existing_mappings.add((str(rs.role_id), str(rs.scope_id)))
 
         for role_id, scope_patterns in default_role_scopes.items():
             # Get the role
@@ -5027,18 +5066,13 @@ def setup_default_role_scopes():
                     if pattern in scope_map:
                         scopes_to_assign.add(pattern)
 
-            # Create DefaultRoleScope entries
+            # Create DefaultRoleScope entries (skip existing via in-memory set)
             for scope_name in scopes_to_assign:
                 scope = scope_map.get(scope_name)
                 if not scope:
                     continue
 
-                existing = (
-                    db.query(DefaultRoleScope)
-                    .filter_by(role_id=role_id, scope_id=scope.id)
-                    .first()
-                )
-                if not existing:
+                if (str(role_id), str(scope.id)) not in existing_mappings:
                     role_scope = DefaultRoleScope(
                         role_id=role_id,
                         scope_id=scope.id,
@@ -8379,3 +8413,114 @@ def migrate_bot_instance_id():
                     )
     except Exception as e:
         logging.warning(f"bot_instance_id migration error: {e}", exc_info=True)
+
+
+def check_schema_migrations_needed():
+    """
+    Fast check to determine if schema migrations have already been applied.
+    Checks for indicators from the most recent migrations - if they all exist,
+    all earlier migrations have been applied too.
+
+    Returns True if migrations need to run, False if they can be skipped.
+    """
+    if engine is None:
+        return False
+
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                # Check for bot_instance_id in company_extension_setting (newest migration)
+                try:
+                    result = session.execute(
+                        text("PRAGMA table_info(company_extension_setting)")
+                    )
+                    columns = {row[1] for row in result.fetchall()}
+                    if "bot_instance_id" not in columns:
+                        return True
+                except Exception:
+                    return True
+
+                # Check for sort_order in UserCompany
+                try:
+                    result = session.execute(text('PRAGMA table_info("UserCompany")'))
+                    columns = {row[1] for row in result.fetchall()}
+                    if "sort_order" not in columns:
+                        return True
+                except Exception:
+                    return True
+            else:
+                # PostgreSQL - check for latest migration indicators
+                result = session.execute(
+                    text(
+                        """
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'company_extension_setting'
+                        AND column_name = 'bot_instance_id'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    return True
+
+                result = session.execute(
+                    text(
+                        """
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'UserCompany'
+                        AND column_name = 'sort_order'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    return True
+
+            return False
+    except Exception as e:
+        logging.warning(f"Could not check migration status, will run migrations: {e}")
+        return True
+
+
+def run_all_schema_migrations():
+    """
+    Run all schema and data migrations in dependency order.
+
+    Called only when check_schema_migrations_needed() returns True, which means
+    either this is a fresh install or an upgrade from an older version.
+    On established servers where all migrations have been applied, this function
+    is skipped entirely via the fast check.
+    """
+    logging.info("Running schema migrations...")
+
+    # Phase 1: Core table column additions (order matters for FK dependencies)
+    migrate_company_table()
+    migrate_payment_transaction_table()
+    migrate_extension_table()
+    migrate_user_table()
+
+    # Phase 2: Independent schema migrations (all idempotent)
+    migrate_auth_username_password()
+    migrate_group_chat_tables()
+    migrate_message_reaction_table()
+    migrate_message_pinning()
+    migrate_conversation_table()
+    migrate_discarded_context_table()
+    migrate_extension_settings_tables()
+    migrate_company_storage_settings_table()
+    migrate_role_table()
+    migrate_tiered_prompts_chains_tables()
+    migrate_response_cache_table()
+    migrate_task_item_table()
+    migrate_user_oauth_table()
+    migrate_conversation_participant_notification_mode()
+    migrate_user_company_sort_order()
+    migrate_bot_instance_id()
+
+    # Phase 3: Performance indexes
+    migrate_performance_indexes()
+
+    # Phase 4: One-time data cleanup migrations
+    migrate_cleanup_duplicate_wallet_settings()
+    migrate_extract_data_urls_from_messages()
+    migrate_backfill_channel_participants()
+
+    logging.info("All schema migrations complete")
