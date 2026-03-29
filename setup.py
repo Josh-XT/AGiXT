@@ -21,10 +21,8 @@ for reqs in install_requires:
 cli_requirements = [
     "python-dotenv>=1.0.0",
     "requests>=2.28.0",
-    "agixtsdk>=0.0.82",
     "websocket-client>=1.6.0",
     "pyotp",
-    "docker>=7.0.0",
 ]
 
 # Get version from version file in agixt/version
