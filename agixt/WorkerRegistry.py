@@ -21,6 +21,7 @@ class WorkerRegistry:
         self._conversation_tasks: Dict[str, asyncio.Task] = (
             {}
         )  # conversation_id -> task
+        self._stopped_conversations: Set[str] = set()  # explicitly stopped by user
         self._lock = threading.Lock()
 
     def register_conversation(
@@ -76,7 +77,14 @@ class WorkerRegistry:
             if conversation_id in self._conversation_tasks:
                 del self._conversation_tasks[conversation_id]
 
+            self._stopped_conversations.discard(conversation_id)
+
             return removed
+
+    def is_stopped(self, conversation_id: str) -> bool:
+        """Check if a conversation was explicitly stopped by the user."""
+        with self._lock:
+            return conversation_id in self._stopped_conversations
 
     def get_conversation_info(self, conversation_id: str) -> Optional[Dict]:
         """
@@ -146,6 +154,10 @@ class WorkerRegistry:
                     f"User {user_id} attempted to stop conversation {conversation_id} owned by {conversation_info['user_id']}"
                 )
                 return False
+
+            # Mark as explicitly stopped so the stream handler knows not to
+            # continue processing in the background.
+            self._stopped_conversations.add(conversation_id)
 
             # Get the task if it exists
             task = self._conversation_tasks.get(conversation_id)

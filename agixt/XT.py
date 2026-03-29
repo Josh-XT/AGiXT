@@ -4988,6 +4988,20 @@ Your response (true or false):"""
                 yield f"data: {json.dumps(tts_end_chunk)}\n\n"
 
         except asyncio.CancelledError:
+            # Check if user explicitly stopped this conversation
+            if worker_registry.is_stopped(conversation_id):
+                logging.info(
+                    f"[_execute_chat_completions_stream] Conversation {conversation_id} "
+                    f"stopped by user — aborting stream."
+                )
+                # Close the stream iterator without draining
+                if stream_iter is not None:
+                    try:
+                        await stream_iter.aclose()
+                    except Exception:
+                        pass
+                raise
+
             logging.warning(
                 f"[_execute_chat_completions_stream] CancelledError for conversation {conversation_id}. "
                 f"Detaching run_stream to continue in background."
@@ -5032,6 +5046,19 @@ Your response (true or false):"""
                 )
             raise
         except GeneratorExit:
+            # Check if user explicitly stopped this conversation
+            if worker_registry.is_stopped(conversation_id):
+                logging.info(
+                    f"[_execute_chat_completions_stream] GeneratorExit: conversation {conversation_id} "
+                    f"stopped by user — aborting stream."
+                )
+                if stream_iter is not None:
+                    try:
+                        await stream_iter.aclose()
+                    except Exception:
+                        pass
+                return
+
             logging.warning(
                 f"[_execute_chat_completions_stream] GeneratorExit for conversation {conversation_id}. "
                 f"Detaching run_stream to continue in background."
