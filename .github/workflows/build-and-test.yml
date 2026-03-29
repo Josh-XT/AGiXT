@@ -9,6 +9,8 @@ on:
       - "book.json"
       - "SECURITY.md"
       - "CODE_OF_CONDUCT.md"
+  release:
+    types: [published]
 jobs:
   build:
     uses: ./.github/workflows/docker.yml
@@ -55,7 +57,7 @@ jobs:
       packages: read
     name: Deploy to Production
     needs: test-agixt-postgres
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'release'
     steps:
       - name: Deploy Application
         id: deploy
