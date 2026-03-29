@@ -712,17 +712,27 @@ def get_sso_provider(provider: str, code, redirect_uri=None, code_verifier=None)
 
         # Check if this matches the provider we're looking for
         if os.path.basename(extension_file).replace(".py", "") == provider:
-            if getattr(module, "PKCE_REQUIRED", False):
-                if not code_verifier:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"PKCE required for {provider} but no code_verifier provided",
+            try:
+                if getattr(module, "PKCE_REQUIRED", False):
+                    if not code_verifier:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"PKCE required for {provider} but no code_verifier provided",
+                        )
+                    return module.sso(
+                        code=code,
+                        redirect_uri=redirect_uri,
+                        code_verifier=code_verifier,
                     )
-                return module.sso(
-                    code=code, redirect_uri=redirect_uri, code_verifier=code_verifier
+                else:
+                    return module.sso(code=code, redirect_uri=redirect_uri)
+            except HTTPException:
+                raise
+            except Exception as e:
+                logging.error(
+                    f"SSO token exchange failed for {provider}: {type(e).__name__}: {e}"
                 )
-            else:
-                return module.sso(code=code, redirect_uri=redirect_uri)
+                return None
     return None
 
 

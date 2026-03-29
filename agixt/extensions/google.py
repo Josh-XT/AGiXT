@@ -154,8 +154,6 @@ def sso(code, redirect_uri=None) -> GoogleSSO:
             "client_secret": getenv("GOOGLE_CLIENT_SECRET"),
             "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
-            "scope": " ".join(SCOPES),
-            "access_type": "offline",
         },
     )
     if response.status_code != 200:
