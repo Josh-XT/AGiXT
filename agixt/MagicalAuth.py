@@ -701,38 +701,55 @@ def is_admin(email: str = "USER", api_key: str = None):
 def get_sso_provider(provider: str, code, redirect_uri=None, code_verifier=None):
     # Use recursive discovery to find all extension files
     extension_files = find_extension_files()
-    for extension_file in extension_files:
-        # Import the module using the helper function
-        module = import_extension_module(extension_file)
-        if module is None:
+
+    # Build a filename→file_path map for quick lookup
+    file_map = {}
+    for ef in extension_files:
+        name = os.path.basename(ef).replace(".py", "")
+        file_map[name] = ef
+
+    # Try the exact provider name first, then fall back to {provider}_sso.
+    # This handles the case where google.py can't be imported (heavy deps like
+    # google-ads) but google_sso.py (minimal deps) can still handle the login.
+    candidates = [provider]
+    if f"{provider}_sso" in file_map and f"{provider}_sso" != provider:
+        candidates.append(f"{provider}_sso")
+
+    for candidate in candidates:
+        extension_file = file_map.get(candidate)
+        if not extension_file:
             continue
 
-        # Get the expected class name from the module
-        class_name = get_extension_class_name(os.path.basename(extension_file))
+        module = import_extension_module(extension_file)
+        if module is None:
+            logging.warning(
+                f"SSO provider '{candidate}' found at {extension_file} but failed to import"
+            )
+            continue
 
-        # Check if this matches the provider we're looking for
-        if os.path.basename(extension_file).replace(".py", "") == provider:
-            try:
-                if getattr(module, "PKCE_REQUIRED", False):
-                    if not code_verifier:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"PKCE required for {provider} but no code_verifier provided",
-                        )
-                    return module.sso(
-                        code=code,
-                        redirect_uri=redirect_uri,
-                        code_verifier=code_verifier,
+        if not hasattr(module, "sso"):
+            continue
+
+        try:
+            if getattr(module, "PKCE_REQUIRED", False):
+                if not code_verifier:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"PKCE required for {provider} but no code_verifier provided",
                     )
-                else:
-                    return module.sso(code=code, redirect_uri=redirect_uri)
-            except HTTPException:
-                raise
-            except Exception as e:
-                logging.error(
-                    f"SSO token exchange failed for {provider}: {type(e).__name__}: {e}"
+                return module.sso(
+                    code=code,
+                    redirect_uri=redirect_uri,
+                    code_verifier=code_verifier,
                 )
-                return None
+            else:
+                return module.sso(code=code, redirect_uri=redirect_uri)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logging.error(
+                f"SSO token exchange failed for {candidate}: {type(e).__name__}: {e}"
+            )
     return None
 
 
