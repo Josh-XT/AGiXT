@@ -118,9 +118,9 @@ class ConversationMessageBroadcaster:
     def __init__(self):
         # Maps conversation_id -> set of active WebSocket connections
         self.active_connections: Dict[str, Set[WebSocket]] = {}
-        # Per-connection tracking of message IDs received via broadcast
-        # Maps (conversation_id, websocket_id) -> set of message IDs
-        self._connection_broadcasted_ids: Dict[int, Set[str]] = {}
+        # Per-connection tracking of message IDs already sent (by broadcast or poll loop)
+        # Maps websocket id(ws) -> set of message IDs
+        self._connection_sent_ids: Dict[int, Set[str]] = {}
         self._lock = asyncio.Lock()
         # Store reference to main event loop for cross-thread broadcasting
         self._main_loop = None
@@ -216,8 +216,8 @@ class ConversationMessageBroadcaster:
             if conversation_id not in self.active_connections:
                 self.active_connections[conversation_id] = set()
             self.active_connections[conversation_id].add(websocket)
-            # Initialize per-connection broadcast tracking
-            self._connection_broadcasted_ids[id(websocket)] = set()
+            # Initialize per-connection sent-message tracking
+            self._connection_sent_ids[id(websocket)] = set()
             logging.debug(
                 f"Conversation {conversation_id}: WebSocket connected. Total: {len(self.active_connections[conversation_id])}"
             )
@@ -232,8 +232,8 @@ class ConversationMessageBroadcaster:
                 logging.debug(
                     f"Conversation {conversation_id}: WebSocket disconnected."
                 )
-            # Clean up per-connection broadcast tracking
-            self._connection_broadcasted_ids.pop(id(websocket), None)
+            # Clean up per-connection sent-message tracking
+            self._connection_sent_ids.pop(id(websocket), None)
 
     def publish_to_redis(
         self, conversation_id: str, event_type: str, message_data: dict
@@ -278,6 +278,14 @@ class ConversationMessageBroadcaster:
         sent_count = 0
         for connection in connections:
             try:
+                # Skip if this message was already sent to this connection
+                if message_id:
+                    ws_id = id(connection)
+                    if (
+                        ws_id in self._connection_sent_ids
+                        and str(message_id) in self._connection_sent_ids[ws_id]
+                    ):
+                        continue
                 await connection.send_text(
                     json.dumps(
                         {
@@ -287,11 +295,11 @@ class ConversationMessageBroadcaster:
                     )
                 )
                 sent_count += 1
-                # Track per-connection that this message was broadcast
+                # Track that this message was sent to this connection
                 if message_id:
                     ws_id = id(connection)
-                    if ws_id in self._connection_broadcasted_ids:
-                        self._connection_broadcasted_ids[ws_id].add(str(message_id))
+                    if ws_id in self._connection_sent_ids:
+                        self._connection_sent_ids[ws_id].add(str(message_id))
             except Exception as e:
                 logging.debug(f"Failed to send to WebSocket: {e}")
                 connections_to_remove.append(connection)
@@ -354,6 +362,17 @@ class ConversationMessageBroadcaster:
         sent_count = 0
         for connection in connections:
             try:
+                # Skip if this message was already sent to this connection (by poll loop or prior broadcast)
+                if message_id:
+                    ws_id = id(connection)
+                    if (
+                        ws_id in self._connection_sent_ids
+                        and str(message_id) in self._connection_sent_ids[ws_id]
+                    ):
+                        logging.debug(
+                            f"broadcast_message_event: skipping already-sent message {message_id}"
+                        )
+                        continue
                 await connection.send_text(
                     json.dumps(
                         {
@@ -363,11 +382,11 @@ class ConversationMessageBroadcaster:
                     )
                 )
                 sent_count += 1
-                # Track per-connection that this message was broadcast
+                # Track that this message was sent to this connection
                 if message_id:
                     ws_id = id(connection)
-                    if ws_id in self._connection_broadcasted_ids:
-                        self._connection_broadcasted_ids[ws_id].add(str(message_id))
+                    if ws_id in self._connection_sent_ids:
+                        self._connection_sent_ids[ws_id].add(str(message_id))
                 logging.debug(
                     f"broadcast_message_event: sent to connection {sent_count}/{len(connections)}"
                 )
@@ -386,20 +405,18 @@ class ConversationMessageBroadcaster:
 
         return sent_count
 
-    def was_broadcasted_for_connection(
-        self, websocket: WebSocket, message_id: str
-    ) -> bool:
-        """Check if a message was already sent to this specific connection via broadcast."""
+    def was_sent_to_connection(self, websocket: WebSocket, message_id: str) -> bool:
+        """Check if a message was already sent to this specific connection (by broadcast or poll)."""
         ws_id = id(websocket)
-        if ws_id not in self._connection_broadcasted_ids:
+        if ws_id not in self._connection_sent_ids:
             return False
-        return str(message_id) in self._connection_broadcasted_ids[ws_id]
+        return str(message_id) in self._connection_sent_ids[ws_id]
 
-    def clear_broadcasted_ids_for_connection(self, websocket: WebSocket):
-        """Clear the broadcasted IDs for a specific connection (call after processing poll cycle)."""
+    def mark_sent_to_connection(self, websocket: WebSocket, message_id: str):
+        """Record that a message was sent to this connection (called by poll loop after sending)."""
         ws_id = id(websocket)
-        if ws_id in self._connection_broadcasted_ids:
-            self._connection_broadcasted_ids[ws_id].clear()
+        if ws_id in self._connection_sent_ids:
+            self._connection_sent_ids[ws_id].add(str(message_id))
 
     def has_listeners(self, conversation_id: str) -> bool:
         """Check if a conversation has active WebSocket listeners."""
@@ -2710,12 +2727,12 @@ async def conversation_stream(
                     # Skip if this was already sent via broadcast
                     if (
                         message_id
-                        and conversation_message_broadcaster.was_broadcasted_for_connection(
+                        and conversation_message_broadcaster.was_sent_to_connection(
                             websocket, message_id
                         )
                     ):
                         logging.debug(
-                            f"WebSocket: Skipping broadcasted new message {message_id}"
+                            f"WebSocket: Skipping already-sent new message {message_id}"
                         )
                         if message_id:
                             previous_message_ids.add(message_id)
@@ -2736,6 +2753,10 @@ async def conversation_stream(
                         previous_message_ids.add(message_id)
                         # Also track that we just sent this as "added" - don't send as "updated" too
                         updated_message_ids_this_cycle.add(message_id)
+                        # Mark in broadcaster so concurrent broadcast task won't re-send
+                        conversation_message_broadcaster.mark_sent_to_connection(
+                            websocket, message_id
+                        )
 
                 # Handle updated messages - skip any we just sent as "added" or were broadcasted
                 for message in changes["updated_messages"]:
@@ -2749,12 +2770,12 @@ async def conversation_stream(
                     # Skip if this was already sent via broadcast
                     if (
                         message_id
-                        and conversation_message_broadcaster.was_broadcasted_for_connection(
+                        and conversation_message_broadcaster.was_sent_to_connection(
                             websocket, message_id
                         )
                     ):
                         logging.debug(
-                            f"WebSocket: Skipping broadcasted updated message {message_id}"
+                            f"WebSocket: Skipping already-sent updated message {message_id}"
                         )
                         continue
                     logging.debug(
@@ -2770,12 +2791,14 @@ async def conversation_stream(
                             }
                         )
                     )
+                    # Mark in broadcaster so concurrent broadcast task won't re-send
+                    if message_id:
+                        conversation_message_broadcaster.mark_sent_to_connection(
+                            websocket, message_id
+                        )
 
-                # Reset per-cycle tracking and clear broadcasted IDs for this connection
+                # Reset per-cycle tracking
                 updated_message_ids_this_cycle.clear()
-                conversation_message_broadcaster.clear_broadcasted_ids_for_connection(
-                    websocket
-                )
 
                 # Check for conversation rename (throttled to every 15 seconds)
                 current_time = datetime.now()
