@@ -544,14 +544,14 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         """
         Read a file in the workspace, optionally reading only specific line ranges.
 
-        **IMPORTANT**: This command returns a maximum of 100 lines at a time to manage context size.
-        If a file is larger than 100 lines, it will be truncated and you will need to make additional
+        **IMPORTANT**: This command returns a maximum of 500 lines at a time to manage context size.
+        If a file is larger than 500 lines, it will be truncated and you will need to make additional
         calls with different line ranges to see the full content.
 
         Args:
         filename (str): The name of the file to read
         line_start (int): The starting line number (1-indexed). If "None", starts from beginning
-        line_end (int): The ending line number (1-indexed, inclusive). If "None", reads to end (max 100 lines)
+        line_end (int): The ending line number (1-indexed, inclusive). If "None", reads to end (max 500 lines)
 
         Returns:
         str: The content of the file or specified line range
@@ -564,7 +564,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         - For CSV/data files, use Execute Python Code with pandas to analyze data efficiently
         - XLSX/XLS files are automatically converted to CSV format for reading
         """
-        MAX_LINES = 100  # Maximum lines to return per read
+        MAX_LINES = 500  # Maximum lines to return per read
         try:
             line_start = int(line_start)
         except:
