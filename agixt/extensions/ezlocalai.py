@@ -145,6 +145,16 @@ class ezlocalai(Extensions):
             EZLOCALAI_API_URI += "v1/"
 
         self.API_URI = EZLOCALAI_API_URI
+        # Validate API key is safe for HTTP headers (latin-1 encodable).
+        # Masked/corrupted values (e.g. bullet chars from UI) must be discarded.
+        try:
+            if EZLOCALAI_API_KEY:
+                EZLOCALAI_API_KEY.encode("latin-1")
+        except UnicodeEncodeError:
+            logging.warning(
+                "[ezlocalai] API key contains non-ASCII characters (possibly masked value), ignoring"
+            )
+            EZLOCALAI_API_KEY = ""
         self.EZLOCALAI_API_KEY = EZLOCALAI_API_KEY
 
         # Check if this provider is configured (has a valid URI set)
