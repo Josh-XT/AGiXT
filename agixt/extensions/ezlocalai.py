@@ -22,6 +22,18 @@ import numpy as np
 from Extensions import Extensions
 from Globals import getenv
 import asyncio
+from functools import partial
+
+
+def _run_sync(func, *args, **kwargs):
+    """Run a synchronous function in the default thread pool executor.
+
+    This prevents blocking the asyncio event loop when making synchronous
+    HTTP requests (e.g. requests.post), which would starve other coroutines
+    like Discord heartbeats.
+    """
+    loop = asyncio.get_event_loop()
+    return loop.run_in_executor(None, partial(func, *args, **kwargs))
 
 
 class StreamChunk:
@@ -345,7 +357,9 @@ class ezlocalai(Extensions):
                 # Use a longer connection timeout (600s) since the inference slot
                 # may be busy with another request and we need to wait in queue.
                 # The read timeout for individual chunks is set to 120s.
-                resp = requests.post(
+                # Run in executor to avoid blocking the event loop (Discord heartbeat etc.)
+                resp = await _run_sync(
+                    requests.post,
                     api_url,
                     headers=headers,
                     json=payload,
@@ -355,7 +369,8 @@ class ezlocalai(Extensions):
                 resp.raise_for_status()
                 return parse_sse_stream(resp)
 
-            resp = requests.post(
+            resp = await _run_sync(
+                requests.post,
                 api_url,
                 headers=headers,
                 json=payload,
@@ -447,8 +462,13 @@ class ezlocalai(Extensions):
                     data["num_speakers"] = str(num_speakers)
             if session_id:
                 data["session_id"] = session_id
-            resp = requests.post(
-                api_url, headers=headers, files=files, data=data, timeout=120
+            resp = await _run_sync(
+                requests.post,
+                api_url,
+                headers=headers,
+                files=files,
+                data=data,
+                timeout=120,
             )
             resp.raise_for_status()
             result = resp.json()
@@ -476,8 +496,13 @@ class ezlocalai(Extensions):
         with open(audio_path, "rb") as audio_file:
             files = {"file": audio_file}
             data = {"model": self.TRANSCRIPTION_MODEL}
-            resp = requests.post(
-                api_url, headers=headers, files=files, data=data, timeout=120
+            resp = await _run_sync(
+                requests.post,
+                api_url,
+                headers=headers,
+                files=files,
+                data=data,
+                timeout=120,
             )
             resp.raise_for_status()
             return resp.json().get("text", "")
@@ -508,7 +533,9 @@ class ezlocalai(Extensions):
             "input": text,
             "language": self.TTS_LANGUAGE,
         }
-        resp = requests.post(api_url, headers=headers, json=payload, timeout=120)
+        resp = await _run_sync(
+            requests.post, api_url, headers=headers, json=payload, timeout=120
+        )
         resp.raise_for_status()
         return base64.b64encode(resp.content).decode("utf-8")
 
@@ -620,7 +647,9 @@ class ezlocalai(Extensions):
             "size": "1024x1024",
             "response_format": "url",
         }
-        resp = requests.post(api_url, headers=headers, json=payload, timeout=120)
+        resp = await _run_sync(
+            requests.post, api_url, headers=headers, json=payload, timeout=120
+        )
         resp.raise_for_status()
         data = resp.json()
 
@@ -628,7 +657,8 @@ class ezlocalai(Extensions):
         url = data["data"][0]["url"]
 
         # Download the image and return as base64
-        image_data = requests.get(url).content
+        dl_resp = await _run_sync(requests.get, url, timeout=60)
+        image_data = dl_resp.content
         return base64.b64encode(image_data).decode("utf-8")
 
     async def edit_image(self, prompt: str, image: str) -> str:
@@ -660,14 +690,17 @@ class ezlocalai(Extensions):
             "size": "1024x1024",
             "response_format": "url",
         }
-        resp = requests.post(api_url, headers=headers, json=payload, timeout=120)
+        resp = await _run_sync(
+            requests.post, api_url, headers=headers, json=payload, timeout=120
+        )
         resp.raise_for_status()
         data = resp.json()
 
         logging.info(f"Image Edited for prompt: {prompt}")
         url = data["data"][0]["url"]
 
-        image_data = requests.get(url).content
+        dl_resp = await _run_sync(requests.get, url, timeout=60)
+        image_data = dl_resp.content
         return base64.b64encode(image_data).decode("utf-8")
 
     def _save_to_workspace(self, content: bytes, filename: str) -> str:
@@ -679,12 +712,12 @@ class ezlocalai(Extensions):
             return f"{self.output_url}/{os.path.basename(filename)}"
         return file_path
 
-    def _resolve_image_to_base64(self, image_input: str) -> str:
+    async def _resolve_image_to_base64(self, image_input: str) -> str:
         """Convert an image input (HTTP URL, data URL, or raw base64) to base64 string."""
         if not image_input:
             return image_input
         if image_input.startswith(("http://", "https://")):
-            resp = requests.get(image_input, timeout=30)
+            resp = await _run_sync(requests.get, image_input, timeout=30)
             resp.raise_for_status()
             return base64.b64encode(resp.content).decode("utf-8")
         # data URLs and raw base64 are passed through as-is
@@ -748,7 +781,9 @@ class ezlocalai(Extensions):
         if conditions:
             payload["conditions"] = conditions
 
-        resp = requests.post(api_url, headers=headers, json=payload, timeout=1800)
+        resp = await _run_sync(
+            requests.post, api_url, headers=headers, json=payload, timeout=1800
+        )
         resp.raise_for_status()
         data = resp.json()
 
@@ -761,7 +796,8 @@ class ezlocalai(Extensions):
         if not url:
             raise Exception("Video generation failed: no URL returned")
         # Download the video to agent workspace
-        video_data = requests.get(url, timeout=120).content
+        dl_resp = await _run_sync(requests.get, url, timeout=120)
+        video_data = dl_resp.content
         filename = url.split("/")[-1] if "/" in url else f"{uuid.uuid4()}.mp4"
         return self._save_to_workspace(video_data, filename)
 
@@ -1001,7 +1037,7 @@ class ezlocalai(Extensions):
         Returns:
             URL to the generated video
         """
-        image_b64 = self._resolve_image_to_base64(image_url)
+        image_b64 = await self._resolve_image_to_base64(image_url)
         url = await self.generate_video(
             prompt=prompt,
             size=size,
@@ -1037,8 +1073,8 @@ class ezlocalai(Extensions):
         Returns:
             URL to the generated video
         """
-        start_b64 = self._resolve_image_to_base64(start_frame_url)
-        end_b64 = self._resolve_image_to_base64(end_frame_url)
+        start_b64 = await self._resolve_image_to_base64(start_frame_url)
+        end_b64 = await self._resolve_image_to_base64(end_frame_url)
         conditions = [
             {"image": start_b64, "index": 0, "strength": 1.0},
             {"image": end_b64, "index": -1, "strength": 1.0},
