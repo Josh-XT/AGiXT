@@ -347,24 +347,36 @@ class ExtensionsHub:
         if not url:
             return False
 
-        # Check for valid GitHub URL patterns
-        valid_patterns = ["https://github.com/", "git@github.com:", "github.com/"]
+        from urllib.parse import urlparse
 
-        return any(pattern in url for pattern in valid_patterns)
+        try:
+            parsed = urlparse(url)
+            # Only allow HTTPS URLs to github.com with no credentials in the URL
+            if parsed.scheme == "https" and parsed.hostname == "github.com":
+                # Reject URLs with embedded credentials
+                if parsed.username or parsed.password:
+                    return False
+                # Must have a path component (owner/repo)
+                path = parsed.path.strip("/")
+                if "/" in path and len(path.split("/")) >= 2:
+                    return True
+        except Exception:
+            pass
 
-    def _get_authenticated_url(self, url: str) -> str:
-        """Add authentication token to GitHub URL if available"""
-        if not self.hub_token:
-            return url
+        return False
 
-        # If it's an HTTPS URL and we have a token, add authentication
-        if url.startswith("https://github.com/"):
-            # Format: https://TOKEN@github.com/user/repo.git
-            url_parts = url.replace("https://", "").split("/", 1)
-            if len(url_parts) == 2:
-                return f"https://{self.hub_token}@{url_parts[0]}/{url_parts[1]}"
-
-        return url
+    def _get_authenticated_clone_env(self) -> dict:
+        """Get environment variables for authenticated git clone without embedding token in URL"""
+        env = os.environ.copy()
+        env["GIT_TEMPLATE_DIR"] = ""
+        if self.hub_token:
+            # Pass token via git extraheader instead of embedding in URL
+            env["GIT_CONFIG_COUNT"] = "1"
+            env["GIT_CONFIG_KEY_0"] = "http.https://github.com/.extraheader"
+            env["GIT_CONFIG_VALUE_0"] = (
+                f"Authorization: Basic {__import__('base64').b64encode(f'x-access-token:{self.hub_token}'.encode()).decode()}"
+            )
+        return env
 
     def _get_hub_directory_name(self, source: str) -> str:
         """Generate a unique directory name from GitHub URL or local path"""
@@ -637,8 +649,6 @@ class ExtensionsHub:
     def _clone_repository(self, url: str, hub_path: str) -> bool:
         """Clone a specific extensions hub repository"""
         try:
-            authenticated_url = self._get_authenticated_url(url)
-
             # Use git clone with depth 1 for faster cloning
             # Add --template="" to skip git template copying which can cause issues in containers
             cmd = [
@@ -653,13 +663,12 @@ class ExtensionsHub:
             if self.hub_branch:
                 cmd.extend(["-b", self.hub_branch])
 
-            cmd.extend([authenticated_url, hub_path])
+            cmd.extend([url, hub_path])
 
-            # Set environment to avoid git template issues
-            env = os.environ.copy()
-            env["GIT_TEMPLATE_DIR"] = ""
+            # Use env-based auth to avoid embedding token in URL
+            env = self._get_authenticated_clone_env()
 
-            # Run git clone, hiding the URL with token from logs
+            # Run git clone
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=60, env=env
             )
@@ -675,12 +684,7 @@ class ExtensionsHub:
 
                 return True
             else:
-                # Log error without exposing token
-                error_msg = (
-                    result.stderr.replace(self.hub_token, "***")
-                    if self.hub_token
-                    else result.stderr
-                )
+                error_msg = result.stderr
                 logging.error(f"Failed to clone extensions hub {url}: {error_msg}")
                 return False
 

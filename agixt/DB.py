@@ -7805,9 +7805,11 @@ def get_server_config_encryption_key():
     # Get AGIXT_API_KEY from environment
     api_key = os.getenv("AGIXT_API_KEY", "")
     if not api_key:
-        # Fallback to a default key if AGIXT_API_KEY not set
-        # This is less secure but allows the system to function
-        api_key = "default-agixt-key-please-set-env"
+        raise ValueError(
+            "AGIXT_API_KEY environment variable is not set. "
+            "A strong API key is required for encryption. "
+            "Please set AGIXT_API_KEY before starting the server."
+        )
 
     # Derive a Fernet-compatible key (32 bytes, base64 encoded) from the API key
     # Using PBKDF2 with SHA256 for secure key derivation instead of plain SHA256

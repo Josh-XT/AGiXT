@@ -80,7 +80,11 @@ def verify_api_key(authorization: str = Header(None)):
         DEFAULT_USER = "user"
 
     if not AGIXT_API_KEY:
-        return DEFAULT_USER
+        logging.error("AGIXT_API_KEY is not set. Authentication cannot proceed.")
+        raise HTTPException(
+            status_code=403,
+            detail="Server misconfiguration: AGIXT_API_KEY is not set.",
+        )
 
     if authorization is None or authorization == "" or authorization == "None":
         raise HTTPException(status_code=401, detail="Authorization header is missing")

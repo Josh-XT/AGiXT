@@ -1963,7 +1963,10 @@ print(output)
         Note: Do not include a path in the output_file, just the file name. The file will be saved in the agent's workspace and a link to download returned.
         """
         try:
-            # Make sure the output directory exists
+            # Sanitize output_file to prevent path traversal
+            output_file = os.path.basename(output_file)
+            if not output_file:
+                return "Error: Invalid output file name"
             output_path = os.path.join(self.WORKING_DIRECTORY, output_file)
             os.makedirs(
                 os.path.dirname(output_path) if os.path.dirname(output_path) else ".",
@@ -2013,7 +2016,10 @@ print(output)
         Note: Do not include a path in the output_file, just the file name. The file will be saved in the agent's workspace and a link to download returned.
         """
         try:
-            # Make sure the output directory exists
+            # Sanitize output_file to prevent path traversal
+            output_file = os.path.basename(output_file)
+            if not output_file:
+                return "Error: Invalid output file name"
             output_path = os.path.join(self.WORKING_DIRECTORY, output_file)
             os.makedirs(
                 os.path.dirname(output_path) if os.path.dirname(output_path) else ".",
@@ -2067,7 +2073,10 @@ print(output)
         try:
             import pandas as pd
 
-            # Make sure the output directory exists
+            # Sanitize output_file to prevent path traversal
+            output_file = os.path.basename(output_file)
+            if not output_file:
+                return "Error: Invalid output file name"
             output_path = os.path.join(self.WORKING_DIRECTORY, output_file)
             os.makedirs(
                 os.path.dirname(output_path) if os.path.dirname(output_path) else ".",
@@ -2145,7 +2154,10 @@ print(output)
         Note: Do not include a path in the output_file, just the file name. The file will be saved in the agent's workspace and a link to download returned.
         """
         try:
-            # Make sure the output directory exists
+            # Sanitize output_file to prevent path traversal
+            output_file = os.path.basename(output_file)
+            if not output_file:
+                return "Error: Invalid output file name"
             output_path = os.path.join(self.WORKING_DIRECTORY, output_file)
             os.makedirs(
                 os.path.dirname(output_path) if os.path.dirname(output_path) else ".",
@@ -5561,8 +5573,11 @@ On the sidebar, expanding `Automation` reveals the following pages:
             elif files:
                 file_list = files.split()
                 for file in file_list:
+                    # Prevent argument injection via file names
+                    if file.startswith("-"):
+                        return f"Error: File path cannot start with '-': {file}"
                     result = subprocess.run(
-                        ["git", "add", file],
+                        ["git", "add", "--", file],
                         cwd=self.WORKING_DIRECTORY,
                         capture_output=True,
                         text=True,
@@ -5631,6 +5646,9 @@ On the sidebar, expanding `Automation` reveals the following pages:
                 cmd.append("--staged")
 
             if commit:
+                # Prevent argument injection via commit hash
+                if commit.startswith("-"):
+                    return "Error: Commit hash cannot start with '-'"
                 cmd.append(commit)
 
             if file_path:
@@ -6680,20 +6698,23 @@ On the sidebar, expanding `Automation` reveals the following pages:
             - Restricted to agent workspace
         """
         try:
+            # Prevent argument injection via branch_name
+            if branch_name and branch_name.startswith("-"):
+                return "Error: Branch name cannot start with '-'"
             if action == "list":
                 cmd = ["git", "branch", "-a"]
             elif action == "create":
                 if not branch_name:
                     return "Error: Branch name required for create action"
-                cmd = ["git", "branch", branch_name]
+                cmd = ["git", "branch", "--", branch_name]
             elif action == "switch":
                 if not branch_name:
                     return "Error: Branch name required for switch action"
-                cmd = ["git", "checkout", branch_name]
+                cmd = ["git", "checkout", "--", branch_name]
             elif action == "delete":
                 if not branch_name:
                     return "Error: Branch name required for delete action"
-                cmd = ["git", "branch", "-d", branch_name]
+                cmd = ["git", "branch", "-d", "--", branch_name]
             else:
                 return f"Unknown action: {action}. Use: list, create, switch, delete"
 
@@ -6739,6 +6760,9 @@ On the sidebar, expanding `Automation` reveals the following pages:
             - Restricted to agent workspace
         """
         try:
+            # Prevent argument injection via message
+            if message and message.startswith("-"):
+                return "Error: Stash message cannot start with '-'"
             if action == "list":
                 cmd = ["git", "stash", "list"]
             elif action == "push":
@@ -8360,6 +8384,9 @@ On the sidebar, expanding `Automation` reveals the following pages:
             - Restricted to agent workspace
         """
         try:
+            # Prevent argument injection via remote name
+            if remote and remote.startswith("-"):
+                return "Error: Remote name cannot start with '-'"
             cmd = ["git", "fetch", remote]
             if prune:
                 cmd.append("--prune")
@@ -8402,6 +8429,11 @@ On the sidebar, expanding `Automation` reveals the following pages:
             - Restricted to agent workspace
         """
         try:
+            # Prevent argument injection via remote/branch names
+            if remote and remote.startswith("-"):
+                return "Error: Remote name cannot start with '-'"
+            if branch and branch.startswith("-"):
+                return "Error: Branch name cannot start with '-'"
             cmd = ["git", "pull"]
             if rebase:
                 cmd.append("--rebase")
@@ -8449,11 +8481,17 @@ On the sidebar, expanding `Automation` reveals the following pages:
             - Restricted to agent workspace
         """
         try:
-            cmd = ["git", "merge", branch]
+            # Prevent argument injection via branch name
+            if branch and branch.startswith("-"):
+                return "Error: Branch name cannot start with '-'"
+            if message and message.startswith("-"):
+                return "Error: Merge message cannot start with '-'"
+            cmd = ["git", "merge"]
             if no_ff:
                 cmd.append("--no-ff")
             if message:
                 cmd.extend(["-m", message])
+            cmd.extend(["--", branch])
 
             result = subprocess.run(
                 cmd,
@@ -8493,6 +8531,9 @@ On the sidebar, expanding `Automation` reveals the following pages:
             - Restricted to agent workspace
         """
         try:
+            # Prevent argument injection via commit hash
+            if commit and commit.startswith("-"):
+                return "Error: Commit hash cannot start with '-'"
             cmd = ["git", "revert", commit]
             if no_commit:
                 cmd.append("--no-commit")
@@ -8533,6 +8574,9 @@ On the sidebar, expanding `Automation` reveals the following pages:
             - Restricted to agent workspace
         """
         try:
+            # Prevent argument injection via commit hash
+            if commit and commit.startswith("-"):
+                return "Error: Commit hash cannot start with '-'"
             cmd = ["git", "cherry-pick", commit]
             if no_commit:
                 cmd.append("--no-commit")
