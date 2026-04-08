@@ -67,6 +67,7 @@ solders
 requests-oauthlib
 blinkpy>=0.23.0
 ring_doorbell>=0.9.13
+tinytuya>=1.13.0
 aiohttp
 hikvisionapi>=0.3.2
 djitellopy
