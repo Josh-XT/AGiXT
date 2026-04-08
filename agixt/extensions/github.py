@@ -273,6 +273,9 @@ class github(Extensions):
             "Replace in File on Github": self.replace_in_file,
             "Insert in File on Github": self.insert_in_file,
             "Delete from File on Github": self.delete_from_file,
+            "Get Github Security Advisories": self.get_repo_security_advisories,
+            "Close Github Security Advisory": self.close_security_advisory,
+            "Update Github Security Advisory": self.update_security_advisory,
         }
         if self.GITHUB_USERNAME and self.GITHUB_API_KEY:
             try:
@@ -1782,6 +1785,164 @@ class github(Extensions):
                 self.failures += 1
                 time.sleep(5)
                 return await self.close_ticket(repo_url, issue_number)
+            return "Error: GitHub API rate limit exceeded. Please try again later."
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+    async def get_repo_security_advisories(self, repo_url: str, state: str = "") -> str:
+        """
+        Get security advisories for a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        state (str): Filter by state: triage, draft, published, closed, withdrawn. Leave empty for all open.
+
+        Returns:
+        str: Formatted list of security advisories
+        """
+        try:
+            repo_name = repo_url.split("github.com/")[-1].strip("/")
+            params = {"per_page": 100}
+            if state:
+                params["state"] = state
+            response = requests.get(
+                f"https://api.github.com/repos/{repo_name}/security-advisories",
+                headers={
+                    "Authorization": f"token {self.GITHUB_API_KEY}",
+                    "Accept": "application/vnd.github+json",
+                },
+                params=params,
+            )
+            if response.status_code != 200:
+                return f"Error fetching advisories: {response.status_code} - {response.text[:500]}"
+            advisories = response.json()
+            if not advisories:
+                return f"No security advisories found for {repo_name}"
+            lines = [f"Security Advisories for {repo_name}:\n"]
+            for adv in advisories:
+                severity = adv.get("severity", "unknown")
+                ghsa = adv.get("ghsa_id", "N/A")
+                summary = adv.get("summary", "No summary")
+                adv_state = adv.get("state", "unknown")
+                lines.append(
+                    f"- [{severity.upper()}] {ghsa}: {summary} (state: {adv_state})"
+                )
+                cwes = adv.get("cwes", [])
+                if cwes:
+                    cwe_strs = [
+                        f"{c.get('cwe_id', '')}: {c.get('name', '')}" for c in cwes
+                    ]
+                    lines.append(f"  CWEs: {'; '.join(cwe_strs)}")
+                for v in adv.get("vulnerabilities", []):
+                    pkg = v.get("package", {})
+                    lines.append(
+                        f"  Package: {pkg.get('name', 'N/A')} ({pkg.get('ecosystem', '')})"
+                        f" range: {v.get('vulnerable_version_range', 'N/A')}"
+                    )
+            self.failures = 0
+            return "\n".join(lines)
+        except RateLimitExceededException:
+            if self.failures < 3:
+                self.failures += 1
+                time.sleep(5)
+                return await self.get_repo_security_advisories(repo_url, state)
+            return "Error: GitHub API rate limit exceeded. Please try again later."
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+    async def close_security_advisory(self, repo_url: str, ghsa_id: str) -> str:
+        """
+        Close a security advisory in a GitHub repository after it has been resolved
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        ghsa_id (str): The GHSA ID of the advisory to close (e.g. GHSA-xxxx-xxxx-xxxx)
+
+        Returns:
+        str: The result of the advisory closure operation
+        """
+        try:
+            repo_name = repo_url.split("github.com/")[-1].strip("/")
+            response = requests.patch(
+                f"https://api.github.com/repos/{repo_name}/security-advisories/{ghsa_id}",
+                headers={
+                    "Authorization": f"token {self.GITHUB_API_KEY}",
+                    "Accept": "application/vnd.github+json",
+                },
+                json={"state": "closed"},
+            )
+            if response.status_code == 200:
+                self.failures = 0
+                return f"Successfully closed security advisory {ghsa_id} in {repo_name}"
+            return f"Error closing advisory: {response.status_code} - {response.text[:500]}"
+        except RateLimitExceededException:
+            if self.failures < 3:
+                self.failures += 1
+                time.sleep(5)
+                return await self.close_security_advisory(repo_url, ghsa_id)
+            return "Error: GitHub API rate limit exceeded. Please try again later."
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+    async def update_security_advisory(
+        self,
+        repo_url: str,
+        ghsa_id: str,
+        state: str = "",
+        summary: str = "",
+        description: str = "",
+        severity: str = "",
+    ) -> str:
+        """
+        Update a security advisory in a GitHub repository
+
+        Args:
+        repo_url (str): The URL of the GitHub repository
+        ghsa_id (str): The GHSA ID of the advisory to update (e.g. GHSA-xxxx-xxxx-xxxx)
+        state (str): New state: triage, draft, published, closed
+        summary (str): Updated summary text
+        description (str): Updated description text
+        severity (str): Updated severity: critical, high, medium, low
+
+        Returns:
+        str: The result of the advisory update operation
+        """
+        try:
+            repo_name = repo_url.split("github.com/")[-1].strip("/")
+            payload = {}
+            if state:
+                payload["state"] = state
+            if summary:
+                payload["summary"] = summary
+            if description:
+                payload["description"] = description
+            if severity:
+                payload["severity"] = severity
+            if not payload:
+                return "Error: No fields to update. Provide at least one of: state, summary, description, severity"
+            response = requests.patch(
+                f"https://api.github.com/repos/{repo_name}/security-advisories/{ghsa_id}",
+                headers={
+                    "Authorization": f"token {self.GITHUB_API_KEY}",
+                    "Accept": "application/vnd.github+json",
+                },
+                json=payload,
+            )
+            if response.status_code == 200:
+                self.failures = 0
+                updated = response.json()
+                return (
+                    f"Successfully updated security advisory {ghsa_id} in {repo_name}. "
+                    f"State: {updated.get('state', 'N/A')}, Severity: {updated.get('severity', 'N/A')}"
+                )
+            return f"Error updating advisory: {response.status_code} - {response.text[:500]}"
+        except RateLimitExceededException:
+            if self.failures < 3:
+                self.failures += 1
+                time.sleep(5)
+                return await self.update_security_advisory(
+                    repo_url, ghsa_id, state, summary, description, severity
+                )
             return "Error: GitHub API rate limit exceeded. Please try again later."
         except Exception as e:
             return f"Error: {str(e)}"
