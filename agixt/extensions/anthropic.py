@@ -11,15 +11,39 @@ provider rotation system when configured with a valid API key.
 """
 
 import base64
+import json
 import logging
 import time
 
-import httpx
+import requests
 from Extensions import Extensions
-from Globals import getenv, install_package_if_missing
+from Globals import getenv
 
-install_package_if_missing("anthropic")
-import anthropic
+ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_API_VERSION = "2023-06-01"
+ANTHROPIC_FAST_MODE_BETA = "fast-mode-2026-02-01"
+
+
+def parse_anthropic_sse_stream(response):
+    """Parse Anthropic SSE stream and yield text strings."""
+    for line in response.iter_lines():
+        if not line:
+            continue
+        line_str = line.decode("utf-8") if isinstance(line, bytes) else line
+        if not line_str.startswith("data: "):
+            continue
+        data_str = line_str[6:]
+        if data_str.strip() == "[DONE]":
+            break
+        try:
+            data = json.loads(data_str)
+        except json.JSONDecodeError:
+            continue
+        if data.get("type") == "content_block_delta":
+            delta = data.get("delta", {})
+            text = delta.get("text", "")
+            if text:
+                yield text
 
 
 class anthropic(Extensions):
@@ -38,30 +62,26 @@ class anthropic(Extensions):
     def __init__(
         self,
         ANTHROPIC_API_KEY: str = "",
-        ANTHROPIC_AI_MODEL: str = "claude-sonnet-4-20250514",
+        ANTHROPIC_AI_MODEL: str = "claude-opus-4-6",
         ANTHROPIC_MAX_TOKENS: int = 200000,
         ANTHROPIC_TEMPERATURE: float = 0.7,
-        ANTHROPIC_GOOGLE_VERTEX_REGION: str = "europe-west1",
-        ANTHROPIC_GOOGLE_VERTEX_PROJECT_ID: str = "",
+        ANTHROPIC_FAST_MODE: bool = False,
         ANTHROPIC_WAIT_BETWEEN_REQUESTS: int = 1,
         **kwargs,
     ):
         # Get from parameter or environment
         if not ANTHROPIC_API_KEY:
             ANTHROPIC_API_KEY = getenv("ANTHROPIC_API_KEY", "")
-        if not ANTHROPIC_AI_MODEL or ANTHROPIC_AI_MODEL == "claude-sonnet-4-20250514":
-            ANTHROPIC_AI_MODEL = getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+        if not ANTHROPIC_AI_MODEL or ANTHROPIC_AI_MODEL == "claude-opus-4-6":
+            ANTHROPIC_AI_MODEL = getenv("ANTHROPIC_MODEL", "claude-opus-4-6")
 
         self.ANTHROPIC_API_KEY = ANTHROPIC_API_KEY
-        self.AI_MODEL = (
-            ANTHROPIC_AI_MODEL if ANTHROPIC_AI_MODEL else "claude-sonnet-4-20250514"
-        )
+        self.AI_MODEL = ANTHROPIC_AI_MODEL if ANTHROPIC_AI_MODEL else "claude-opus-4-6"
         self.MAX_TOKENS = int(ANTHROPIC_MAX_TOKENS) if ANTHROPIC_MAX_TOKENS else 200000
         self.AI_TEMPERATURE = (
             float(ANTHROPIC_TEMPERATURE) if ANTHROPIC_TEMPERATURE else 0.7
         )
-        self.GOOGLE_VERTEX_REGION = ANTHROPIC_GOOGLE_VERTEX_REGION
-        self.GOOGLE_VERTEX_PROJECT_ID = ANTHROPIC_GOOGLE_VERTEX_PROJECT_ID
+        self.FAST_MODE = ANTHROPIC_FAST_MODE
         self.WAIT_BETWEEN_REQUESTS = (
             int(ANTHROPIC_WAIT_BETWEEN_REQUESTS)
             if ANTHROPIC_WAIT_BETWEEN_REQUESTS
@@ -79,7 +99,7 @@ class anthropic(Extensions):
 
         # Commands that allow the AI to use this provider directly
         self.commands = {
-            "Generate Response with Anthropic": self.generate_response_command,
+            "Generate Response with Anthropic Claude": self.generate_response_command,
         }
 
         if self.configured:
@@ -98,16 +118,16 @@ class anthropic(Extensions):
         """Check if this provider is properly configured"""
         return self.configured
 
-    def _get_client(self):
-        """Get configured Anthropic client"""
-        if self.GOOGLE_VERTEX_PROJECT_ID:
-            return anthropic.AnthropicVertex(
-                access_token=self.ANTHROPIC_API_KEY,
-                region=self.GOOGLE_VERTEX_REGION,
-                project_id=self.GOOGLE_VERTEX_PROJECT_ID,
-            )
-        else:
-            return anthropic.Client(api_key=self.ANTHROPIC_API_KEY)
+    def _get_headers(self):
+        """Build request headers for the Anthropic API."""
+        headers = {
+            "x-api-key": self.ANTHROPIC_API_KEY,
+            "anthropic-version": ANTHROPIC_API_VERSION,
+            "content-type": "application/json",
+        }
+        if self.FAST_MODE:
+            headers["anthropic-beta"] = ANTHROPIC_FAST_MODE_BETA
+        return headers
 
     async def inference(
         self,
@@ -137,8 +157,8 @@ class anthropic(Extensions):
         if images:
             from XT import is_safe_url
 
+            content_parts = []
             for image in images:
-                # If the image is a url, download it
                 if image.startswith("http"):
                     # SSRF protection: validate URL before making request
                     if not is_safe_url(image):
@@ -146,9 +166,9 @@ class anthropic(Extensions):
                             f"SSRF protection: blocked image download from {image}"
                         )
                         continue
-                    image_base64 = base64.b64encode(httpx.get(image).content).decode(
-                        "utf-8"
-                    )
+                    image_base64 = base64.b64encode(
+                        requests.get(image, timeout=30).content
+                    ).decode("utf-8")
                 else:
                     with open(image, "rb") as f:
                         image_base64 = base64.b64encode(f.read()).decode("utf-8")
@@ -157,46 +177,57 @@ class anthropic(Extensions):
                 if file_type == "jpg":
                     file_type = "jpeg"
 
-                messages.append(
+                content_parts.append(
                     {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": f"image/{file_type}",
-                                    "data": image_base64,
-                                },
-                            },
-                            {"type": "text", "text": prompt},
-                        ],
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": f"image/{file_type}",
+                            "data": image_base64,
+                        },
                     }
                 )
+            content_parts.append({"type": "text", "text": prompt})
+            messages.append({"role": "user", "content": content_parts})
         else:
             messages.append({"role": "user", "content": prompt})
 
-        client = self._get_client()
+        payload = {
+            "model": self.AI_MODEL,
+            "max_tokens": 4096,
+            "messages": messages,
+        }
+        if self.FAST_MODE:
+            payload["speed"] = "fast"
+        if stream:
+            payload["stream"] = True
+
+        headers = self._get_headers()
 
         if self.WAIT_BETWEEN_REQUESTS > 0:
             time.sleep(self.WAIT_BETWEEN_REQUESTS)
 
         try:
             if stream:
-                # Use streaming API - return stream object directly
-                stream_response = client.messages.stream(
-                    messages=messages,
-                    model=self.AI_MODEL,
-                    max_tokens=4096,
+                resp = requests.post(
+                    ANTHROPIC_API_URL,
+                    headers=headers,
+                    json=payload,
+                    stream=True,
+                    timeout=300,
                 )
-                return stream_response
+                resp.raise_for_status()
+                return parse_anthropic_sse_stream(resp)
             else:
-                response = client.messages.create(
-                    messages=messages,
-                    model=self.AI_MODEL,
-                    max_tokens=4096,
+                resp = requests.post(
+                    ANTHROPIC_API_URL,
+                    headers=headers,
+                    json=payload,
+                    timeout=300,
                 )
-                return response.content[0].text
+                resp.raise_for_status()
+                data = resp.json()
+                return data["content"][0]["text"]
 
         except Exception as e:
             logging.error(f"Anthropic API Error: {e}")
