@@ -366,17 +366,31 @@ class ExtensionsHub:
         return False
 
     def _get_authenticated_clone_env(self) -> dict:
-        """Get environment variables for authenticated git clone without embedding token in URL"""
+        """Get environment variables for git clone"""
         env = os.environ.copy()
         env["GIT_TEMPLATE_DIR"] = ""
-        if self.hub_token:
-            # Pass token via git extraheader instead of embedding in URL
-            env["GIT_CONFIG_COUNT"] = "1"
-            env["GIT_CONFIG_KEY_0"] = "http.https://github.com/.extraheader"
-            env["GIT_CONFIG_VALUE_0"] = (
-                f"Authorization: Basic {__import__('base64').b64encode(f'x-access-token:{self.hub_token}'.encode()).decode()}"
-            )
+        # GIT_TERMINAL_PROMPT=0 prevents git from prompting for credentials
+        env["GIT_TERMINAL_PROMPT"] = "0"
         return env
+
+    def _get_authenticated_clone_cmd_prefix(self) -> list:
+        """Get git command prefix with authentication configured.
+        Uses git -c http.extraheader to pass token without embedding in URL.
+        Compatible with git >= 1.7.10 (works in all Docker images)."""
+        cmd = ["git"]
+        if self.hub_token:
+            import base64
+
+            credentials = base64.b64encode(
+                f"x-access-token:{self.hub_token}".encode()
+            ).decode()
+            cmd.extend(
+                [
+                    "-c",
+                    f"http.https://github.com/.extraheader=Authorization: Basic {credentials}",
+                ]
+            )
+        return cmd
 
     def _get_hub_directory_name(self, source: str) -> str:
         """Generate a unique directory name from GitHub URL or local path"""
@@ -649,15 +663,16 @@ class ExtensionsHub:
     def _clone_repository(self, url: str, hub_path: str) -> bool:
         """Clone a specific extensions hub repository"""
         try:
-            # Use git clone with depth 1 for faster cloning
-            # Add --template="" to skip git template copying which can cause issues in containers
-            cmd = [
-                "git",
-                "clone",
-                "--depth",
-                "1",
-                "--template=",
-            ]
+            # Build git command with auth configured via -c flag (compatible with git >= 1.7.10)
+            cmd = self._get_authenticated_clone_cmd_prefix()
+            cmd.extend(
+                [
+                    "clone",
+                    "--depth",
+                    "1",
+                    "--template=",
+                ]
+            )
 
             # Add branch flag if specified
             if self.hub_branch:
