@@ -124,7 +124,7 @@ jobs:
                   echo "" >> ${{ env.report-file }}
 
                   # Run the Python test file and capture output
-                  python3 ${{ env.test-file }} 2>&1 | tee -a ${{ env.report-file }}
+                  python3 -u ${{ env.test-file }} 2>&1 | tee -a ${{ env.report-file }}
                   TEST_STATUS=${PIPESTATUS[0]}
 
                   echo "test_status=${TEST_STATUS}" >> $GITHUB_ENV

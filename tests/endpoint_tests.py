@@ -1182,7 +1182,7 @@ def test_chat_completions():
             "stream": False,
         },
         headers=sdk.headers,
-        timeout=300,
+        timeout=(10, 30),  # (connect_timeout, read_timeout)
     )
     duration_ms = (time.time() - start_time) * 1000
 
@@ -1241,7 +1241,7 @@ def test_chat_completions_streaming():
         },
         headers=sdk.headers,
         stream=True,
-        timeout=(30, 120),  # (connect_timeout, read_timeout per chunk)
+        timeout=(10, 30),  # (connect_timeout, read_timeout per chunk)
     )
 
     if response.status_code != 200:
@@ -1253,7 +1253,7 @@ def test_chat_completions_streaming():
     chunks = []
     content_parts = []
     first_chunk_time = None
-    stream_deadline = time.time() + 300  # 5 minute absolute deadline
+    stream_deadline = time.time() + 60  # 1 minute absolute deadline
 
     for line in response.iter_lines():
         if time.time() > stream_deadline:
