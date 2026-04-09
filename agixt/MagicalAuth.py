@@ -5667,6 +5667,13 @@ class MagicalAuth:
             logging.debug(f"Stripe check cache hit for {user_email}")
             return
 
+        # Use a lock key to prevent multiple workers from checking simultaneously
+        lock_key = f"stripe_lock:{user_id}"
+        if not shared_cache.set_if_not_exists(lock_key, "1", ttl=30):
+            # Another worker is already checking, skip
+            logging.debug(f"Stripe check already in progress for {user_email}")
+            return
+
         stripe.api_key = api_key
 
         session = get_session()
