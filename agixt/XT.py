@@ -769,8 +769,8 @@ Examples:
 Your response (true or false):"""
 
         try:
-            # Use a lightweight inference call for evaluation
-            response = await self.agent.PROVIDER.inference(prompt=evaluation_prompt)
+            # Use streaming inference to avoid long-blocking HTTP calls
+            response = await stream_inference_to_string(self.agent, evaluation_prompt)
             # Extract and normalize the response
             response = str(response).strip().lower()
             return "true" in response

@@ -80,6 +80,87 @@ logging.basicConfig(
 )
 
 
+def _extract_token(chunk) -> str:
+    """Extract text token from a stream chunk (handles multiple formats)."""
+    if isinstance(chunk, str):
+        return chunk
+    if hasattr(chunk, "choices") and len(chunk.choices) > 0:
+        delta = chunk.choices[0].delta
+        if hasattr(delta, "content") and delta.content:
+            return delta.content
+        if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+            return delta.reasoning_content
+    # Gemini response chunks
+    if hasattr(chunk, "text"):
+        try:
+            return chunk.text or ""
+        except Exception:
+            return ""
+    return ""
+
+
+async def _collect_stream_to_string(stream_obj) -> str:
+    """
+    Collect a streaming inference response into a complete string.
+
+    All internal inference in AGiXT uses streaming HTTP calls to providers.
+    When a caller needs the full string response, this function collects
+    the stream chunks into a single string.
+
+    Handles async iterators, sync iterators (via threading), and direct strings.
+    """
+    import queue
+    import threading
+
+    if stream_obj is None:
+        return ""
+    if isinstance(stream_obj, str):
+        return stream_obj
+
+    collected = []
+
+    if hasattr(stream_obj, "__aiter__"):
+        async for chunk in stream_obj:
+            token = _extract_token(chunk)
+            if token:
+                collected.append(token)
+    else:
+        # Sync iterator (e.g., requests-based SSE stream)
+        chunk_queue = queue.Queue()
+        done_event = threading.Event()
+
+        def _sync_iter():
+            try:
+                for chunk in stream_obj:
+                    chunk_queue.put(("chunk", chunk))
+                chunk_queue.put(("done", None))
+            except Exception as e:
+                chunk_queue.put(("error", e))
+            finally:
+                done_event.set()
+
+        thread = threading.Thread(target=_sync_iter, daemon=True)
+        thread.start()
+
+        while True:
+            try:
+                msg_type, msg_data = chunk_queue.get_nowait()
+                if msg_type == "chunk":
+                    token = _extract_token(msg_data)
+                    if token:
+                        collected.append(token)
+                elif msg_type == "done":
+                    break
+                elif msg_type == "error":
+                    raise msg_data
+            except queue.Empty:
+                if done_event.is_set():
+                    break
+                await asyncio.sleep(0.005)
+
+    return "".join(collected)
+
+
 _command_owner_cache = None
 
 # Cache for command_name -> friendly_name mapping
@@ -2671,13 +2752,17 @@ class Agent:
                     )
                     return stream_obj
                 else:
-                    # Non-streaming path
-                    answer = await provider.inference(
+                    # Non-streaming path — uses streaming HTTP calls internally
+                    # to avoid long-blocking requests and enable early timeout.
+                    # The stream is collected into a complete string before returning.
+                    stream_obj = await provider.inference(
                         prompt=prompt,
                         tokens=input_tokens,
                         images=images,
+                        stream=True,
                         use_smartest=use_smartest,
                     )
+                    answer = await _collect_stream_to_string(stream_obj)
                     output_tokens = get_tokens(answer)
                     self.auth.increase_token_counts(
                         input_tokens=input_tokens, output_tokens=output_tokens
@@ -2762,12 +2847,15 @@ class Agent:
 
         provider_name = provider.__class__.__name__.replace("aiprovider_", "")
         try:
-            answer = await provider.inference(
+            # Always use streaming HTTP calls to avoid long-blocking requests
+            stream_obj = await provider.inference(
                 prompt=prompt,
                 tokens=input_tokens,
                 images=images,
+                stream=True,
                 use_smartest=use_smartest,
             )
+            answer = await _collect_stream_to_string(stream_obj)
             output_tokens = get_tokens(answer)
             self.auth.increase_token_counts(
                 input_tokens=input_tokens, output_tokens=output_tokens
