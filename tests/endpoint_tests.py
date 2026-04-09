@@ -647,7 +647,7 @@ def register_user(
     sdk = AGiXTSDK(base_uri=ctx.base_uri, verbose=ctx.verbose)
     failures = 0
 
-    while failures < 100:
+    while failures < 10:
         try:
             # New registration with password
             otp_uri = sdk.register_user(
@@ -1241,7 +1241,7 @@ def test_chat_completions_streaming():
         },
         headers=sdk.headers,
         stream=True,
-        timeout=300,
+        timeout=(30, 120),  # (connect_timeout, read_timeout per chunk)
     )
 
     if response.status_code != 200:
@@ -1249,12 +1249,16 @@ def test_chat_completions_streaming():
             f"Streaming chat completions failed: {response.status_code} - {response.text}"
         )
 
-    # Collect streamed chunks
+    # Collect streamed chunks with a deadline to prevent indefinite hanging
     chunks = []
     content_parts = []
     first_chunk_time = None
+    stream_deadline = time.time() + 300  # 5 minute absolute deadline
 
     for line in response.iter_lines():
+        if time.time() > stream_deadline:
+            print("   ⚠️ Stream deadline exceeded, stopping iteration")
+            break
         if line:
             line_str = line.decode("utf-8")
             if line_str.startswith("data: "):

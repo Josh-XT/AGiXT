@@ -110,6 +110,7 @@ jobs:
 
             - name: Execute Python tests
               id: execute_tests
+              timeout-minutes: 10
               env:
                   API_KEY: ${{ secrets.api-key }}
               run: |
