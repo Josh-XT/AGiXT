@@ -742,10 +742,13 @@ async def toggle_extension_commands_v1(
     # Get all extensions to find the commands for the specified extension
     extensions = agent.get_agent_extensions()
 
-    # Find the extension and get all its commands
+    # Find the extension and get all its commands (case-insensitive lookup)
     extension_commands = []
+    matched_extension_name = payload.extension_name
+    payload_name_lower = payload.extension_name.lower()
     for extension in extensions:
-        if extension["extension_name"] == payload.extension_name:
+        if extension["extension_name"].lower() == payload_name_lower:
+            matched_extension_name = extension["extension_name"]
             for command in extension["commands"]:
                 extension_commands.append(command["friendly_name"])
             break
@@ -765,7 +768,7 @@ async def toggle_extension_commands_v1(
     )
 
     return ResponseMessage(
-        message=f"Successfully {'enabled' if payload.enable else 'disabled'} {len(extension_commands)} commands for extension '{payload.extension_name}'"
+        message=f"Successfully {'enabled' if payload.enable else 'disabled'} {len(extension_commands)} commands for extension '{matched_extension_name}'"
     )
 
 
