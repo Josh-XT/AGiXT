@@ -660,8 +660,8 @@ class Chain:
                 continue
 
             chain_step_argument = ChainStepArgument(
-                chain_step_id=str(chain_step.id),
-                argument_id=str(argument.id),
+                chain_step_id=chain_step.id,
+                argument_id=argument.id,
                 value=str(argument_value),
             )
             session.add(chain_step_argument)
@@ -856,7 +856,7 @@ class Chain:
         # Update the arguments for the step
         # Delete existing arguments first
         session.query(ChainStepArgument).filter(
-            ChainStepArgument.chain_step_id == str(chain_step.id)
+            ChainStepArgument.chain_step_id == chain_step.id
         ).delete()
         session.flush()  # Flush deletion before adding new args
 
@@ -876,9 +876,9 @@ class Chain:
             argument = args_by_name.get(argument_name)
             if argument:
                 chain_step_argument = ChainStepArgument(
-                    chain_step_id=str(chain_step.id),
-                    argument_id=str(argument.id),
-                    value=str(argument_value),  # Ensure value is string
+                    chain_step_id=chain_step.id,
+                    argument_id=argument.id,
+                    value=str(argument_value),
                 )
                 session.add(chain_step_argument)
             else:
