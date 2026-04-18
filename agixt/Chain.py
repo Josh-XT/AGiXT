@@ -759,12 +759,12 @@ class Chain:
                     .first()
                 )
                 # Try default user if not found
-                if not chain_obj and default_user:
+                if not chain_obj and default_uid:
                     chain_obj = (
                         session.query(ChainDB)
                         .filter(
                             ChainDB.name == chain_val,
-                            ChainDB.user_id == default_user.id,
+                            ChainDB.user_id == default_uid,
                         )
                         .first()
                     )
@@ -800,13 +800,13 @@ class Chain:
                 .first()
             )
             # Try default user if not found
-            if not prompt_obj and default_user:
+            if not prompt_obj and default_uid:
                 prompt_obj = (
                     session.query(Prompt)
                     .filter(
                         Prompt.name == prompt_name,
                         Prompt.prompt_category.has(name=prompt_category),
-                        Prompt.user_id == default_user.id,
+                        Prompt.user_id == default_uid,
                     )
                     .first()
                 )

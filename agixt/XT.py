@@ -4527,9 +4527,9 @@ Your response (true or false):"""
                                                     4 + packet_size :
                                                 ]
 
-                                                # Break large audio chunks into smaller pieces for streaming
-                                                # ESP32 has limited buffer size, so send max 4KB at a time
-                                                MAX_CHUNK_SIZE = 4096
+                                                # Send entire PCM packet as one chunk
+                                                # ESP32 has 256KB line buffer + 512KB ring buffer
+                                                MAX_CHUNK_SIZE = 32768
                                                 for offset in range(
                                                     0, len(pcm_data), MAX_CHUNK_SIZE
                                                 ):
@@ -4669,9 +4669,8 @@ Your response (true or false):"""
                                                     4 + packet_size :
                                                 ]
 
-                                                # Break large audio chunks into smaller pieces for streaming
-                                                # ESP32 has limited buffer size, so send max 4KB at a time
-                                                MAX_CHUNK_SIZE = 4096
+                                                # Send entire PCM packet as one chunk
+                                                MAX_CHUNK_SIZE = 32768
                                                 for offset in range(
                                                     0, len(pcm_data), MAX_CHUNK_SIZE
                                                 ):
@@ -4776,8 +4775,8 @@ Your response (true or false):"""
                                         pcm_data = filler_buffer[4 : 4 + packet_size]
                                         filler_buffer = filler_buffer[4 + packet_size :]
 
-                                        # Break large audio chunks into smaller pieces for streaming
-                                        MAX_CHUNK_SIZE = 4096
+                                        # Send entire PCM packet as one chunk
+                                        MAX_CHUNK_SIZE = 32768
                                         for offset in range(
                                             0, len(pcm_data), MAX_CHUNK_SIZE
                                         ):
@@ -4951,9 +4950,8 @@ Your response (true or false):"""
                                     pcm_data = raw_buffer[4 : 4 + packet_size]
                                     raw_buffer = raw_buffer[4 + packet_size :]
 
-                                    # Break large audio chunks into smaller pieces for streaming
-                                    # ESP32 has limited buffer size, so send max 4KB at a time
-                                    MAX_CHUNK_SIZE = 4096
+                                    # Send entire PCM packet as one chunk
+                                    MAX_CHUNK_SIZE = 32768
                                     for offset in range(
                                         0, len(pcm_data), MAX_CHUNK_SIZE
                                     ):

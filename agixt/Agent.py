@@ -472,7 +472,9 @@ def check_and_onboard_agents(user_id: str) -> bool:
     This is a lightweight check designed to be called from /v1/user endpoint
     to ensure Core Abilities commands get enabled for new agents.
 
-    Uses flag agentonboarded01292026 to track onboarding state.
+    Uses flag agentonboarded04182026 to track onboarding state.
+    This flag also triggers cleanup of Custom Automation commands that were
+    incorrectly auto-enabled for all agents in previous versions.
 
     Returns True if any agents were onboarded, False otherwise.
     """
@@ -493,9 +495,9 @@ def check_and_onboard_agents(user_id: str) -> bool:
         agents_needing_onboard = []
         for agent in agents:
             settings_dict = {s.name: s.value for s in agent.settings}
-            agentonboarded01292026 = settings_dict.get("agentonboarded01292026")
+            agentonboarded04182026 = settings_dict.get("agentonboarded04182026")
 
-            if not agentonboarded01292026 or agentonboarded01292026.lower() != "true":
+            if not agentonboarded04182026 or agentonboarded04182026.lower() != "true":
                 agents_needing_onboard.append(agent.id)
 
         if agents_needing_onboard:
@@ -1847,8 +1849,9 @@ def get_agents(user=DEFAULT_USER, company=None):
         # Use pre-loaded settings instead of separate query
         settings_dict = {s.name: s.value for s in agent.settings}
         company_id = settings_dict.get("company_id")
-        # Check for the new onboarding flag (01292026) that handles newly moved Core Abilities extensions
-        agentonboarded01292026 = settings_dict.get("agentonboarded01292026")
+        # Check for the onboarding flag (04182026) that excludes Custom Automation
+        # from auto-enabling and cleans up incorrectly auto-enabled chain commands
+        agentonboarded04182026 = settings_dict.get("agentonboarded04182026")
 
         if company_id and company:
             if company_id != company:
@@ -1860,7 +1863,7 @@ def get_agents(user=DEFAULT_USER, company=None):
             company_id = str(auth.company_id) if auth.company_id is not None else None
 
         # Queue agents needing onboarding instead of processing inline
-        if not agentonboarded01292026 or agentonboarded01292026.lower() != "true":
+        if not agentonboarded04182026 or agentonboarded04182026.lower() != "true":
             agents_needing_onboard.append(agent.id)
 
         is_owner = agent.user_id == user_id
@@ -1906,8 +1909,9 @@ def _batch_onboard_agents(session, agent_ids):
     Batch onboard multiple agents - enables Core Abilities commands.
     This is more efficient than processing one at a time.
 
-    Uses flag agentonboarded01292026 to track onboarding state for the latest
-    Core Abilities extensions (including Tickets, Assets, Machines, etc.).
+    Uses flag agentonboarded04182026 to track onboarding state.
+    Excludes Custom Automation (chain) commands from auto-enabling since those
+    are user-specific and should only be enabled explicitly per-agent.
     """
     if not agent_ids:
         return
@@ -1924,7 +1928,7 @@ def _batch_onboard_agents(session, agent_ids):
         for agent_id in agent_ids:
             agent_setting = AgentSettingModel(
                 agent_id=agent_id,
-                name="agentonboarded01292026",
+                name="agentonboarded04182026",
                 value="true",
             )
             session.add(agent_setting)
@@ -1932,10 +1936,15 @@ def _batch_onboard_agents(session, agent_ids):
         return
 
     # Get all Core Abilities commands in one query
+    # Exclude "Custom Automation" (chain commands) - those are user-specific
+    # and should not be auto-enabled for all agents during onboarding
     core_commands = (
         session.query(Command)
         .join(Extension)
-        .filter(Extension.category_id == core_abilities_category.id)
+        .filter(
+            Extension.category_id == core_abilities_category.id,
+            Extension.name != "Custom Automation",
+        )
         .all()
     )
 
@@ -1944,7 +1953,7 @@ def _batch_onboard_agents(session, agent_ids):
         for agent_id in agent_ids:
             agent_setting = AgentSettingModel(
                 agent_id=agent_id,
-                name="agentonboarded01292026",
+                name="agentonboarded04182026",
                 value="true",
             )
             session.add(agent_setting)
@@ -1972,17 +1981,19 @@ def _batch_onboard_agents(session, agent_ids):
         # Mark agent as onboarded with the new flag
         agent_setting = AgentSettingModel(
             agent_id=agent_id,
-            name="agentonboarded01292026",
+            name="agentonboarded04182026",
             value="true",
         )
         session.add(agent_setting)
 
-    # Enable any disabled commands
+    core_command_ids = {c.id for c in core_commands}
+
+    # Enable any disabled core commands (excluding Custom Automation)
     for ac in existing_agent_commands:
-        if ac.agent_id in agent_ids and not ac.state:
-            # Check if this is a core command
-            if ac.command_id in {c.id for c in core_commands}:
-                ac.state = True
+        if ac.agent_id not in agent_ids:
+            continue
+        if not ac.state and ac.command_id in core_command_ids:
+            ac.state = True
 
     session.commit()
 
