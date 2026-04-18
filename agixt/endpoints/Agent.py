@@ -743,11 +743,18 @@ async def toggle_extension_commands_v1(
     extensions = agent.get_agent_extensions()
 
     # Find the extension and get all its commands (case-insensitive lookup)
+    # Normalize underscores/hyphens to spaces so both 'essential_abilities' and
+    # 'Essential Abilities' match the title-cased registry name.
+    import re as _re
+
+    def _canonicalize(name: str) -> str:
+        return _re.sub(r"[\s_-]+", " ", name.strip().lower())
+
     extension_commands = []
     matched_extension_name = payload.extension_name
-    payload_name_lower = payload.extension_name.lower()
+    payload_canonical = _canonicalize(payload.extension_name)
     for extension in extensions:
-        if extension["extension_name"].lower() == payload_name_lower:
+        if _canonicalize(extension["extension_name"]) == payload_canonical:
             matched_extension_name = extension["extension_name"]
             for command in extension["commands"]:
                 extension_commands.append(command["friendly_name"])
