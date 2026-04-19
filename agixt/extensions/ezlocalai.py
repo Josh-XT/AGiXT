@@ -709,7 +709,7 @@ class ezlocalai(Extensions):
         with open(file_path, "wb") as f:
             f.write(content)
         if self.output_url:
-            return f"{self.output_url}/{os.path.basename(filename)}"
+            return f"{self.output_url}{os.path.basename(filename)}"
         return file_path
 
     async def _resolve_image_to_base64(self, image_input: str) -> str:

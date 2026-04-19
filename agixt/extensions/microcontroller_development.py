@@ -635,7 +635,7 @@ Format everything clearly with proper sections and include any important notes o
         # Save the circuit design to a file
         circuit_file = self._save_file(circuit_design, "circuit_design.txt")
         if circuit_file:
-            circuit_design += f"\n\n📥 [Download Circuit Design]({self.output_url}/circuit_design.txt)"
+            circuit_design += f"\n\n📥 [Download Circuit Design]({self.output_url}circuit_design.txt)"
 
         return circuit_design
 
@@ -855,7 +855,7 @@ Return ONLY the complete, fixed Arduino code in a code block."""
             response += f"⚠️ **Warning**: Code may have syntax issues. Please verify:\n```\n{final_status[:500]}\n```\n\n"
 
         if firmware_file:
-            response += f"📥 [Download Firmware]({self.output_url}/firmware.ino)\n"
+            response += f"📥 [Download Firmware]({self.output_url}firmware.ino)\n"
 
         return response
 
@@ -1089,7 +1089,7 @@ Make it clear and detailed enough for someone to follow without prior experience
             )
             if assembly_file:
                 results.append(
-                    f"\n📥 [Download Assembly Instructions]({self.output_url}/assembly_instructions.md)"
+                    f"\n📥 [Download Assembly Instructions]({self.output_url}assembly_instructions.md)"
                 )
 
             logging.info("3D printed parts creation completed successfully")
@@ -1209,7 +1209,7 @@ Make it professional and comprehensive enough for open-source release."""
         doc_file = self._save_file(documentation, "README.md")
 
         if doc_file:
-            documentation += f"\n\n📥 [Download README]({self.output_url}/README.md)"
+            documentation += f"\n\n📥 [Download README]({self.output_url}README.md)"
 
         return documentation
 
@@ -1563,22 +1563,22 @@ Remember to:
 
         if preview_path:
             response_parts.append(
-                f"### Preview\n![Model Preview]({self.output_url}/{os.path.basename(preview_path)})\n"
+                f"### Preview\n![Model Preview]({self.output_url}{os.path.basename(preview_path)})\n"
             )
 
         response_parts.append("### 📥 Downloads\n")
         response_parts.append(
-            f"- 📝 [OpenSCAD Source Code]({self.output_url}/{scad_filename})"
+            f"- 📝 [OpenSCAD Source Code]({self.output_url}{scad_filename})"
         )
 
         if stl_path:
             response_parts.append(
-                f"- 🖨️ [STL File for 3D Printing]({self.output_url}/{os.path.basename(stl_path)})"
+                f"- 🖨️ [STL File for 3D Printing]({self.output_url}{os.path.basename(stl_path)})"
             )
 
         if viewer_path:
             response_parts.append(
-                f"- 🎮 [Interactive 3D Viewer]({self.output_url}/{os.path.basename(viewer_path)})"
+                f"- 🎮 [Interactive 3D Viewer]({self.output_url}{os.path.basename(viewer_path)})"
             )
 
         response_parts.extend(

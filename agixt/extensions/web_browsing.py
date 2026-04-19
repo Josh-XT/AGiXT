@@ -2671,7 +2671,7 @@ What key information should be remembered from this content?"""
             await self.page.screenshot(path=before_screenshot_path, full_page=True)
             before_screenshot_name = os.path.basename(before_screenshot_path)
             if self.output_url:
-                before_screenshot_url = f"{self.output_url}/{before_screenshot_name}"
+                before_screenshot_url = f"{self.output_url}{before_screenshot_name}"
                 log_msg += f"\n![Screenshot]({before_screenshot_url})"
                 # Add screenshot link to the previous log message (optional, depends on API capabilities)
                 # self.ApiClient.append_to_last_message(f"\n![Before Screenshot]({before_screenshot_url})")
@@ -3505,9 +3505,7 @@ What key information should be remembered from this content?"""
                 await self.page.screenshot(path=after_screenshot_path, full_page=True)
                 after_screenshot_name = os.path.basename(after_screenshot_path)
                 if self.output_url:
-                    post_op_screenshot_url = (
-                        f"{self.output_url}/{after_screenshot_name}"
-                    )
+                    post_op_screenshot_url = f"{self.output_url}{after_screenshot_name}"
             except Exception as ss_error:
                 logging.error(f"Failed to take 'after' screenshot: {ss_error}")
 
@@ -3604,7 +3602,7 @@ Current Page Content Snippet (for context):
                 await self.page.screenshot(path=error_screenshot_path, full_page=True)
                 error_screenshot_name = os.path.basename(error_screenshot_path)
                 if self.output_url:
-                    error_screenshot_url = f"{self.output_url}/{error_screenshot_name}"
+                    error_screenshot_url = f"{self.output_url}{error_screenshot_name}"
             except Exception as ss_error:
                 logging.error(f"Failed to take 'error' screenshot: {ss_error}")
 
@@ -4754,7 +4752,7 @@ Previous error: {last_parse_error}
                         await self.page.screenshot(path=screenshot_path, full_page=True)
                         screenshot_name = os.path.basename(screenshot_path)
                         if self.output_url:
-                            screenshot_msg = f"\n\n![Error Screenshot]({self.output_url}/{screenshot_name})"
+                            screenshot_msg = f"\n\n![Error Screenshot]({self.output_url}{screenshot_name})"
                 except Exception as ss_error:
                     screenshot_msg = (
                         f"\n\n(Failed to take error screenshot: {ss_error})"
@@ -4788,7 +4786,7 @@ Previous error: {last_parse_error}
                         await self.page.screenshot(path=screenshot_path, full_page=True)
                         screenshot_name = os.path.basename(screenshot_path)
                         if self.output_url:
-                            screenshot_msg = f"\n\n![Error Screenshot]({self.output_url}/{screenshot_name})"
+                            screenshot_msg = f"\n\n![Error Screenshot]({self.output_url}{screenshot_name})"
                 except Exception as ss_error:
                     screenshot_msg = (
                         f"\n\n(Failed to take error screenshot: {ss_error})"
@@ -5151,7 +5149,7 @@ Previous error: {last_parse_error}
             )
             await self.page.screenshot(path=screenshot_path, full_page=True)
             file_name = os.path.basename(screenshot_path)
-            output_url = f"{self.output_url}/{file_name}" if self.output_url else None
+            output_url = f"{self.output_url}{file_name}" if self.output_url else None
 
             if not output_url:
                 # Fallback: Maybe encode image data if URL output isn't available? Requires agent support.

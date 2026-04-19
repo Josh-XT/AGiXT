@@ -412,7 +412,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
             logging.info(f"Successfully downloaded {filename} ({file_size_mb:.2f} MB)")
 
-            return f"Successfully downloaded file to workspace: {filename} ({file_size_mb:.2f} MB)\n\nDownload link: {self.output_url}/{filename}"
+            return f"Successfully downloaded file to workspace: {filename} ({file_size_mb:.2f} MB)\n\nDownload link: {self.output_url}{filename}"
 
         except requests.exceptions.Timeout:
             return f"Error: Request timed out while trying to download from {url}"

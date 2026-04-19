@@ -868,7 +868,7 @@ class Interactions:
         )
         conversation_id = c.get_conversation_id()
         conversation_outputs = (
-            f"http://localhost:7437/outputs/{self.agent.agent_id}/{conversation_id}"
+            f"http://localhost:7437/outputs/{self.agent.agent_id}/{conversation_id}/"
         )
         context = []
         if int(top_results) > 0:
@@ -2726,15 +2726,13 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                         "- Do NOT search if enough context is available to answer directly.\n\n"
                         "Respond ONLY with Yes or No."
                     )
-                    to_search_or_not_to_search = (
-                        await _ability_selection_inference(
-                            server_url=ability_selection_server,
-                            model=getenv(
-                                "ABILITY_SELECTION_MODEL",
-                                "unsloth/Qwen3.5-0.8B-GGUF",
-                            ),
-                            prompt=websearch_decision_prompt,
-                        )
+                    to_search_or_not_to_search = await _ability_selection_inference(
+                        server_url=ability_selection_server,
+                        model=getenv(
+                            "ABILITY_SELECTION_MODEL",
+                            "unsloth/Qwen3.5-0.8B-GGUF",
+                        ),
+                        prompt=websearch_decision_prompt,
                     )
                 else:
                     to_search_or_not_to_search = await self.run(
