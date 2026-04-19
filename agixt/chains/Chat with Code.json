@@ -6,8 +6,8 @@
       "agent_name": "Claude",
       "prompt_type": "Command",
       "prompt": {
-        "command_name": "Get Github Repository Code Contents",
-        "repo_url": "{repo_url}",
+        "command_name": "Execute Shell Command",
+        "command": "gh repo clone {repo_url} /tmp/repo && find /tmp/repo -type f -name '*.py' -o -name '*.js' -o -name '*.ts' -o -name '*.jsx' -o -name '*.tsx' -o -name '*.json' -o -name '*.yml' -o -name '*.yaml' -o -name '*.md' -o -name '*.rs' -o -name '*.go' | head -200 | while read f; do echo \"===== $f =====\"; head -100 \"$f\"; done",
         "conversation": "AGiXT Terminal"
       }
     },
