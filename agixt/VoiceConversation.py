@@ -89,6 +89,9 @@ class VoiceConversationSession:
         # Client-side tools (registered by device like ESP32, robot SDK, etc.)
         self.client_tools: list = []
 
+        # Device identity/persona (set via tools.register identity field)
+        self._device_identity: str = ""
+
         # Tool result bridge: thinker waits here for client tool results
         self._pending_tool_results: Dict[str, asyncio.Future] = {}
         self._tool_result_lock = asyncio.Lock()
@@ -179,13 +182,28 @@ class VoiceConversationSession:
 
     # ─── Client Tool Registration & Bridging ────────────────────────────
 
-    def register_tools(self, tools: list):
-        """Register client-side tools (from ESP32, robot SDK, etc.)."""
+    def register_tools(self, tools: list, identity: str = ""):
+        """Register client-side tools (from ESP32, robot SDK, etc.).
+        
+        Args:
+            tools: List of tool definitions (OpenAI function-calling format)
+            identity: Optional identity/persona context that describes what the
+                      client device IS (e.g. "You ARE a robot dog"). Injected as
+                      an [ACTIVITY] message so the thinker picks it up.
+        """
         self.client_tools = tools
         tool_names = [t.get("function", {}).get("name", "?") for t in tools]
         logging.info(
             f"[VoiceConversation] Registered {len(tools)} client tools: {tool_names}"
         )
+
+        # Inject device identity as persistent context for the thinker
+        if identity:
+            self._device_identity = identity
+            self._log_activity(f"[IDENTITY] {identity}")
+            logging.info(
+                f"[VoiceConversation] Device identity set: {identity[:100]}..."
+            )
 
     async def request_tool_execution(
         self, tool_name: str, tool_args: dict, request_id: str
@@ -243,9 +261,18 @@ class VoiceConversationSession:
             return ""
 
         tool_descriptions = {
-            "capture_image": "taking a photo with the camera",
+            # ESP32 / IoT tools
+            "capture_image": "taking a photo with my camera",
             "send_ir": "sending an infrared signal",
             "get_ir_capabilities": "checking IR remote capabilities",
+            # Robot body tools
+            "robot_move": "moving my body to a new position",
+            "robot_action": "performing a physical action with my body",
+            "robot_set_body_euler": "adjusting my body orientation to look somewhere",
+            "robot_capture_image": "looking around with my camera eyes",
+            "robot_set_speed_level": "adjusting my movement speed",
+            "robot_set_volume": "adjusting my voice volume",
+            "robot_get_state": "checking how my body feels right now",
         }
         desc = tool_descriptions.get(tool_name, f"running {tool_name}")
 
@@ -561,9 +588,18 @@ INTENT:"""
             image_b64 = await self._get_latest_image()
             message_content = self._build_multimodal_content(user_text, image_b64)
 
+            # Build messages with optional device identity context
+            messages = []
+            if self._device_identity:
+                messages.append({
+                    "role": "system",
+                    "content": self._device_identity,
+                })
+            messages.append({"role": "user", "content": message_content})
+
             prompt = ChatCompletions(
                 model=self.agent_name,
-                messages=[{"role": "user", "content": message_content}],
+                messages=messages,
                 user=self.conversation_id,
                 tts_mode="off",
                 tools=self.client_tools if self.client_tools else None,

@@ -265,7 +265,8 @@ async def voice_conversation(
 
                 elif msg_type == "tools.register":
                     tools = msg.get("tools", [])
-                    session.register_tools(tools)
+                    identity = msg.get("identity", "")
+                    session.register_tools(tools, identity=identity)
                     await websocket.send_text(
                         json.dumps(
                             {
