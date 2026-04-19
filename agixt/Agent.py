@@ -4278,9 +4278,13 @@ class Agent:
                             )
                     agent_commands += "</execute>\n"
 
-            # Gather extension context from extensions that provide it
+            # Gather extension context from ALL active extensions, not just
+            # the selected ones. Extension context (e.g. machine hostnames, connected
+            # accounts, device lists) helps the agent understand the user's environment
+            # even if the ability selection phase didn't pick commands from that extension.
+            # Without this, a missed selection cascades into missing context too.
             extension_context = self._get_extension_contexts(
-                agent_extensions, command_list, selected_commands
+                agent_extensions, command_list
             )
             if extension_context:
                 agent_commands += extension_context

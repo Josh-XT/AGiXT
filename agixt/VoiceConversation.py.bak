@@ -1,0 +1,926 @@
+import os
+import re
+import json
+import time
+import uuid
+import struct
+import asyncio
+import logging
+import tempfile
+import httpx
+import requests
+from enum import Enum
+from functools import partial
+from typing import Optional, Dict, Any
+from datetime import datetime
+from Globals import getenv
+from Interactions import _ability_selection_inference
+from Conversations import (
+    Conversations,
+    get_conversation_id_by_name,
+)
+
+
+class VoiceState(str, Enum):
+    LISTENING = "listening"
+    ACKNOWLEDGING = "acknowledging"
+    WORKING = "working"
+    NARRATING = "narrating"
+    ANSWERING = "answering"
+    WAITING_TOOL = "waiting_tool"
+    IDLE = "idle"
+
+
+class VoiceConversationSession:
+    """
+    Real-time voice conversation session with dual-model architecture.
+
+    Speaker (0.8B): Fast acknowledgments, filler speech, progress narration
+    Thinker (35B): Full AGiXT pipeline for actual processing
+
+    Audio flows:
+    - Client -> WebSocket -> STT (voice server) -> text
+    - Speaker text -> TTS (voice server) -> WebSocket -> Client
+    - Thinker text -> TTS (voice server) -> WebSocket -> Client
+    """
+
+    def __init__(
+        self,
+        agent_name: str,
+        user: str,
+        authorization: str,
+        conversation_id: str,
+        agent=None,
+        ApiClient=None,
+    ):
+        self.agent_name = agent_name
+        self.user = user
+        self.authorization = authorization
+        self.conversation_id = conversation_id
+        self.agent = agent
+        self.ApiClient = ApiClient
+
+        # State machine
+        self.state = VoiceState.IDLE
+        self._state_lock = asyncio.Lock()
+
+        # Server configuration
+        self.voice_server = getenv("VOICE_SERVER")
+        self.ability_server = getenv("ABILITY_SELECTION_SERVER")
+        self.ability_model = getenv("ABILITY_SELECTION_MODEL")
+
+        # Cancellation
+        self._speaker_task: Optional[asyncio.Task] = None
+        self._thinker_task: Optional[asyncio.Task] = None
+        self._cancelled = False
+
+        # WebSocket reference (set by endpoint)
+        self.websocket = None
+
+        # Progress bridge state
+        self._last_progress_time = 0
+        self._progress_debounce = 5.0  # seconds between progress updates
+
+        # Audio config
+        self.tts_voice = "default"
+        self.tts_language = "en"
+
+        # Keepalive
+        self._keepalive_task: Optional[asyncio.Task] = None
+        self._last_activity = time.time()
+        self._keepalive_interval = 8.0
+
+        # Client-side tools (registered by device)
+        self.client_tools: list = []
+
+        # Tool result bridge: thinker waits here for client tool results
+        self._pending_tool_results: Dict[str, asyncio.Future] = {}
+        self._tool_result_lock = asyncio.Lock()
+
+    async def set_state(self, new_state: VoiceState):
+        async with self._state_lock:
+            old_state = self.state
+            self.state = new_state
+            if old_state != new_state:
+                logging.info(
+                    f"[VoiceConversation] State: {old_state.value} -> {new_state.value}"
+                )
+                await self._send_event(
+                    "status",
+                    {"state": new_state.value, "previous": old_state.value},
+                )
+
+    async def _send_event(self, event_type: str, data: dict):
+        if self.websocket and not self._cancelled:
+            try:
+                await self.websocket.send_text(
+                    json.dumps({"type": event_type, "data": data})
+                )
+                self._last_activity = time.time()
+            except Exception as e:
+                logging.debug(f"[VoiceConversation] Send failed: {e}")
+
+    async def _send_audio_chunk(self, chunk: bytes):
+        if self.websocket and not self._cancelled:
+            try:
+                await self.websocket.send_bytes(chunk)
+                self._last_activity = time.time()
+            except Exception as e:
+                logging.debug(f"[VoiceConversation] Audio send failed: {e}")
+
+    # ─── STT via Voice Server ───────────────────────────────────────────
+
+    def register_tools(self, tools: list):
+        """Register client-side tools (from ESP32 or other IoT device)."""
+        self.client_tools = tools
+        logging.info(
+            f"[VoiceConversation] Registered {len(tools)} client tools: "
+            f"{[t.get('function', {}).get('name', '?') for t in tools]}"
+        )
+
+    async def request_tool_execution(
+        self, tool_name: str, tool_args: dict, request_id: str
+    ) -> str:
+        """Send tool request to client and wait for result."""
+        future = asyncio.get_event_loop().create_future()
+        async with self._tool_result_lock:
+            self._pending_tool_results[request_id] = future
+
+        await self.set_state(VoiceState.WAITING_TOOL)
+        await self._send_event(
+            "tool.request",
+            {
+                "request_id": request_id,
+                "tool_name": tool_name,
+                "tool_args": tool_args,
+            },
+        )
+
+        # Narrate while waiting for tool
+        narration = await self._generate_tool_narration(tool_name)
+        if narration:
+            await self._send_event(
+                "transcript.agent", {"text": narration, "role": "speaker"}
+            )
+            await self.speak(narration)
+
+        try:
+            result = await asyncio.wait_for(future, timeout=30.0)
+            return result
+        except asyncio.TimeoutError:
+            logging.warning(f"[VoiceConversation] Tool {tool_name} timed out after 30s")
+            async with self._tool_result_lock:
+                self._pending_tool_results.pop(request_id, None)
+            return f"Error: Tool {tool_name} timed out"
+
+    async def receive_tool_result(self, request_id: str, result: str):
+        """Called when client sends tool result back."""
+        async with self._tool_result_lock:
+            future = self._pending_tool_results.pop(request_id, None)
+        if future and not future.done():
+            future.set_result(result)
+            logging.info(
+                f"[VoiceConversation] Tool result received for {request_id}: "
+                f"{result[:100]}"
+            )
+        else:
+            logging.warning(
+                f"[VoiceConversation] No pending future for tool result {request_id}"
+            )
+
+    async def _generate_tool_narration(self, tool_name: str) -> str:
+        """Generate brief narration about what tool we're using."""
+        if not self.ability_server:
+            return ""
+
+        tool_descriptions = {
+            "capture_image": "taking a photo with the camera",
+            "send_ir": "sending an infrared signal",
+            "get_ir_capabilities": "checking IR remote capabilities",
+        }
+        desc = tool_descriptions.get(tool_name, f"running {tool_name}")
+
+        prompt = f"""You are a voice assistant narrating your current action. You are: {desc}
+
+Generate a very brief spoken phrase (under 10 words) about what you're doing. Keep it casual and conversational. Just one short phrase.
+
+Your narration:"""
+
+        response = await _ability_selection_inference(
+            self.ability_server, self.ability_model, prompt
+        )
+        if response:
+            return response.strip("\"'")
+        return ""
+
+    # ─── End-of-Interaction Detection ───────────────────────────────────
+
+    async def detect_end_of_interaction(self, user_text: str) -> bool:
+        """Use 0.8B to detect if user is ending the conversation."""
+        if not self.ability_server:
+            return False
+
+        prompt = f"""Classify if the user is ending the conversation or wants to keep talking.
+
+User said: "{user_text}"
+
+Reply with exactly one word: END or CONTINUE
+
+- END examples: "goodbye", "thanks that's all", "bye", "I'm done", "that's it", "see you later", "thanks bye", "ok bye"  
+- CONTINUE examples: "what about...", "can you also...", "one more thing", "and then...", any question, any request
+
+Your classification:"""
+
+        response = await _ability_selection_inference(
+            self.ability_server, self.ability_model, prompt
+        )
+        response = response.strip().upper()
+        is_end = "END" in response and "CONTINUE" not in response
+        if is_end:
+            logging.info(
+                f"[VoiceConversation] End-of-interaction detected: '{user_text}'"
+            )
+        return is_end
+
+    async def _generate_goodbye(self, user_text: str) -> str:
+        """Use 0.8B to generate a brief goodbye message."""
+        if not self.ability_server:
+            return "Goodbye! Talk to you later."
+
+        prompt = f"""The user is ending the conversation. Generate a brief, warm goodbye response (1 sentence max).
+
+User said: "{user_text}"
+
+Your goodbye response:"""
+
+        response = await _ability_selection_inference(
+            self.ability_server, self.ability_model, prompt
+        )
+        response = response.strip().strip('"')
+        if not response or len(response) > 200:
+            return "Goodbye! Talk to you later."
+        return response
+
+    async def transcribe(self, audio_data: bytes) -> str:
+        """Send audio to voice server for STT transcription."""
+        if not self.voice_server:
+            logging.error("[VoiceConversation] No VOICE_SERVER configured")
+            return ""
+
+        api_url = self.voice_server.rstrip("/") + "/v1/audio/transcriptions"
+        api_key = getenv("EZLOCALAI_API_KEY", "none") or "none"
+
+        # Write audio to temp file
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(audio_data)
+            temp_path = f.name
+
+        try:
+            loop = asyncio.get_event_loop()
+            resp = await loop.run_in_executor(
+                None,
+                partial(
+                    requests.post,
+                    api_url,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    files={"file": open(temp_path, "rb")},
+                    data={"model": "base"},
+                    timeout=30,
+                ),
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            return result.get("text", "").strip()
+        except Exception as e:
+            logging.error(f"[VoiceConversation] STT error: {e}")
+            return ""
+        finally:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+    # ─── TTS via Voice Server ───────────────────────────────────────────
+
+    async def speak(self, text: str):
+        """Stream TTS audio to client via voice server."""
+        if not text or not self.voice_server or self._cancelled:
+            return
+
+        # Clean text for TTS
+        text = self._clean_for_tts(text)
+        if not text:
+            return
+
+        api_url = self.voice_server.rstrip("/") + "/v1/audio/speech/stream"
+        api_key = getenv("EZLOCALAI_API_KEY", "none") or "none"
+
+        payload = {
+            "model": "tts-1",
+            "voice": self.tts_voice,
+            "input": text,
+            "language": self.tts_language,
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                async with client.stream(
+                    "POST", api_url, headers=headers, json=payload
+                ) as response:
+                    response.raise_for_status()
+                    first_chunk = True
+                    async for chunk in response.aiter_bytes(chunk_size=4096):
+                        if self._cancelled:
+                            break
+                        if first_chunk:
+                            # First chunk contains PCM header (8 bytes)
+                            await self._send_event(
+                                "audio.header",
+                                {
+                                    "format": "pcm",
+                                    "sample_rate": 24000,
+                                    "bits_per_sample": 16,
+                                    "channels": 1,
+                                },
+                            )
+                            first_chunk = False
+                        await self._send_audio_chunk(chunk)
+
+            if not self._cancelled:
+                await self._send_event("audio.end", {})
+        except httpx.HTTPStatusError as e:
+            logging.error(f"[VoiceConversation] TTS stream HTTP error: {e}")
+        except Exception as e:
+            logging.error(f"[VoiceConversation] TTS stream error: {e}")
+
+    async def speak_nonstreaming(self, text: str):
+        """Non-streaming TTS for short utterances (acks, filler)."""
+        if not text or not self.voice_server or self._cancelled:
+            return
+
+        text = self._clean_for_tts(text)
+        if not text:
+            return
+
+        api_url = self.voice_server.rstrip("/") + "/v1/audio/speech"
+        api_key = getenv("EZLOCALAI_API_KEY", "none") or "none"
+
+        payload = {
+            "model": "tts-1",
+            "voice": self.tts_voice,
+            "input": text,
+            "language": self.tts_language,
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            loop = asyncio.get_event_loop()
+            resp = await loop.run_in_executor(
+                None,
+                partial(
+                    requests.post,
+                    api_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=30,
+                ),
+            )
+            resp.raise_for_status()
+            import base64
+
+            audio_b64 = base64.b64encode(resp.content).decode("utf-8")
+            await self._send_event(
+                "audio.header",
+                {
+                    "format": "wav",
+                    "sample_rate": 24000,
+                    "bits_per_sample": 16,
+                    "channels": 1,
+                },
+            )
+            await self._send_audio_chunk(resp.content)
+            await self._send_event("audio.end", {})
+        except Exception as e:
+            logging.error(f"[VoiceConversation] TTS non-stream error: {e}")
+
+    def _clean_for_tts(self, text: str) -> str:
+        """Clean text for TTS - remove code blocks, URLs, XML tags."""
+        if "```" in text:
+            text = re.sub(
+                r"```[^`]*```",
+                "See the chat for the code.",
+                text,
+                flags=re.DOTALL,
+            )
+        text = re.sub(r"https?://[^\s<>]+", "", text)
+        text = re.sub(
+            r"</?(?:thinking|reflection|answer|execute|output|step|reward|count|speak)[^>]*>",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(r"\*+", "", text)
+        text = re.sub(r"#+\s*", "", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    # ─── Speaker (0.8B) ────────────────────────────────────────────────
+
+    async def generate_acknowledgment(self, user_text: str) -> str:
+        """Use 0.8B to generate a quick contextual acknowledgment."""
+        if not self.ability_server:
+            return "Got it, let me think about that."
+
+        prompt = f"""You are a voice assistant having a real-time conversation. The user just said:
+
+"{user_text}"
+
+Generate a brief, natural acknowledgment (1-2 sentences max) that shows you understood what they want. Be conversational and warm. Don't answer the question - just acknowledge it and say you're working on it. Examples of good acknowledgments:
+- "Sure, let me look into that for you."
+- "Great question! Give me a moment to work that out."
+- "Absolutely, I'm on it."
+
+Your acknowledgment:"""
+
+        response = await _ability_selection_inference(
+            self.ability_server, self.ability_model, prompt
+        )
+        if response:
+            # Remove any quotes wrapping the response
+            response = response.strip("\"'")
+            return response
+        return "Got it, let me work on that."
+
+    async def generate_progress_narration(self, activity: str) -> str:
+        """Use 0.8B to narrate what the thinker is doing."""
+        if not self.ability_server:
+            return ""
+
+        now = time.time()
+        if now - self._last_progress_time < self._progress_debounce:
+            return ""
+        self._last_progress_time = now
+
+        prompt = f"""You are narrating what an AI assistant is doing in real-time during a voice conversation. The current activity is:
+
+"{activity}"
+
+Generate a very brief progress update (1 short sentence) that sounds natural when spoken aloud. Be casual. Examples:
+- "Still working on it..."
+- "I'm searching through the results now."
+- "Almost there, just putting the pieces together."
+
+Your narration:"""
+
+        response = await _ability_selection_inference(
+            self.ability_server, self.ability_model, prompt
+        )
+        if response:
+            return response.strip("\"'")
+        return ""
+
+    async def generate_silence_filler(self) -> str:
+        """Generate a brief filler when there's extended silence during thinking."""
+        if not self.ability_server:
+            return ""
+
+        prompt = """You are a voice assistant and you've been thinking for a while. Generate a very brief filler phrase to let the user know you're still working. Just one short phrase.
+
+Examples: "Hmm, let me think...", "Bear with me a moment...", "Still working on this..."
+
+Your filler:"""
+
+        response = await _ability_selection_inference(
+            self.ability_server, self.ability_model, prompt
+        )
+        if response:
+            return response.strip("\"'")
+        return ""
+
+    # ─── Thinker (35B via AGiXT pipeline) ──────────────────────────────
+
+    async def run_thinker(self, user_text: str) -> str:
+        """Run the full AGiXT pipeline and collect the response.
+
+        Handles tool calls by bridging them through the WebSocket to the client
+        device (ESP32). The thinker will pause, client executes the tool,
+        sends result back, and thinker continues.
+        """
+        from XT import AGiXT
+        from Models import ChatCompletions
+
+        try:
+            agixt = AGiXT(
+                user=self.user,
+                agent_name=self.agent_name,
+                api_key=self.authorization,
+                conversation_name=self.conversation_id,
+            )
+
+            prompt = ChatCompletions(
+                model=self.agent_name,
+                messages=[{"role": "user", "content": user_text}],
+                user=self.conversation_id,
+                tts_mode="off",  # We handle TTS ourselves
+                tools=self.client_tools if self.client_tools else None,
+            )
+
+            full_response = ""
+            pending_tool_calls = []
+
+            async for chunk_str in agixt._execute_chat_completions_stream(prompt):
+                if self._cancelled:
+                    break
+                # Parse SSE lines - each yield may contain multiple lines
+                # including padding comments like ": spaces..."
+                for line in chunk_str.split("\n"):
+                    line = line.strip()
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk_data = json.loads(data_str)
+                        obj_type = chunk_data.get("object", "")
+
+                        # Handle remote command requests (tool calls to client)
+                        if obj_type == "remote_command.request":
+                            tool_name = chunk_data.get("tool_name", "")
+                            tool_args = chunk_data.get("tool_args", {})
+                            request_id = chunk_data.get(
+                                "request_id", f"call_{uuid.uuid4().hex[:8]}"
+                            )
+                            if tool_name:
+                                pending_tool_calls.append(
+                                    {
+                                        "tool_name": tool_name,
+                                        "tool_args": tool_args,
+                                        "request_id": request_id,
+                                    }
+                                )
+                            continue
+
+                        # Regular content chunk
+                        content = (
+                            chunk_data.get("choices", [{}])[0]
+                            .get("delta", {})
+                            .get("content", "")
+                        )
+                        if content:
+                            full_response += content
+                    except (json.JSONDecodeError, IndexError, KeyError):
+                        pass
+
+            # Execute any pending tool calls through the client
+            if pending_tool_calls and not self._cancelled:
+                for tool_call in pending_tool_calls:
+                    if self._cancelled:
+                        break
+                    tool_result = await self.request_tool_execution(
+                        tool_name=tool_call["tool_name"],
+                        tool_args=tool_call["tool_args"],
+                        request_id=tool_call["request_id"],
+                    )
+                    # Submit result back to AGiXT and get continuation
+                    await self.set_state(VoiceState.WORKING)
+                    continuation = await self._continue_after_tool(
+                        agixt, tool_call, tool_result
+                    )
+                    if continuation:
+                        full_response = continuation  # Replace with post-tool response
+
+            logging.info(
+                f"[VoiceConversation] Thinker response: {len(full_response)} chars"
+            )
+            return full_response
+        except Exception as e:
+            logging.error(f"[VoiceConversation] Thinker error: {e}", exc_info=True)
+            return f"I'm sorry, I ran into an issue processing that."
+
+    async def _continue_after_tool(
+        self, agixt, tool_call: dict, tool_result: str
+    ) -> str:
+        """After a tool executes, submit result and get the LLM's follow-up."""
+        from Models import ChatCompletions
+
+        try:
+            # Build tool result message in chat completions format
+            messages = [
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": tool_call["request_id"],
+                            "type": "function",
+                            "function": {
+                                "name": tool_call["tool_name"],
+                                "arguments": json.dumps(tool_call["tool_args"]),
+                            },
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call["request_id"],
+                    "content": tool_result,
+                },
+            ]
+
+            prompt = ChatCompletions(
+                model=self.agent_name,
+                messages=messages,
+                user=self.conversation_id,
+                tts_mode="off",
+            )
+
+            full_response = ""
+            async for chunk_str in agixt._execute_chat_completions_stream(prompt):
+                if self._cancelled:
+                    break
+                for line_str in chunk_str.split("\n"):
+                    line_str = line_str.strip()
+                    if not line_str.startswith("data: "):
+                        continue
+                    data_str = line_str[6:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk_data = json.loads(data_str)
+                        content = (
+                            chunk_data.get("choices", [{}])[0]
+                            .get("delta", {})
+                            .get("content", "")
+                        )
+                        if content:
+                            full_response += content
+                    except (json.JSONDecodeError, IndexError, KeyError):
+                        pass
+
+            return full_response
+        except Exception as e:
+            logging.error(
+                f"[VoiceConversation] Tool continuation error: {e}", exc_info=True
+            )
+            return ""
+
+    # ─── Main Conversation Loop ────────────────────────────────────────
+
+    async def handle_user_audio(self, audio_data: bytes):
+        """
+        Main entry point when user sends audio.
+
+        Pipeline:
+        1. STT -> user text
+        2. Check for end-of-interaction (goodbye detection)
+        3. Speaker: quick acknowledgment (parallel with thinker start)
+        4. Thinker: full AGiXT processing (with tool call bridging)
+        5. Progress narration during thinking
+        6. Final answer TTS
+        """
+        # Cancel any ongoing speaker audio
+        await self.cancel_speaker()
+
+        # 1. Transcribe
+        await self.set_state(VoiceState.LISTENING)
+        user_text = await self.transcribe(audio_data)
+
+        if not user_text:
+            await self._send_event(
+                "transcript.user", {"text": "", "error": "Could not transcribe audio"}
+            )
+            await self.set_state(VoiceState.IDLE)
+            return
+
+        await self._send_event("transcript.user", {"text": user_text})
+        logging.info(f"[VoiceConversation] User said: {user_text}")
+
+        # 2. Check for end-of-interaction
+        is_ending = await self.detect_end_of_interaction(user_text)
+        if is_ending:
+            # Say goodbye and signal session end
+            goodbye = await self._generate_goodbye(user_text)
+            await self._send_event(
+                "transcript.agent", {"text": goodbye, "role": "speaker"}
+            )
+            await self.speak(goodbye)
+            await self._send_event("session.end", {"reason": "user_goodbye"})
+            await self.set_state(VoiceState.IDLE)
+            return
+
+        # 3. Acknowledge + Start thinking in parallel
+        await self.set_state(VoiceState.ACKNOWLEDGING)
+
+        # Start thinker in background
+        thinker_result_future = asyncio.ensure_future(
+            self._run_thinker_with_progress(user_text)
+        )
+
+        # Generate and speak acknowledgment
+        ack_text = await self.generate_acknowledgment(user_text)
+        await self._send_event(
+            "transcript.agent", {"text": ack_text, "role": "speaker"}
+        )
+        await self.speak(ack_text)
+
+        # 4. Wait for thinker while providing progress narration
+        await self.set_state(VoiceState.WORKING)
+        thinker_response = await thinker_result_future
+
+        if self._cancelled:
+            return
+
+        # 5. Speak the final answer
+        if thinker_response:
+            await self.set_state(VoiceState.ANSWERING)
+            await self._send_event(
+                "transcript.agent",
+                {"text": thinker_response, "role": "thinker"},
+            )
+            await self._speak_in_sentences(thinker_response)
+
+        await self.set_state(VoiceState.IDLE)
+
+    async def handle_user_text(self, text: str):
+        """Handle text input (typed) - same pipeline but skip STT."""
+        await self.cancel_speaker()
+        await self._send_event("transcript.user", {"text": text})
+
+        # Check for end-of-interaction
+        is_ending = await self.detect_end_of_interaction(text)
+        if is_ending:
+            goodbye = await self._generate_goodbye(text)
+            await self._send_event(
+                "transcript.agent", {"text": goodbye, "role": "speaker"}
+            )
+            await self.speak(goodbye)
+            await self._send_event("session.end", {"reason": "user_goodbye"})
+            await self.set_state(VoiceState.IDLE)
+            return
+
+        await self.set_state(VoiceState.ACKNOWLEDGING)
+
+        thinker_result_future = asyncio.ensure_future(
+            self._run_thinker_with_progress(text)
+        )
+
+        ack_text = await self.generate_acknowledgment(text)
+        await self._send_event(
+            "transcript.agent", {"text": ack_text, "role": "speaker"}
+        )
+        await self.speak(ack_text)
+
+        await self.set_state(VoiceState.WORKING)
+        thinker_response = await thinker_result_future
+
+        if self._cancelled:
+            return
+
+        if thinker_response:
+            await self.set_state(VoiceState.ANSWERING)
+            await self._send_event(
+                "transcript.agent",
+                {"text": thinker_response, "role": "thinker"},
+            )
+            await self._speak_in_sentences(thinker_response)
+
+        await self.set_state(VoiceState.IDLE)
+
+    async def _run_thinker_with_progress(self, user_text: str) -> str:
+        """Run thinker with periodic progress narration."""
+        thinker_done = asyncio.Event()
+        thinker_result = {"response": ""}
+
+        async def _thinker():
+            try:
+                thinker_result["response"] = await self.run_thinker(user_text)
+            finally:
+                thinker_done.set()
+
+        async def _progress_narrator():
+            """Periodically narrate progress while thinker is working."""
+            await asyncio.sleep(8.0)  # Wait before first progress update
+            while not thinker_done.is_set() and not self._cancelled:
+                if self.state == VoiceState.WORKING:
+                    filler = await self.generate_silence_filler()
+                    if filler:
+                        await self.set_state(VoiceState.NARRATING)
+                        await self._send_event(
+                            "transcript.agent",
+                            {"text": filler, "role": "speaker"},
+                        )
+                        await self.speak(filler)
+                        await self.set_state(VoiceState.WORKING)
+                try:
+                    await asyncio.wait_for(
+                        thinker_done.wait(),
+                        timeout=self._keepalive_interval + 2.0,
+                    )
+                    break
+                except asyncio.TimeoutError:
+                    continue
+
+        self._thinker_task = asyncio.ensure_future(_thinker())
+        narrator_task = asyncio.ensure_future(_progress_narrator())
+
+        await thinker_done.wait()
+        narrator_task.cancel()
+        try:
+            await narrator_task
+        except asyncio.CancelledError:
+            pass
+
+        return thinker_result["response"]
+
+    async def _speak_in_sentences(self, text: str):
+        """Stream TTS sentence-by-sentence for natural delivery."""
+        sentences = self._split_sentences(text)
+        for sentence in sentences:
+            if self._cancelled:
+                break
+            sentence = sentence.strip()
+            if sentence and len(sentence) > 1:
+                await self.speak(sentence)
+
+    def _split_sentences(self, text: str) -> list:
+        """Split text into sentences for progressive TTS."""
+        # Split on sentence boundaries
+        parts = re.split(r"(?<=[.!?])\s+", text)
+        # Merge very short fragments with next sentence
+        merged = []
+        buffer = ""
+        for part in parts:
+            buffer += (" " if buffer else "") + part
+            if len(buffer) > 20:
+                merged.append(buffer)
+                buffer = ""
+        if buffer:
+            merged.append(buffer)
+        return merged
+
+    # ─── Interruption Handling ──────────────────────────────────────────
+
+    async def cancel_speaker(self):
+        """Cancel ongoing speaker audio (barge-in). Thinker keeps running."""
+        if self._speaker_task and not self._speaker_task.done():
+            self._speaker_task.cancel()
+            try:
+                await self._speaker_task
+            except asyncio.CancelledError:
+                pass
+            self._speaker_task = None
+        # Signal client to stop playing audio
+        await self._send_event("audio.interrupt", {})
+
+    async def handle_interrupt(self):
+        """Handle user barge-in / interrupt."""
+        logging.info("[VoiceConversation] User interrupted")
+        await self.cancel_speaker()
+        # Don't cancel thinker - let it finish, we just stop speaking
+
+    # ─── Keepalive ──────────────────────────────────────────────────────
+
+    async def start_keepalive(self):
+        """Start sending keepalive pings to prevent timeout."""
+
+        async def _keepalive_loop():
+            while not self._cancelled:
+                await asyncio.sleep(self._keepalive_interval)
+                if self._cancelled:
+                    break
+                elapsed = time.time() - self._last_activity
+                if elapsed >= self._keepalive_interval:
+                    await self._send_event("heartbeat", {"ts": time.time()})
+
+        self._keepalive_task = asyncio.ensure_future(_keepalive_loop())
+
+    async def stop(self):
+        """Clean shutdown of the session."""
+        self._cancelled = True
+        if self._keepalive_task:
+            self._keepalive_task.cancel()
+            try:
+                await self._keepalive_task
+            except asyncio.CancelledError:
+                pass
+        if self._thinker_task and not self._thinker_task.done():
+            self._thinker_task.cancel()
+            try:
+                await self._thinker_task
+            except asyncio.CancelledError:
+                pass
+        if self._speaker_task and not self._speaker_task.done():
+            self._speaker_task.cancel()
+            try:
+                await self._speaker_task
+            except asyncio.CancelledError:
+                pass
+        logging.info("[VoiceConversation] Session stopped")
