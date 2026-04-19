@@ -1653,9 +1653,7 @@ class MagicalAuth:
                 return referrer
         except Exception:
             pass
-        logging.warning(
-            f"Blocked invalid referrer: {referrer} (allowed: {allowed})"
-        )
+        logging.warning(f"Blocked invalid referrer: {referrer} (allowed: {allowed})")
         return self.link
 
     @staticmethod

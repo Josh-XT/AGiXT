@@ -2,6 +2,10 @@ import logging
 import requests
 import json
 import asyncio
+import struct
+import uuid
+import binascii
+import hashlib
 from datetime import datetime
 from Extensions import Extensions
 from typing import Dict, List, Any, Optional
@@ -23,6 +27,10 @@ class find_my_devices(Extensions):
     - **Life360 (Tile devices & family tracking)**: Locate Tile devices and
       family circle members using the Life360 network.
       Uses the Life360 REST API directly.
+    - **Google Find My Device (Android phones, tablets & trackers)**: Locate
+      Android devices, play sounds, and list registered devices on Google's
+      Find My Device / Find Hub network.
+      Requires `gpsoauth` library (`pip install gpsoauth`).
 
     To set up Apple iCloud:
     1. Use your Apple ID email and an app-specific password.
@@ -35,6 +43,16 @@ class find_my_devices(Extensions):
     1. Create a Life360 account at https://www.life360.com/
     2. Use your Life360 email and password.
     3. Add Tile devices through the Life360 app to track them.
+
+    To set up Google Find My Device:
+    1. Clone GoogleFindMyTools: `git clone https://github.com/leonboe1/GoogleFindMyTools`
+    2. Install its requirements: `pip install -r requirements.txt`
+    3. Run `python main.py` and complete the Google Chrome authentication flow.
+    4. After authentication, open `Auth/secrets.json` from the GoogleFindMyTools
+       directory. Copy the values for `username`, `aas_token`, and `android_id`
+       into the corresponding AGiXT agent settings below.
+    5. Ensure Google Chrome is up to date on the machine used for initial auth.
+    6. Once authenticated, the extension operates headlessly without Chrome.
     """
 
     CATEGORY = "Smart Home & IoT"
@@ -46,16 +64,24 @@ class find_my_devices(Extensions):
         ICLOUD_APP_PASSWORD: str = "",
         LIFE360_EMAIL: str = "",
         LIFE360_PASSWORD: str = "",
+        GOOGLE_FINDMY_EMAIL: str = "",
+        GOOGLE_FINDMY_AAS_TOKEN: str = "",
+        GOOGLE_FINDMY_ANDROID_ID: str = "",
         **kwargs,
     ):
         self.icloud_username = ICLOUD_USERNAME
         self.icloud_app_password = ICLOUD_APP_PASSWORD
         self.life360_email = LIFE360_EMAIL
         self.life360_password = LIFE360_PASSWORD
+        self.google_findmy_email = GOOGLE_FINDMY_EMAIL
+        self.google_findmy_aas_token = GOOGLE_FINDMY_AAS_TOKEN
+        self.google_findmy_android_id = GOOGLE_FINDMY_ANDROID_ID
 
         self._icloud_api = None
         self._life360_token = None
         self._life360_base_url = "https://api.life360.com"
+        self._google_adm_token = None
+        self._google_device_cache = None
 
         self.commands = {
             "Find My - Locate Apple Devices": self.locate_apple_devices,
@@ -67,6 +93,9 @@ class find_my_devices(Extensions):
             "Find My - Get Life360 Circles": self.get_life360_circles,
             "Find My - Get Life360 Member Location": self.get_life360_member_location,
             "Find My - Get Life360 Places": self.get_life360_places,
+            "Find My - List Google Devices": self.list_google_devices,
+            "Find My - Locate Google Device": self.locate_google_device,
+            "Find My - Ring Google Device": self.ring_google_device,
         }
 
     # -------------------------------------------------------------------------
@@ -663,3 +692,511 @@ class find_my_devices(Extensions):
         if not found_circle and circle_name:
             return f"No Life360 circle found matching '{circle_name}'. Use 'Find My - Get Life360 Circles' to see available circles."
         return output
+
+    # -------------------------------------------------------------------------
+    # Google Find My Device (Android / Find Hub Network)
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _pb_encode_varint(value):
+        """Encode an integer as a protobuf varint."""
+        result = bytearray()
+        while value > 0x7F:
+            result.append((value & 0x7F) | 0x80)
+            value >>= 7
+        result.append(value & 0x7F)
+        return bytes(result)
+
+    @staticmethod
+    def _pb_decode_varint(data, offset):
+        """Decode a protobuf varint from data at the given offset."""
+        result = 0
+        shift = 0
+        while offset < len(data):
+            byte = data[offset]
+            result |= (byte & 0x7F) << shift
+            offset += 1
+            if not (byte & 0x80):
+                break
+            shift += 7
+        return result, offset
+
+    @staticmethod
+    def _pb_encode_field(field_number, wire_type, value):
+        """Encode a single protobuf field."""
+        tag = find_my_devices._pb_encode_varint((field_number << 3) | wire_type)
+        if wire_type == 0:  # Varint
+            return tag + find_my_devices._pb_encode_varint(value)
+        elif wire_type == 2:  # Length-delimited
+            if isinstance(value, str):
+                value = value.encode("utf-8")
+            return tag + find_my_devices._pb_encode_varint(len(value)) + value
+        elif wire_type == 5:  # 32-bit fixed
+            return tag + struct.pack("<i", value)
+        return tag
+
+    @staticmethod
+    def _pb_decode_fields(data):
+        """Decode all protobuf fields from binary data into a list of (field_number, wire_type, value) tuples."""
+        fields = []
+        offset = 0
+        while offset < len(data):
+            tag, offset = find_my_devices._pb_decode_varint(data, offset)
+            field_number = tag >> 3
+            wire_type = tag & 0x07
+            if wire_type == 0:  # Varint
+                value, offset = find_my_devices._pb_decode_varint(data, offset)
+            elif wire_type == 1:  # 64-bit
+                value = data[offset : offset + 8]
+                offset += 8
+            elif wire_type == 2:  # Length-delimited
+                length, offset = find_my_devices._pb_decode_varint(data, offset)
+                value = data[offset : offset + length]
+                offset += length
+            elif wire_type == 5:  # 32-bit
+                value = data[offset : offset + 4]
+                offset += 4
+            else:
+                break
+            fields.append((field_number, wire_type, value))
+        return fields
+
+    @staticmethod
+    def _pb_get_field(fields, field_number, wire_type=None):
+        """Get the first field matching the given field number."""
+        for fn, wt, val in fields:
+            if fn == field_number and (wire_type is None or wt == wire_type):
+                return val
+        return None
+
+    @staticmethod
+    def _pb_get_all_fields(fields, field_number, wire_type=None):
+        """Get all fields matching the given field number."""
+        return [
+            val
+            for fn, wt, val in fields
+            if fn == field_number and (wire_type is None or wt == wire_type)
+        ]
+
+    def _google_authenticate(self) -> bool:
+        """Authenticate with Google using gpsoauth and obtain an ADM-scoped OAuth token."""
+        if self._google_adm_token:
+            return True
+        try:
+            import gpsoauth
+
+            auth_response = gpsoauth.perform_oauth(
+                self.google_findmy_email,
+                self.google_findmy_aas_token,
+                self.google_findmy_android_id,
+                service="oauth2:https://www.googleapis.com/auth/android_device_manager",
+                app="com.google.android.apps.adm",
+                client_sig="38918a453d07199354f8b19af05ec6562ced5788",
+            )
+            token = auth_response.get("Auth")
+            if not token:
+                error = auth_response.get("Error", "Unknown error")
+                logging.error(f"Google ADM auth returned no token: {error}")
+                return False
+            self._google_adm_token = token
+            logging.info("Successfully authenticated with Google Find My Device.")
+            return True
+        except ImportError:
+            logging.error(
+                "gpsoauth is not installed. Install it with: pip install gpsoauth"
+            )
+            return False
+        except Exception as e:
+            logging.error(f"Failed to authenticate with Google: {e}")
+            self._google_adm_token = None
+            return False
+
+    def _google_nova_request(self, api_scope: str, payload_hex: str) -> Optional[bytes]:
+        """Make a request to Google's Nova API with the given protobuf payload."""
+        if not self._google_authenticate():
+            return None
+        try:
+            url = f"https://android.googleapis.com/nova/{api_scope}"
+            headers = {
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "Authorization": f"Bearer {self._google_adm_token}",
+                "Accept-Language": "en-US",
+                "User-Agent": "fmd/20006320; gzip",
+            }
+            payload = binascii.unhexlify(payload_hex)
+            response = requests.post(url, headers=headers, data=payload, timeout=30)
+            if response.status_code == 401:
+                self._google_adm_token = None
+                if not self._google_authenticate():
+                    return None
+                headers["Authorization"] = f"Bearer {self._google_adm_token}"
+                response = requests.post(url, headers=headers, data=payload, timeout=30)
+            if response.status_code == 200:
+                return response.content
+            else:
+                logging.error(
+                    f"Google Nova API error ({response.status_code}): {response.text[:500]}"
+                )
+                return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Google Nova API request failed: {e}")
+            return None
+
+    def _google_build_device_list_request(self) -> str:
+        """Build the protobuf hex payload for a device list request."""
+        request_uuid = str(uuid.uuid4())
+        # DevicesListRequestPayload: field 1 (type=SPOT_DEVICE=2), field 3 (id=UUID)
+        inner = self._pb_encode_field(1, 0, 2) + self._pb_encode_field(
+            3, 2, request_uuid
+        )
+        # DevicesListRequest: field 1 (deviceListRequestPayload)
+        outer = self._pb_encode_field(1, 2, inner)
+        return binascii.hexlify(outer).decode("utf-8")
+
+    def _google_parse_device_list(self, response_data: bytes) -> list:
+        """Parse a DevicesList protobuf response into a list of device dicts."""
+        devices = []
+        try:
+            top_fields = self._pb_decode_fields(response_data)
+            # DevicesList.deviceMetadata is field 2 (repeated)
+            device_blobs = self._pb_get_all_fields(top_fields, 2, wire_type=2)
+            for device_blob in device_blobs:
+                device_info = self._google_parse_device_metadata(device_blob)
+                if device_info:
+                    devices.append(device_info)
+        except Exception as e:
+            logging.error(f"Error parsing Google device list: {e}")
+        return devices
+
+    def _google_parse_device_metadata(self, data: bytes) -> Optional[dict]:
+        """Parse a DeviceMetadata protobuf blob into a device dict."""
+        try:
+            fields = self._pb_decode_fields(data)
+            # Field 5: userDefinedDeviceName (string)
+            name_bytes = self._pb_get_field(fields, 5, wire_type=2)
+            name = name_bytes.decode("utf-8") if name_bytes else "Unknown Device"
+            # Field 6: imageInformation
+            image_url = ""
+            image_blob = self._pb_get_field(fields, 6, wire_type=2)
+            if image_blob:
+                image_fields = self._pb_decode_fields(image_blob)
+                url_bytes = self._pb_get_field(image_fields, 1, wire_type=2)
+                if url_bytes:
+                    image_url = url_bytes.decode("utf-8")
+            # Field 1: identifierInformation
+            canonic_ids = []
+            device_type = "unknown"
+            id_blob = self._pb_get_field(fields, 1, wire_type=2)
+            if id_blob:
+                id_fields = self._pb_decode_fields(id_blob)
+                # Field 2: type (enum IdentifierInformationType)
+                id_type = self._pb_get_field(id_fields, 2, wire_type=0)
+                if id_type == 1:
+                    device_type = "android"
+                elif id_type == 2:
+                    device_type = "tracker"
+                # Field 3: canonicIds (for trackers)
+                cids_blob = self._pb_get_field(id_fields, 3, wire_type=2)
+                if cids_blob:
+                    cids_fields = self._pb_decode_fields(cids_blob)
+                    for cid_blob in self._pb_get_all_fields(
+                        cids_fields, 1, wire_type=2
+                    ):
+                        cid_fields = self._pb_decode_fields(cid_blob)
+                        cid_id = self._pb_get_field(cid_fields, 1, wire_type=2)
+                        if cid_id:
+                            canonic_ids.append(cid_id.decode("utf-8"))
+                # Field 1: phoneInformation (for Android devices)
+                phone_blob = self._pb_get_field(id_fields, 1, wire_type=2)
+                if phone_blob:
+                    phone_fields = self._pb_decode_fields(phone_blob)
+                    phone_cids_blob = self._pb_get_field(phone_fields, 2, wire_type=2)
+                    if phone_cids_blob:
+                        phone_cids_fields = self._pb_decode_fields(phone_cids_blob)
+                        for cid_blob in self._pb_get_all_fields(
+                            phone_cids_fields, 1, wire_type=2
+                        ):
+                            cid_fields = self._pb_decode_fields(cid_blob)
+                            cid_id = self._pb_get_field(cid_fields, 1, wire_type=2)
+                            if cid_id:
+                                cid_str = cid_id.decode("utf-8")
+                                if cid_str not in canonic_ids:
+                                    canonic_ids.append(cid_str)
+            # Field 4: DeviceInformation
+            device_type_name = ""
+            manufacturer = ""
+            model = ""
+            info_blob = self._pb_get_field(fields, 4, wire_type=2)
+            if info_blob:
+                info_fields = self._pb_decode_fields(info_blob)
+                # Field 1: deviceRegistration
+                reg_blob = self._pb_get_field(info_fields, 1, wire_type=2)
+                if reg_blob:
+                    reg_fields = self._pb_decode_fields(reg_blob)
+                    # Field 20: manufacturer
+                    mfr_bytes = self._pb_get_field(reg_fields, 20, wire_type=2)
+                    if mfr_bytes:
+                        manufacturer = mfr_bytes.decode("utf-8")
+                    # Field 34: model
+                    model_bytes = self._pb_get_field(reg_fields, 34, wire_type=2)
+                    if model_bytes:
+                        model = model_bytes.decode("utf-8")
+                    # Field 2: deviceTypeInformation
+                    dtype_blob = self._pb_get_field(reg_fields, 2, wire_type=2)
+                    if dtype_blob:
+                        dtype_fields = self._pb_decode_fields(dtype_blob)
+                        spot_type = self._pb_get_field(dtype_fields, 2, wire_type=0)
+                        spot_type_names = {
+                            1: "Beacon",
+                            2: "Headphones",
+                            3: "Keys",
+                            4: "Watch",
+                            5: "Wallet",
+                            7: "Bag",
+                            8: "Laptop",
+                            9: "Car",
+                            10: "Remote Control",
+                            11: "Badge",
+                            12: "Bike",
+                            13: "Camera",
+                            14: "Cat",
+                            15: "Charger",
+                            16: "Clothing",
+                            17: "Dog",
+                            18: "Notebook",
+                            19: "Passport",
+                            20: "Phone",
+                            21: "Speaker",
+                            22: "Tablet",
+                            23: "Toy",
+                            24: "Umbrella",
+                            25: "Stylus",
+                            26: "Earbuds",
+                        }
+                        if spot_type is not None:
+                            device_type_name = spot_type_names.get(
+                                spot_type, f"Type {spot_type}"
+                            )
+            return {
+                "name": name,
+                "device_type": device_type,
+                "device_type_name": device_type_name,
+                "manufacturer": manufacturer,
+                "model": model,
+                "canonic_ids": canonic_ids,
+                "image_url": image_url,
+            }
+        except Exception as e:
+            logging.error(f"Error parsing device metadata: {e}")
+            return None
+
+    def _google_find_device(self, device_name: str) -> Optional[dict]:
+        """Find a Google device by name (case-insensitive partial match)."""
+        if not self._google_device_cache:
+            hex_payload = self._google_build_device_list_request()
+            response = self._google_nova_request("nbe_list_devices", hex_payload)
+            if not response:
+                return None
+            self._google_device_cache = self._google_parse_device_list(response)
+        search = device_name.lower()
+        for device in self._google_device_cache:
+            if search in device["name"].lower():
+                return device
+        return None
+
+    def _google_build_ring_request(self, canonic_id: str) -> str:
+        """Build the protobuf hex payload for a ring/start-sound action request."""
+        request_uuid = str(uuid.uuid4())
+        client_uuid = str(uuid.uuid4())
+        # ExecuteActionScope (field 1)
+        canonic_id_msg = self._pb_encode_field(1, 2, canonic_id)
+        device_identifier = self._pb_encode_field(1, 2, canonic_id_msg)
+        scope = self._pb_encode_field(2, 0, 2) + self._pb_encode_field(
+            3, 2, device_identifier
+        )
+        # ExecuteActionType (field 2) - startSound (field 31)
+        sound_type = self._pb_encode_field(1, 0, 0)
+        action = self._pb_encode_field(31, 2, sound_type)
+        # ExecuteActionRequestMetadata (field 3)
+        gcm_id = self._pb_encode_field(1, 2, "")
+        metadata = (
+            self._pb_encode_field(1, 0, 2)
+            + self._pb_encode_field(2, 2, request_uuid)
+            + self._pb_encode_field(3, 2, client_uuid)
+            + self._pb_encode_field(4, 2, gcm_id)
+            + self._pb_encode_field(6, 0, 1)
+        )
+        # ExecuteActionRequest
+        request = (
+            self._pb_encode_field(1, 2, scope)
+            + self._pb_encode_field(2, 2, action)
+            + self._pb_encode_field(3, 2, metadata)
+        )
+        return binascii.hexlify(request).decode("utf-8")
+
+    def _google_build_locate_request(self, canonic_id: str, fcm_token: str = "") -> str:
+        """Build the protobuf hex payload for a locate action request."""
+        request_uuid = str(uuid.uuid4())
+        client_uuid = str(uuid.uuid4())
+        # ExecuteActionScope
+        canonic_id_msg = self._pb_encode_field(1, 2, canonic_id)
+        device_identifier = self._pb_encode_field(1, 2, canonic_id_msg)
+        scope = self._pb_encode_field(2, 0, 2) + self._pb_encode_field(
+            3, 2, device_identifier
+        )
+        # ExecuteActionType - locateTracker (field 30)
+        time_msg = self._pb_encode_field(1, 0, 1732120060)
+        locate_tracker = self._pb_encode_field(2, 2, time_msg) + self._pb_encode_field(
+            3, 0, 2
+        )  # FMDN_ALL_LOCATIONS
+        action = self._pb_encode_field(30, 2, locate_tracker)
+        # ExecuteActionRequestMetadata
+        gcm_id = self._pb_encode_field(1, 2, fcm_token)
+        metadata = (
+            self._pb_encode_field(1, 0, 2)
+            + self._pb_encode_field(2, 2, request_uuid)
+            + self._pb_encode_field(3, 2, client_uuid)
+            + self._pb_encode_field(4, 2, gcm_id)
+            + self._pb_encode_field(6, 0, 1)
+        )
+        # ExecuteActionRequest
+        request = (
+            self._pb_encode_field(1, 2, scope)
+            + self._pb_encode_field(2, 2, action)
+            + self._pb_encode_field(3, 2, metadata)
+        )
+        return binascii.hexlify(request).decode("utf-8")
+
+    async def list_google_devices(self) -> str:
+        """
+        List all devices registered on Google Find My Device / Find Hub network.
+        Returns device names, types, manufacturers, and model information for
+        all Android devices and trackers associated with the Google account.
+
+        Returns:
+            str: Markdown-formatted list of all Google Find My devices.
+        """
+        if not self.google_findmy_email or not self.google_findmy_aas_token:
+            return (
+                "Google Find My Device credentials not configured. "
+                "Please set GOOGLE_FINDMY_EMAIL, GOOGLE_FINDMY_AAS_TOKEN, and "
+                "GOOGLE_FINDMY_ANDROID_ID in the agent settings. "
+                "See the extension documentation for setup instructions using GoogleFindMyTools."
+            )
+
+        hex_payload = self._google_build_device_list_request()
+        response = self._google_nova_request("nbe_list_devices", hex_payload)
+        if not response:
+            return "Failed to retrieve Google devices. Please verify your credentials are correct and not expired."
+
+        devices = self._google_parse_device_list(response)
+        self._google_device_cache = devices
+
+        if not devices:
+            return "No devices found on this Google account's Find My Device network."
+
+        output = "## Google Find My Devices\n\n"
+        for idx, dev in enumerate(devices, start=1):
+            output += f"### {idx}. {dev['name']}\n"
+            type_label = dev["device_type"].capitalize()
+            if dev["device_type_name"]:
+                type_label += f" ({dev['device_type_name']})"
+            output += f"- **Type**: {type_label}\n"
+            if dev["manufacturer"]:
+                output += f"- **Manufacturer**: {dev['manufacturer']}\n"
+            if dev["model"]:
+                output += f"- **Model**: {dev['model']}\n"
+            if dev["canonic_ids"]:
+                output += f"- **Device ID**: {dev['canonic_ids'][0]}\n"
+            output += "\n"
+        return output
+
+    async def locate_google_device(self, device_name: str) -> str:
+        """
+        Request the location of a Google Find My Device. This sends a locate
+        request to the device through Google's Find Hub network.
+
+        Note: Full location decryption requires the device's end-to-end encryption
+        keys and an active FCM (Firebase Cloud Messaging) listener. This command
+        sends the locate request which will trigger the device to report its
+        location to Google's servers. The location can then be viewed in the
+        Google Find My Device app or web interface at https://www.google.com/android/find
+
+        Args:
+            device_name: The name (or partial name) of the Google device to locate.
+
+        Returns:
+            str: Confirmation that the locate request was sent or an error message.
+        """
+        if not self.google_findmy_email or not self.google_findmy_aas_token:
+            return (
+                "Google Find My Device credentials not configured. "
+                "Please set GOOGLE_FINDMY_EMAIL, GOOGLE_FINDMY_AAS_TOKEN, and "
+                "GOOGLE_FINDMY_ANDROID_ID in the agent settings."
+            )
+
+        device = self._google_find_device(device_name)
+        if not device:
+            return (
+                f"Could not find a Google device matching '{device_name}'. "
+                "Use 'Find My - List Google Devices' to see all available devices."
+            )
+
+        if not device["canonic_ids"]:
+            return f"Device '{device['name']}' has no canonic ID. Cannot send locate request."
+
+        canonic_id = device["canonic_ids"][0]
+        hex_payload = self._google_build_locate_request(canonic_id)
+        response = self._google_nova_request("nbe_execute_action", hex_payload)
+
+        if response is not None:
+            return (
+                f"Locate request sent to **{device['name']}**.\n\n"
+                f"The device has been asked to report its location to Google's servers. "
+                f"You can view the updated location at: https://www.google.com/android/find\n\n"
+                f"**Note**: For trackers on the Find My Device Network, encrypted location "
+                f"reports may take a few minutes to be collected from nearby Android devices."
+            )
+        else:
+            return f"Failed to send locate request to '{device['name']}'. The device may be offline or the credentials may have expired."
+
+    async def ring_google_device(self, device_name: str) -> str:
+        """
+        Play a sound on a Google Find My Device to help locate it.
+        The device will ring at full volume even if it is on silent mode.
+        Works with Android phones, tablets, and supported trackers.
+
+        Args:
+            device_name: The name (or partial name) of the Google device to ring.
+
+        Returns:
+            str: Confirmation that the ring command was sent or an error message.
+        """
+        if not self.google_findmy_email or not self.google_findmy_aas_token:
+            return (
+                "Google Find My Device credentials not configured. "
+                "Please set GOOGLE_FINDMY_EMAIL, GOOGLE_FINDMY_AAS_TOKEN, and "
+                "GOOGLE_FINDMY_ANDROID_ID in the agent settings."
+            )
+
+        device = self._google_find_device(device_name)
+        if not device:
+            return (
+                f"Could not find a Google device matching '{device_name}'. "
+                "Use 'Find My - List Google Devices' to see all available devices."
+            )
+
+        if not device["canonic_ids"]:
+            return f"Device '{device['name']}' has no canonic ID. Cannot send ring command."
+
+        canonic_id = device["canonic_ids"][0]
+        hex_payload = self._google_build_ring_request(canonic_id)
+        response = self._google_nova_request("nbe_execute_action", hex_payload)
+
+        if response is not None:
+            return (
+                f"Ring command sent to **{device['name']}**. "
+                f"The device should start playing a sound now."
+            )
+        else:
+            return f"Failed to ring '{device['name']}'. The device may be offline or the credentials may have expired."
