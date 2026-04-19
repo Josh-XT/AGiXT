@@ -137,6 +137,7 @@ async def voice_conversation(
 
         # Audio accumulation buffer for chunked input
         audio_buffer = bytearray()
+        max_audio_buffer = 10 * 1024 * 1024  # 10MB max (~5 minutes of 16kHz mono)
         processing_task = None
 
         # Main message loop
@@ -151,6 +152,12 @@ async def voice_conversation(
 
             # Binary frame = audio data
             if "bytes" in message and message["bytes"]:
+                if len(audio_buffer) + len(message["bytes"]) > max_audio_buffer:
+                    logging.warning(
+                        f"[VoiceConversation WS] Audio buffer overflow "
+                        f"({len(audio_buffer)} bytes), discarding"
+                    )
+                    audio_buffer.clear()
                 audio_buffer.extend(message["bytes"])
                 continue
 

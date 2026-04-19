@@ -6,7 +6,6 @@ import uuid
 import base64
 import asyncio
 import logging
-import tempfile
 import httpx
 from enum import Enum
 from typing import Optional, Dict, List
@@ -106,7 +105,12 @@ class VoiceConversationSession:
 
         # Vision: latest camera frame from client (base64 JPEG)
         self._latest_image_b64: Optional[str] = None
+        self._image_ts: float = 0.0  # time.time() when image was received
+        self._image_max_age: float = 30.0  # seconds before image is considered stale
         self._image_lock = asyncio.Lock()
+
+        # Shared httpx client for STT/TTS (connection pooling)
+        self._http_client: Optional[httpx.AsyncClient] = None
 
         # Conversation helper (lazy-initialized)
         self._conversations: Optional[Conversations] = None
@@ -159,14 +163,30 @@ class VoiceConversationSession:
         """Store the latest camera frame from the client."""
         async with self._image_lock:
             self._latest_image_b64 = image_b64
+            self._image_ts = time.time()
         logging.debug(
             f"[VoiceConversation] Image frame received ({len(image_b64)} chars b64)"
         )
 
     async def _get_latest_image(self) -> Optional[str]:
-        """Get and optionally clear the latest image frame."""
+        """Get the latest image frame, or None if it's stale."""
         async with self._image_lock:
+            if not self._latest_image_b64:
+                return None
+            age = time.time() - self._image_ts
+            if age > self._image_max_age:
+                logging.debug(
+                    f"[VoiceConversation] Image stale ({age:.0f}s > "
+                    f"{self._image_max_age}s), discarding"
+                )
+                return None
             return self._latest_image_b64
+
+    def _get_http_client(self) -> httpx.AsyncClient:
+        """Get or create a shared httpx client for connection pooling."""
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(timeout=300.0)
+        return self._http_client
 
     def _build_multimodal_content(self, text: str, image_b64: Optional[str]) -> object:
         """Build message content with text + optional image for the thinker."""
@@ -184,7 +204,7 @@ class VoiceConversationSession:
 
     def register_tools(self, tools: list, identity: str = ""):
         """Register client-side tools (from ESP32, robot SDK, etc.).
-        
+
         Args:
             tools: List of tool definitions (OpenAI function-calling format)
             identity: Optional identity/persona context that describes what the
@@ -232,10 +252,10 @@ class VoiceConversationSession:
             await self.speak(narration)
 
         try:
-            result = await asyncio.wait_for(future, timeout=30.0)
+            result = await asyncio.wait_for(future, timeout=60.0)
             return result
         except asyncio.TimeoutError:
-            logging.warning(f"[VoiceConversation] Tool {tool_name} timed out after 30s")
+            logging.warning(f"[VoiceConversation] Tool {tool_name} timed out after 60s")
             async with self._tool_result_lock:
                 self._pending_tool_results.pop(request_id, None)
             return f"Error: Tool {tool_name} timed out"
@@ -461,30 +481,21 @@ INTENT:"""
         api_url = self.voice_server.rstrip("/") + "/v1/audio/transcriptions"
         api_key = getenv("EZLOCALAI_API_KEY", "none") or "none"
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(audio_data)
-            temp_path = f.name
-
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                with open(temp_path, "rb") as audio_file:
-                    resp = await client.post(
-                        api_url,
-                        headers={"Authorization": f"Bearer {api_key}"},
-                        files={"file": ("audio.wav", audio_file, "audio/wav")},
-                        data={"model": "base"},
-                    )
-                resp.raise_for_status()
-                result = resp.json()
-                return result.get("text", "").strip()
+            client = self._get_http_client()
+            resp = await client.post(
+                api_url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                files={"file": ("audio.wav", audio_data, "audio/wav")},
+                data={"model": "base"},
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            return result.get("text", "").strip()
         except Exception as e:
             logging.error(f"[VoiceConversation] STT error: {e}")
             return ""
-        finally:
-            try:
-                os.unlink(temp_path)
-            except OSError:
-                pass
 
     # ─── TTS via Voice Server ───────────────────────────────────────────
 
@@ -512,27 +523,27 @@ INTENT:"""
         }
 
         try:
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                async with client.stream(
-                    "POST", api_url, headers=headers, json=payload
-                ) as response:
-                    response.raise_for_status()
-                    first_chunk = True
-                    async for chunk in response.aiter_bytes(chunk_size=4096):
-                        if self._cancelled:
-                            break
-                        if first_chunk:
-                            await self._send_event(
-                                "audio.header",
-                                {
-                                    "format": "pcm",
-                                    "sample_rate": 24000,
-                                    "bits_per_sample": 16,
-                                    "channels": 1,
-                                },
-                            )
-                            first_chunk = False
-                        await self._send_audio_chunk(chunk)
+            client = self._get_http_client()
+            async with client.stream(
+                "POST", api_url, headers=headers, json=payload
+            ) as response:
+                response.raise_for_status()
+                first_chunk = True
+                async for chunk in response.aiter_bytes(chunk_size=4096):
+                    if self._cancelled:
+                        break
+                    if first_chunk:
+                        await self._send_event(
+                            "audio.header",
+                            {
+                                "format": "pcm",
+                                "sample_rate": 24000,
+                                "bits_per_sample": 16,
+                                "channels": 1,
+                            },
+                        )
+                        first_chunk = False
+                    await self._send_audio_chunk(chunk)
 
             if not self._cancelled:
                 await self._send_event("audio.end", {})
@@ -591,10 +602,12 @@ INTENT:"""
             # Build messages with optional device identity context
             messages = []
             if self._device_identity:
-                messages.append({
-                    "role": "system",
-                    "content": self._device_identity,
-                })
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": self._device_identity,
+                    }
+                )
             messages.append({"role": "user", "content": message_content})
 
             prompt = ChatCompletions(
@@ -712,27 +725,40 @@ INTENT:"""
         from Models import ChatCompletions
 
         try:
-            messages = [
-                {
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [
-                        {
-                            "id": tool_call["request_id"],
-                            "type": "function",
-                            "function": {
-                                "name": tool_call["tool_name"],
-                                "arguments": json.dumps(tool_call["tool_args"]),
-                            },
-                        }
-                    ],
-                },
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call["request_id"],
-                    "content": tool_result,
-                },
-            ]
+            messages = []
+
+            # Include device identity so the continuation stays in persona
+            if self._device_identity:
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": self._device_identity,
+                    }
+                )
+
+            messages.extend(
+                [
+                    {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": tool_call["request_id"],
+                                "type": "function",
+                                "function": {
+                                    "name": tool_call["tool_name"],
+                                    "arguments": json.dumps(tool_call["tool_args"]),
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call["request_id"],
+                        "content": tool_result,
+                    },
+                ]
+            )
 
             prompt = ChatCompletions(
                 model=self.agent_name,
@@ -1238,5 +1264,17 @@ INTENT:"""
             try:
                 await self._speaker_task
             except asyncio.CancelledError:
+                pass
+        # Cancel any pending tool result futures
+        async with self._tool_result_lock:
+            for request_id, future in self._pending_tool_results.items():
+                if not future.done():
+                    future.cancel()
+            self._pending_tool_results.clear()
+        # Close shared httpx client
+        if self._http_client and not self._http_client.is_closed:
+            try:
+                await self._http_client.aclose()
+            except Exception:
                 pass
         logging.info("[VoiceConversation] Session stopped")
