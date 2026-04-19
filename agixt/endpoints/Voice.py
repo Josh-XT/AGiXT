@@ -36,6 +36,7 @@ async def voice_conversation(
     - JSON text frames:
         {"type": "audio.input.end"} - Audio input complete, begin processing
         {"type": "text.input", "text": "..."} - Text input (typed)
+        {"type": "image.input", "data": "<base64 jpeg>"} - Camera frame for vision context
         {"type": "interrupt"} - Barge-in / stop speaking
         {"type": "config", ...} - Session configuration
             Optional fields: voice, language, agent
@@ -282,6 +283,11 @@ async def voice_conversation(
                     result = msg.get("result", "")
                     if request_id:
                         await session.receive_tool_result(request_id, result)
+
+                elif msg_type == "image.input":
+                    image_data = msg.get("data", "")
+                    if image_data:
+                        asyncio.ensure_future(session.handle_image_input(image_data))
 
     except WebSocketDisconnect:
         pass

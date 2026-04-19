@@ -3,6 +3,7 @@ import re
 import json
 import time
 import uuid
+import base64
 import asyncio
 import logging
 import tempfile
@@ -100,6 +101,10 @@ class VoiceConversationSession:
         self._steering_messages: List[str] = []
         self._steering_lock = asyncio.Lock()
 
+        # Vision: latest camera frame from client (base64 JPEG)
+        self._latest_image_b64: Optional[str] = None
+        self._image_lock = asyncio.Lock()
+
         # Conversation helper (lazy-initialized)
         self._conversations: Optional[Conversations] = None
 
@@ -144,6 +149,33 @@ class VoiceConversationSession:
                 self._last_activity = time.time()
             except Exception as e:
                 logging.debug(f"[VoiceConversation] Audio send failed: {e}")
+
+    # ─── Vision / Image Input ───────────────────────────────────────────
+
+    async def handle_image_input(self, image_b64: str):
+        """Store the latest camera frame from the client."""
+        async with self._image_lock:
+            self._latest_image_b64 = image_b64
+        logging.debug(
+            f"[VoiceConversation] Image frame received ({len(image_b64)} chars b64)"
+        )
+
+    async def _get_latest_image(self) -> Optional[str]:
+        """Get and optionally clear the latest image frame."""
+        async with self._image_lock:
+            return self._latest_image_b64
+
+    def _build_multimodal_content(self, text: str, image_b64: Optional[str]) -> object:
+        """Build message content with text + optional image for the thinker."""
+        if not image_b64:
+            return text
+        return [
+            {"type": "text", "text": text},
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+            },
+        ]
 
     # ─── Client Tool Registration & Bridging ────────────────────────────
 
@@ -525,9 +557,13 @@ INTENT:"""
                 conversation_name=self.conversation_id,
             )
 
+            # Attach latest camera frame if available
+            image_b64 = await self._get_latest_image()
+            message_content = self._build_multimodal_content(user_text, image_b64)
+
             prompt = ChatCompletions(
                 model=self.agent_name,
-                messages=[{"role": "user", "content": user_text}],
+                messages=[{"role": "user", "content": message_content}],
                 user=self.conversation_id,
                 tts_mode="off",
                 tools=self.client_tools if self.client_tools else None,
