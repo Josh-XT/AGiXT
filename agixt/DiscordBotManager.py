@@ -15,8 +15,9 @@ import asyncio
 import logging
 import sys
 import os
+import time
 from typing import Dict, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 # Import the discord.py library before any extensions that might shadow it
@@ -1926,11 +1927,39 @@ class DiscordBotManager:
 
     SERVER_BOT_ID = "server"  # Special ID for server-level bot
 
+    # Circuit breaker settings
+    MAX_CRASH_COUNT = 5  # Max crashes before backing off hard
+    INITIAL_BACKOFF = 60  # 1 minute
+    MAX_BACKOFF = 3600  # 1 hour max backoff
+    CRASH_WINDOW = 300  # Reset crash count if no crash in 5 minutes
+
     def __init__(self):
         self.bots: Dict[str, CompanyDiscordBot] = {}
         self._tasks: Dict[str, asyncio.Task] = {}
         self._running = False
         self._monitor_task: Optional[asyncio.Task] = None
+        # Crash tracking: {company_id: {"count": int, "last_crash": float, "backoff_until": float}}
+        self._crash_tracker: Dict[str, Dict] = {}
+
+    def _is_in_backoff(self, company_id: str) -> bool:
+        """Check if a bot is in backoff period after crashes."""
+        tracker = self._crash_tracker.get(company_id)
+        if not tracker:
+            return False
+        now = time.monotonic()
+        if now < tracker["backoff_until"]:
+            remaining = int(tracker["backoff_until"] - now)
+            logger.debug(
+                f"Bot for {company_id} is in backoff, {remaining}s remaining "
+                f"(crash #{tracker['count']})"
+            )
+            return True
+        return False
+
+    def _reset_crash_tracker(self, company_id: str):
+        """Reset crash tracking for a company (e.g., after successful manual restart)."""
+        if company_id in self._crash_tracker:
+            del self._crash_tracker[company_id]
 
     def get_server_bot_token(self) -> Optional[str]:
         """Get the server-level Discord bot token from environment or ServerExtensionSetting."""
@@ -2079,15 +2108,44 @@ class DiscordBotManager:
             return False
 
     def _handle_bot_error(self, company_id: str, company_name: str, task: asyncio.Task):
-        """Handle bot task completion/failure."""
+        """Handle bot task completion/failure with crash tracking and backoff."""
+        was_crash = False
         try:
             exc = task.exception()
             if exc:
                 logger.error(f"Bot for company {company_name} crashed: {exc}")
+                was_crash = True
         except asyncio.CancelledError:
             logger.info(f"Bot for company {company_name} was cancelled")
         except Exception as e:
             logger.error(f"Error checking bot task for {company_name}: {e}")
+            was_crash = True
+
+        # Track crashes and calculate backoff
+        if was_crash:
+            now = time.monotonic()
+            tracker = self._crash_tracker.get(
+                company_id, {"count": 0, "last_crash": 0, "backoff_until": 0}
+            )
+
+            # Reset crash count if enough time has passed since last crash
+            if now - tracker["last_crash"] > self.CRASH_WINDOW:
+                tracker["count"] = 0
+
+            tracker["count"] += 1
+            tracker["last_crash"] = now
+
+            # Exponential backoff: 60s, 120s, 240s, 480s, 960s, capped at 3600s
+            backoff = min(
+                self.INITIAL_BACKOFF * (2 ** (tracker["count"] - 1)), self.MAX_BACKOFF
+            )
+            tracker["backoff_until"] = now + backoff
+            self._crash_tracker[company_id] = tracker
+
+            logger.warning(
+                f"Bot for company {company_name} crash #{tracker['count']}. "
+                f"Will not restart for {backoff}s."
+            )
 
         # Clean up
         if company_id in self.bots:
@@ -2169,6 +2227,9 @@ class DiscordBotManager:
                     and config.get("token")
                     and company_id not in self.bots
                 ):
+                    # Check backoff before restarting
+                    if self._is_in_backoff(company_id):
+                        continue
                     await self.start_bot_for_company(
                         company_id=company_id,
                         company_name=config["name"],
@@ -2190,12 +2251,13 @@ class DiscordBotManager:
 
             # Start server-level bot if not running
             if self.SERVER_BOT_ID not in self.bots:
-                logger.info(
-                    "Starting server-level Discord bot (shared across all companies)"
-                )
-                await self.start_bot_for_company(
-                    self.SERVER_BOT_ID, "AGiXT Server Bot", server_token
-                )
+                if not self._is_in_backoff(self.SERVER_BOT_ID):
+                    logger.info(
+                        "Starting server-level Discord bot (shared across all companies)"
+                    )
+                    await self.start_bot_for_company(
+                        self.SERVER_BOT_ID, "AGiXT Server Bot", server_token
+                    )
         else:
             # No tokens configured anywhere - stop all bots
             for company_id in list(self.bots.keys()):
