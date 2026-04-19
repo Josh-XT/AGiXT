@@ -313,9 +313,36 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         self.user = kwargs.get("user", None)
         self.output_url = kwargs.get("output_url", "")
         self.api_key = kwargs.get("api_key", "")
+        # Capture GitHub token from agent settings or SSO credentials for SafeExecute
+        self.github_token = (
+            kwargs.get("GITHUB_API_KEY") or kwargs.get("GITHUB_ACCESS_TOKEN") or None
+        )
 
         # Register models with ExtensionDatabaseMixin
         self.register_models()
+
+    def get_extension_context(self) -> str:
+        """Provide context about available tools in the workspace terminal."""
+        parts = []
+        if self.github_token:
+            parts.append(
+                "## GitHub CLI & Git\n"
+                "The user's GitHub account is connected. The workspace terminal "
+                "has `git` and the GitHub CLI (`gh`) pre-installed with the user's "
+                "credentials automatically configured as environment variables "
+                "(`GITHUB_TOKEN` / `GH_TOKEN`). You can use the **Use Terminal in "
+                "Workspace** command to interact with the user's GitHub repositories "
+                "directly, for example:\n"
+                "- `gh repo list` — list the user's repositories\n"
+                "- `gh repo clone owner/repo` — clone a private or public repo\n"
+                "- `git clone https://github.com/owner/repo` — clone with auto-auth\n"
+                "- `gh issue list -R owner/repo` — list issues\n"
+                "- `gh pr list -R owner/repo` — list pull requests\n"
+                "- `gh pr create -R owner/repo --title '...' --body '...'` — create a PR\n"
+                "- `gh api /user` — query the GitHub API\n\n"
+                "Authentication is handled automatically; do not ask the user for tokens."
+            )
+        return "\n\n".join(parts)
 
     async def download_file_from_url(
         self, url: str, filename: str = "", headers: str = ""
@@ -1272,7 +1299,11 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
         with open(file_path, "r") as f:
             code = f.read()
-        return execute_python_code(code=code, working_directory=self.WORKING_DIRECTORY)
+        return execute_python_code(
+            code=code,
+            working_directory=self.WORKING_DIRECTORY,
+            github_token=self.github_token,
+        )
 
     async def execute_shell(self, command_line: str) -> str:
         """
@@ -1347,6 +1378,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
                 working_directory=self.WORKING_DIRECTORY,
                 agent_id=self.agent_name,
                 conversation_id=self.conversation_id,
+                github_token=self.github_token,
             )
 
             return result
@@ -1387,7 +1419,9 @@ print(output)
             # Execute the code in a sandboxed environment
             try:
                 result = execute_python_code(
-                    code=sandboxed_code, working_directory=self.WORKING_DIRECTORY
+                    code=sandboxed_code,
+                    working_directory=self.WORKING_DIRECTORY,
+                    github_token=self.github_token,
                 )
                 return result
             except Exception as e:
@@ -1624,6 +1658,7 @@ print(output)
         execution_response = execute_python_code(
             code=code,
             working_directory=self.WORKING_DIRECTORY,
+            github_token=self.github_token,
         )
         return execution_response
 
