@@ -168,6 +168,73 @@ _RE_THINKING_REFLECTION = re.compile(
 )
 
 
+async def _ability_selection_inference(server_url: str, model: str, prompt: str) -> str:
+    """
+    Make a direct inference call to a dedicated ability selection server.
+
+    Uses the OpenAI-compatible chat completions API to call a fast, small model
+    for command/ability selection. This avoids tying up the main LLM provider
+    for the lightweight selection step.
+
+    Args:
+        server_url: Base URL of the ezlocalai/OpenAI-compatible server
+        model: Model name to use for inference
+        prompt: The selection prompt
+
+    Returns:
+        str: The model's response text
+    """
+    import requests
+    from functools import partial
+
+    api_url = server_url.rstrip("/")
+    if "/v1" not in api_url:
+        api_url += "/v1"
+    api_url = api_url.rstrip("/") + "/chat/completions"
+
+    api_key = getenv("EZLOCALAI_API_KEY", "none")
+    if not api_key:
+        api_key = "none"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.3,
+        "top_p": 0.9,
+        "stream": False,
+    }
+
+    loop = asyncio.get_event_loop()
+    try:
+        resp = await loop.run_in_executor(
+            None,
+            partial(
+                requests.post,
+                api_url,
+                headers=headers,
+                json=payload,
+                timeout=(600, 120),
+            ),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        response = data["choices"][0]["message"]["content"]
+        # Strip thinking tags if present
+        response = _RE_THINKING_REFLECTION.sub("", response).strip()
+        if "<answer>" in response:
+            response = response.split("<answer>")[-1]
+        if "</answer>" in response:
+            response = response.split("</answer>")[0]
+        return response.strip()
+    except Exception as e:
+        logging.error(f"[_ability_selection_inference] Error: {e}")
+        return ""
+
+
 async def stream_inference_to_string(agent, prompt: str, **kwargs) -> str:
     """
     Run inference with stream=True and collect the full response as a string.
@@ -1774,10 +1841,23 @@ Total tokens: {total_tokens}, Target: {target_tokens} tokens.
 Respond with ONLY a comma-separated list of section names to KEEP, or "all" if all are needed.
 Example: memories, persona, files"""
 
+        # Use dedicated ability selection server if configured (fast small model)
+        ability_selection_server = getenv("ABILITY_SELECTION_SERVER")
+        ability_selection_model = getenv(
+            "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-0.8B-GGUF"
+        )
+
         try:
-            selection_response = await stream_inference_to_string(
-                self.agent, prompt=section_selection_prompt
-            )
+            if ability_selection_server:
+                selection_response = await _ability_selection_inference(
+                    server_url=ability_selection_server,
+                    model=ability_selection_model,
+                    prompt=section_selection_prompt,
+                )
+            else:
+                selection_response = await stream_inference_to_string(
+                    self.agent, prompt=section_selection_prompt
+                )
 
             if selection_response.strip().lower() == "all":
                 # Need all sections, but may need to prune within sections
@@ -1809,32 +1889,109 @@ Example: memories, persona, files"""
 
         logging.info(f"[reduce_context] After section pruning: {reduced_tokens} tokens")
 
-        # Step 3: If still over target, prune within large sections
+        # Step 3: If still over target, summarize large sections using the fast model
+        # Inspired by Claude Code's block compaction: rather than simply dropping items,
+        # compress older/less-relevant blocks into concise summaries that preserve
+        # key facts while dramatically reducing token count.
         if reduced_tokens > target_tokens:
-            # Find the largest list-based sections and prune them
-            for section_name in ["memories", "activities", "conversation"]:
-                if section_name in reduced_context and isinstance(
-                    reduced_context[section_name], list
-                ):
-                    items = reduced_context[section_name]
-                    if len(items) > 3:
-                        # Keep only the most recent/relevant items
-                        # For activities and conversation, keep most recent
-                        if section_name in ["activities", "conversation"]:
-                            reduced_context[section_name] = items[-5:]  # Keep last 5
-                        else:
-                            # For memories, keep first few (most relevant by score)
-                            reduced_context[section_name] = items[:5]
+            for section_name in [
+                "memories",
+                "activities",
+                "conversation",
+                "conversation_history",
+                "file_contents",
+            ]:
+                if section_name not in reduced_context:
+                    continue
+                content = reduced_context[section_name]
+                section_text = (
+                    "\n".join(str(item) for item in content)
+                    if isinstance(content, list)
+                    else str(content) if content else ""
+                )
+                section_tok = get_tokens(section_text)
+                if section_tok < 2000:
+                    continue  # Not worth summarizing small sections
 
+                # Calculate how much this section needs to shrink
+                overage = reduced_tokens - target_tokens
+                target_section_tokens = max(1000, section_tok - overage)
+
+                summary_prompt = f"""Summarize the following {section_name} context concisely for an AI assistant.
+Preserve key facts, recent actions, decisions, and any information that would be needed to continue the current task.
+Drop redundant details, verbose tool outputs, and repetitive entries.
+Target approximately {target_section_tokens} tokens.
+
+## Current User Request
+{user_input[:300]}
+
+## {section_name.replace('_', ' ').title()} to Summarize
+{section_text[:80000]}
+
+Respond with ONLY the condensed summary, no preamble."""
+
+                try:
+                    if ability_selection_server:
+                        summary = await _ability_selection_inference(
+                            server_url=ability_selection_server,
+                            model=ability_selection_model,
+                            prompt=summary_prompt,
+                        )
+                    else:
+                        summary = await stream_inference_to_string(
+                            self.agent, prompt=summary_prompt
+                        )
+
+                    if summary and len(summary) > 50:
+                        new_tokens = get_tokens(summary)
+                        saved = section_tok - new_tokens
+                        if saved > 0:
+                            reduced_context[section_name] = summary
+                            reduced_tokens -= saved
+                            logging.info(
+                                f"[reduce_context] Summarized {section_name}: {section_tok} -> {new_tokens} tokens (saved {saved})"
+                            )
+                    else:
+                        # Summarization failed, fall back to truncation
+                        if isinstance(content, list) and len(content) > 3:
+                            if section_name in [
+                                "activities",
+                                "conversation",
+                                "conversation_history",
+                            ]:
+                                reduced_context[section_name] = content[-5:]
+                            else:
+                                reduced_context[section_name] = content[:5]
+                            new_tokens = get_tokens(
+                                "\n".join(
+                                    str(item) for item in reduced_context[section_name]
+                                )
+                            )
+                            reduced_tokens -= section_tok - new_tokens
+                except Exception as e:
+                    logging.error(
+                        f"[reduce_context] Error summarizing {section_name}: {e}"
+                    )
+                    # Fall back to simple truncation
+                    if isinstance(content, list) and len(content) > 3:
+                        if section_name in [
+                            "activities",
+                            "conversation",
+                            "conversation_history",
+                        ]:
+                            reduced_context[section_name] = content[-5:]
+                        else:
+                            reduced_context[section_name] = content[:5]
                         new_tokens = get_tokens(
                             "\n".join(
                                 str(item) for item in reduced_context[section_name]
                             )
                         )
-                        reduced_tokens -= section_tokens[section_name] - new_tokens
-                        logging.info(
-                            f"[reduce_context] Pruned {section_name} from {len(items)} to {len(reduced_context[section_name])} items"
-                        )
+                        reduced_tokens -= section_tok - new_tokens
+
+                # Stop iterating sections if we're under target
+                if reduced_tokens <= target_tokens:
+                    break
 
         logging.info(
             f"[reduce_context] Final context: {reduced_tokens} tokens (target: {target_tokens})"
@@ -2048,6 +2205,12 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
 
         valid_commands = []
 
+        # Check if a dedicated ability selection server is configured
+        ability_selection_server = getenv("ABILITY_SELECTION_SERVER")
+        ability_selection_model = getenv(
+            "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-0.8B-GGUF"
+        )
+
         # Process batches in parallel for speed using DIRECT inference (not run())
         # This avoids pulling in all memories/context which bloats token count
         async def select_from_batch(batch_prompt: str, batch_num: int) -> list:
@@ -2057,11 +2220,20 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                     "{BATCH_COMMANDS}", batch_prompt
                 )
 
-                # Direct streaming inference - bypasses format_prompt and all its context loading
-                # Uses streaming internally for speed (non-streaming blocks until full response)
-                selection_response = await stream_inference_to_string(
-                    self.agent, prompt=selection_prompt
-                )
+                if ability_selection_server:
+                    # Use the dedicated ability selection server for fast inference
+                    # This allows offloading command selection to a smaller/faster model
+                    selection_response = await _ability_selection_inference(
+                        server_url=ability_selection_server,
+                        model=ability_selection_model,
+                        prompt=selection_prompt,
+                    )
+                else:
+                    # Direct streaming inference - bypasses format_prompt and all its context loading
+                    # Uses streaming internally for speed (non-streaming blocks until full response)
+                    selection_response = await stream_inference_to_string(
+                        self.agent, prompt=selection_prompt
+                    )
 
                 # Handle "None" or empty responses
                 if (

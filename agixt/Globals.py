@@ -215,6 +215,8 @@ def getenv(var_name: str, default_value: str = "") -> str:
         "HEALTH_CHECK_MAX_FAILURES": "3",
         "RESTART_COOLDOWN": "60",
         "INITIAL_STARTUP_DELAY": "180",
+        "ABILITY_SELECTION_SERVER": "",
+        "ABILITY_SELECTION_MODEL": "unsloth/Qwen3.5-0.8B-GGUF",
         "EXTENSIONS_HUB": "",
         "EXTENSIONS_HUB_TOKEN": "",
         "PAYMENT_WALLET_ADDRESS": "BavSLrHbzcq5QdY491Fo6uC9rqvfKgszVcj661zqJogS",

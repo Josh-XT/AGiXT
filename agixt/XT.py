@@ -1,4 +1,8 @@
-from Interactions import Interactions, stream_inference_to_string
+from Interactions import (
+    Interactions,
+    stream_inference_to_string,
+    _ability_selection_inference,
+)
 from ApiClient import get_api_client, Conversations, Prompts, Chain
 from Memories import Memories
 from Extensions import Extensions
@@ -615,12 +619,24 @@ Rules:
 - Respond with ONLY the JSON, no explanation"""
 
             # Direct LLM call - uses streaming internally to avoid blocking
-            # the inference slot for other concurrent requests
-            new_convo = await stream_inference_to_string(
-                self.agent,
-                prompt=naming_prompt,
-                use_smartest=False,
+            # the inference slot for other concurrent requests.
+            # Use dedicated ability selection server if configured (fast small model).
+            ability_selection_server = getenv("ABILITY_SELECTION_SERVER")
+            ability_selection_model = getenv(
+                "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-0.8B-GGUF"
             )
+            if ability_selection_server:
+                new_convo = await _ability_selection_inference(
+                    server_url=ability_selection_server,
+                    model=ability_selection_model,
+                    prompt=naming_prompt,
+                )
+            else:
+                new_convo = await stream_inference_to_string(
+                    self.agent,
+                    prompt=naming_prompt,
+                    use_smartest=False,
+                )
 
             # Extract JSON from the response
             try:
@@ -654,11 +670,18 @@ Rules:
 
 Respond with ONLY: {{"suggested_conversation_name": "Different Name Here"}}"""
 
-                    retry_response = await stream_inference_to_string(
-                        self.agent,
-                        prompt=retry_prompt,
-                        use_smartest=False,
-                    )
+                    if ability_selection_server:
+                        retry_response = await _ability_selection_inference(
+                            server_url=ability_selection_server,
+                            model=ability_selection_model,
+                            prompt=retry_prompt,
+                        )
+                    else:
+                        retry_response = await stream_inference_to_string(
+                            self.agent,
+                            prompt=retry_prompt,
+                            use_smartest=False,
+                        )
 
                     # Handle potential thinking tags
                     if "<answer>" in retry_response:
