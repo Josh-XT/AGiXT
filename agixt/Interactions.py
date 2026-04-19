@@ -29,16 +29,7 @@ from MagicalAuth import (
 from Globals import getenv, DEFAULT_USER, get_tokens
 from WebhookManager import WebhookEventEmitter
 from middleware import log_silenced_exception
-from Complexity import (
-    ComplexityScore,
-    ComplexityTier,
-    should_intervene,
-    count_thinking_steps,
-    get_planning_phase_prompt,
-    get_todo_review_prompt,
-    get_answer_review_prompt,
-    check_todo_list_exists,
-)
+
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -2419,14 +2410,6 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                 True if str(kwargs["use_smartest"]).lower() == "true" else False
             )
 
-        # Extract complexity score from kwargs if provided
-        complexity_score = None
-        if "complexity_score" in kwargs:
-            complexity_score = kwargs["complexity_score"]
-            # Override use_smartest based on complexity scoring
-            if complexity_score and complexity_score.route_to_smartest:
-                use_smartest = True
-
         # Handle websearch
         websearch = False
         if "websearch" in self.agent.AGENT_CONFIG["settings"]:
@@ -2449,7 +2432,6 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
             "images",
             "log_user_input",
             "log_output",
-            "complexity_score",
             "use_smartest",
             "thinking_id",
             "searching",
@@ -2480,7 +2462,6 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
             images=images,
             log_user_input=log_user_input,
             log_output=log_output,
-            complexity_score=complexity_score,
             use_smartest=use_smartest,
             searching=searching,
             command_overrides=command_overrides,
@@ -2552,7 +2533,6 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
         images: list = [],
         log_user_input: bool = True,
         log_output: bool = True,
-        complexity_score=None,
         use_smartest: bool = False,
         thinking_id: str = None,
         searching: bool = False,
@@ -2734,30 +2714,35 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                     role=self.agent_name,
                     message=f"[SUBACTIVITY][{thinking_id}] Searching for information.",
                 )
-                to_search_or_not_to_search = await self.run(
-                    prompt_name="WebSearch Decision",
-                    prompt_category="Default",
-                    user_input=user_input,
-                    context_results=context_results,
-                    conversation_results=4,
-                    conversation_name=conversation_name,
-                    log_user_input=False,
-                    log_output=False,
-                    browse_links=False,
-                    websearch=False,
-                    tts=False,
-                    searching=True,
-                )
-                to_search = re.search(
-                    r"\byes\b", str(to_search_or_not_to_search).lower()
-                )
-                if to_search:
-                    search_strings = await self.run(
-                        prompt_name="WebSearch",
+                ability_selection_server = getenv("ABILITY_SELECTION_SERVER")
+                if ability_selection_server:
+                    # Use fast 0.8B model for websearch yes/no decision
+                    websearch_decision_prompt = (
+                        f"Today's date is {datetime.now().strftime('%B %d, %Y')}.\n\n"
+                        f"User's input: {user_input}\n\n"
+                        "Decide if the user's input requires searching the web to answer.\n"
+                        "- Search if the user asks about recent events, news, or needs current factual data.\n"
+                        "- Do NOT search if the user is asking you to do a task, write code, or make something.\n"
+                        "- Do NOT search if enough context is available to answer directly.\n\n"
+                        "Respond ONLY with Yes or No."
+                    )
+                    to_search_or_not_to_search = (
+                        await _ability_selection_inference(
+                            server_url=ability_selection_server,
+                            model=getenv(
+                                "ABILITY_SELECTION_MODEL",
+                                "unsloth/Qwen3.5-0.8B-GGUF",
+                            ),
+                            prompt=websearch_decision_prompt,
+                        )
+                    )
+                else:
+                    to_search_or_not_to_search = await self.run(
+                        prompt_name="WebSearch Decision",
                         prompt_category="Default",
                         user_input=user_input,
                         context_results=context_results,
-                        conversation_results=10,
+                        conversation_results=4,
                         conversation_name=conversation_name,
                         log_user_input=False,
                         log_output=False,
@@ -2766,6 +2751,50 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                         tts=False,
                         searching=True,
                     )
+                to_search = re.search(
+                    r"\byes\b", str(to_search_or_not_to_search).lower()
+                )
+                if to_search:
+                    if ability_selection_server:
+                        # Use fast 0.8B model for search query generation
+                        websearch_query_prompt = (
+                            f"Today's date is {datetime.now().strftime('%B %d, %Y')}.\n\n"
+                            f"User's input: {user_input}\n\n"
+                            "Generate optimal web search strings for the user's input.\n"
+                            "- Include today's date in searches when recency matters.\n"
+                            "- For scientific queries, add 'ar5iv' or 'PubMed'.\n"
+                            "- For product info, add 'review'.\n"
+                            "- For stock/finance, add 'Yahoo Finance' or 'Bloomberg'.\n\n"
+                            f"Provide up to {websearch_depth} search suggestions.\n\n"
+                            "Respond ONLY with JSON, no explanation:\n"
+                            "```json\n"
+                            '{\n    "search_string_suggestion_1": "example search query",\n'
+                            '    "search_string_suggestion_2": "another query"\n}\n'
+                            "```"
+                        )
+                        search_strings = await _ability_selection_inference(
+                            server_url=ability_selection_server,
+                            model=getenv(
+                                "ABILITY_SELECTION_MODEL",
+                                "unsloth/Qwen3.5-0.8B-GGUF",
+                            ),
+                            prompt=websearch_query_prompt,
+                        )
+                    else:
+                        search_strings = await self.run(
+                            prompt_name="WebSearch",
+                            prompt_category="Default",
+                            user_input=user_input,
+                            context_results=context_results,
+                            conversation_results=10,
+                            conversation_name=conversation_name,
+                            log_user_input=False,
+                            log_output=False,
+                            browse_links=False,
+                            websearch=False,
+                            tts=False,
+                            searching=True,
+                        )
                     if "```json" in search_strings:
                         search_strings = (
                             search_strings.split("```json")[1].split("```")[0].strip()
@@ -3132,11 +3161,6 @@ Example: If user says "list my files", use:
                 agent_name=self.agent_name,
                 company_id=self.agent.company_id,
             )
-
-        # Inject planning phase if needed
-        if complexity_score and complexity_score.planning_required:
-            planning_prompt = get_planning_phase_prompt(user_input)
-            formatted_prompt = f"{formatted_prompt}\n\n{planning_prompt}"
 
         # Get streaming response from the LLM
         _t_inf = _time.monotonic()

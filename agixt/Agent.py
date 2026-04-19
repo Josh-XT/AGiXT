@@ -1061,10 +1061,6 @@ class AIProviderManager:
             "websearch_depth",
             "analyze_user_input",
             "complexity_scaling_enabled",
-            "thinking_budget_enabled",
-            "thinking_budget_override",
-            "answer_review_enabled",
-            "planning_phase_enabled",
             "SMARTEST_PROVIDER",
         ]
         for key in non_provider_keys:

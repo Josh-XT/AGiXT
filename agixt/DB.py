@@ -7080,16 +7080,6 @@ SERVER_CONFIG_DEFINITIONS = [
         "is_sensitive": False,
         "is_required": False,
     },
-    # General AI Settings
-    {
-        "name": "SMARTEST_PROVIDER",
-        "category": "ai_providers",
-        "description": "The AI provider to use for complex reasoning tasks",
-        "value_type": "string",
-        "default_value": "anthropic",
-        "is_sensitive": False,
-        "is_required": False,
-    },
     # ========================================
     # OAuth Providers
     # ========================================

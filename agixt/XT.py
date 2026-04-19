@@ -10,12 +10,6 @@ from Agent import get_agent_id_by_name
 from pydub import AudioSegment
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS
 from Models import ChatCompletions, TasksToDo, ChainCommandName, TranslationRequest
-from Complexity import (
-    calculate_complexity_score,
-    ComplexityTier,
-    ComplexityScore,
-    log_complexity_decision,
-)
 from middleware import log_silenced_exception
 from datetime import datetime
 from typing import (
@@ -759,49 +753,6 @@ Respond with ONLY: {{"suggested_conversation_name": "Different Name Here"}}"""
             traceback.print_exc()
             logging.error(f"Error in rename_new_conversation: {e}")
 
-    async def check_if_coding_required(self, user_input: str) -> bool:
-        """
-        Evaluates if coding is required to assist with the user's request.
-
-        Args:
-            user_input (str): The raw user input without context or instructions
-
-        Returns:
-            bool: True if coding is required, False otherwise
-        """
-        if not user_input:
-            return False
-
-        evaluation_prompt = f"""Analyze the following user request and determine if writing, modifying, debugging, executing code, or doing math is required to assist them.
-
-User request: {user_input}
-
-Respond with ONLY "true" if coding assistance is needed, or "false" if not.
-
-Examples:
-- "Can you help me debug this Python function?" -> true
-- "Write a script to sort a list" -> true
-- "Fix the bug in my code" -> true
-- "Can you solve this math problem?" -> true
-- "Can you count these items?" -> true
-- "What's the weather like?" -> false
-- "Explain how arrays work" -> false
-- "Tell me about Python" -> false
-- "Can you send an email to Joe?" -> false
-
-Your response (true or false):"""
-
-        try:
-            # Use streaming inference to avoid long-blocking HTTP calls
-            response = await stream_inference_to_string(self.agent, evaluation_prompt)
-            # Extract and normalize the response
-            response = str(response).strip().lower()
-            return "true" in response
-        except Exception as e:
-            logging.warning(f"Error checking if coding required: {str(e)}")
-            # Default to False if we can't determine
-            return False
-
     async def inference(
         self,
         user_input: str,
@@ -860,25 +811,6 @@ Your response (true or false):"""
             del kwargs["conversation_name"]
         if "conversation_id" in kwargs:
             del kwargs["conversation_id"]
-
-        # Calculate complexity score for inference-time compute scaling
-        complexity_score = calculate_complexity_score(
-            user_input=user_input,
-            agent_settings=self.agent_settings,
-        )
-
-        # Log complexity decision for debugging
-        # log_complexity_decision(complexity_score, user_input[:100] if user_input else "")
-
-        # Determine use_smartest based on complexity scoring
-        if "use_smartest" not in kwargs:
-            kwargs["use_smartest"] = False
-        if kwargs["use_smartest"] == False:
-            # Use complexity-based routing instead of just coding check
-            kwargs["use_smartest"] = complexity_score.route_to_smartest
-
-        # Pass complexity score to interactions for thinking budget enforcement
-        kwargs["complexity_score"] = complexity_score
 
         response = await self.agent_interactions.run(
             user_input=user_input,
@@ -3714,16 +3646,6 @@ Your response (true or false):"""
         This implementation properly handles tags like <thinking>, <execute>, <answer> etc.
         to ensure backend processing happens while streaming visible content to the frontend.
         """
-        from Complexity import (
-            calculate_complexity_score,
-            should_intervene,
-            count_thinking_steps,
-            get_planning_phase_prompt,
-            get_todo_review_prompt,
-            get_answer_review_prompt,
-            check_todo_list_exists,
-        )
-
         conversation_id = self.conversation_id
         chunk_id = conversation_id
         created_time = int(time.time())
@@ -4307,14 +4229,6 @@ Your response (true or false):"""
                 )
 
             logging.info(f"[stream] Starting run_stream inference pipeline...")
-            # Calculate complexity score for inference-time compute scaling
-            complexity_score = calculate_complexity_score(
-                user_input=new_prompt,
-                agent_settings=self.agent_settings,
-            )
-
-            # Determine use_smartest based on complexity scoring
-            use_smartest = complexity_score.route_to_smartest
 
             # Build prompt args for processing
             if disable_commands:
@@ -4416,8 +4330,6 @@ Your response (true or false):"""
                 websearch=websearch,
                 log_user_input=False,  # Already logged above
                 log_output=True,  # Log the final answer to the conversation
-                complexity_score=complexity_score,
-                use_smartest=use_smartest,
                 thinking_id=thinking_id,  # Pass the thinking_id to avoid creating a duplicate
                 command_overrides=command_overrides,  # Pass command overrides to enable specific commands
                 tts=tts
