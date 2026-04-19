@@ -1633,6 +1633,31 @@ class MagicalAuth:
         self._company_id = value
         self._company_id_loaded = True
 
+    def _validate_referrer(self, referrer: str) -> str:
+        """Validate referrer against the configured APP_URI domain.
+
+        Returns the referrer if it matches the APP_URI domain,
+        otherwise returns self.link (APP_URI) to prevent open redirect attacks.
+        """
+        if referrer is None:
+            return self.link
+        allowed = getenv("APP_URI", "")
+        try:
+            ref_parsed = urllib.parse.urlparse(referrer)
+            app_parsed = urllib.parse.urlparse(allowed)
+            if (
+                ref_parsed.scheme in ("http", "https")
+                and ref_parsed.netloc
+                and ref_parsed.netloc == app_parsed.netloc
+            ):
+                return referrer
+        except Exception:
+            pass
+        logging.warning(
+            f"Blocked invalid referrer: {referrer} (allowed: {allowed})"
+        )
+        return self.link
+
     @staticmethod
     def _validate_password_strength(password: str) -> str:
         """
@@ -3215,8 +3240,7 @@ class MagicalAuth:
             .replace(" ", "%20")
         )
 
-        if referrer is not None:
-            self.link = referrer
+        self.link = self._validate_referrer(referrer)
         magic_link = f"{self.link}?token={token}"
 
         # Send the email
@@ -3358,8 +3382,7 @@ class MagicalAuth:
             .replace("`", "%60")
             .replace("~", "%7E")
         )
-        if referrer is not None:
-            self.link = referrer
+        self.link = self._validate_referrer(referrer)
         magic_link = f"{self.link}?token={token}"
         if send_link:
             email_send = send_email(

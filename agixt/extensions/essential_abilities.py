@@ -469,6 +469,14 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             raise PermissionError(
                 f"Path traversal detected: refusing to access path outside workspace"
             )
+        # Reject symlinks to prevent TOCTOU bypass and symlink-based escapes
+        raw_path = os.path.normpath(
+            os.path.join(self.WORKING_DIRECTORY, *paths.split("/"))
+        )
+        if os.path.islink(raw_path):
+            raise PermissionError(
+                "Symlinks are not allowed in the workspace for security reasons"
+            )
         # If the file doesn't exist, search the workspace for a matching suffix
         if not os.path.exists(new_path) and paths:
             normalized_suffix = paths.replace("\\", "/").strip("/")

@@ -313,10 +313,7 @@ async def delete_provider_v1(
     update_config = agent.update_agent_config(
         new_config=new_settings, config_key="settings"
     )
-    config = agent.get_agent_config()
-    logging.info(
-        f"Agent {agent_id} provider {provider_name} deleted. New config: {json.dumps(config, indent=2)}"
-    )
+    logging.info(f"Agent {agent_id} provider {provider_name} deleted.")
     return ResponseMessage(message=update_config)
 
 
@@ -544,7 +541,7 @@ async def get_agentconfig_v1(
         if value is None:
             continue
         if isinstance(value, str) and value.strip() != "":
-            if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD"]):
+            if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD", "TOKEN"]):
                 agent_config["settings"][key] = "HIDDEN"
             else:
                 agent_config["settings"][key] = value

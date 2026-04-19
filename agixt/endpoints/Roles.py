@@ -340,6 +340,20 @@ async def create_custom_role(
                 detail=f"A role with the name '{role.name}' already exists in this company",
             )
 
+        # Verify caller possesses all scopes being assigned (prevent privilege escalation)
+        if not auth.is_super_admin():
+            caller_scopes = auth.get_user_scopes(company_id)
+            if "*" not in caller_scopes:
+                requested_scopes = (
+                    db.query(Scope).filter(Scope.id.in_(role.scope_ids)).all()
+                )
+                for scope in requested_scopes:
+                    if not auth.has_scope(scope.name, company_id):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=f"Cannot assign scope '{scope.name}' — you do not have this permission",
+                        )
+
         # Create the custom role
         new_role = CustomRole(
             company_id=company_id,
@@ -502,6 +516,22 @@ async def update_custom_role(
 
         # Update scopes if provided
         if role_update.scope_ids is not None:
+            # Verify caller possesses all scopes being assigned (prevent privilege escalation)
+            if not auth.is_super_admin():
+                caller_scopes = auth.get_user_scopes(company_id)
+                if "*" not in caller_scopes:
+                    scopes_to_check = (
+                        db.query(Scope)
+                        .filter(Scope.id.in_(role_update.scope_ids))
+                        .all()
+                    )
+                    for scope in scopes_to_check:
+                        if not auth.has_scope(scope.name, company_id):
+                            raise HTTPException(
+                                status_code=403,
+                                detail=f"Cannot assign scope '{scope.name}' — you do not have this permission",
+                            )
+
             # Remove existing scope assignments
             db.query(CustomRoleScope).filter(
                 CustomRoleScope.custom_role_id == custom_role.id
@@ -670,6 +700,21 @@ async def assign_user_custom_role(
                 status_code=404,
                 detail="Custom role not found in this company",
             )
+
+        # Verify caller possesses all scopes in the role being assigned (prevent privilege escalation)
+        if not auth.is_super_admin():
+            role_scopes = (
+                db.query(Scope)
+                .join(CustomRoleScope, CustomRoleScope.scope_id == Scope.id)
+                .filter(CustomRoleScope.custom_role_id == custom_role.id)
+                .all()
+            )
+            for scope in role_scopes:
+                if not auth.has_scope(scope.name, company_id):
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Cannot assign role containing scope '{scope.name}' — you do not have this permission",
+                    )
 
         # Verify the target user is in this company
         user_company = (

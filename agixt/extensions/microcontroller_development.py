@@ -635,7 +635,9 @@ Format everything clearly with proper sections and include any important notes o
         # Save the circuit design to a file
         circuit_file = self._save_file(circuit_design, "circuit_design.txt")
         if circuit_file:
-            circuit_design += f"\n\n📥 [Download Circuit Design]({self.output_url}circuit_design.txt)"
+            circuit_design += (
+                f"\n\n📥 [Download Circuit Design]({self.output_url}circuit_design.txt)"
+            )
 
         return circuit_design
 

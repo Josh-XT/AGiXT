@@ -39,7 +39,7 @@ app = APIRouter()
 @app.post(
     "/v1/agent/{agent_id}/memory/{collection_number}/query",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("memories:read"))],
     response_model=MemoryResponse,
     summary="Query agent memories from a specific collection by ID",
     description="Retrieves memories based on user input with relevance scoring and limiting options using agent ID.",
@@ -73,7 +73,7 @@ async def query_memories_v1(
 @app.get(
     "/v1/agent/{agent_id}/memory/export",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("memories:read"))],
     response_model=MemoryResponse,
     summary="Export all agent memories by ID",
     description="Exports all memories from all collections for the specified agent using agent ID.",
@@ -96,7 +96,7 @@ async def export_agent_memories_v1(
 @app.post(
     "/v1/agent/{agent_id}/memory/import",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("memories:write"))],
     response_model=ResponseMessage,
     summary="Import memories into agent by ID",
     description="Imports a list of memories into the agent's various collections using agent ID.",
@@ -161,7 +161,7 @@ async def learn_text_v1(
 @app.post(
     "/v1/agent/{agent_id}/learn/file",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("memories:write"))],
     response_model=ResponseMessage,
     summary="Learn from file content by ID",
     description="Processes and adds file content to the agent's memory using agent ID. Supports various file types including PDFs, docs, and spreadsheets.",
@@ -225,7 +225,7 @@ async def learn_file_v1(
 @app.post(
     "/v1/agent/{agent_id}/learn/url",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("memories:write"))],
     response_model=ResponseMessage,
     summary="Learn from URL content by ID",
     description="Scrapes and learns from content at the specified URL using agent ID.",
@@ -262,7 +262,7 @@ async def learn_url_v1(
 @app.post(
     "/v1/agent/{agent_id}/learn/arxiv",
     tags=["Agent"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("memories:write"))],
     response_model=ResponseMessage,
     summary="Learn from arXiv papers by ID",
     description="Search and learn from arXiv papers. Provide either a search query or specific arXiv IDs.",
