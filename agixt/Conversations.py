@@ -2304,9 +2304,10 @@ class Conversations:
                             # Find where the message type starts (after the second ])
                             parts = message.split("]", 2)
                             if len(parts) >= 3:
-                                # Format: [SUBACTIVITY][id][TYPE] content
+                                # Format: [SUBACTIVITY][id][TYPE] content or [SUBACTIVITY][id] content
+                                # parts[2] already starts with '[TYPE]' or ' content'
                                 message_type_and_content = parts[2]
-                                new_message = f"[SUBACTIVITY][{completed_activity_id}][{message_type_and_content}"
+                                new_message = f"[SUBACTIVITY][{completed_activity_id}]{message_type_and_content}"
                             else:
                                 # Fallback if format is different
                                 new_message = f"[SUBACTIVITY][{completed_activity_id}] {message.split(']', 2)[-1]}"

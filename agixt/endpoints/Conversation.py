@@ -63,6 +63,8 @@ import uuid
 import asyncio
 import logging
 import os
+import io
+import zipfile
 import threading
 from datetime import datetime
 from MagicalAuth import MagicalAuth, get_user_id
@@ -73,6 +75,16 @@ from typing import Set
 
 app = APIRouter()
 workspace_manager = WorkspaceManager()
+
+# In-memory tracking for async import tasks
+_import_tasks: Dict[str, dict] = {}
+_import_tasks_lock = threading.Lock()
+
+# In-memory tracking for chunked uploads
+_chunked_uploads: Dict[str, dict] = {}
+_chunked_uploads_lock = threading.Lock()
+CHUNK_MAX_SIZE = 50 * 1024 * 1024  # 50MB per chunk
+CHUNK_UPLOAD_DIR = os.path.join(os.environ.get("AGIXT_HUB", os.path.expanduser("~/.agixt")), "tmp_uploads")
 
 
 # Redis pub/sub channel for cross-worker WebSocket broadcasts
@@ -4607,3 +4619,858 @@ async def lock_conversation(
         raise HTTPException(status_code=500, detail="Failed to lock conversation")
     finally:
         session.close()
+
+
+def _strip_chatgpt_citations(text: str) -> str:
+    """
+    Remove ChatGPT inline citation markers from text.
+
+    ChatGPT exports embed citation references like ``citeturn0search4``,
+    ``【6†source】``, or ``turn0search7`` directly in the text. These are
+    artifacts of ChatGPT's browsing feature and render as garbage in any
+    UI that isn't ChatGPT.
+    """
+    import re
+
+    # Pattern: citeturn{N}search{N}  (sometimes chained: citeturn0search4turn0search7)
+    text = re.sub(r"(?:cite)?turn\d+search\d+(?:turn\d+search\d+)*", "", text)
+    # Pattern: 【N†source】 or 【N†...】 (CJK brackets with dagger)
+    text = re.sub(r"\s*【\d+†[^】]*】\s*", " ", text)
+    # Clean up leftover double spaces or trailing spaces before punctuation
+    text = re.sub(r"  +", " ", text)
+    text = re.sub(r" ([.,;:!?])", r"\1", text)
+    return text
+
+
+def _parse_chatgpt_export(data: list, agent_name: str) -> list:
+    """
+    Parse ChatGPT conversations.json export format into a list of conversations.
+
+    Handles rich content types:
+    - ``text`` / ``multimodal_text``: regular messages (may contain image dicts)
+    - ``code``: code interpreter input
+    - ``execution_output``: code interpreter results
+    - ``tether_browsing_display``: browsing results
+    - ``tether_quote``: browsing quotes
+
+    Tool-role messages (DALL-E, browsing, code interpreter) are converted to
+    ``[SUBACTIVITY]`` messages. Citation artifacts are stripped. Internal system
+    prompt noise (e.g. "GPT-4o returned 1 images…") is filtered.
+    """
+    conversations = []
+    for conv in data:
+        title = conv.get("title") or "Untitled"
+        mapping = conv.get("mapping", {})
+        if not mapping:
+            continue
+
+        nodes_by_id = {}
+        for node_id, node in mapping.items():
+            nodes_by_id[node_id] = node
+
+        # Walk backward from current_node to build ordered path
+        current_node = conv.get("current_node")
+        ordered_nodes = []
+        if current_node and current_node in nodes_by_id:
+            path = []
+            nid = current_node
+            while nid and nid in nodes_by_id:
+                path.append(nid)
+                nid = nodes_by_id[nid].get("parent")
+            path.reverse()
+            ordered_nodes = [nodes_by_id[nid] for nid in path if nid in nodes_by_id]
+        else:
+            ordered_nodes = list(nodes_by_id.values())
+
+        messages = []
+        for node in ordered_nodes:
+            msg = node.get("message")
+            if not msg:
+                continue
+
+            author_role = msg.get("author", {}).get("role", "unknown")
+            author_name = msg.get("author", {}).get("name", "")
+            content = msg.get("content", {})
+            content_type = content.get("content_type", "text")
+            parts = content.get("parts", [])
+            metadata = msg.get("metadata", {})
+            create_time = msg.get("create_time")
+
+            timestamp = None
+            if create_time:
+                try:
+                    from datetime import timezone as tz
+
+                    timestamp = datetime.fromtimestamp(
+                        create_time, tz=tz.utc
+                    ).isoformat()
+                except Exception:
+                    pass
+
+            # Skip system messages entirely
+            if author_role == "system":
+                continue
+
+            # Determine the AGiXT role
+            if author_role == "user":
+                role = "USER"
+            else:
+                role = agent_name
+
+            # --- Tool messages → subactivities ---
+            if author_role == "tool":
+                tool_name = author_name or "tool"
+
+                # DALL-E / image generation
+                if tool_name == "dalle" or "dall" in tool_name.lower():
+                    # Extract the DALL-E prompt from metadata if available
+                    dalle_meta = metadata.get("dalle", {})
+                    if not dalle_meta and parts:
+                        # Some exports put dalle data in the parts
+                        for p in parts:
+                            if isinstance(p, dict) and p.get("metadata", {}).get(
+                                "dalle"
+                            ):
+                                dalle_meta = p["metadata"]["dalle"]
+                                break
+                    prompt = dalle_meta.get("prompt", "")
+                    if prompt:
+                        messages.append(
+                            {
+                                "role": role,
+                                "message": f"[SUBACTIVITY][0][EXECUTION] Generated image with DALL-E\n**Prompt:** {prompt}",
+                                "timestamp": timestamp,
+                            }
+                        )
+                    continue
+
+                # Code interpreter / Python execution
+                if tool_name == "python" or content_type == "execution_output":
+                    text_parts = []
+                    for p in parts:
+                        if isinstance(p, str) and p.strip():
+                            text_parts.append(p)
+                    output_text = "\n".join(text_parts)
+                    if output_text.strip():
+                        if len(output_text) > 2000:
+                            output_text = (
+                                output_text[:2000] + "\n... (truncated)"
+                            )
+                        messages.append(
+                            {
+                                "role": role,
+                                "message": f"[SUBACTIVITY][0][INFO] {output_text}",
+                                "timestamp": timestamp,
+                            }
+                        )
+                    continue
+
+                # Web browsing results
+                if (
+                    tool_name == "browser"
+                    or content_type == "tether_browsing_display"
+                ):
+                    text_parts = []
+                    for p in parts:
+                        if isinstance(p, str) and p.strip():
+                            text_parts.append(p)
+                    browsing_text = "\n".join(text_parts)
+                    if browsing_text.strip():
+                        if len(browsing_text) > 2000:
+                            browsing_text = (
+                                browsing_text[:2000] + "\n... (truncated)"
+                            )
+                        messages.append(
+                            {
+                                "role": role,
+                                "message": f"[SUBACTIVITY][0][INFO] Web browsing result:\n{browsing_text}",
+                                "timestamp": timestamp,
+                            }
+                        )
+                    continue
+
+                # Browsing quotes
+                if content_type == "tether_quote":
+                    quote_text = content.get("text", "")
+                    quote_url = content.get("url", "")
+                    quote_title = content.get("title", "")
+                    if quote_text:
+                        label = quote_title or quote_url or "Quote"
+                        messages.append(
+                            {
+                                "role": role,
+                                "message": f"[SUBACTIVITY][0][INFO] **{label}**\n> {quote_text[:1000]}",
+                                "timestamp": timestamp,
+                            }
+                        )
+                    continue
+
+                # Generic tool output
+                text_parts = [
+                    str(p) for p in parts if isinstance(p, str) and p.strip()
+                ]
+                tool_text = "\n".join(text_parts)
+                if tool_text.strip():
+                    if len(tool_text) > 2000:
+                        tool_text = tool_text[:2000] + "\n... (truncated)"
+                    messages.append(
+                        {
+                            "role": role,
+                            "message": f"[SUBACTIVITY][0][INFO] Tool ({tool_name}):\n{tool_text}",
+                            "timestamp": timestamp,
+                        }
+                    )
+                continue
+
+            # --- Assistant messages ---
+            if author_role == "assistant":
+                # Handle code content_type (code interpreter input)
+                if content_type == "code":
+                    code_text = content.get("text", "")
+                    if not code_text:
+                        code_text = "\n".join(
+                            str(p) for p in parts if isinstance(p, str) and p.strip()
+                        )
+                    if code_text.strip():
+                        lang = content.get("language", "python")
+                        messages.append(
+                            {
+                                "role": role,
+                                "message": f"[SUBACTIVITY][0][EXECUTION] Code interpreter\n```{lang}\n{code_text}\n```",
+                                "timestamp": timestamp,
+                            }
+                        )
+                    continue
+
+                # Filter out internal DALL-E system noise from assistant
+                text_parts = []
+                has_image_ref = False
+                for p in parts:
+                    if isinstance(p, str):
+                        cleaned = p.strip()
+                        if not cleaned:
+                            continue
+                        # Skip internal DALL-E prompt injection text
+                        if "do not say or show ANYTHING" in cleaned:
+                            continue
+                        if cleaned.startswith("Processing image"):
+                            continue
+                        if "returned 1 images" in cleaned or "returned 2 images" in cleaned:
+                            continue
+                        text_parts.append(cleaned)
+                    elif isinstance(p, dict):
+                        # Image asset pointer (from multimodal_text)
+                        p_type = p.get("content_type", "")
+                        if p_type == "image_asset_pointer" or "asset_pointer" in p:
+                            has_image_ref = True
+                            # Extract DALL-E metadata if present
+                            dalle_meta = p.get("metadata", {}).get("dalle", {})
+                            prompt = dalle_meta.get("prompt", "")
+                            if prompt:
+                                messages.append(
+                                    {
+                                        "role": role,
+                                        "message": f"[SUBACTIVITY][0][EXECUTION] Generated image with DALL-E\n**Prompt:** {prompt}",
+                                        "timestamp": timestamp,
+                                    }
+                                )
+
+                text = "\n".join(text_parts) if text_parts else ""
+
+                # Strip citation artifacts
+                if text:
+                    text = _strip_chatgpt_citations(text)
+
+                # Add citation URLs from metadata if available
+                citations = metadata.get("citations", [])
+                if citations and text:
+                    cite_links = []
+                    for cite in citations:
+                        cite_meta = cite.get("metadata", {})
+                        url = cite_meta.get("url", cite.get("url", ""))
+                        cite_title = cite_meta.get("title", "")
+                        if url:
+                            label = cite_title or url
+                            cite_links.append(f"- [{label}]({url})")
+                    if cite_links:
+                        text += "\n\n**Sources:**\n" + "\n".join(cite_links)
+
+                if text and text.strip():
+                    messages.append(
+                        {
+                            "role": role,
+                            "message": text,
+                            "timestamp": timestamp,
+                        }
+                    )
+                continue
+
+            # --- User messages ---
+            if author_role == "user":
+                text_parts = []
+                for p in parts:
+                    if isinstance(p, str) and p.strip():
+                        text_parts.append(p)
+                    elif isinstance(p, dict):
+                        # User-uploaded image
+                        p_type = p.get("content_type", "")
+                        if (
+                            p_type == "image_asset_pointer"
+                            or "asset_pointer" in p
+                        ):
+                            img_name = p.get("name", "uploaded image")
+                            text_parts.append(f"*[Attached image: {img_name}]*")
+
+                text = "\n".join(text_parts) if text_parts else ""
+                if text and text.strip():
+                    messages.append(
+                        {
+                            "role": role,
+                            "message": text,
+                            "timestamp": timestamp,
+                        }
+                    )
+                continue
+
+        if messages:
+            conversations.append({"name": title, "messages": messages})
+    return conversations
+
+
+def _parse_claude_export(data: list, agent_name: str) -> list:
+    """
+    Parse Claude.ai conversations.json export format into a list of conversations.
+
+    Claude exports have two text sources per message:
+    - ``text``: a flattened dump that includes thinking, tool placeholders
+      (``This block is not supported on your current device yet.``), and response text.
+    - ``content``: a structured array of typed blocks (text, thinking, tool_use,
+      tool_result, token_budget).
+
+    We prefer the ``content`` array because it lets us extract only the actual
+    response text (``type == "text"``), and we convert thinking / tool_use /
+    tool_result blocks into AGiXT ``[SUBACTIVITY]`` messages so they render
+    properly in the conversation UI.
+    """
+    conversations = []
+    for conv in data:
+        name = conv.get("name") or "Untitled"
+        chat_messages = conv.get("chat_messages", [])
+        if not chat_messages:
+            continue
+
+        messages = []
+        for msg in chat_messages:
+            sender = msg.get("sender", "")
+            content_list = msg.get("content", [])
+            created_at = msg.get("created_at")
+
+            if sender == "human":
+                role = "USER"
+            else:
+                role = agent_name
+
+            if role == "USER":
+                # For user messages, just extract text
+                text = ""
+                if content_list and isinstance(content_list, list):
+                    text_parts = []
+                    for item in content_list:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            t = item.get("text", "")
+                            if t and t.strip():
+                                text_parts.append(t)
+                        elif isinstance(item, str) and item.strip():
+                            text_parts.append(item)
+                    text = "\n\n".join(text_parts)
+                if not text or not text.strip():
+                    fallback = msg.get("text", "")
+                    if fallback and fallback.strip():
+                        text = fallback
+                if text and text.strip():
+                    messages.append(
+                        {"role": role, "message": text, "timestamp": created_at}
+                    )
+                continue
+
+            # --- Assistant message: extract subactivities + response text ---
+            subactivities = []
+            text_parts = []
+
+            if content_list and isinstance(content_list, list):
+                for item in content_list:
+                    if not isinstance(item, dict):
+                        if isinstance(item, str) and item.strip():
+                            text_parts.append(item)
+                        continue
+
+                    block_type = item.get("type", "")
+
+                    if block_type == "thinking":
+                        thinking_text = item.get("thinking", "")
+                        if thinking_text and thinking_text.strip():
+                            subactivities.append(
+                                {
+                                    "role": role,
+                                    "message": f"[SUBACTIVITY][0][THINKING] {thinking_text}",
+                                    "timestamp": created_at,
+                                }
+                            )
+
+                    elif block_type == "tool_use":
+                        tool_name = item.get("name", "unknown_tool")
+                        tool_input = item.get("input", {})
+                        if isinstance(tool_input, dict):
+                            # Check if this is an artifact (has content/title)
+                            artifact_content = tool_input.get("content", "")
+                            artifact_title = tool_input.get("title", "")
+                            artifact_type = tool_input.get("type", "")
+                            if (
+                                artifact_content
+                                and isinstance(artifact_content, str)
+                                and artifact_content.strip()
+                            ):
+                                lang = ""
+                                if artifact_type and "code" in artifact_type:
+                                    lang = (
+                                        artifact_type.replace(
+                                            "application/vnd.ant.code", ""
+                                        )
+                                        .strip(". ")
+                                    )
+                                label = artifact_title or tool_name
+                                subactivities.append(
+                                    {
+                                        "role": role,
+                                        "message": f"[SUBACTIVITY][0][EXECUTION] **{label}**\n```{lang}\n{artifact_content}\n```",
+                                        "timestamp": created_at,
+                                    }
+                                )
+                            else:
+                                # Non-artifact tool use
+                                input_summary = json.dumps(tool_input, indent=2) if tool_input else ""
+                                subactivities.append(
+                                    {
+                                        "role": role,
+                                        "message": f"[SUBACTIVITY][0][EXECUTION] Used tool: {tool_name}\n```json\n{input_summary}\n```",
+                                        "timestamp": created_at,
+                                    }
+                                )
+
+                    elif block_type == "tool_result":
+                        result_content = item.get("content", "")
+                        if isinstance(result_content, list):
+                            parts = []
+                            for rc in result_content:
+                                if isinstance(rc, dict) and rc.get("type") == "text":
+                                    parts.append(rc.get("text", ""))
+                            result_content = "\n".join(parts)
+                        if result_content and str(result_content).strip():
+                            result_text = str(result_content)
+                            # Truncate very long tool results
+                            if len(result_text) > 2000:
+                                result_text = result_text[:2000] + "\n... (truncated)"
+                            subactivities.append(
+                                {
+                                    "role": role,
+                                    "message": f"[SUBACTIVITY][0][INFO] {result_text}",
+                                    "timestamp": created_at,
+                                }
+                            )
+
+                    elif block_type == "text":
+                        block_text = item.get("text", "")
+                        if block_text and block_text.strip():
+                            text_parts.append(block_text)
+
+                    # Skip token_budget and other unknown types
+
+            response_text = "\n\n".join(text_parts) if text_parts else ""
+
+            # Fallback to flat text field only if we got nothing from content
+            if not response_text.strip() and not subactivities:
+                fallback = msg.get("text", "")
+                if fallback and fallback.strip():
+                    response_text = fallback
+
+            # Emit subactivities before the response text
+            messages.extend(subactivities)
+
+            if response_text and response_text.strip():
+                messages.append(
+                    {"role": role, "message": response_text, "timestamp": created_at}
+                )
+
+        if messages:
+            conversations.append({"name": name, "messages": messages})
+    return conversations
+
+
+def _import_conversations_worker(
+    task_id: str,
+    conversations_data: list,
+    source: str,
+    agent_name: str,
+    user: str,
+):
+    """Background worker that imports conversations and updates task status."""
+    try:
+        if source == "chatgpt":
+            parsed = _parse_chatgpt_export(conversations_data, agent_name)
+        else:
+            parsed = _parse_claude_export(conversations_data, agent_name)
+
+        with _import_tasks_lock:
+            _import_tasks[task_id]["total_found"] = len(parsed)
+
+        if not parsed:
+            with _import_tasks_lock:
+                _import_tasks[task_id].update(
+                    {"status": "error", "error": "No conversations found in the export file"}
+                )
+            return
+
+        # Build a set of existing conversation names for dedup
+        try:
+            c = Conversations(conversation_name="-", user=user)
+            all_convs = c.get_conversations()
+            prefix = f"[{source.title()}] "
+            existing_names = set(
+                name for name in all_convs if name.startswith(prefix)
+            )
+        except Exception as e:
+            logging.warning(f"Could not load existing conversation names for dedup: {e}")
+            existing_names = set()
+
+        imported_count = 0
+        skipped_count = 0
+        errors = []
+
+        for i, conv in enumerate(parsed):
+            try:
+                conv_name = conv["name"]
+                messages = conv["messages"]
+                if not messages:
+                    skipped_count += 1
+                    continue
+
+                full_name = f"[{source.title()}] {conv_name}"
+                if full_name in existing_names:
+                    skipped_count += 1
+                    continue
+
+                conversation_content = []
+                for msg in messages:
+                    conversation_content.append(
+                        {
+                            "role": msg["role"],
+                            "message": msg["message"],
+                            "timestamp": msg.get("timestamp"),
+                        }
+                    )
+
+                c = Conversations(
+                    conversation_name=full_name,
+                    user=user,
+                )
+                c.new_conversation(conversation_content=conversation_content)
+                imported_count += 1
+            except Exception as e:
+                logging.error(f"Error importing conversation '{conv.get('name')}': {e}")
+                errors.append(str(e))
+                skipped_count += 1
+
+            # Update progress after every conversation
+            with _import_tasks_lock:
+                _import_tasks[task_id].update(
+                    {
+                        "imported": imported_count,
+                        "skipped": skipped_count,
+                        "processed": i + 1,
+                        "errors": errors[:10] if errors else [],
+                    }
+                )
+
+        with _import_tasks_lock:
+            _import_tasks[task_id].update(
+                {
+                    "status": "complete",
+                    "imported": imported_count,
+                    "skipped": skipped_count,
+                    "processed": len(parsed),
+                    "errors": errors[:10] if errors else [],
+                }
+            )
+    except Exception as e:
+        logging.error(f"Import task {task_id} failed: {e}")
+        with _import_tasks_lock:
+            _import_tasks[task_id].update(
+                {"status": "error", "error": str(e)}
+            )
+
+
+def _parse_import_file(file_content: bytes) -> list:
+    """Parse a zip or JSON file and return the conversations data list."""
+    conversations_data = None
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_content)) as zf:
+            for name in zf.namelist():
+                if name.endswith("conversations.json"):
+                    with zf.open(name) as f:
+                        conversations_data = json.loads(f.read())
+                    break
+    except zipfile.BadZipFile:
+        try:
+            conversations_data = json.loads(file_content)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=400,
+                detail="File must be a zip archive or JSON file containing conversations.json",
+            )
+
+    if conversations_data is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not find conversations.json in the uploaded file",
+        )
+
+    if not isinstance(conversations_data, list):
+        raise HTTPException(
+            status_code=400, detail="conversations.json must contain a JSON array"
+        )
+
+    return conversations_data
+
+
+def _detect_source(conversations_data: list) -> str:
+    """Auto-detect whether conversations data is from ChatGPT or Claude."""
+    sample = conversations_data[:5] if len(conversations_data) >= 5 else conversations_data
+    chatgpt_signals = sum(1 for c in sample if isinstance(c, dict) and "mapping" in c)
+    claude_signals = sum(1 for c in sample if isinstance(c, dict) and "chat_messages" in c)
+    if chatgpt_signals > claude_signals:
+        return "chatgpt"
+    elif claude_signals > chatgpt_signals:
+        return "claude"
+    elif chatgpt_signals > 0:
+        return "chatgpt"
+    elif claude_signals > 0:
+        return "claude"
+    raise HTTPException(
+        status_code=400,
+        detail="Could not auto-detect export format. The file does not appear to be a ChatGPT or Claude export.",
+    )
+
+
+def _start_import_task(conversations_data: list, source: str, agent_name: str, user: str) -> dict:
+    """Create an import task and start the background worker. Returns the response dict."""
+    task_id = str(uuid.uuid4())
+    with _import_tasks_lock:
+        _import_tasks[task_id] = {
+            "status": "processing",
+            "source": source,
+            "total_found": len(conversations_data),
+            "imported": 0,
+            "skipped": 0,
+            "processed": 0,
+            "errors": [],
+            "error": None,
+            "user": user,
+        }
+
+    thread = threading.Thread(
+        target=_import_conversations_worker,
+        args=(task_id, conversations_data, source, agent_name, user),
+        daemon=True,
+    )
+    thread.start()
+
+    return {
+        "task_id": task_id,
+        "message": f"Import started for {source.title()} export ({len(conversations_data)} conversations found). Poll /v1/conversation/import/{task_id} for progress.",
+        "source": source,
+        "total_found": len(conversations_data),
+    }
+
+
+@app.post(
+    "/v1/conversation/import/chunk",
+    summary="Upload a Chunk for Conversation Import",
+    description="Upload a chunk of a large export file. Use this for files over 50MB. After all chunks are uploaded, call POST /v1/conversation/import with the upload_id to start the import.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def upload_import_chunk(
+    file: UploadFile = File(...),
+    upload_id: str = Form(None),
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    agent_name: str = Form(...),
+    source: str = Form(None),
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Upload a chunk of a large conversation export file.
+
+    - **file**: A chunk of the export file (max ~50MB per chunk)
+    - **upload_id**: ID returned from the first chunk upload. Omit for the first chunk.
+    - **chunk_index**: 0-based index of this chunk
+    - **total_chunks**: Total number of chunks expected
+    - **agent_name**: The agent to associate imported conversations with
+    - **source**: Optional. Either 'chatgpt' or 'claude'. Auto-detected if not provided.
+    """
+    auth = MagicalAuth(token=authorization)
+
+    if source and source not in ("chatgpt", "claude"):
+        raise HTTPException(
+            status_code=400, detail="source must be 'chatgpt' or 'claude'"
+        )
+
+    if total_chunks < 1 or chunk_index < 0 or chunk_index >= total_chunks:
+        raise HTTPException(status_code=400, detail="Invalid chunk_index or total_chunks")
+
+    chunk_data = await file.read()
+
+    # Create upload_id on first chunk
+    if not upload_id:
+        upload_id = str(uuid.uuid4())
+
+    # Ensure upload directory exists
+    os.makedirs(CHUNK_UPLOAD_DIR, exist_ok=True)
+
+    # Validate upload_id is a UUID to prevent path traversal
+    try:
+        uuid.UUID(upload_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid upload_id")
+
+    # Save chunk to disk
+    chunk_path = os.path.join(CHUNK_UPLOAD_DIR, f"{upload_id}_chunk_{chunk_index}")
+    with open(chunk_path, "wb") as f:
+        f.write(chunk_data)
+
+    # Track the upload
+    with _chunked_uploads_lock:
+        if upload_id not in _chunked_uploads:
+            _chunked_uploads[upload_id] = {
+                "total_chunks": total_chunks,
+                "received_chunks": set(),
+                "agent_name": agent_name,
+                "source": source,
+                "user": user,
+            }
+        _chunked_uploads[upload_id]["received_chunks"].add(chunk_index)
+        received = len(_chunked_uploads[upload_id]["received_chunks"])
+
+    all_received = received == total_chunks
+
+    if all_received:
+        # All chunks received — reassemble and start import
+        try:
+            file_content = b""
+            for i in range(total_chunks):
+                cp = os.path.join(CHUNK_UPLOAD_DIR, f"{upload_id}_chunk_{i}")
+                with open(cp, "rb") as f:
+                    file_content += f.read()
+
+            conversations_data = _parse_import_file(file_content)
+            detected_source = source or _detect_source(conversations_data)
+
+            result = _start_import_task(conversations_data, detected_source, agent_name, user)
+
+            return {
+                "upload_id": upload_id,
+                "chunk_index": chunk_index,
+                "chunks_received": received,
+                "total_chunks": total_chunks,
+                "complete": True,
+                **result,
+            }
+        finally:
+            # Clean up chunk files
+            for i in range(total_chunks):
+                cp = os.path.join(CHUNK_UPLOAD_DIR, f"{upload_id}_chunk_{i}")
+                try:
+                    os.remove(cp)
+                except OSError:
+                    pass
+            with _chunked_uploads_lock:
+                _chunked_uploads.pop(upload_id, None)
+    else:
+        return {
+            "upload_id": upload_id,
+            "chunk_index": chunk_index,
+            "chunks_received": received,
+            "total_chunks": total_chunks,
+            "complete": False,
+        }
+
+
+@app.post(
+    "/v1/conversation/import",
+    summary="Import Conversations from ChatGPT or Claude",
+    description="Upload a ChatGPT or Claude.ai export zip file to import conversations for a specific agent. The source format is auto-detected. Returns a task_id for polling progress. For files over 50MB, use chunked upload via /v1/conversation/import/chunk instead.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def import_conversations(
+    file: UploadFile = File(...),
+    agent_name: str = Form(...),
+    source: str = Form(None),
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Import conversations from a ChatGPT or Claude.ai export.
+    The file is uploaded and validated, then import runs in the background.
+    Poll GET /v1/conversation/import/{task_id} for progress.
+
+    - **file**: The export zip file or JSON file
+    - **agent_name**: The agent to associate imported conversations with
+    - **source**: Optional. Either 'chatgpt' or 'claude'. Auto-detected if not provided.
+    """
+    auth = MagicalAuth(token=authorization)
+
+    if source and source not in ("chatgpt", "claude"):
+        raise HTTPException(
+            status_code=400, detail="source must be 'chatgpt' or 'claude'"
+        )
+
+    file_content = await file.read()
+    conversations_data = _parse_import_file(file_content)
+    detected_source = source or _detect_source(conversations_data)
+    return _start_import_task(conversations_data, detected_source, agent_name, user)
+
+
+@app.get(
+    "/v1/conversation/import/{task_id}",
+    summary="Get Import Task Status",
+    description="Poll the status of an async conversation import task.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_import_status(
+    task_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    with _import_tasks_lock:
+        task = _import_tasks.get(task_id)
+
+    if not task:
+        raise HTTPException(status_code=404, detail="Import task not found")
+
+    if task.get("user") != user:
+        raise HTTPException(status_code=404, detail="Import task not found")
+
+    return {
+        "task_id": task_id,
+        "status": task["status"],
+        "source": task["source"],
+        "total_found": task["total_found"],
+        "imported": task["imported"],
+        "skipped": task["skipped"],
+        "processed": task["processed"],
+        "errors": task["errors"],
+        "error": task.get("error"),
+    }
