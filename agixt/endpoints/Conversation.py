@@ -70,6 +70,7 @@ from datetime import datetime
 from MagicalAuth import MagicalAuth, get_user_id
 from WorkerRegistry import worker_registry
 from Workspaces import WorkspaceManager
+from Interactions import generate_conversation_summary
 import mimetypes
 from typing import Set
 
@@ -84,7 +85,9 @@ _import_tasks_lock = threading.Lock()
 _chunked_uploads: Dict[str, dict] = {}
 _chunked_uploads_lock = threading.Lock()
 CHUNK_MAX_SIZE = 50 * 1024 * 1024  # 50MB per chunk
-CHUNK_UPLOAD_DIR = os.path.join(os.environ.get("AGIXT_HUB", os.path.expanduser("~/.agixt")), "tmp_uploads")
+CHUNK_UPLOAD_DIR = os.path.join(
+    os.environ.get("AGIXT_HUB", os.path.expanduser("~/.agixt")), "tmp_uploads"
+)
 
 
 # Redis pub/sub channel for cross-worker WebSocket broadcasts
@@ -4753,9 +4756,7 @@ def _parse_chatgpt_export(data: list, agent_name: str) -> list:
                     output_text = "\n".join(text_parts)
                     if output_text.strip():
                         if len(output_text) > 2000:
-                            output_text = (
-                                output_text[:2000] + "\n... (truncated)"
-                            )
+                            output_text = output_text[:2000] + "\n... (truncated)"
                         messages.append(
                             {
                                 "role": role,
@@ -4766,10 +4767,7 @@ def _parse_chatgpt_export(data: list, agent_name: str) -> list:
                     continue
 
                 # Web browsing results
-                if (
-                    tool_name == "browser"
-                    or content_type == "tether_browsing_display"
-                ):
+                if tool_name == "browser" or content_type == "tether_browsing_display":
                     text_parts = []
                     for p in parts:
                         if isinstance(p, str) and p.strip():
@@ -4777,9 +4775,7 @@ def _parse_chatgpt_export(data: list, agent_name: str) -> list:
                     browsing_text = "\n".join(text_parts)
                     if browsing_text.strip():
                         if len(browsing_text) > 2000:
-                            browsing_text = (
-                                browsing_text[:2000] + "\n... (truncated)"
-                            )
+                            browsing_text = browsing_text[:2000] + "\n... (truncated)"
                         messages.append(
                             {
                                 "role": role,
@@ -4806,9 +4802,7 @@ def _parse_chatgpt_export(data: list, agent_name: str) -> list:
                     continue
 
                 # Generic tool output
-                text_parts = [
-                    str(p) for p in parts if isinstance(p, str) and p.strip()
-                ]
+                text_parts = [str(p) for p in parts if isinstance(p, str) and p.strip()]
                 tool_text = "\n".join(text_parts)
                 if tool_text.strip():
                     if len(tool_text) > 2000:
@@ -4855,7 +4849,10 @@ def _parse_chatgpt_export(data: list, agent_name: str) -> list:
                             continue
                         if cleaned.startswith("Processing image"):
                             continue
-                        if "returned 1 images" in cleaned or "returned 2 images" in cleaned:
+                        if (
+                            "returned 1 images" in cleaned
+                            or "returned 2 images" in cleaned
+                        ):
                             continue
                         text_parts.append(cleaned)
                     elif isinstance(p, dict):
@@ -4914,10 +4911,7 @@ def _parse_chatgpt_export(data: list, agent_name: str) -> list:
                     elif isinstance(p, dict):
                         # User-uploaded image
                         p_type = p.get("content_type", "")
-                        if (
-                            p_type == "image_asset_pointer"
-                            or "asset_pointer" in p
-                        ):
+                        if p_type == "image_asset_pointer" or "asset_pointer" in p:
                             img_name = p.get("name", "uploaded image")
                             text_parts.append(f"*[Attached image: {img_name}]*")
 
@@ -5032,12 +5026,9 @@ def _parse_claude_export(data: list, agent_name: str) -> list:
                             ):
                                 lang = ""
                                 if artifact_type and "code" in artifact_type:
-                                    lang = (
-                                        artifact_type.replace(
-                                            "application/vnd.ant.code", ""
-                                        )
-                                        .strip(". ")
-                                    )
+                                    lang = artifact_type.replace(
+                                        "application/vnd.ant.code", ""
+                                    ).strip(". ")
                                 label = artifact_title or tool_name
                                 subactivities.append(
                                     {
@@ -5048,7 +5039,11 @@ def _parse_claude_export(data: list, agent_name: str) -> list:
                                 )
                             else:
                                 # Non-artifact tool use
-                                input_summary = json.dumps(tool_input, indent=2) if tool_input else ""
+                                input_summary = (
+                                    json.dumps(tool_input, indent=2)
+                                    if tool_input
+                                    else ""
+                                )
                                 subactivities.append(
                                     {
                                         "role": role,
@@ -5126,7 +5121,10 @@ def _import_conversations_worker(
         if not parsed:
             with _import_tasks_lock:
                 _import_tasks[task_id].update(
-                    {"status": "error", "error": "No conversations found in the export file"}
+                    {
+                        "status": "error",
+                        "error": "No conversations found in the export file",
+                    }
                 )
             return
 
@@ -5135,11 +5133,11 @@ def _import_conversations_worker(
             c = Conversations(conversation_name="-", user=user)
             all_convs = c.get_conversations()
             prefix = f"[{source.title()}] "
-            existing_names = set(
-                name for name in all_convs if name.startswith(prefix)
-            )
+            existing_names = set(name for name in all_convs if name.startswith(prefix))
         except Exception as e:
-            logging.warning(f"Could not load existing conversation names for dedup: {e}")
+            logging.warning(
+                f"Could not load existing conversation names for dedup: {e}"
+            )
             existing_names = set()
 
         imported_count = 0
@@ -5174,6 +5172,21 @@ def _import_conversations_worker(
                     user=user,
                 )
                 c.new_conversation(conversation_content=conversation_content)
+
+                # Generate summary for imported conversation
+                try:
+                    summary = generate_conversation_summary(
+                        messages=conversation_content,
+                        existing_summary="",
+                        conversation_name=full_name,
+                    )
+                    if summary:
+                        c.set_conversation_summary(summary)
+                except Exception as summary_err:
+                    logging.warning(
+                        f"Could not generate summary for '{full_name}': {summary_err}"
+                    )
+
                 imported_count += 1
             except Exception as e:
                 logging.error(f"Error importing conversation '{conv.get('name')}': {e}")
@@ -5191,6 +5204,41 @@ def _import_conversations_worker(
                     }
                 )
 
+        # After all conversations imported, update user knowledge from summaries
+        if imported_count > 0:
+            try:
+                from Interactions import update_user_knowledge_after_interaction
+
+                user_id = get_user_id(user)
+                if user_id:
+                    # Build a digest of all imported conversation summaries
+                    from Conversations import Conversations as ConvHelper
+
+                    summary_digest = []
+                    for conv in parsed[:50]:  # Cap at 50 to keep prompt manageable
+                        conv_name = conv.get("name", "")
+                        full_conv_name = (
+                            f"{agent_name}/{conv_name}" if agent_name else conv_name
+                        )
+                        try:
+                            ch = ConvHelper(conversation_name=full_conv_name, user=user)
+                            s = ch.get_conversation_summary()
+                            if s and len(s) > 50:
+                                summary_digest.append(f"**{conv_name}**: {s[:500]}")
+                        except Exception:
+                            pass
+                    if summary_digest:
+                        combined = "\n\n".join(summary_digest)
+                        update_user_knowledge_after_interaction(
+                            user_id=user_id,
+                            user_input=f"[Imported {imported_count} conversations from {source}]",
+                            agent_response=f"Conversation summaries from import:\n{combined}",
+                            agent_name=agent_name or "XT",
+                            conversation_name=f"Import from {source}",
+                        )
+            except Exception as e:
+                logging.warning(f"Could not update user knowledge after import: {e}")
+
         with _import_tasks_lock:
             _import_tasks[task_id].update(
                 {
@@ -5204,9 +5252,7 @@ def _import_conversations_worker(
     except Exception as e:
         logging.error(f"Import task {task_id} failed: {e}")
         with _import_tasks_lock:
-            _import_tasks[task_id].update(
-                {"status": "error", "error": str(e)}
-            )
+            _import_tasks[task_id].update({"status": "error", "error": str(e)})
 
 
 def _parse_import_file(file_content: bytes) -> list:
@@ -5244,9 +5290,13 @@ def _parse_import_file(file_content: bytes) -> list:
 
 def _detect_source(conversations_data: list) -> str:
     """Auto-detect whether conversations data is from ChatGPT or Claude."""
-    sample = conversations_data[:5] if len(conversations_data) >= 5 else conversations_data
+    sample = (
+        conversations_data[:5] if len(conversations_data) >= 5 else conversations_data
+    )
     chatgpt_signals = sum(1 for c in sample if isinstance(c, dict) and "mapping" in c)
-    claude_signals = sum(1 for c in sample if isinstance(c, dict) and "chat_messages" in c)
+    claude_signals = sum(
+        1 for c in sample if isinstance(c, dict) and "chat_messages" in c
+    )
     if chatgpt_signals > claude_signals:
         return "chatgpt"
     elif claude_signals > chatgpt_signals:
@@ -5261,7 +5311,9 @@ def _detect_source(conversations_data: list) -> str:
     )
 
 
-def _start_import_task(conversations_data: list, source: str, agent_name: str, user: str) -> dict:
+def _start_import_task(
+    conversations_data: list, source: str, agent_name: str, user: str
+) -> dict:
     """Create an import task and start the background worker. Returns the response dict."""
     task_id = str(uuid.uuid4())
     with _import_tasks_lock:
@@ -5327,7 +5379,9 @@ async def upload_import_chunk(
         )
 
     if total_chunks < 1 or chunk_index < 0 or chunk_index >= total_chunks:
-        raise HTTPException(status_code=400, detail="Invalid chunk_index or total_chunks")
+        raise HTTPException(
+            status_code=400, detail="Invalid chunk_index or total_chunks"
+        )
 
     chunk_data = await file.read()
 
@@ -5376,7 +5430,9 @@ async def upload_import_chunk(
             conversations_data = _parse_import_file(file_content)
             detected_source = source or _detect_source(conversations_data)
 
-            result = _start_import_task(conversations_data, detected_source, agent_name, user)
+            result = _start_import_task(
+                conversations_data, detected_source, agent_name, user
+            )
 
             return {
                 "upload_id": upload_id,

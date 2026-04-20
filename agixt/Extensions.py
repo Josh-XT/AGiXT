@@ -1456,11 +1456,11 @@ class Extensions:
                     }
                 )
 
-        # Add Custom Automation as an extension only if chains_with_args is initialized
-        # Use _chains_with_args directly to avoid triggering lazy load during get_extensions()
-        if self._chains_with_args:
+        # Add Custom Automation as an extension if user has chains with args
+        chains_with_args = self.chains_with_args
+        if chains_with_args:
             chain_commands = []
-            for chain in self._chains_with_args:
+            for chain in chains_with_args:
                 chain_commands.append(
                     {
                         "friendly_name": chain["chain_name"],

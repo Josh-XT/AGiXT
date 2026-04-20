@@ -3487,6 +3487,24 @@ Respond with ONLY: {{"suggested_conversation_name": "Different Name Here"}}"""
                     or self.conversation_name.startswith(f"{self.agent_name} - ")
                 ):
                     asyncio.create_task(self.rename_new_conversation(new_prompt))
+                # Update conversation summary in the background
+                if response and new_prompt:
+                    try:
+                        from Interactions import (
+                            update_conversation_summary_after_interaction,
+                        )
+
+                        asyncio.create_task(
+                            update_conversation_summary_after_interaction(
+                                conversation=c,
+                                user_input=new_prompt,
+                                agent_response=response,
+                                agent_name=self.agent_name,
+                                user_id=getattr(self.auth, "user_id", ""),
+                            )
+                        )
+                    except Exception as e:
+                        logging.warning(f"Failed to update conversation summary: {e}")
         if isinstance(response, dict):
             response = json.dumps(response, indent=2)
         if not isinstance(response, str):
