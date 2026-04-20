@@ -217,10 +217,9 @@ class VoiceConversationSession:
             f"[VoiceConversation] Registered {len(tools)} client tools: {tool_names}"
         )
 
-        # Inject device identity as persistent context for the thinker
+        # Store device identity for injection as system message in requests
         if identity:
             self._device_identity = identity
-            self._log_activity(f"[IDENTITY] {identity}")
             logging.info(
                 f"[VoiceConversation] Device identity set: {identity[:100]}..."
             )
@@ -445,8 +444,8 @@ INTENT:"""
             logging.debug(f"[VoiceConversation] Activity log failed: {e}")
 
     def _log_speaker_ack(self, ack_text: str):
-        """Log the speaker acknowledgment as an activity so the thinker knows."""
-        self._log_activity(f'[SPEAKER] Acknowledged user with: "{ack_text}"')
+        """Log the speaker acknowledgment (debug only, not to conversation)."""
+        logging.info(f'[VoiceConversation] Speaker ack: "{ack_text}"')
 
     def _log_speaker_triage(self, intent: str, context_note: str):
         """Log the speaker's triage analysis for the thinker."""
@@ -837,7 +836,7 @@ INTENT:"""
             await self.set_state(VoiceState.ANSWERING)
             answer = await self.generate_instant_answer(user_text)
             if answer:
-                self._log_activity(f'[SPEAKER] Answered instantly: "{answer}"')
+                logging.info(f'[VoiceConversation] Instant answer: "{answer}"')
                 await self._send_event(
                     "transcript.agent", {"text": answer, "role": "speaker"}
                 )
