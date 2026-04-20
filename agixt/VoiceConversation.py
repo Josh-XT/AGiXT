@@ -328,9 +328,9 @@ class VoiceConversationSession:
 User said: "{user_text}"
 
 Categories:
-- GOODBYE: User is ending the conversation (bye, thanks that's all, see you later, I'm done)
-- INSTANT: Trivial factual/math that needs no tools or research (2+2, what is 5*3, say hello, repeat after me, simple greetings like "how are you")
-- THINKER: Everything else - questions needing research, actions, commands, anything you're unsure about
+- GOODBYE: User explicitly says they are leaving or ending the conversation (bye, goodbye, see you later, I'm done talking, that's all for now). Do NOT classify "thank you" or "thanks" alone as GOODBYE.
+- INSTANT: Trivial conversational exchanges that need no tools or research (greetings like "hello", "how are you", simple math like 2+2, "thank you", pleasantries)
+- THINKER: Everything else - questions needing research, actions, commands, anything non-trivial
 
 Reply with exactly one word: GOODBYE, INSTANT, or THINKER
 
@@ -382,9 +382,9 @@ Your classification:"""
 User said: "{user_text}"
 
 Produce exactly 3 lines:
-INTENT: (1-5 words describing what the user wants, e.g. "check the weather", "control TV via IR", "analyze an image")
-CONTEXT: (1 sentence of useful context for the thinking AI, e.g. "User likely wants current conditions for their location", "This is a follow-up to the previous topic", "May need web search")
-ACK: (brief spoken acknowledgment, 1 sentence, e.g. "Sure, let me look into that!")
+INTENT: (1-5 words describing what the user wants, e.g. "greeting", "check the weather", "control TV via IR")
+CONTEXT: (1 sentence of useful context for the thinking AI, e.g. "Simple greeting, no tools needed", "User likely wants current conditions for their location")
+ACK: (brief spoken acknowledgment under 8 words. For greetings/small talk, respond naturally like "Hey there!" or "Hi, how's it going?" — do NOT say "let me work on that" for casual conversation. For actual tasks, say something like "Sure, checking that now.")
 
 INTENT:"""
 
@@ -926,7 +926,7 @@ INTENT:"""
         answer_buffer = ""
         answer_spoken_up_to = 0
         last_narration_time = time.time()
-        narration_interval = 10.0
+        narration_interval = 15.0
         last_activity_desc = ""
         thinker_done = False
 
@@ -977,8 +977,8 @@ INTENT:"""
 
             if etype == "activity":
                 last_activity_desc = event.get("content", "")
-                # Reset narration timer on new activity — narrate sooner
-                last_narration_time = time.time() - (narration_interval - 3.0)
+                # Note activity but don't narrate too eagerly — wait at
+                # least 8s from when we last spoke before narrating again.
                 continue
 
             if etype == "answer_token":
@@ -1052,13 +1052,25 @@ INTENT:"""
         if not self.ability_server:
             return ""
 
+        # Filter out technical/internal activity descriptions that users
+        # don't care about (token counts, processing stats, etc.)
+        if activity_desc and re.search(
+            r"\btokens?\b|\bprocessed\b|\bchunk|\bbytes?\b|\blatency\b",
+            activity_desc,
+            re.IGNORECASE,
+        ):
+            activity_desc = ""
+
         if activity_desc:
             prompt = (
-                f"You are a voice assistant narrating what you're doing. "
-                f"Current activity: {activity_desc}\n\n"
-                f"Generate ONE brief spoken phrase (under 12 words) about your "
-                f"current progress. Sound natural and conversational.\n\n"
-                f"Your narration:"
+                f"You are a voice assistant. You are currently working on the "
+                f"user's request. Here is what you are doing: {activity_desc}\n\n"
+                f"Generate ONE brief spoken status update (under 10 words) "
+                f"that tells the user what you are doing in plain language. "
+                f"Do NOT mention tokens, processing, bytes, or technical "
+                f"details. Focus on the action, like 'Searching for that now' "
+                f"or 'Looking into it for you.'\n\n"
+                f"Your update:"
             )
         else:
             prompt = (
