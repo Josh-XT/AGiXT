@@ -173,7 +173,20 @@ class github(Extensions):
         self.GITHUB_API_KEY = kwargs.get("GITHUB_API_KEY", "") or kwargs.get(
             "GITHUB_ACCESS_TOKEN", ""
         )
-        self.commands = {}
+        self.commands = {"List GitHub Repositories": self.list_repositories}
+
+    # List repositories for the authenticated user
+    async def list_repositories(self):
+        """List repositories for the authenticated user using the GitHub API."""
+        if not self.GITHUB_API_KEY:
+            logging.error("GitHub API key not configured")
+            return []
+        headers = {"Authorization": f"token {self.GITHUB_API_KEY}"}
+        response = requests.get("https://api.github.com/user/repos", headers=headers)
+        if response.status_code != 200:
+            logging.error(f"Error listing GitHub repositories: {response.text}")
+            return []
+        return response.json()
 
     def get_extension_context(self) -> str:
         """Provide context guiding the agent to use git/gh CLI in the workspace terminal."""

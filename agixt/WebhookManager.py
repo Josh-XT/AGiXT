@@ -155,15 +155,13 @@ class WebhookEventEmitter:
             Event ID for tracking
         """
         logger.debug(
-            f"emit_event parameters: event_type={event_type}, user_id={user_id}, company_id={company_id} (type: {type(company_id)}), agent_id={agent_id}, agent_name={agent_name}"
+            f"emit_event parameters: event_type={event_type}, user_id=<redacted>, company_id={company_id} (type: {type(company_id)}), agent_id={agent_id}, agent_name={agent_name}"
         )
         event_id = str(uuid.uuid4())
 
         # Ensure user_id is a string (convert UUID objects to string)
         if user_id:
-            logger.debug(
-                f"Converting user_id {user_id} (type: {type(user_id)}) to string"
-            )
+            logger.debug(f"Converting user_id (type: {type(user_id)}) to string")
             user_id = str(user_id)
 
         # Ensure agent_id is a string (convert UUID objects to string)
@@ -382,7 +380,7 @@ class WebhookEventEmitter:
             return result
 
         except Exception as e:
-            logger.warning(f"Could not resolve company_id for user {user_id}: {e}")
+            logger.warning(f"Could not resolve company_id for user: {e}")
             return None
 
     async def _process_events(self):

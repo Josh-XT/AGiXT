@@ -2039,7 +2039,7 @@ Respond with ONLY the condensed summary, no preamble."""
             f"[select_commands_for_task] {len(all_command_names)} commands, "
             f"selection prompt: {commands_tokens} tokens"
         )
-        if commands_tokens <= 8000:
+        if commands_tokens <= 12000:
             if log_output and thinking_id:
                 c = Conversations(
                     conversation_name=conversation_name,
@@ -2112,11 +2112,13 @@ Respond with ONLY the condensed summary, no preamble."""
             "\n".join(context_parts) if context_parts else "No additional context."
         )
 
-        # Token-aware batching: Split commands into batches under 30k tokens each
-        MAX_BATCH_TOKENS = 30000
+        # Token-aware batching: The ability selection model can handle large context
+        # (200k tokens), so we use generous batch sizes to keep related commands together
+        # which helps the model understand command relationships and prerequisites.
+        MAX_BATCH_TOKENS = 100000
 
         # Calculate base prompt template tokens (without the batch content)
-        base_selection_prompt = f"""You are an assistant that selects relevant commands/tools for a user request.
+        base_selection_prompt = f"""You are an expert assistant that selects relevant commands/tools for a user request. You manage IT infrastructure, remote machines, tickets, desktop support, code execution, web browsing, media generation, and more. Your job is to select exactly the right set of commands the agent will need.
 
 ## User's Request
 {user_input}
@@ -2127,28 +2129,34 @@ Respond with ONLY the condensed summary, no preamble."""
 {{BATCH_COMMANDS}}
 
 ## Your Task
-Select the commands needed to fulfill this request. Think about:
-1. What the user is ACTUALLY asking to accomplish
-2. What commands are PREREQUISITES (e.g. opening a terminal before executing in it)
-3. What the Context section tells you about available resources (devices, accounts, files, etc.)
-4. **The recent conversation history** — follow-up messages like "pause it", "do that again", "now close it" refer to services/tools used in recent messages. Select commands from the SAME extension/service that was just used.
+Select the commands needed to fulfill this request. Think carefully about:
+1. **What the user is ACTUALLY asking to accomplish** — read between the lines. If they mention a hostname, device name, or machine name, they want to interact with that machine.
+2. **What commands are PREREQUISITES** — many commands require setup steps first. For example:
+   - Remote machine work requires: Open Remote Terminal → Execute in Terminal → Get Terminal Output
+   - File transfers require machine identification first
+   - Desktop control requires: Vision Desktop Control (which handles screenshots + mouse + keyboard)
+3. **What the Context section tells you about available resources** — device names, hostnames, connected accounts, active sessions, etc. Match user references to these resources.
+4. **The recent conversation history** — follow-up messages like "pause it", "do that again", "now close it", "check on that machine" refer to services/tools/devices used in recent messages. Select commands from the SAME extension/service that was just used.
+5. **The full scope of each extension** — if the user needs ANY command from an extension, include ALL commands from that extension that could be relevant to the workflow.
 
 **Selection guidance:**
-- Most tasks need 3-8 commands. Select all that may be needed, including prerequisites.
-- For follow-up requests, ALWAYS include commands from the extension/service used in the previous turn (e.g. if Spotify was just used, include Spotify commands for "pause it")
-- If the user references a device/machine from Context, include the commands needed to interact with it (terminal commands, desktop control, etc.)
-- If the user wants to interact with files, include file operation commands
-- If the user wants web information, include web/search commands
-- Include both the "ideal" command and reasonable fallbacks (e.g. both desktop control AND terminal for opening an app)
+- Most tasks need 3-10 commands. Select all that may be needed, including prerequisites and related commands.
+- For follow-up requests, ALWAYS include commands from the extension/service used in the previous turn.
+- If the user references a device/machine by hostname, IP, name, or any identifier from Context, include ALL machine interaction commands (terminal, desktop control, file transfer, machine details).
+- If the user mentions tickets, issues, problems, or support requests, include ticket management commands.
+- If the user wants to interact with files, include file operation commands.
+- If the user wants web information, include web/search commands.
+- Include both the "ideal" command and reasonable fallbacks (e.g. both desktop control AND terminal for opening an app).
+- When in doubt, INCLUDE the command — it's better to have an unused command available than to miss one the agent needs.
 
 **When NOT to select:**
-- Commands completely unrelated to the task
-- Commands for resources not mentioned in context OR recent conversation
+- Commands from completely unrelated domains (e.g. don't select Spotify commands for a machine terminal task)
+- Commands for services with no connection to the user's request or recent conversation
 
 Respond with ONLY a comma-separated list of exact command names, or "None" if no commands are needed.
-No explanations. Maximum 15 commands from this batch.
+No explanations. Maximum 25 commands from this batch.
 
-Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
+Example: Open Remote Terminal, Execute in Terminal, Get Terminal Output, Vision Desktop Control, Get Machine Details"""
 
         # Calculate the base prompt overhead (tokens used by template, user input, context)
         base_overhead_tokens = get_tokens(
@@ -2274,6 +2282,8 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
         # Essential commands that must always be available when commands are enabled.
         # These are the foundational abilities for file operations, code execution,
         # and web interaction — without them the agent cannot perform basic tasks.
+        # Remote terminal commands are included because they are prerequisites for
+        # any machine interaction and the selection model may miss them.
         ESSENTIAL_COMMANDS = [
             "Read File",
             "Modify File",
@@ -2284,6 +2294,9 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
             "Use Terminal in Workspace",
             "Interact with Webpage",
             "Web Search",
+            "Open Remote Terminal",
+            "Execute in Terminal",
+            "Get Terminal Output",
         ]
         for cmd in ESSENTIAL_COMMANDS:
             if cmd in all_command_names and cmd not in valid_commands:
@@ -2298,8 +2311,9 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                 unique_commands.append(cmd)
         valid_commands = unique_commands
 
-        # Cap at 25 commands to keep execution prompt within context budget
-        MAX_COMMANDS = 25
+        # Cap at 35 commands to keep execution prompt within context budget
+        # while allowing enough room for multi-extension workflows
+        MAX_COMMANDS = 35
         if len(valid_commands) > MAX_COMMANDS:
             # Keep explicitly requested first, then LLM-selected in order
             prioritized = [

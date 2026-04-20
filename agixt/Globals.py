@@ -217,6 +217,7 @@ def getenv(var_name: str, default_value: str = "") -> str:
         "INITIAL_STARTUP_DELAY": "180",
         "ABILITY_SELECTION_SERVER": "",
         "ABILITY_SELECTION_MODEL": "unsloth/Qwen3.5-0.8B-GGUF",
+        "VOICE_SERVER": "",
         "EXTENSIONS_HUB": "",
         "EXTENSIONS_HUB_TOKEN": "",
         "PAYMENT_WALLET_ADDRESS": "BavSLrHbzcq5QdY491Fo6uC9rqvfKgszVcj661zqJogS",
