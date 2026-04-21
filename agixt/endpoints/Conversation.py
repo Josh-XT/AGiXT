@@ -5101,6 +5101,186 @@ def _parse_claude_export(data: list, agent_name: str) -> list:
     return conversations
 
 
+def _copilot_flat_text(node) -> str:
+    """Best-effort string extraction from a VS Code MarkdownString-like value."""
+    if node is None:
+        return ""
+    if isinstance(node, str):
+        return node
+    if isinstance(node, dict):
+        if isinstance(node.get("value"), str):
+            return node["value"]
+        if isinstance(node.get("text"), str):
+            return node["text"]
+    if isinstance(node, list):
+        return "".join(_copilot_flat_text(x) for x in node)
+    return ""
+
+
+def _copilot_request_text(message) -> str:
+    if isinstance(message, dict):
+        if isinstance(message.get("text"), str) and message["text"]:
+            return message["text"]
+        parts = message.get("parts")
+        if isinstance(parts, list):
+            return "".join(_copilot_flat_text(p) for p in parts)
+    return _copilot_flat_text(message)
+
+
+def _copilot_uri_path(uri) -> str:
+    if isinstance(uri, dict):
+        return uri.get("fsPath") or uri.get("path") or uri.get("external") or ""
+    if isinstance(uri, str):
+        return uri
+    return ""
+
+
+def _parse_copilot_export(data: list, agent_name: str) -> list:
+    """
+    Parse a VS Code GitHub Copilot Chat export into AGiXT conversations.
+
+    Each entry in *data* is a raw VS Code chat session dict (as written by VS
+    Code under ``workspaceStorage/<hash>/chatSessions/<id>.json``) and exposes
+    ``requests``, an ordered list of ``{message, response, ...}`` turn objects.
+
+    For every turn we emit a USER message from ``message.text`` (or joined
+    ``message.parts``) and an assistant message containing the prose extracted
+    from the ``response`` array. Tool invocations and inline file edits in the
+    response are emitted as ``[SUBACTIVITY]`` blocks before the assistant text,
+    matching the convention used by the Claude importer.
+    """
+    role_assistant = agent_name
+    conversations = []
+    for sess in data:
+        if not isinstance(sess, dict):
+            continue
+        name = sess.get("customTitle") or sess.get("title") or "Untitled"
+        requests = sess.get("requests") or []
+        if not isinstance(requests, list) or not requests:
+            continue
+
+        messages = []
+        for req in requests:
+            if not isinstance(req, dict):
+                continue
+            ts = req.get("timestamp")
+
+            # --- USER message ---
+            user_text = _copilot_request_text(req.get("message")).strip()
+            if user_text:
+                messages.append({"role": "USER", "message": user_text, "timestamp": ts})
+
+            # --- Assistant response: split into subactivities + prose ---
+            subactivities = []
+            text_buf = []
+
+            response_items = req.get("response")
+            if isinstance(response_items, list):
+                for item in response_items:
+                    if isinstance(item, dict):
+                        kind = item.get("kind")
+                        if kind == "toolInvocationSerialized":
+                            tool_id = (
+                                item.get("toolId") or item.get("toolName") or "tool"
+                            )
+                            invocation = _copilot_flat_text(
+                                item.get("invocationMessage")
+                            )
+                            past = _copilot_flat_text(item.get("pastTenseMessage"))
+                            lines = [f"Used tool: {tool_id}"]
+                            if invocation:
+                                lines.append(f"request: {invocation}")
+                            if past:
+                                lines.append(f"result: {past}")
+                            details = item.get("resultDetails")
+                            if isinstance(details, list) and details:
+                                files = []
+                                for d in details:
+                                    if isinstance(d, dict):
+                                        p = _copilot_uri_path(d.get("uri"))
+                                        if p and p not in files:
+                                            files.append(p)
+                                if files:
+                                    lines.append("files:")
+                                    for f in files[:25]:
+                                        lines.append(f"  - {f}")
+                                    if len(files) > 25:
+                                        lines.append(
+                                            f"  - ... ({len(files) - 25} more)"
+                                        )
+                            subactivities.append(
+                                {
+                                    "role": role_assistant,
+                                    "message": "[SUBACTIVITY][0][EXECUTION] "
+                                    + "\n".join(lines),
+                                    "timestamp": ts,
+                                }
+                            )
+                            continue
+                        if kind == "prepareToolInvocation":
+                            # Skipped: redundant with the matching toolInvocationSerialized
+                            continue
+                        if kind == "textEditGroup":
+                            uri = _copilot_uri_path(item.get("uri"))
+                            if uri:
+                                subactivities.append(
+                                    {
+                                        "role": role_assistant,
+                                        "message": f"[SUBACTIVITY][0][EXECUTION] Edited file: {uri}",
+                                        "timestamp": ts,
+                                    }
+                                )
+                            continue
+                        if kind == "inlineReference":
+                            ref = item.get("inlineReference")
+                            p = (
+                                _copilot_uri_path(ref)
+                                if isinstance(ref, (dict, str))
+                                else ""
+                            )
+                            if p:
+                                from pathlib import Path as _P
+
+                                text_buf.append(f"`{_P(p).name}`")
+                            continue
+                        if kind in {"undoStop", "codeblockUri"}:
+                            continue
+                        # MarkdownString-like dict
+                        text = _copilot_flat_text(item)
+                        if text:
+                            text_buf.append(text)
+                    else:
+                        text = _copilot_flat_text(item)
+                        if text:
+                            text_buf.append(text)
+
+            response_text = "".join(text_buf).strip()
+
+            messages.extend(subactivities)
+            if response_text:
+                messages.append(
+                    {
+                        "role": role_assistant,
+                        "message": response_text,
+                        "timestamp": ts,
+                    }
+                )
+
+            result = req.get("result")
+            if isinstance(result, dict) and result.get("errorDetails"):
+                messages.append(
+                    {
+                        "role": role_assistant,
+                        "message": f"[SUBACTIVITY][0][ERROR] {json.dumps(result['errorDetails'])}",
+                        "timestamp": ts,
+                    }
+                )
+
+        if messages:
+            conversations.append({"name": name, "messages": messages})
+    return conversations
+
+
 def _import_conversations_worker(
     task_id: str,
     conversations_data: list,
@@ -5112,6 +5292,8 @@ def _import_conversations_worker(
     try:
         if source == "chatgpt":
             parsed = _parse_chatgpt_export(conversations_data, agent_name)
+        elif source == "copilot":
+            parsed = _parse_copilot_export(conversations_data, agent_name)
         else:
             parsed = _parse_claude_export(conversations_data, agent_name)
 
@@ -5289,7 +5471,7 @@ def _parse_import_file(file_content: bytes) -> list:
 
 
 def _detect_source(conversations_data: list) -> str:
-    """Auto-detect whether conversations data is from ChatGPT or Claude."""
+    """Auto-detect whether conversations data is from ChatGPT, Claude, or VS Code Copilot."""
     sample = (
         conversations_data[:5] if len(conversations_data) >= 5 else conversations_data
     )
@@ -5297,17 +5479,24 @@ def _detect_source(conversations_data: list) -> str:
     claude_signals = sum(
         1 for c in sample if isinstance(c, dict) and "chat_messages" in c
     )
-    if chatgpt_signals > claude_signals:
-        return "chatgpt"
-    elif claude_signals > chatgpt_signals:
-        return "claude"
-    elif chatgpt_signals > 0:
-        return "chatgpt"
-    elif claude_signals > 0:
-        return "claude"
+    copilot_signals = sum(
+        1
+        for c in sample
+        if isinstance(c, dict)
+        and isinstance(c.get("requests"), list)
+        and ("sessionId" in c or "responderUsername" in c)
+    )
+    counts = {
+        "chatgpt": chatgpt_signals,
+        "claude": claude_signals,
+        "copilot": copilot_signals,
+    }
+    best = max(counts, key=counts.get)
+    if counts[best] > 0:
+        return best
     raise HTTPException(
         status_code=400,
-        detail="Could not auto-detect export format. The file does not appear to be a ChatGPT or Claude export.",
+        detail="Could not auto-detect export format. The file does not appear to be a ChatGPT, Claude, or VS Code Copilot export.",
     )
 
 
@@ -5373,9 +5562,9 @@ async def upload_import_chunk(
     """
     auth = MagicalAuth(token=authorization)
 
-    if source and source not in ("chatgpt", "claude"):
+    if source and source not in ("chatgpt", "claude", "copilot"):
         raise HTTPException(
-            status_code=400, detail="source must be 'chatgpt' or 'claude'"
+            status_code=400, detail="source must be 'chatgpt', 'claude', or 'copilot'"
         )
 
     if total_chunks < 1 or chunk_index < 0 or chunk_index >= total_chunks:
@@ -5487,9 +5676,9 @@ async def import_conversations(
     """
     auth = MagicalAuth(token=authorization)
 
-    if source and source not in ("chatgpt", "claude"):
+    if source and source not in ("chatgpt", "claude", "copilot"):
         raise HTTPException(
-            status_code=400, detail="source must be 'chatgpt' or 'claude'"
+            status_code=400, detail="source must be 'chatgpt', 'claude', or 'copilot'"
         )
 
     file_content = await file.read()
