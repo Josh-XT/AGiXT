@@ -66,10 +66,12 @@ import os
 import io
 import zipfile
 import threading
+import tempfile
 from datetime import datetime
 from MagicalAuth import MagicalAuth, get_user_id
 from WorkerRegistry import worker_registry
 from Workspaces import WorkspaceManager
+from Interactions import generate_conversation_summary
 import mimetypes
 from typing import Set
 
@@ -84,7 +86,9 @@ _import_tasks_lock = threading.Lock()
 _chunked_uploads: Dict[str, dict] = {}
 _chunked_uploads_lock = threading.Lock()
 CHUNK_MAX_SIZE = 50 * 1024 * 1024  # 50MB per chunk
-CHUNK_UPLOAD_DIR = os.path.join(os.environ.get("AGIXT_HUB", os.path.expanduser("~/.agixt")), "tmp_uploads")
+CHUNK_UPLOAD_DIR = os.path.join(
+    os.environ.get("AGIXT_HUB", os.path.expanduser("~/.agixt")), "tmp_uploads"
+)
 
 
 # Redis pub/sub channel for cross-worker WebSocket broadcasts
@@ -4753,9 +4757,7 @@ def _parse_chatgpt_export(data: list, agent_name: str) -> list:
                     output_text = "\n".join(text_parts)
                     if output_text.strip():
                         if len(output_text) > 2000:
-                            output_text = (
-                                output_text[:2000] + "\n... (truncated)"
-                            )
+                            output_text = output_text[:2000] + "\n... (truncated)"
                         messages.append(
                             {
                                 "role": role,
@@ -4766,10 +4768,7 @@ def _parse_chatgpt_export(data: list, agent_name: str) -> list:
                     continue
 
                 # Web browsing results
-                if (
-                    tool_name == "browser"
-                    or content_type == "tether_browsing_display"
-                ):
+                if tool_name == "browser" or content_type == "tether_browsing_display":
                     text_parts = []
                     for p in parts:
                         if isinstance(p, str) and p.strip():
@@ -4777,9 +4776,7 @@ def _parse_chatgpt_export(data: list, agent_name: str) -> list:
                     browsing_text = "\n".join(text_parts)
                     if browsing_text.strip():
                         if len(browsing_text) > 2000:
-                            browsing_text = (
-                                browsing_text[:2000] + "\n... (truncated)"
-                            )
+                            browsing_text = browsing_text[:2000] + "\n... (truncated)"
                         messages.append(
                             {
                                 "role": role,
@@ -4806,9 +4803,7 @@ def _parse_chatgpt_export(data: list, agent_name: str) -> list:
                     continue
 
                 # Generic tool output
-                text_parts = [
-                    str(p) for p in parts if isinstance(p, str) and p.strip()
-                ]
+                text_parts = [str(p) for p in parts if isinstance(p, str) and p.strip()]
                 tool_text = "\n".join(text_parts)
                 if tool_text.strip():
                     if len(tool_text) > 2000:
@@ -4855,7 +4850,10 @@ def _parse_chatgpt_export(data: list, agent_name: str) -> list:
                             continue
                         if cleaned.startswith("Processing image"):
                             continue
-                        if "returned 1 images" in cleaned or "returned 2 images" in cleaned:
+                        if (
+                            "returned 1 images" in cleaned
+                            or "returned 2 images" in cleaned
+                        ):
                             continue
                         text_parts.append(cleaned)
                     elif isinstance(p, dict):
@@ -4914,10 +4912,7 @@ def _parse_chatgpt_export(data: list, agent_name: str) -> list:
                     elif isinstance(p, dict):
                         # User-uploaded image
                         p_type = p.get("content_type", "")
-                        if (
-                            p_type == "image_asset_pointer"
-                            or "asset_pointer" in p
-                        ):
+                        if p_type == "image_asset_pointer" or "asset_pointer" in p:
                             img_name = p.get("name", "uploaded image")
                             text_parts.append(f"*[Attached image: {img_name}]*")
 
@@ -5032,12 +5027,9 @@ def _parse_claude_export(data: list, agent_name: str) -> list:
                             ):
                                 lang = ""
                                 if artifact_type and "code" in artifact_type:
-                                    lang = (
-                                        artifact_type.replace(
-                                            "application/vnd.ant.code", ""
-                                        )
-                                        .strip(". ")
-                                    )
+                                    lang = artifact_type.replace(
+                                        "application/vnd.ant.code", ""
+                                    ).strip(". ")
                                 label = artifact_title or tool_name
                                 subactivities.append(
                                     {
@@ -5048,7 +5040,11 @@ def _parse_claude_export(data: list, agent_name: str) -> list:
                                 )
                             else:
                                 # Non-artifact tool use
-                                input_summary = json.dumps(tool_input, indent=2) if tool_input else ""
+                                input_summary = (
+                                    json.dumps(tool_input, indent=2)
+                                    if tool_input
+                                    else ""
+                                )
                                 subactivities.append(
                                     {
                                         "role": role,
@@ -5106,6 +5102,186 @@ def _parse_claude_export(data: list, agent_name: str) -> list:
     return conversations
 
 
+def _copilot_flat_text(node) -> str:
+    """Best-effort string extraction from a VS Code MarkdownString-like value."""
+    if node is None:
+        return ""
+    if isinstance(node, str):
+        return node
+    if isinstance(node, dict):
+        if isinstance(node.get("value"), str):
+            return node["value"]
+        if isinstance(node.get("text"), str):
+            return node["text"]
+    if isinstance(node, list):
+        return "".join(_copilot_flat_text(x) for x in node)
+    return ""
+
+
+def _copilot_request_text(message) -> str:
+    if isinstance(message, dict):
+        if isinstance(message.get("text"), str) and message["text"]:
+            return message["text"]
+        parts = message.get("parts")
+        if isinstance(parts, list):
+            return "".join(_copilot_flat_text(p) for p in parts)
+    return _copilot_flat_text(message)
+
+
+def _copilot_uri_path(uri) -> str:
+    if isinstance(uri, dict):
+        return uri.get("fsPath") or uri.get("path") or uri.get("external") or ""
+    if isinstance(uri, str):
+        return uri
+    return ""
+
+
+def _parse_copilot_export(data: list, agent_name: str) -> list:
+    """
+    Parse a VS Code GitHub Copilot Chat export into AGiXT conversations.
+
+    Each entry in *data* is a raw VS Code chat session dict (as written by VS
+    Code under ``workspaceStorage/<hash>/chatSessions/<id>.json``) and exposes
+    ``requests``, an ordered list of ``{message, response, ...}`` turn objects.
+
+    For every turn we emit a USER message from ``message.text`` (or joined
+    ``message.parts``) and an assistant message containing the prose extracted
+    from the ``response`` array. Tool invocations and inline file edits in the
+    response are emitted as ``[SUBACTIVITY]`` blocks before the assistant text,
+    matching the convention used by the Claude importer.
+    """
+    role_assistant = agent_name
+    conversations = []
+    for sess in data:
+        if not isinstance(sess, dict):
+            continue
+        name = sess.get("customTitle") or sess.get("title") or "Untitled"
+        requests = sess.get("requests") or []
+        if not isinstance(requests, list) or not requests:
+            continue
+
+        messages = []
+        for req in requests:
+            if not isinstance(req, dict):
+                continue
+            ts = req.get("timestamp")
+
+            # --- USER message ---
+            user_text = _copilot_request_text(req.get("message")).strip()
+            if user_text:
+                messages.append({"role": "USER", "message": user_text, "timestamp": ts})
+
+            # --- Assistant response: split into subactivities + prose ---
+            subactivities = []
+            text_buf = []
+
+            response_items = req.get("response")
+            if isinstance(response_items, list):
+                for item in response_items:
+                    if isinstance(item, dict):
+                        kind = item.get("kind")
+                        if kind == "toolInvocationSerialized":
+                            tool_id = (
+                                item.get("toolId") or item.get("toolName") or "tool"
+                            )
+                            invocation = _copilot_flat_text(
+                                item.get("invocationMessage")
+                            )
+                            past = _copilot_flat_text(item.get("pastTenseMessage"))
+                            lines = [f"Used tool: {tool_id}"]
+                            if invocation:
+                                lines.append(f"request: {invocation}")
+                            if past:
+                                lines.append(f"result: {past}")
+                            details = item.get("resultDetails")
+                            if isinstance(details, list) and details:
+                                files = []
+                                for d in details:
+                                    if isinstance(d, dict):
+                                        p = _copilot_uri_path(d.get("uri"))
+                                        if p and p not in files:
+                                            files.append(p)
+                                if files:
+                                    lines.append("files:")
+                                    for f in files[:25]:
+                                        lines.append(f"  - {f}")
+                                    if len(files) > 25:
+                                        lines.append(
+                                            f"  - ... ({len(files) - 25} more)"
+                                        )
+                            subactivities.append(
+                                {
+                                    "role": role_assistant,
+                                    "message": "[SUBACTIVITY][0][EXECUTION] "
+                                    + "\n".join(lines),
+                                    "timestamp": ts,
+                                }
+                            )
+                            continue
+                        if kind == "prepareToolInvocation":
+                            # Skipped: redundant with the matching toolInvocationSerialized
+                            continue
+                        if kind == "textEditGroup":
+                            uri = _copilot_uri_path(item.get("uri"))
+                            if uri:
+                                subactivities.append(
+                                    {
+                                        "role": role_assistant,
+                                        "message": f"[SUBACTIVITY][0][EXECUTION] Edited file: {uri}",
+                                        "timestamp": ts,
+                                    }
+                                )
+                            continue
+                        if kind == "inlineReference":
+                            ref = item.get("inlineReference")
+                            p = (
+                                _copilot_uri_path(ref)
+                                if isinstance(ref, (dict, str))
+                                else ""
+                            )
+                            if p:
+                                from pathlib import Path as _P
+
+                                text_buf.append(f"`{_P(p).name}`")
+                            continue
+                        if kind in {"undoStop", "codeblockUri"}:
+                            continue
+                        # MarkdownString-like dict
+                        text = _copilot_flat_text(item)
+                        if text:
+                            text_buf.append(text)
+                    else:
+                        text = _copilot_flat_text(item)
+                        if text:
+                            text_buf.append(text)
+
+            response_text = "".join(text_buf).strip()
+
+            messages.extend(subactivities)
+            if response_text:
+                messages.append(
+                    {
+                        "role": role_assistant,
+                        "message": response_text,
+                        "timestamp": ts,
+                    }
+                )
+
+            result = req.get("result")
+            if isinstance(result, dict) and result.get("errorDetails"):
+                messages.append(
+                    {
+                        "role": role_assistant,
+                        "message": f"[SUBACTIVITY][0][ERROR] {json.dumps(result['errorDetails'])}",
+                        "timestamp": ts,
+                    }
+                )
+
+        if messages:
+            conversations.append({"name": name, "messages": messages})
+    return conversations
+
+
 def _import_conversations_worker(
     task_id: str,
     conversations_data: list,
@@ -5117,6 +5293,8 @@ def _import_conversations_worker(
     try:
         if source == "chatgpt":
             parsed = _parse_chatgpt_export(conversations_data, agent_name)
+        elif source == "copilot":
+            parsed = _parse_copilot_export(conversations_data, agent_name)
         else:
             parsed = _parse_claude_export(conversations_data, agent_name)
 
@@ -5126,7 +5304,10 @@ def _import_conversations_worker(
         if not parsed:
             with _import_tasks_lock:
                 _import_tasks[task_id].update(
-                    {"status": "error", "error": "No conversations found in the export file"}
+                    {
+                        "status": "error",
+                        "error": "No conversations found in the export file",
+                    }
                 )
             return
 
@@ -5135,11 +5316,11 @@ def _import_conversations_worker(
             c = Conversations(conversation_name="-", user=user)
             all_convs = c.get_conversations()
             prefix = f"[{source.title()}] "
-            existing_names = set(
-                name for name in all_convs if name.startswith(prefix)
-            )
+            existing_names = set(name for name in all_convs if name.startswith(prefix))
         except Exception as e:
-            logging.warning(f"Could not load existing conversation names for dedup: {e}")
+            logging.warning(
+                f"Could not load existing conversation names for dedup: {e}"
+            )
             existing_names = set()
 
         imported_count = 0
@@ -5173,7 +5354,21 @@ def _import_conversations_worker(
                     conversation_name=full_name,
                     user=user,
                 )
-                c.new_conversation(conversation_content=conversation_content)
+                # Use the single-transaction bulk path for historical imports.
+                # This avoids the per-message DB session/commit cycle in
+                # log_interaction(), which is the dominant cost for large
+                # imports (Copilot conversations frequently contain 100+
+                # messages once expanded into USER + SUBACTIVITY entries).
+                c.bulk_create_with_messages(conversation_content=conversation_content)
+
+                # Summary generation is intentionally deferred. Calling
+                # generate_conversation_summary here issues an LLM request
+                # per conversation, which makes bulk historical imports
+                # (hundreds-to-thousands of conversations) take hours and
+                # block the worker on every iteration. Imported conversations
+                # without summaries simply get one generated lazily on first
+                # view, which is the same path new conversations follow.
+
                 imported_count += 1
             except Exception as e:
                 logging.error(f"Error importing conversation '{conv.get('name')}': {e}")
@@ -5191,6 +5386,14 @@ def _import_conversations_worker(
                     }
                 )
 
+        # User-knowledge updates from bulk imports are intentionally skipped.
+        # The original implementation reloaded summaries for up to 50 imported
+        # conversations and fed them all into update_user_knowledge_after_interaction,
+        # which is another blocking LLM call with a multi-thousand-token prompt.
+        # That made finishing a large import an order of magnitude slower and
+        # offered little incremental value vs. the lazy summaries that get
+        # generated when a user opens each imported conversation.
+
         with _import_tasks_lock:
             _import_tasks[task_id].update(
                 {
@@ -5204,25 +5407,85 @@ def _import_conversations_worker(
     except Exception as e:
         logging.error(f"Import task {task_id} failed: {e}")
         with _import_tasks_lock:
-            _import_tasks[task_id].update(
-                {"status": "error", "error": str(e)}
-            )
+            _import_tasks[task_id].update({"status": "error", "error": str(e)})
+
+
+def _stream_conversations_from_json_fp(fp) -> list:
+    """Parse a JSON array of conversation dicts from a file-like object.
+
+    Uses ``json.load`` (which reads from the file pointer) rather than
+    ``json.loads`` on a pre-read bytes blob — this avoids materializing the
+    full source as a separate intermediate string, roughly halving peak
+    memory on multi-GB uploads.
+    """
+    try:
+        return json.load(fp)
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid JSON in conversations.json: {e}",
+        )
 
 
 def _parse_import_file(file_content: bytes) -> list:
-    """Parse a zip or JSON file and return the conversations data list."""
+    """Parse a zip or JSON file (in-memory bytes) and return the conversations list."""
     conversations_data = None
     try:
         with zipfile.ZipFile(io.BytesIO(file_content)) as zf:
             for name in zf.namelist():
                 if name.endswith("conversations.json"):
                     with zf.open(name) as f:
-                        conversations_data = json.loads(f.read())
+                        conversations_data = _stream_conversations_from_json_fp(f)
                     break
     except zipfile.BadZipFile:
         try:
-            conversations_data = json.loads(file_content)
-        except json.JSONDecodeError:
+            conversations_data = _stream_conversations_from_json_fp(
+                io.BytesIO(file_content)
+            )
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail="File must be a zip archive or JSON file containing conversations.json",
+            )
+
+    if conversations_data is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not find conversations.json in the uploaded file",
+        )
+
+    if not isinstance(conversations_data, list):
+        raise HTTPException(
+            status_code=400, detail="conversations.json must contain a JSON array"
+        )
+
+    return conversations_data
+
+
+def _parse_import_path(file_path: str) -> list:
+    """Parse a zip or JSON file from disk and return the conversations list.
+
+    Streams via ijson so the parser's working set stays bounded regardless
+    of the file's total size. This is what chunked uploads call after the
+    last chunk has been written so we never have the assembled file in RAM.
+    """
+    conversations_data: list | None = None
+    try:
+        with zipfile.ZipFile(file_path) as zf:
+            for name in zf.namelist():
+                if name.endswith("conversations.json"):
+                    with zf.open(name) as f:
+                        conversations_data = _stream_conversations_from_json_fp(f)
+                    break
+    except zipfile.BadZipFile:
+        try:
+            with open(file_path, "rb") as f:
+                conversations_data = _stream_conversations_from_json_fp(f)
+        except HTTPException:
+            raise
+        except Exception:
             raise HTTPException(
                 status_code=400,
                 detail="File must be a zip archive or JSON file containing conversations.json",
@@ -5243,25 +5506,38 @@ def _parse_import_file(file_content: bytes) -> list:
 
 
 def _detect_source(conversations_data: list) -> str:
-    """Auto-detect whether conversations data is from ChatGPT or Claude."""
-    sample = conversations_data[:5] if len(conversations_data) >= 5 else conversations_data
+    """Auto-detect whether conversations data is from ChatGPT, Claude, or VS Code Copilot."""
+    sample = (
+        conversations_data[:5] if len(conversations_data) >= 5 else conversations_data
+    )
     chatgpt_signals = sum(1 for c in sample if isinstance(c, dict) and "mapping" in c)
-    claude_signals = sum(1 for c in sample if isinstance(c, dict) and "chat_messages" in c)
-    if chatgpt_signals > claude_signals:
-        return "chatgpt"
-    elif claude_signals > chatgpt_signals:
-        return "claude"
-    elif chatgpt_signals > 0:
-        return "chatgpt"
-    elif claude_signals > 0:
-        return "claude"
+    claude_signals = sum(
+        1 for c in sample if isinstance(c, dict) and "chat_messages" in c
+    )
+    copilot_signals = sum(
+        1
+        for c in sample
+        if isinstance(c, dict)
+        and isinstance(c.get("requests"), list)
+        and ("sessionId" in c or "responderUsername" in c)
+    )
+    counts = {
+        "chatgpt": chatgpt_signals,
+        "claude": claude_signals,
+        "copilot": copilot_signals,
+    }
+    best = max(counts, key=counts.get)
+    if counts[best] > 0:
+        return best
     raise HTTPException(
         status_code=400,
-        detail="Could not auto-detect export format. The file does not appear to be a ChatGPT or Claude export.",
+        detail="Could not auto-detect export format. The file does not appear to be a ChatGPT, Claude, or VS Code Copilot export.",
     )
 
 
-def _start_import_task(conversations_data: list, source: str, agent_name: str, user: str) -> dict:
+def _start_import_task(
+    conversations_data: list, source: str, agent_name: str, user: str
+) -> dict:
     """Create an import task and start the background worker. Returns the response dict."""
     task_id = str(uuid.uuid4())
     with _import_tasks_lock:
@@ -5321,13 +5597,15 @@ async def upload_import_chunk(
     """
     auth = MagicalAuth(token=authorization)
 
-    if source and source not in ("chatgpt", "claude"):
+    if source and source not in ("chatgpt", "claude", "copilot"):
         raise HTTPException(
-            status_code=400, detail="source must be 'chatgpt' or 'claude'"
+            status_code=400, detail="source must be 'chatgpt', 'claude', or 'copilot'"
         )
 
     if total_chunks < 1 or chunk_index < 0 or chunk_index >= total_chunks:
-        raise HTTPException(status_code=400, detail="Invalid chunk_index or total_chunks")
+        raise HTTPException(
+            status_code=400, detail="Invalid chunk_index or total_chunks"
+        )
 
     chunk_data = await file.read()
 
@@ -5338,14 +5616,21 @@ async def upload_import_chunk(
     # Ensure upload directory exists
     os.makedirs(CHUNK_UPLOAD_DIR, exist_ok=True)
 
-    # Validate upload_id is a UUID to prevent path traversal
+    # Validate upload_id is a UUID to prevent path traversal. Reassign to the
+    # canonical UUID string form so downstream uses cannot contain any path
+    # separators or traversal sequences (sanitizes the user-provided value).
     try:
-        uuid.UUID(upload_id)
-    except ValueError:
+        upload_id = str(uuid.UUID(str(upload_id)))
+    except (ValueError, AttributeError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid upload_id")
 
-    # Save chunk to disk
-    chunk_path = os.path.join(CHUNK_UPLOAD_DIR, f"{upload_id}_chunk_{chunk_index}")
+    # Save chunk to disk. Build the path and verify it is contained within the
+    # upload directory as a defense-in-depth check against path injection.
+    upload_root = os.path.realpath(CHUNK_UPLOAD_DIR)
+    chunk_filename = f"{upload_id}_chunk_{int(chunk_index)}"
+    chunk_path = os.path.realpath(os.path.join(upload_root, chunk_filename))
+    if os.path.commonpath([upload_root, chunk_path]) != upload_root:
+        raise HTTPException(status_code=400, detail="Invalid upload path")
     with open(chunk_path, "wb") as f:
         f.write(chunk_data)
 
@@ -5365,18 +5650,37 @@ async def upload_import_chunk(
     all_received = received == total_chunks
 
     if all_received:
-        # All chunks received — reassemble and start import
+        # All chunks received — assemble on disk (never in RAM) and stream-parse.
+        tmp_path: str | None = None
         try:
-            file_content = b""
-            for i in range(total_chunks):
-                cp = os.path.join(CHUNK_UPLOAD_DIR, f"{upload_id}_chunk_{i}")
-                with open(cp, "rb") as f:
-                    file_content += f.read()
+            with tempfile.NamedTemporaryFile(
+                prefix=f"import_{upload_id}_",
+                suffix=".bin",
+                delete=False,
+                dir=CHUNK_UPLOAD_DIR,
+            ) as tmp:
+                tmp_path = tmp.name
+                for i in range(total_chunks):
+                    cp = os.path.realpath(
+                        os.path.join(upload_root, f"{upload_id}_chunk_{int(i)}")
+                    )
+                    if os.path.commonpath([upload_root, cp]) != upload_root:
+                        raise HTTPException(
+                            status_code=400, detail="Invalid upload path"
+                        )
+                    with open(cp, "rb") as f:
+                        while True:
+                            buf = f.read(1024 * 1024)
+                            if not buf:
+                                break
+                            tmp.write(buf)
 
-            conversations_data = _parse_import_file(file_content)
+            conversations_data = _parse_import_path(tmp_path)
             detected_source = source or _detect_source(conversations_data)
 
-            result = _start_import_task(conversations_data, detected_source, agent_name, user)
+            result = _start_import_task(
+                conversations_data, detected_source, agent_name, user
+            )
 
             return {
                 "upload_id": upload_id,
@@ -5387,11 +5691,20 @@ async def upload_import_chunk(
                 **result,
             }
         finally:
-            # Clean up chunk files
+            # Clean up chunk files and the assembled tempfile
             for i in range(total_chunks):
-                cp = os.path.join(CHUNK_UPLOAD_DIR, f"{upload_id}_chunk_{i}")
+                cp = os.path.realpath(
+                    os.path.join(upload_root, f"{upload_id}_chunk_{int(i)}")
+                )
+                if os.path.commonpath([upload_root, cp]) != upload_root:
+                    continue
                 try:
                     os.remove(cp)
+                except OSError:
+                    pass
+            if tmp_path:
+                try:
+                    os.remove(tmp_path)
                 except OSError:
                     pass
             with _chunked_uploads_lock:
@@ -5431,9 +5744,9 @@ async def import_conversations(
     """
     auth = MagicalAuth(token=authorization)
 
-    if source and source not in ("chatgpt", "claude"):
+    if source and source not in ("chatgpt", "claude", "copilot"):
         raise HTTPException(
-            status_code=400, detail="source must be 'chatgpt' or 'claude'"
+            status_code=400, detail="source must be 'chatgpt', 'claude', or 'copilot'"
         )
 
     file_content = await file.read()

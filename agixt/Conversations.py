@@ -20,6 +20,7 @@ from DB import (
     User,
     UserCompany,
     get_session,
+    get_new_id,
 )
 from Globals import getenv, DEFAULT_USER
 from sqlalchemy.sql import func, or_, and_, case, exists
@@ -2333,6 +2334,210 @@ class Conversations:
                 response["id"] = conversation_id
             session.close()
             return response
+
+    def bulk_create_with_messages(self, conversation_content, default_agent_name="XT"):
+        """Bulk-import a conversation with all messages in a single transaction.
+
+        Optimized path used by historical importers (e.g. VS Code Copilot, ChatGPT
+        export). Skips per-message live-cache invalidation, base64 extraction, and
+        notification logic — these are import-only conversations being persisted
+        historically. Equivalent semantics to ``new_conversation`` for the
+        SUBACTIVITY/Completed activities. parent linkage, but issues a single
+        INSERT for the conversation and one ``add_all`` + ``commit`` for all
+        messages, eliminating the per-message fsync that dominates import time.
+        """
+        from dateutil import parser as _date_parser
+        import datetime as _dt
+
+        user_id = self._user_id
+        session = get_session()
+        try:
+            conversation = Conversation(name=self.conversation_name, user_id=user_id)
+            session.add(conversation)
+            session.flush()  # populate conversation.id without committing
+            conversation_id = conversation.id
+
+            if not conversation_content:
+                session.commit()
+                return {
+                    "id": conversation_id,
+                    "name": self.conversation_name,
+                    "user_id": user_id,
+                }
+
+            def _ts_key(m):
+                ts = m.get("timestamp")
+                if ts:
+                    try:
+                        return _date_parser.parse(ts)
+                    except Exception:
+                        pass
+                return _date_parser.parse("2099-01-01")
+
+            sorted_msgs = sorted(conversation_content, key=_ts_key)
+
+            agent_name = default_agent_name
+            earliest_ts = None
+            for m in sorted_msgs:
+                role_val = m.get("role", "") or ""
+                if (
+                    agent_name == default_agent_name
+                    and role_val
+                    and role_val.upper() != "USER"
+                ):
+                    agent_name = role_val
+                ts = m.get("timestamp")
+                if ts:
+                    try:
+                        parsed = _date_parser.parse(ts)
+                        if earliest_ts is None or parsed < earliest_ts:
+                            earliest_ts = parsed
+                    except Exception:
+                        pass
+
+            completed_activity_ts = (
+                earliest_ts - _dt.timedelta(seconds=1) if earliest_ts else None
+            )
+
+            has_subactivities = any(
+                (m.get("message", "") or "").startswith("[SUBACTIVITY]")
+                for m in sorted_msgs
+            )
+            has_completed_activities = any(
+                (m.get("message", "") or "") == "[ACTIVITY] Completed activities."
+                for m in sorted_msgs
+            )
+
+            messages_to_add = []
+            completed_activity_id = None
+
+            # Synthesize a "Completed activities." parent if we have subactivities
+            # but no parent message in the import payload.
+            if has_subactivities and not has_completed_activities:
+                completed_activity_id = get_new_id()
+                synth = Message(
+                    id=completed_activity_id,
+                    role=agent_name,
+                    content="[ACTIVITY] Completed activities.",
+                    conversation_id=conversation_id,
+                    notify=False,
+                    sender_user_id=None,
+                )
+                if completed_activity_ts is not None:
+                    synth.timestamp = completed_activity_ts
+                    synth.updated_at = completed_activity_ts
+                messages_to_add.append(synth)
+
+            # First pass: regular messages and any included Completed activities.
+            for interaction in sorted_msgs:
+                raw = interaction.get("message", "") or ""
+                content = strip_control_chars(str(raw))
+                role_val = interaction.get("role", "") or ""
+                if not role_val:
+                    continue
+                if content.startswith("[SUBACTIVITY]"):
+                    continue  # processed in second pass
+
+                normalized_role = "USER" if role_val.lower() == "user" else role_val
+
+                while content.endswith("\n"):
+                    content = content[:-1]
+
+                msg_id = get_new_id()
+                if (
+                    content == "[ACTIVITY] Completed activities."
+                    and completed_activity_id is None
+                ):
+                    completed_activity_id = msg_id
+
+                sender_uid = user_id if normalized_role == "USER" else None
+
+                msg = Message(
+                    id=msg_id,
+                    role=normalized_role,
+                    content=content,
+                    conversation_id=conversation_id,
+                    notify=False,
+                    sender_user_id=sender_uid,
+                )
+
+                ts_val = interaction.get("timestamp")
+                if ts_val:
+                    try:
+                        parsed_ts = _date_parser.parse(ts_val)
+                        msg.timestamp = parsed_ts
+                        msg.updated_at = parsed_ts
+                    except Exception:
+                        pass
+
+                messages_to_add.append(msg)
+
+            # Second pass: subactivities, attached to completed_activity_id.
+            if completed_activity_id is not None:
+                for interaction in sorted_msgs:
+                    raw = interaction.get("message", "") or ""
+                    content = strip_control_chars(str(raw))
+                    role_val = interaction.get("role", "") or ""
+                    if not role_val or not content.startswith("[SUBACTIVITY]"):
+                        continue
+
+                    try:
+                        parts = content.split("]", 2)
+                        if len(parts) >= 3:
+                            tail = parts[2]
+                            new_content = (
+                                f"[SUBACTIVITY][{completed_activity_id}]{tail}"
+                            )
+                        else:
+                            new_content = (
+                                f"[SUBACTIVITY][{completed_activity_id}] "
+                                f"{content.split(']', 2)[-1]}"
+                            )
+                    except Exception:
+                        new_content = (
+                            f"[SUBACTIVITY][{completed_activity_id}] "
+                            f"{content.replace('[SUBACTIVITY]', '').lstrip()}"
+                        )
+
+                    while new_content.endswith("\n"):
+                        new_content = new_content[:-1]
+
+                    normalized_role = "USER" if role_val.lower() == "user" else role_val
+
+                    msg = Message(
+                        id=get_new_id(),
+                        role=normalized_role,
+                        content=new_content,
+                        conversation_id=conversation_id,
+                        notify=False,
+                        sender_user_id=None,
+                    )
+
+                    ts_val = interaction.get("timestamp")
+                    if ts_val:
+                        try:
+                            parsed_ts = _date_parser.parse(ts_val)
+                            msg.timestamp = parsed_ts
+                            msg.updated_at = parsed_ts
+                        except Exception:
+                            pass
+
+                    messages_to_add.append(msg)
+
+            if messages_to_add:
+                session.add_all(messages_to_add)
+            session.commit()
+
+            return {
+                "id": conversation_id,
+                "name": self.conversation_name,
+                "user_id": user_id,
+            }
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     def get_thinking_id(self, agent_name):
         import traceback

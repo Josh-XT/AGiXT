@@ -226,6 +226,369 @@ async def _ability_selection_inference(server_url: str, model: str, prompt: str)
         return ""
 
 
+def _small_model_inference_sync(
+    prompt: str,
+    temperature: float = 0.3,
+    max_tokens: int = 900,
+) -> str:
+    """
+    Synchronous call to the small (0.8B) model for utility tasks like summarization.
+    Uses the same server/model as ability selection.
+    """
+    import requests as _requests
+
+    server_url = getenv("ABILITY_SELECTION_SERVER", "")
+    model = getenv("ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-0.8B-GGUF")
+    if not server_url:
+        return ""
+
+    api_url = server_url.rstrip("/")
+    if "/v1" not in api_url:
+        api_url += "/v1"
+    api_url = api_url.rstrip("/") + "/chat/completions"
+
+    api_key = getenv("EZLOCALAI_API_KEY", "none") or "none"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temperature,
+        "top_p": 0.9,
+        "max_tokens": max_tokens,
+        "stream": False,
+    }
+
+    try:
+        resp = _requests.post(api_url, headers=headers, json=payload, timeout=(10, 120))
+        resp.raise_for_status()
+        data = resp.json()
+        response = data["choices"][0]["message"]["content"]
+        response = _RE_THINKING_REFLECTION.sub("", response).strip()
+        if "<answer>" in response:
+            response = response.split("<answer>")[-1]
+        if "</answer>" in response:
+            response = response.split("</answer>")[0]
+        return response.strip()
+    except Exception as e:
+        logging.error(f"[_small_model_inference_sync] Error: {e}")
+        return ""
+
+
+def generate_conversation_summary(
+    messages: list,
+    existing_summary: str = "",
+    conversation_name: str = "",
+) -> str:
+    """
+    Generate or update a conversation summary using the small model.
+
+    Args:
+        messages: List of dicts with 'role' and 'message' keys
+        existing_summary: Current summary to update (empty for new)
+        conversation_name: Name of the conversation for context
+
+    Returns:
+        Updated summary string
+    """
+    if not messages:
+        return existing_summary
+    logging.info(
+        f"[generate_conversation_summary] Starting for '{conversation_name}' ({len(messages)} messages)"
+    )
+
+    # Build conversation text, chunk through 100k at a time
+    CHUNK_SIZE = 100000
+    all_text = ""
+    for msg in messages:
+        role = msg.get("role", "unknown")
+        content = msg.get("message", "")
+        if (
+            not content
+            or content.startswith("[ACTIVITY]")
+            or content.startswith("[SUBACTIVITY]")
+        ):
+            continue
+        all_text += f"{role}: {content}\n\n"
+
+    if not all_text.strip():
+        return existing_summary
+
+    # Process in chunks
+    running_summary = existing_summary
+    chunks = []
+    for i in range(0, len(all_text), CHUNK_SIZE):
+        chunks.append(all_text[i : i + CHUNK_SIZE])
+
+    for chunk_idx, chunk in enumerate(chunks):
+        if running_summary:
+            prompt = f"""You are analyzing a conversation to maintain a living summary. Below is the current summary followed by the next portion of conversation.
+
+## Current Summary
+{running_summary}
+
+## Conversation Chunk ({chunk_idx + 1}/{len(chunks)})
+{chunk}
+
+## Instructions
+Update the summary to incorporate new information from this conversation chunk. The summary should capture:
+
+1. **Topics Discussed**: Key subjects and themes covered
+2. **User Preferences & Style**: Communication preferences, technical level, preferred approaches, what they like/dislike
+3. **Lessons Learned**: What worked well and what didn't. Successful approaches the AI used that the user responded positively to
+4. **Key Decisions**: Important choices or conclusions reached
+5. **User Context**: Personal/professional details shared that help understand the user better
+6. **AI Behavior Notes**: Things the AI did well (approaches that resolved the user's needs effectively) and things to avoid
+
+Keep the summary concise but comprehensive. Focus on durable insights that would be useful in future conversations. Remove outdated information if superseded. Write in third person about the user."""
+        else:
+            prompt = f"""You are analyzing a conversation to create a summary. Below is a portion of the conversation.
+
+## Conversation: {conversation_name}
+## Chunk ({chunk_idx + 1}/{len(chunks)})
+{chunk}
+
+## Instructions
+Create a summary of this conversation. The summary should capture:
+
+1. **Topics Discussed**: Key subjects and themes covered
+2. **User Preferences & Style**: Communication preferences, technical level, preferred approaches, what they like/dislike
+3. **Lessons Learned**: What worked well and what didn't. Successful approaches the AI used that the user responded positively to
+4. **Key Decisions**: Important choices or conclusions reached
+5. **User Context**: Personal/professional details shared that help understand the user better
+6. **AI Behavior Notes**: Things the AI did well (approaches that resolved the user's needs effectively) and things to avoid
+
+Keep the summary concise but comprehensive. Focus on durable insights that would be useful in future conversations. Write in third person about the user."""
+
+        result = _small_model_inference_sync(prompt, temperature=0.3)
+        if result:
+            running_summary = result
+            logging.info(
+                f"[generate_conversation_summary] Chunk {chunk_idx + 1}/{len(chunks)} processed ({len(result)} chars)"
+            )
+
+    logging.info(
+        f"[generate_conversation_summary] Complete for '{conversation_name}' ({len(running_summary)} chars)"
+    )
+    return running_summary
+
+
+async def update_conversation_summary_after_interaction(
+    conversation: "Conversations",
+    user_input: str,
+    agent_response: str,
+    agent_name: str,
+    user_id: str = "",
+):
+    """
+    Update the conversation summary after an interaction using the small model.
+    Also updates the persistent user knowledge profile.
+    Runs in a background thread to avoid blocking the response.
+    """
+    try:
+        conversation_name = conversation.conversation_name
+        logging.info(
+            f"[update_conversation_summary] Starting background update for '{conversation_name}'"
+        )
+
+        def _do_update():
+            existing_summary = conversation.get_conversation_summary()
+            if existing_summary:
+                prompt = f"""You are maintaining a living conversation summary. A new interaction just occurred.
+
+## Current Summary
+{existing_summary}
+
+## Latest Interaction
+User: {user_input[:12000]}
+
+{agent_name}: {agent_response[:12000]}
+
+## Instructions
+Update the summary to incorporate this latest interaction. Focus on:
+
+1. **New topics or context** introduced in this exchange
+2. **User preferences** revealed (communication style, what they want, how they respond)
+3. **What worked well** in the AI's response (if the user seemed satisfied or the request was resolved)
+4. **Lessons learned** about how to better serve this user
+5. **Key decisions or outcomes** from this exchange
+
+Keep previous summary content that's still relevant. Be concise but comprehensive. Write in third person about the user."""
+            else:
+                prompt = f"""You are creating an initial conversation summary based on an interaction.
+
+## Conversation: {conversation_name}
+
+## Interaction
+User: {user_input[:12000]}
+
+{agent_name}: {agent_response[:12000]}
+
+## Instructions
+Create an initial summary capturing:
+
+1. **Topics Discussed**: What this conversation is about
+2. **User Preferences & Style**: Any communication preferences or context about the user
+3. **What Worked Well**: Effective approaches used in the response
+4. **Key Outcomes**: Results or decisions from this exchange
+5. **User Context**: Any personal/professional details that help understand the user
+
+Be concise but comprehensive. Write in third person about the user."""
+
+            result = _small_model_inference_sync(
+                prompt,
+                temperature=0.3,
+                max_tokens=800,
+            )
+            if result:
+                conversation.set_conversation_summary(result)
+                logging.info(
+                    f"[update_conversation_summary] Saved summary for '{conversation_name}' ({len(result)} chars)"
+                )
+
+            # Also update persistent user knowledge profile
+            if user_id:
+                try:
+                    update_user_knowledge_after_interaction(
+                        user_id=user_id,
+                        user_input=user_input,
+                        agent_response=agent_response,
+                        agent_name=agent_name,
+                        conversation_name=conversation_name,
+                    )
+                except Exception as e:
+                    logging.warning(
+                        f"[update_user_knowledge] Error in background thread: {e}"
+                    )
+
+        import threading
+
+        thread = threading.Thread(target=_do_update, daemon=True)
+        thread.start()
+    except Exception as e:
+        logging.warning(f"[update_conversation_summary] Error: {e}")
+
+
+def get_user_knowledge(user_id: str) -> str:
+    """Get the agent-maintained knowledge about a user."""
+    from DB import get_session, User
+
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == user_id).first()
+        if user and user.knowledge:
+            return user.knowledge
+        return ""
+    except Exception as e:
+        logging.warning(f"[get_user_knowledge] Error: {e}")
+        return ""
+    finally:
+        session.close()
+
+
+def set_user_knowledge(user_id: str, knowledge: str) -> str:
+    """Set the agent-maintained knowledge about a user."""
+    from DB import get_session, User
+
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == user_id).first()
+        if user:
+            user.knowledge = knowledge
+            session.commit()
+            return knowledge
+        return ""
+    except Exception as e:
+        logging.warning(f"[set_user_knowledge] Error: {e}")
+        return ""
+    finally:
+        session.close()
+
+
+def update_user_knowledge_after_interaction(
+    user_id: str,
+    user_input: str,
+    agent_response: str,
+    agent_name: str,
+    conversation_name: str = "",
+):
+    """
+    Extract and update persistent user knowledge from an interaction.
+    Called synchronously from a background thread.
+    Focuses on personal details, preferences, and behavioral patterns — NOT code or technical content.
+    """
+    existing_knowledge = get_user_knowledge(user_id)
+
+    if existing_knowledge:
+        prompt = f"""You are maintaining a persistent knowledge profile about a user based on their interactions with an AI assistant. A new interaction just occurred.
+
+## Current User Knowledge
+{existing_knowledge}
+
+## Latest Interaction (Conversation: {conversation_name})
+User: {user_input[:8000]}
+
+{agent_name}: {agent_response[:8000]}
+
+## Instructions
+Update the user knowledge profile to incorporate any new personal insights from this interaction. Focus ONLY on:
+
+1. **Personal Details**: Names (family, pets, friends), locations, age, occupation, company, relationships
+2. **Preferences & Tastes**: Favorite things, communication style preferences, how they like to work, tools they prefer
+3. **Lifestyle**: Diet, exercise routine, hobbies, interests, daily habits, routines
+4. **Professional Context**: Role, industry, projects, team, goals, challenges
+5. **Communication Patterns**: How they ask questions, level of detail they want, tone preferences
+6. **Important Dates**: Birthdays, anniversaries, deadlines they've mentioned
+7. **Values & Priorities**: What matters to them, what frustrates them, what delights them
+
+DO NOT include:
+- Code snippets, technical implementations, or project-specific details
+- Conversation-specific task context (that belongs in conversation summaries)
+- Anything the user hasn't explicitly shared or strongly implied
+
+Keep previous knowledge that's still relevant. Remove anything that's been contradicted or corrected. Be concise — use bullet points. If there's nothing new to add about the user personally, return the existing knowledge unchanged."""
+    else:
+        prompt = f"""You are creating an initial knowledge profile about a user based on their interaction with an AI assistant.
+
+## Interaction (Conversation: {conversation_name})
+User: {user_input[:8000]}
+
+{agent_name}: {agent_response[:8000]}
+
+## Instructions
+Extract any personal insights about the user from this interaction. Focus ONLY on:
+
+1. **Personal Details**: Names (family, pets, friends), locations, age, occupation
+2. **Preferences & Tastes**: Communication style, how they like to work, tools they prefer  
+3. **Lifestyle**: Diet, exercise, hobbies, interests, daily habits
+4. **Professional Context**: Role, industry, projects, team, goals
+5. **Communication Patterns**: How they ask questions, level of detail they want
+6. **Values & Priorities**: What matters to them, what frustrates them
+
+DO NOT include code, technical details, or task-specific context.
+If there's nothing personal to extract from this interaction, respond with exactly: NO_UPDATE
+
+Be concise — use bullet points."""
+
+    result = _small_model_inference_sync(
+        prompt,
+        temperature=0.3,
+        max_tokens=600,
+    )
+    if result and result.strip().upper() != "NO_UPDATE":
+        set_user_knowledge(user_id, result)
+        preview = " ".join(result.split())[:220]
+        logging.info(
+            f"[update_user_knowledge] Saved knowledge for user {user_id[:8]}... ({len(result)} chars) preview='{preview}'"
+        )
+    elif result:
+        logging.info(
+            f"[update_user_knowledge] Model returned NO_UPDATE for user {user_id[:8]}..."
+        )
+
+
 async def stream_inference_to_string(agent, prompt: str, **kwargs) -> str:
     """
     Run inference with stream=True and collect the full response as a string.
@@ -1038,6 +1401,26 @@ class Interactions:
             context.append(
                 f"### Recent Activities and Conversation History\n{conversation_history}\n"
             )
+        # Inject conversation summary for long-term memory / alignment
+        try:
+            conversation_summary = c.get_conversation_summary()
+            if conversation_summary:
+                context.append(
+                    f"### Conversation Summary\nThe following is a living summary of this conversation capturing key topics, user preferences, lessons learned, and important context:\n{conversation_summary}\n"
+                )
+        except Exception as e:
+            log_silenced_exception(e, "format_prompt: getting conversation summary")
+        # Inject persistent user knowledge profile
+        try:
+            user_id = getattr(self, "user_id", "")
+            if user_id:
+                user_knowledge = get_user_knowledge(user_id)
+                if user_knowledge:
+                    context.append(
+                        f"### User Knowledge\nThe following are observations about this user gathered over time across conversations. Use this to personalize responses and remember important details about them:\n{user_knowledge}\n"
+                    )
+        except Exception as e:
+            log_silenced_exception(e, "format_prompt: getting user knowledge")
         persona = ""
         if "PERSONA" in self.agent.AGENT_CONFIG["settings"]:
             persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
@@ -5488,6 +5871,24 @@ Analyze the actual output shown and continue with your response.
                 agent_name=self.agent_name,
                 company_id=self.agent.company_id,
             )
+
+        # Update conversation summary in the background
+        if log_output and final_answer and user_input:
+            try:
+                from MagicalAuth import get_user_id as _get_uid
+
+                _resolved_user_id = str(_get_uid(self.user)) if self.user else ""
+                asyncio.create_task(
+                    update_conversation_summary_after_interaction(
+                        conversation=c,
+                        user_input=user_input,
+                        agent_response=final_answer,
+                        agent_name=self.agent_name,
+                        user_id=_resolved_user_id,
+                    )
+                )
+            except Exception as e:
+                log_silenced_exception(e, "chat: updating conversation summary")
 
         # Yield the complete answer
         yield {"type": "answer", "content": final_answer, "complete": True}

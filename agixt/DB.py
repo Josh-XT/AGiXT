@@ -628,6 +628,9 @@ class User(Base):
     status_mode = Column(
         String(20), nullable=True, default="online"
     )  # Presence mode: online, away, dnd, invisible
+    knowledge = Column(
+        Text, nullable=True, default=None
+    )  # Agent-maintained observations about the user (preferences, personal details, etc.)
     user_companys = relationship("UserCompany", back_populates="user")
 
 
@@ -4232,6 +4235,7 @@ def migrate_user_table():
         with get_db_session() as session:
             columns_to_add = [
                 ("tos_accepted_at", "TIMESTAMP"),
+                ("knowledge", "TEXT"),
             ]
 
             if DATABASE_TYPE == "sqlite":
@@ -8421,7 +8425,16 @@ def check_schema_migrations_needed():
     try:
         with get_db_session() as session:
             if DATABASE_TYPE == "sqlite":
-                # Check for bot_instance_id in company_extension_setting (newest migration)
+                # Check for knowledge column in user table (newest migration)
+                try:
+                    result = session.execute(text('PRAGMA table_info("user")'))
+                    columns = {row[1] for row in result.fetchall()}
+                    if "knowledge" not in columns:
+                        return True
+                except Exception:
+                    return True
+
+                # Check for bot_instance_id in company_extension_setting
                 try:
                     result = session.execute(
                         text("PRAGMA table_info(company_extension_setting)")
@@ -8442,6 +8455,18 @@ def check_schema_migrations_needed():
                     return True
             else:
                 # PostgreSQL - check for latest migration indicators
+                result = session.execute(
+                    text(
+                        """
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'user'
+                        AND column_name = 'knowledge'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    return True
+
                 result = session.execute(
                     text(
                         """
