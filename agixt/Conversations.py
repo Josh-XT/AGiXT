@@ -2335,7 +2335,13 @@ class Conversations:
             session.close()
             return response
 
-    def bulk_create_with_messages(self, conversation_content, default_agent_name="XT"):
+    def bulk_create_with_messages(
+        self,
+        conversation_content,
+        default_agent_name="XT",
+        created_at=None,
+        updated_at=None,
+    ):
         """Bulk-import a conversation with all messages in a single transaction.
 
         Optimized path used by historical importers (e.g. VS Code Copilot, ChatGPT
@@ -2345,9 +2351,33 @@ class Conversations:
         SUBACTIVITY/Completed activities. parent linkage, but issues a single
         INSERT for the conversation and one ``add_all`` + ``commit`` for all
         messages, eliminating the per-message fsync that dominates import time.
+
+        ``created_at`` / ``updated_at`` (ISO strings, datetimes, or epoch seconds)
+        are applied to the Conversation row so historical imports sort into their
+        original chronological position in the conversation list. If omitted, they
+        are derived from the earliest / latest message timestamps.
         """
         from dateutil import parser as _date_parser
         import datetime as _dt
+
+        def _coerce_dt(val):
+            if val is None:
+                return None
+            if isinstance(val, _dt.datetime):
+                return val
+            if isinstance(val, (int, float)):
+                # Heuristic: treat values larger than 10^12 as milliseconds
+                seconds = val / 1000.0 if val > 1e12 else float(val)
+                try:
+                    return _dt.datetime.fromtimestamp(seconds, tz=_dt.timezone.utc)
+                except Exception:
+                    return None
+            if isinstance(val, str):
+                try:
+                    return _date_parser.parse(val)
+                except Exception:
+                    return None
+            return None
 
         user_id = self._user_id
         session = get_session()
@@ -2365,19 +2395,22 @@ class Conversations:
                     "user_id": user_id,
                 }
 
+            _far_future = _dt.datetime(2099, 1, 1, tzinfo=_dt.timezone.utc)
+
             def _ts_key(m):
-                ts = m.get("timestamp")
-                if ts:
-                    try:
-                        return _date_parser.parse(ts)
-                    except Exception:
-                        pass
-                return _date_parser.parse("2099-01-01")
+                parsed = _coerce_dt(m.get("timestamp"))
+                if parsed is None:
+                    return _far_future
+                # Make naive datetimes comparable by assuming UTC
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=_dt.timezone.utc)
+                return parsed
 
             sorted_msgs = sorted(conversation_content, key=_ts_key)
 
             agent_name = default_agent_name
             earliest_ts = None
+            latest_ts = None
             for m in sorted_msgs:
                 role_val = m.get("role", "") or ""
                 if (
@@ -2386,14 +2419,12 @@ class Conversations:
                     and role_val.upper() != "USER"
                 ):
                     agent_name = role_val
-                ts = m.get("timestamp")
-                if ts:
-                    try:
-                        parsed = _date_parser.parse(ts)
-                        if earliest_ts is None or parsed < earliest_ts:
-                            earliest_ts = parsed
-                    except Exception:
-                        pass
+                parsed = _coerce_dt(m.get("timestamp"))
+                if parsed is not None:
+                    if earliest_ts is None or parsed < earliest_ts:
+                        earliest_ts = parsed
+                    if latest_ts is None or parsed > latest_ts:
+                        latest_ts = parsed
 
             completed_activity_ts = (
                 earliest_ts - _dt.timedelta(seconds=1) if earliest_ts else None
@@ -2461,14 +2492,10 @@ class Conversations:
                     sender_user_id=sender_uid,
                 )
 
-                ts_val = interaction.get("timestamp")
-                if ts_val:
-                    try:
-                        parsed_ts = _date_parser.parse(ts_val)
-                        msg.timestamp = parsed_ts
-                        msg.updated_at = parsed_ts
-                    except Exception:
-                        pass
+                parsed_ts = _coerce_dt(interaction.get("timestamp"))
+                if parsed_ts is not None:
+                    msg.timestamp = parsed_ts
+                    msg.updated_at = parsed_ts
 
                 messages_to_add.append(msg)
 
@@ -2513,16 +2540,23 @@ class Conversations:
                         sender_user_id=None,
                     )
 
-                    ts_val = interaction.get("timestamp")
-                    if ts_val:
-                        try:
-                            parsed_ts = _date_parser.parse(ts_val)
-                            msg.timestamp = parsed_ts
-                            msg.updated_at = parsed_ts
-                        except Exception:
-                            pass
+                    parsed_ts = _coerce_dt(interaction.get("timestamp"))
+                    if parsed_ts is not None:
+                        msg.timestamp = parsed_ts
+                        msg.updated_at = parsed_ts
 
                     messages_to_add.append(msg)
+
+            # Apply Conversation-level timestamps so historical imports sort
+            # into their original chronological position in the sidebar (which
+            # orders by Conversation.updated_at.desc()). Caller-provided values
+            # win; otherwise derive from message timestamps.
+            conv_created = _coerce_dt(created_at) or earliest_ts
+            conv_updated = _coerce_dt(updated_at) or latest_ts or conv_created
+            if conv_created is not None:
+                conversation.created_at = conv_created
+            if conv_updated is not None:
+                conversation.updated_at = conv_updated
 
             if messages_to_add:
                 session.add_all(messages_to_add)

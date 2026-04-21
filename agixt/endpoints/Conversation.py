@@ -67,7 +67,7 @@ import io
 import zipfile
 import threading
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from MagicalAuth import MagicalAuth, get_user_id
 from WorkerRegistry import worker_registry
 from Workspaces import WorkspaceManager
@@ -5152,6 +5152,22 @@ def _parse_copilot_export(data: list, agent_name: str) -> list:
     """
     role_assistant = agent_name
     conversations = []
+
+    def _ms_to_iso(value):
+        """VS Code stores timestamps as ms-since-epoch ints. Convert to ISO so the
+        downstream importer (which expects strings or datetimes) can parse them."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (int, float)):
+            try:
+                seconds = value / 1000.0 if value > 1e12 else float(value)
+                return datetime.fromtimestamp(seconds, tz=timezone.utc).isoformat()
+            except Exception:
+                return None
+        return None
+
     for sess in data:
         if not isinstance(sess, dict):
             continue
@@ -5160,11 +5176,14 @@ def _parse_copilot_export(data: list, agent_name: str) -> list:
         if not isinstance(requests, list) or not requests:
             continue
 
+        sess_created = _ms_to_iso(sess.get("creationDate"))
+        sess_updated = _ms_to_iso(sess.get("lastMessageDate"))
+
         messages = []
         for req in requests:
             if not isinstance(req, dict):
                 continue
-            ts = req.get("timestamp")
+            ts = _ms_to_iso(req.get("timestamp"))
 
             # --- USER message ---
             user_text = _copilot_request_text(req.get("message")).strip()
@@ -5220,6 +5239,48 @@ def _parse_copilot_export(data: list, agent_name: str) -> list:
                             continue
                         if kind == "prepareToolInvocation":
                             # Skipped: redundant with the matching toolInvocationSerialized
+                            continue
+                        if kind == "thinking":
+                            thinking_text = (
+                                _copilot_flat_text(item.get("value"))
+                                or item.get("text")
+                                or ""
+                            )
+                            if isinstance(thinking_text, str) and thinking_text.strip():
+                                subactivities.append(
+                                    {
+                                        "role": role_assistant,
+                                        "message": f"[SUBACTIVITY][0][THINKING] {thinking_text}",
+                                        "timestamp": ts,
+                                    }
+                                )
+                            continue
+                        if kind == "progressTaskSerialized":
+                            progress_text = _copilot_flat_text(item.get("content"))
+                            if progress_text and progress_text.strip():
+                                subactivities.append(
+                                    {
+                                        "role": role_assistant,
+                                        "message": f"[SUBACTIVITY][0][INFO] {progress_text}",
+                                        "timestamp": ts,
+                                    }
+                                )
+                            continue
+                        if kind == "elicitationSerialized":
+                            title = _copilot_flat_text(item.get("title"))
+                            body = _copilot_flat_text(item.get("message"))
+                            chunks = [c for c in (title, body) if c and c.strip()]
+                            if chunks:
+                                subactivities.append(
+                                    {
+                                        "role": role_assistant,
+                                        "message": "[SUBACTIVITY][0][INFO] "
+                                        + "\n".join(chunks),
+                                        "timestamp": ts,
+                                    }
+                                )
+                            continue
+                        if kind == "mcpServersStarting":
                             continue
                         if kind == "textEditGroup":
                             uri = _copilot_uri_path(item.get("uri"))
@@ -5278,7 +5339,12 @@ def _parse_copilot_export(data: list, agent_name: str) -> list:
                 )
 
         if messages:
-            conversations.append({"name": name, "messages": messages})
+            conv_dict = {"name": name, "messages": messages}
+            if sess_created:
+                conv_dict["created_at"] = sess_created
+            if sess_updated:
+                conv_dict["updated_at"] = sess_updated
+            conversations.append(conv_dict)
     return conversations
 
 
@@ -5359,7 +5425,11 @@ def _import_conversations_worker(
                 # log_interaction(), which is the dominant cost for large
                 # imports (Copilot conversations frequently contain 100+
                 # messages once expanded into USER + SUBACTIVITY entries).
-                c.bulk_create_with_messages(conversation_content=conversation_content)
+                c.bulk_create_with_messages(
+                    conversation_content=conversation_content,
+                    created_at=conv.get("created_at"),
+                    updated_at=conv.get("updated_at"),
+                )
 
                 # Summary generation is intentionally deferred. Calling
                 # generate_conversation_summary here issues an LLM request
