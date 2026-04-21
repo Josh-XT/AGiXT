@@ -5354,21 +5354,20 @@ def _import_conversations_worker(
                     conversation_name=full_name,
                     user=user,
                 )
-                c.new_conversation(conversation_content=conversation_content)
+                # Use the single-transaction bulk path for historical imports.
+                # This avoids the per-message DB session/commit cycle in
+                # log_interaction(), which is the dominant cost for large
+                # imports (Copilot conversations frequently contain 100+
+                # messages once expanded into USER + SUBACTIVITY entries).
+                c.bulk_create_with_messages(conversation_content=conversation_content)
 
-                # Generate summary for imported conversation
-                try:
-                    summary = generate_conversation_summary(
-                        messages=conversation_content,
-                        existing_summary="",
-                        conversation_name=full_name,
-                    )
-                    if summary:
-                        c.set_conversation_summary(summary)
-                except Exception as summary_err:
-                    logging.warning(
-                        f"Could not generate summary for '{full_name}': {summary_err}"
-                    )
+                # Summary generation is intentionally deferred. Calling
+                # generate_conversation_summary here issues an LLM request
+                # per conversation, which makes bulk historical imports
+                # (hundreds-to-thousands of conversations) take hours and
+                # block the worker on every iteration. Imported conversations
+                # without summaries simply get one generated lazily on first
+                # view, which is the same path new conversations follow.
 
                 imported_count += 1
             except Exception as e:
@@ -5387,40 +5386,13 @@ def _import_conversations_worker(
                     }
                 )
 
-        # After all conversations imported, update user knowledge from summaries
-        if imported_count > 0:
-            try:
-                from Interactions import update_user_knowledge_after_interaction
-
-                user_id = get_user_id(user)
-                if user_id:
-                    # Build a digest of all imported conversation summaries
-                    from Conversations import Conversations as ConvHelper
-
-                    summary_digest = []
-                    for conv in parsed[:50]:  # Cap at 50 to keep prompt manageable
-                        conv_name = conv.get("name", "")
-                        full_conv_name = (
-                            f"{agent_name}/{conv_name}" if agent_name else conv_name
-                        )
-                        try:
-                            ch = ConvHelper(conversation_name=full_conv_name, user=user)
-                            s = ch.get_conversation_summary()
-                            if s and len(s) > 50:
-                                summary_digest.append(f"**{conv_name}**: {s[:500]}")
-                        except Exception:
-                            pass
-                    if summary_digest:
-                        combined = "\n\n".join(summary_digest)
-                        update_user_knowledge_after_interaction(
-                            user_id=user_id,
-                            user_input=f"[Imported {imported_count} conversations from {source}]",
-                            agent_response=f"Conversation summaries from import:\n{combined}",
-                            agent_name=agent_name or "XT",
-                            conversation_name=f"Import from {source}",
-                        )
-            except Exception as e:
-                logging.warning(f"Could not update user knowledge after import: {e}")
+        # User-knowledge updates from bulk imports are intentionally skipped.
+        # The original implementation reloaded summaries for up to 50 imported
+        # conversations and fed them all into update_user_knowledge_after_interaction,
+        # which is another blocking LLM call with a multi-thousand-token prompt.
+        # That made finishing a large import an order of magnitude slower and
+        # offered little incremental value vs. the lazy summaries that get
+        # generated when a user opens each imported conversation.
 
         with _import_tasks_lock:
             _import_tasks[task_id].update(
