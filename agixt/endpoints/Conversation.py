@@ -5616,14 +5616,21 @@ async def upload_import_chunk(
     # Ensure upload directory exists
     os.makedirs(CHUNK_UPLOAD_DIR, exist_ok=True)
 
-    # Validate upload_id is a UUID to prevent path traversal
+    # Validate upload_id is a UUID to prevent path traversal. Reassign to the
+    # canonical UUID string form so downstream uses cannot contain any path
+    # separators or traversal sequences (sanitizes the user-provided value).
     try:
-        uuid.UUID(upload_id)
-    except ValueError:
+        upload_id = str(uuid.UUID(str(upload_id)))
+    except (ValueError, AttributeError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid upload_id")
 
-    # Save chunk to disk
-    chunk_path = os.path.join(CHUNK_UPLOAD_DIR, f"{upload_id}_chunk_{chunk_index}")
+    # Save chunk to disk. Build the path and verify it is contained within the
+    # upload directory as a defense-in-depth check against path injection.
+    upload_root = os.path.realpath(CHUNK_UPLOAD_DIR)
+    chunk_filename = f"{upload_id}_chunk_{int(chunk_index)}"
+    chunk_path = os.path.realpath(os.path.join(upload_root, chunk_filename))
+    if os.path.commonpath([upload_root, chunk_path]) != upload_root:
+        raise HTTPException(status_code=400, detail="Invalid upload path")
     with open(chunk_path, "wb") as f:
         f.write(chunk_data)
 
@@ -5654,7 +5661,13 @@ async def upload_import_chunk(
             ) as tmp:
                 tmp_path = tmp.name
                 for i in range(total_chunks):
-                    cp = os.path.join(CHUNK_UPLOAD_DIR, f"{upload_id}_chunk_{i}")
+                    cp = os.path.realpath(
+                        os.path.join(upload_root, f"{upload_id}_chunk_{int(i)}")
+                    )
+                    if os.path.commonpath([upload_root, cp]) != upload_root:
+                        raise HTTPException(
+                            status_code=400, detail="Invalid upload path"
+                        )
                     with open(cp, "rb") as f:
                         while True:
                             buf = f.read(1024 * 1024)
@@ -5680,7 +5693,11 @@ async def upload_import_chunk(
         finally:
             # Clean up chunk files and the assembled tempfile
             for i in range(total_chunks):
-                cp = os.path.join(CHUNK_UPLOAD_DIR, f"{upload_id}_chunk_{i}")
+                cp = os.path.realpath(
+                    os.path.join(upload_root, f"{upload_id}_chunk_{int(i)}")
+                )
+                if os.path.commonpath([upload_root, cp]) != upload_root:
+                    continue
                 try:
                     os.remove(cp)
                 except OSError:
