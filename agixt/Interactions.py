@@ -1201,6 +1201,17 @@ class Interactions:
         # Reserve some tokens for the response (about 25% of max)
         if max_context_tokens is None:
             max_context_tokens = int(self.agent.max_input_tokens * 0.75)
+        # Apply a hard ceiling so we never blow past the model server's real
+        # context window (e.g. ezlocalai n_ctx). Even when an agent is
+        # configured with a very large MAX_TOKENS, model coherence degrades
+        # well before 1M tokens, so we cap the *input* portion at 200k by
+        # default. Configurable via MAX_CONTEXT_TOKENS_HARD_CAP env var.
+        try:
+            hard_cap = int(getenv("MAX_CONTEXT_TOKENS_HARD_CAP", "200000"))
+        except (TypeError, ValueError):
+            hard_cap = 200000
+        if hard_cap > 0 and max_context_tokens > hard_cap:
+            max_context_tokens = hard_cap
         if "user_input" in kwargs and user_input == "":
             user_input = kwargs["user_input"]
         prompt_name = prompt if prompt != "" else "Custom Input"
@@ -2366,6 +2377,70 @@ Respond with ONLY the condensed summary, no preamble."""
                 # Stop iterating sections if we're under target
                 if reduced_tokens <= target_tokens:
                     break
+
+        # Step 4: Hard-truncation safety net. If summarization could not bring
+        # context under target (e.g. summarizer model failed, returned bloated
+        # output, or sections are too large to summarize in one pass), force
+        # the largest remaining sections down by raw token slicing. This
+        # guarantees we never hand the inference server a payload larger than
+        # its context window, which would otherwise produce a hard failure
+        # like "request (X tokens) exceeds the available context size".
+        if reduced_tokens > target_tokens:
+            # Order: drop file_contents first, then conversation/activities,
+            # then memories. Persona is preserved.
+            truncation_order = [
+                "file_contents",
+                "activities",
+                "conversation",
+                "conversation_history",
+                "memories",
+            ]
+            for section_name in truncation_order:
+                if reduced_tokens <= target_tokens:
+                    break
+                if section_name not in reduced_context:
+                    continue
+                content = reduced_context[section_name]
+                section_text = (
+                    "\n".join(str(item) for item in content)
+                    if isinstance(content, list)
+                    else str(content) if content else ""
+                )
+                section_tok = get_tokens(section_text)
+                if section_tok <= 0:
+                    continue
+                overage = reduced_tokens - target_tokens
+                # Leave at least 500 tokens of this section if possible.
+                keep_tokens = max(500, section_tok - overage)
+                if keep_tokens >= section_tok:
+                    continue
+                # Approximate token->char ratio (~4 chars/token is typical for
+                # English; we use the actual ratio for this section to be safe).
+                ratio = len(section_text) / max(section_tok, 1)
+                keep_chars = max(int(keep_tokens * ratio), 200)
+                # Prefer to keep the *tail* for conversational sections (most
+                # recent context), and the *head* for files/memories.
+                if section_name in (
+                    "conversation",
+                    "conversation_history",
+                    "activities",
+                ):
+                    truncated_text = (
+                        "[... older entries truncated for context size ...]\n"
+                        + section_text[-keep_chars:]
+                    )
+                else:
+                    truncated_text = (
+                        section_text[:keep_chars]
+                        + "\n[... remainder truncated for context size ...]"
+                    )
+                new_tok = get_tokens(truncated_text)
+                reduced_context[section_name] = truncated_text
+                reduced_tokens -= section_tok - new_tok
+                logging.warning(
+                    f"[reduce_context] Hard-truncated {section_name}: "
+                    f"{section_tok} -> {new_tok} tokens (target {target_tokens})"
+                )
 
         logging.info(
             f"[reduce_context] Final context: {reduced_tokens} tokens (target: {target_tokens})"
