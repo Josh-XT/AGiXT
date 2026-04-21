@@ -919,23 +919,22 @@ class Extensions:
                 )
             )
 
-        # Add chains as commands
-        # Use _chains_with_args directly to avoid triggering lazy load during load_commands()
-        if self._chains_with_args:
-            for chain in self._chains_with_args:
-                chain_name = chain["chain_name"]
-                commands.append(
-                    (
-                        chain_name,
-                        self.execute_chain,
-                        "execute_chain",
-                        {
-                            "chain_name": chain_name,
-                            "user_input": "",
-                            **{arg: "" for arg in chain["args"]},
-                        },
-                    )
+        # Add chains as commands - use the property to trigger lazy loading if needed
+        # (No recursion risk: get_command_args now uses metadata cache, not get_extensions)
+        for chain in self.chains_with_args or []:
+            chain_name = chain["chain_name"]
+            commands.append(
+                (
+                    chain_name,
+                    self.execute_chain,
+                    "execute_chain",
+                    {
+                        "chain_name": chain_name,
+                        "user_input": "",
+                        **{arg: "" for arg in chain["args"]},
+                    },
                 )
+            )
         return commands
 
     def find_command(self, command_name: str):
@@ -1063,7 +1062,7 @@ class Extensions:
                 agent_workspace, self.conversation_id
             ),
             # Use raw agent_id UUID in URL - serve_file route hashes it internally
-            "output_url": f"{agixt_server}/outputs/{self.agent_id}/{self.conversation_id}",
+            "output_url": f"{agixt_server}/outputs/{self.agent_id}/{self.conversation_id}/",
             **self.agent_config["settings"],
             **credentials,
         }
