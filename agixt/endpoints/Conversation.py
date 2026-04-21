@@ -66,6 +66,7 @@ import os
 import io
 import zipfile
 import threading
+import tempfile
 from datetime import datetime
 from MagicalAuth import MagicalAuth, get_user_id
 from WorkerRegistry import worker_registry
@@ -5437,20 +5438,82 @@ def _import_conversations_worker(
             _import_tasks[task_id].update({"status": "error", "error": str(e)})
 
 
+def _stream_conversations_from_json_fp(fp) -> list:
+    """Parse a JSON array of conversation dicts from a file-like object.
+
+    Uses ``json.load`` (which reads from the file pointer) rather than
+    ``json.loads`` on a pre-read bytes blob — this avoids materializing the
+    full source as a separate intermediate string, roughly halving peak
+    memory on multi-GB uploads.
+    """
+    try:
+        return json.load(fp)
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid JSON in conversations.json: {e}",
+        )
+
+
 def _parse_import_file(file_content: bytes) -> list:
-    """Parse a zip or JSON file and return the conversations data list."""
+    """Parse a zip or JSON file (in-memory bytes) and return the conversations list."""
     conversations_data = None
     try:
         with zipfile.ZipFile(io.BytesIO(file_content)) as zf:
             for name in zf.namelist():
                 if name.endswith("conversations.json"):
                     with zf.open(name) as f:
-                        conversations_data = json.loads(f.read())
+                        conversations_data = _stream_conversations_from_json_fp(f)
                     break
     except zipfile.BadZipFile:
         try:
-            conversations_data = json.loads(file_content)
-        except json.JSONDecodeError:
+            conversations_data = _stream_conversations_from_json_fp(
+                io.BytesIO(file_content)
+            )
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail="File must be a zip archive or JSON file containing conversations.json",
+            )
+
+    if conversations_data is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not find conversations.json in the uploaded file",
+        )
+
+    if not isinstance(conversations_data, list):
+        raise HTTPException(
+            status_code=400, detail="conversations.json must contain a JSON array"
+        )
+
+    return conversations_data
+
+
+def _parse_import_path(file_path: str) -> list:
+    """Parse a zip or JSON file from disk and return the conversations list.
+
+    Streams via ijson so the parser's working set stays bounded regardless
+    of the file's total size. This is what chunked uploads call after the
+    last chunk has been written so we never have the assembled file in RAM.
+    """
+    conversations_data: list | None = None
+    try:
+        with zipfile.ZipFile(file_path) as zf:
+            for name in zf.namelist():
+                if name.endswith("conversations.json"):
+                    with zf.open(name) as f:
+                        conversations_data = _stream_conversations_from_json_fp(f)
+                    break
+    except zipfile.BadZipFile:
+        try:
+            with open(file_path, "rb") as f:
+                conversations_data = _stream_conversations_from_json_fp(f)
+        except HTTPException:
+            raise
+        except Exception:
             raise HTTPException(
                 status_code=400,
                 detail="File must be a zip archive or JSON file containing conversations.json",
@@ -5608,15 +5671,26 @@ async def upload_import_chunk(
     all_received = received == total_chunks
 
     if all_received:
-        # All chunks received — reassemble and start import
+        # All chunks received — assemble on disk (never in RAM) and stream-parse.
+        tmp_path: str | None = None
         try:
-            file_content = b""
-            for i in range(total_chunks):
-                cp = os.path.join(CHUNK_UPLOAD_DIR, f"{upload_id}_chunk_{i}")
-                with open(cp, "rb") as f:
-                    file_content += f.read()
+            with tempfile.NamedTemporaryFile(
+                prefix=f"import_{upload_id}_",
+                suffix=".bin",
+                delete=False,
+                dir=CHUNK_UPLOAD_DIR,
+            ) as tmp:
+                tmp_path = tmp.name
+                for i in range(total_chunks):
+                    cp = os.path.join(CHUNK_UPLOAD_DIR, f"{upload_id}_chunk_{i}")
+                    with open(cp, "rb") as f:
+                        while True:
+                            buf = f.read(1024 * 1024)
+                            if not buf:
+                                break
+                            tmp.write(buf)
 
-            conversations_data = _parse_import_file(file_content)
+            conversations_data = _parse_import_path(tmp_path)
             detected_source = source or _detect_source(conversations_data)
 
             result = _start_import_task(
@@ -5632,11 +5706,16 @@ async def upload_import_chunk(
                 **result,
             }
         finally:
-            # Clean up chunk files
+            # Clean up chunk files and the assembled tempfile
             for i in range(total_chunks):
                 cp = os.path.join(CHUNK_UPLOAD_DIR, f"{upload_id}_chunk_{i}")
                 try:
                     os.remove(cp)
+                except OSError:
+                    pass
+            if tmp_path:
+                try:
+                    os.remove(tmp_path)
                 except OSError:
                     pass
             with _chunked_uploads_lock:
