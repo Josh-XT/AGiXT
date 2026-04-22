@@ -9,7 +9,8 @@ from fastapi import (
     Form,
     HTTPException,
 )
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse, Response
+import hashlib
 from pydantic import BaseModel
 from typing import Dict, List, Optional
 from ApiClient import verify_api_key, get_api_client, Agent
@@ -771,17 +772,42 @@ async def get_conversations(
     user=Depends(verify_api_key),
     limit: int = None,
     offset: int = 0,
+    if_none_match: str = Header(None, alias="If-None-Match"),
 ):
     c = Conversations(user=user)
+    # Cap the server-side response. Without a cap, this endpoint can return
+    # 2+ MB for power users, computing unread counts, DM names, and agent
+    # roles for every conversation. 500 is well above any UI pagination
+    # default and keeps responses bounded.
+    MAX_CONVERSATIONS = 500
+    if limit is None or limit <= 0 or limit > MAX_CONVERSATIONS:
+        limit = MAX_CONVERSATIONS
     # Pass limit/offset to the core method so expensive batch queries
     # (unread counts, DM names, agent roles) are only computed for the
     # paginated subset instead of all conversations.
     conversations = c.get_conversations_with_detail(limit=limit, offset=offset)
     if not conversations:
         conversations = {}
-    return {
-        "conversations": conversations,
-    }
+    # Conversations contain datetime values that JSONResponse can't serialize
+    # directly; use jsonable_encoder to normalize before hashing/sending.
+    from fastapi.encoders import jsonable_encoder
+
+    encoded = jsonable_encoder({"conversations": conversations})
+
+    # ETag based on response content. Lets the SSR layout fetch return 304
+    # Not Modified on warm navigation, avoiding the 100-400ms recompute of
+    # unread counts / DM names for every page hop.
+    etag_string = json.dumps(encoded, sort_keys=True)
+    etag = f'"{hashlib.sha256(etag_string.encode()).hexdigest()}"'
+    if if_none_match and if_none_match == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    return JSONResponse(
+        content=encoded,
+        headers={
+            "ETag": etag,
+            "Cache-Control": "private, max-age=5, stale-while-revalidate=15",
+        },
+    )
 
 
 class SearchMessagesRequest(BaseModel):

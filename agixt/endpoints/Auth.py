@@ -286,6 +286,7 @@ async def get_user(
     request: Request,
     authorization: str = Header(None),
     if_none_match: str = Header(None, alias="If-None-Match"),
+    light: bool = False,
 ):
     token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     auth = MagicalAuth(token=token)
@@ -296,6 +297,31 @@ async def get_user(
     user_data = data["user"]
     user_preferences = data["preferences"]
     companies = data["companies"]  # Already includes agents and scopes
+
+    # Light response: strip the heaviest fields that aren't needed for the
+    # initial app shell render (sidebar, header, identity). Callers that need
+    # full data (settings page, scope checks, etc.) call the endpoint without
+    # ?light=true. Used by the Next.js root layout SSR to keep TTFB low — the
+    # client re-fetches the full payload on mount via SWR `revalidateOnMount`.
+    if light and isinstance(companies, list):
+        slim_companies = []
+        for c in companies:
+            if not isinstance(c, dict):
+                slim_companies.append(c)
+                continue
+            slim = {k: v for k, v in c.items() if k not in ("scopes", "icon_url")}
+            agents = slim.get("agents")
+            if isinstance(agents, list):
+                slim["agents"] = [
+                    (
+                        {ak: av for ak, av in a.items() if ak != "commands"}
+                        if isinstance(a, dict)
+                        else a
+                    )
+                    for a in agents
+                ]
+            slim_companies.append(slim)
+        companies = slim_companies
 
     response_data = {
         "id": auth.user_id,
@@ -335,12 +361,20 @@ async def get_user(
     if if_none_match and if_none_match == etag:
         return Response(status_code=304, headers={"ETag": etag})
 
-    # Return full response with ETag header
+    # Return full response with ETag header.
+    # For the light variant we let the browser cache it briefly so rapid
+    # back/forward navigation doesn't re-hit the API. Full responses still
+    # require revalidation since they include scopes/commands that may change.
+    cache_control = (
+        "private, max-age=10, stale-while-revalidate=30"
+        if light
+        else "private, max-age=0, must-revalidate"
+    )
     return JSONResponse(
         content=response_data,
         headers={
             "ETag": etag,
-            "Cache-Control": "private, max-age=0, must-revalidate",
+            "Cache-Control": cache_control,
         },
     )
 
