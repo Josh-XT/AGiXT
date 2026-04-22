@@ -497,9 +497,7 @@ class web_browsing(Extensions):
         messages = [{"role": "user", "content": user_input}]
 
         payload = {
-            "model": os.environ.get(
-                "DEFAULT_MODEL", "unsloth/Qwen3-4B-Instruct-2507-GGUF"
-            ),
+            "model": os.environ.get("DEFAULT_MODEL", "unsloth/Qwen3.6-35B-A3B-GGUF"),
             "messages": messages,
             "stream": True,
             "max_tokens": 4096,

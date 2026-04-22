@@ -919,22 +919,11 @@ class Extensions:
                 )
             )
 
-        # Add chains as commands - use the property to trigger lazy loading if needed
-        # (No recursion risk: get_command_args now uses metadata cache, not get_extensions)
-        for chain in self.chains_with_args or []:
-            chain_name = chain["chain_name"]
-            commands.append(
-                (
-                    chain_name,
-                    self.execute_chain,
-                    "execute_chain",
-                    {
-                        "chain_name": chain_name,
-                        "user_input": "",
-                        **{arg: "" for arg in chain["args"]},
-                    },
-                )
-            )
+        # NOTE: Chains are NOT added eagerly here. Computing chains_with_args is
+        # expensive (queries chains/steps/args/prompts) and Extensions() is
+        # instantiated frequently (per agent, per company, per request). Chains
+        # are looked up lazily in find_command() as a fallback when the command
+        # isn't found among the cached extension commands.
         return commands
 
     def find_command(self, command_name: str):
@@ -999,6 +988,19 @@ class Extensions:
                     if isinstance(module, type):
                         command_function = getattr(module, function_name)
                         return command_function, module, params
+
+        # Fallback: command not found in extensions cache. Check if it's a chain.
+        # Lazy-loaded here so the expensive chains_with_args computation only
+        # runs when an unknown command is being resolved.
+        if command_name in (self.chains or []):
+            for chain in self.chains_with_args or []:
+                if chain["chain_name"] == command_name:
+                    params = {
+                        "chain_name": command_name,
+                        "user_input": "",
+                        **{arg: "" for arg in chain["args"]},
+                    }
+                    return self.execute_chain, None, params
 
         return None, None, None
 
