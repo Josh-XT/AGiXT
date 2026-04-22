@@ -457,17 +457,15 @@ class web_browsing(Extensions):
             raise
 
     async def _call_prompt_agent(self, timeout: int = None, **kwargs):
-        """Call LLM via streaming chat completions endpoint for faster response.
+        """Call the LLM via the agent's standard inference path.
 
-        IMPORTANT: This calls ezlocalai directly to get the RAW LLM response.
-        The AGiXT /v1/chat/completions endpoint filters thinking tags and only
-        returns answer content, but for web browsing we need the full XML
-        response including <interaction> and <step> tags.
+        This routes through ``Agent.inference()`` so the call honors the
+        agent's configured provider rotation (ezlocalai, OpenAI, etc.),
+        billing, and webhook events — the same way every other internal
+        AGiXT inference does. The provider's raw streamed text is
+        collected into a string and returned, so XML response tags like
+        ``<interaction>`` and ``<step>`` are preserved.
         """
-        import httpx
-        import json as json_module
-        import asyncio
-
         start_time = time.time()
         effective_timeout = timeout or 120
 
@@ -479,80 +477,33 @@ class web_browsing(Extensions):
         if not user_input:
             raise ValueError("No user_input provided for LLM call")
 
-        # Call ezlocalai directly to get raw LLM response
-        # The AGiXT endpoint filters thinking tags - we need the full response for XML parsing
-        # Check both EZLOCALAI_URI (standard) and EZLOCALAI_URL (legacy) env vars
-        ezlocalai_url = (
-            os.environ.get("EZLOCALAI_URI")
-            or os.environ.get("EZLOCALAI_URL")
-            or "http://localhost:8091"
-        ).rstrip("/")
-        # If URL already ends with /v1, don't add it again
-        if ezlocalai_url.endswith("/v1"):
-            url = f"{ezlocalai_url}/chat/completions"
-        else:
-            url = f"{ezlocalai_url}/v1/chat/completions"
+        if not self.agent_id or not self.ApiClient:
+            raise RuntimeError(
+                "Cannot perform inference: agent_id and ApiClient are required."
+            )
 
-        # Build chat completions request for ezlocalai
-        messages = [{"role": "user", "content": user_input}]
+        from Agent import Agent
 
-        payload = {
-            "model": os.environ.get("DEFAULT_MODEL", "unsloth/Qwen3.6-35B-A3B-GGUF"),
-            "messages": messages,
-            "stream": True,
-            "max_tokens": 4096,
-            "temperature": 0.7,
-        }
-
-        headers = {
-            "Content-Type": "application/json",
-        }
-
-        async def do_streaming_request():
-            response_text = ""
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(effective_timeout + 30, connect=10.0)
-            ) as client:
-                async with client.stream(
-                    "POST", url, json=payload, headers=headers
-                ) as response:
-                    if response.status_code != 200:
-                        error_body = await response.aread()
-                        raise RuntimeError(
-                            f"Chat completions failed with status {response.status_code}: {error_body.decode()}"
-                        )
-
-                    async for line in response.aiter_lines():
-                        if not line:
-                            continue
-                        if line.startswith("data: "):
-                            data = line[6:]  # Remove "data: " prefix
-                            if data.strip() == "[DONE]":
-                                break
-                            try:
-                                chunk = json_module.loads(data)
-                                if "choices" in chunk and chunk["choices"]:
-                                    delta = chunk["choices"][0].get("delta", {})
-                                    content = delta.get("content", "")
-                                    if content:
-                                        response_text += content
-                            except json_module.JSONDecodeError:
-                                continue
-            return response_text
+        agent = Agent(
+            agent_id=self.agent_id,
+            ApiClient=self.ApiClient,
+            user=self.user,
+        )
 
         try:
             logging.debug(
-                f"Starting streaming chat completion to ezlocalai with timeout={effective_timeout}s..."
+                f"Starting agent inference with timeout={effective_timeout}s..."
             )
 
-            # Use asyncio.wait_for to enforce hard timeout on the entire streaming operation
             response_text = await asyncio.wait_for(
-                do_streaming_request(), timeout=effective_timeout
+                agent.inference(prompt=user_input),
+                timeout=effective_timeout,
             )
 
             elapsed = time.time() - start_time
+            response_text = response_text or ""
             logging.debug(
-                f"Streaming chat completion completed in {elapsed:.1f}s, response length: {len(response_text)}"
+                f"Agent inference completed in {elapsed:.1f}s, response length: {len(response_text)}"
             )
             logging.info(
                 f"Response: {response_text[:500]}..."
@@ -563,18 +514,13 @@ class web_browsing(Extensions):
 
         except asyncio.TimeoutError:
             elapsed = time.time() - start_time
-            error_msg = f"LLM streaming call timed out after {elapsed:.1f}s (timeout was {effective_timeout}s)"
-            logging.error(error_msg)
-            raise TimeoutError(error_msg)
-        except httpx.TimeoutException as e:
-            elapsed = time.time() - start_time
-            error_msg = f"LLM streaming call timed out after {elapsed:.1f}s (timeout was {effective_timeout}s)"
+            error_msg = f"Agent inference timed out after {elapsed:.1f}s (timeout was {effective_timeout}s)"
             logging.error(error_msg)
             raise TimeoutError(error_msg)
         except Exception as e:
             elapsed = time.time() - start_time
             logging.error(
-                f"Error in streaming chat completion after {elapsed:.1f}s: {e}",
+                f"Error in agent inference after {elapsed:.1f}s: {e}",
                 exc_info=True,
             )
             raise
