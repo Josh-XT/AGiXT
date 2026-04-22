@@ -1128,45 +1128,128 @@ class Interactions:
         if task and task.cancelled():
             raise asyncio.CancelledError("Task was cancelled by user")
 
+    # Directories that are noisy / huge and should be collapsed in the
+    # workspace file tree shown to the agent. The directory itself is still
+    # listed (so the agent knows it exists) but its contents are replaced
+    # with a "..." marker. The agent can use shell commands to inspect them
+    # if it really needs to.
+    _COLLAPSED_TREE_DIRS = frozenset(
+        {
+            "node_modules",
+            ".git",
+            ".venv",
+            "venv",
+            "env",
+            ".env",
+            "__pycache__",
+            ".mypy_cache",
+            ".pytest_cache",
+            ".ruff_cache",
+            ".tox",
+            ".next",
+            ".nuxt",
+            ".cache",
+            ".turbo",
+            ".parcel-cache",
+            "dist",
+            "build",
+            "out",
+            "target",
+            ".gradle",
+            ".idea",
+            ".vscode",
+            ".DS_Store",
+            "coverage",
+            ".nyc_output",
+            "vendor",
+            "bower_components",
+            ".terraform",
+            ".serverless",
+            "site-packages",
+            "Pods",
+            "DerivedData",
+        }
+    )
+
+    # Hard cap on number of nodes (files + dirs) rendered in the tree.
+    # Prevents pathological workspaces from blowing up context.
+    _FILE_TREE_MAX_NODES = 500
+
     @staticmethod
     def _build_file_tree(file_paths: list) -> str:
         """Build an indented file tree string from a list of relative file paths.
+
+        Collapses noisy directories (node_modules, .git, .venv, etc.) to a
+        "..." marker and truncates trees larger than ``_FILE_TREE_MAX_NODES``
+        nodes so it can never blow out the context window.
 
         Example output:
           ├── report.csv
           ├── data/
           │   ├── input.xlsx
           │   └── output.json
+          ├── node_modules/
+          │   └── ... (collapsed, use terminal to inspect)
           └── notes.txt
         """
         if not file_paths:
             return "(empty)"
-        # Build a nested dict representing the directory structure
+        collapsed = Interactions._COLLAPSED_TREE_DIRS
+        max_nodes = Interactions._FILE_TREE_MAX_NODES
+
+        # Build a nested dict representing the directory structure.
+        # When we encounter a path component whose name is in the collapsed
+        # set, we mark that node as collapsed and stop descending.
         tree = {}
+        collapsed_dirs = set()  # ids of dict nodes that are collapsed
         for path in sorted(file_paths):
             parts = path.replace("\\", "/").split("/")
             node = tree
-            for part in parts:
+            for idx, part in enumerate(parts):
                 if part not in node:
                     node[part] = {}
-                node = node[part]
+                child = node[part]
+                # If this component is a noisy dir AND it's not the leaf file,
+                # mark it collapsed and skip its descendants.
+                is_dir = idx < len(parts) - 1
+                if is_dir and part in collapsed:
+                    collapsed_dirs.add(id(child))
+                    break
+                node = child
 
         lines = []
+        node_count = [0]
+        truncated = [False]
 
         def _render(node, prefix=""):
             entries = sorted(node.keys(), key=lambda k: (not bool(node[k]), k.lower()))
             for i, name in enumerate(entries):
+                if node_count[0] >= max_nodes:
+                    truncated[0] = True
+                    return
                 is_last = i == len(entries) - 1
                 connector = "└── " if is_last else "├── "
                 child = node[name]
-                if child:  # directory
+                if child or id(child) in collapsed_dirs:  # directory
                     lines.append(f"{prefix}{connector}{name}/")
+                    node_count[0] += 1
                     extension = "    " if is_last else "│   "
-                    _render(child, prefix + extension)
+                    if id(child) in collapsed_dirs:
+                        lines.append(
+                            f"{prefix}{extension}└── ... (collapsed, use terminal to inspect)"
+                        )
+                        node_count[0] += 1
+                    else:
+                        _render(child, prefix + extension)
                 else:  # file
                     lines.append(f"{prefix}{connector}{name}")
+                    node_count[0] += 1
 
         _render(tree)
+        if truncated[0]:
+            lines.append(
+                f"... (tree truncated at {max_nodes} entries, use terminal to inspect more)"
+            )
         return "\n".join(lines)
 
     def custom_format(self, string, **kwargs):
@@ -3413,7 +3496,26 @@ Example: Open Remote Terminal, Execute in Terminal, Get Terminal Output, Vision 
                 )
                 if os.path.isdir(workspace_dir):
                     existing_files = []
+                    collapsed_dirs_seen = set()
                     for root, dirs, files in os.walk(workspace_dir):
+                        # Prune noisy directories in-place so os.walk skips
+                        # descending into them (avoids enumerating millions
+                        # of node_modules/.git files). We still record one
+                        # placeholder path so the directory shows up in the
+                        # rendered tree as collapsed.
+                        pruned = [d for d in dirs if d in self._COLLAPSED_TREE_DIRS]
+                        for d in pruned:
+                            collapsed_path = os.path.relpath(
+                                os.path.join(root, d), workspace_dir
+                            )
+                            if collapsed_path not in collapsed_dirs_seen:
+                                collapsed_dirs_seen.add(collapsed_path)
+                                # Add a sentinel child so _build_file_tree
+                                # registers this as a collapsed directory.
+                                existing_files.append(f"{collapsed_path}/__collapsed__")
+                        dirs[:] = [
+                            d for d in dirs if d not in self._COLLAPSED_TREE_DIRS
+                        ]
                         for f in files:
                             rel_path = os.path.relpath(
                                 os.path.join(root, f), workspace_dir
