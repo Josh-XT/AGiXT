@@ -2486,7 +2486,7 @@ def get_default_env_vars():
         "MAIN_GPU": "0",
         "NGROK_TOKEN": "",
         "EZLOCALAI_URL": "http://localhost:8091",
-        "DEFAULT_MODEL": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+        "DEFAULT_MODEL": "unsloth/Qwen3.6-3.5B-A3B-GGUF",
         "VISION_MODEL": "",
         "IMG_MODEL": "",
         "WHISPER_MODEL": "base",
