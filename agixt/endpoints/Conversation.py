@@ -2196,53 +2196,102 @@ async def rename_conversation(
     c = agixt.conversation
     if rename.new_conversation_name == "-":
         conversation_list = c.get_conversations()
-        response = await agixt.inference(
-            user_input=f"Rename conversation",
-            prompt_name="Name Conversation",
-            conversation_list="\n".join(conversation_list),
-            conversation_results=10,
-            websearch=False,
-            browse_links=False,
-            voice_response=False,
-            log_user_input=False,
-            log_output=False,
-        )
-        if "```json" not in response and "```" in response:
-            response = response.replace("```", "```json", 1)
-        if "```json" in response:
-            response = response.split("```json")[1].split("```")[0].strip()
+        # Build a hardcoded prompt for naming the conversation. We do NOT use
+        # the prompt template files here because they are only re-imported on
+        # database seed and edits won't take effect on existing installs.
+        # Pull the recent conversation history to base the name on.
         try:
-            response = json.loads(response)
-            new_name = response["suggested_conversation_name"]
-            if new_name in conversation_list:
-                # Do not use {new_name}!
-                response = await agixt.inference(
-                    user_input=f"**Do not use {new_name}!**",
-                    prompt_name="Name Conversation",
-                    conversation_list="\n".join(conversation_list),
-                    conversation_results=10,
-                    websearch=False,
-                    browse_links=False,
-                    voice_response=False,
-                    log_user_input=False,
-                    log_output=False,
-                )
-                if "```json" not in response and "```" in response:
-                    response = response.replace("```", "```json", 1)
-                if "```json" in response:
-                    response = response.split("```json")[1].split("```")[0].strip()
-                response = json.loads(response)
-                new_name = response["suggested_conversation_name"]
-                if new_name in conversation_list:
-                    new_name = datetime.now().strftime(
-                        "Conversation Created %Y-%m-%d %I:%M %p"
+            messages = c.get_conversation(limit=20, page=1)
+            if isinstance(messages, dict) and "interactions" in messages:
+                messages = messages["interactions"]
+            history_lines = []
+            for m in messages or []:
+                role = m.get("role", "user") if isinstance(m, dict) else "user"
+                msg = m.get("message", "") if isinstance(m, dict) else str(m)
+                if not msg:
+                    continue
+                # Skip activity/system noise.
+                if msg.startswith("[ACTIVITY]") or msg.startswith("[SUBACTIVITY]"):
+                    continue
+                history_lines.append(f"{role}: {msg}")
+            conversation_history = "\n".join(history_lines[-20:])
+        except Exception:
+            conversation_history = ""
+
+        def _build_name_prompt(extra: str = "") -> str:
+            return (
+                "You are naming a chat conversation for a sidebar list.\n"
+                "Return ONLY a JSON object with one key: suggested_conversation_name.\n\n"
+                "Rules:\n"
+                "- The name must be a SHORT title of 2 to 6 words (max 60 characters).\n"
+                "- It is a TITLE, not a summary, sentence, or description.\n"
+                "- No trailing punctuation. No surrounding quotes. No markdown.\n"
+                "- Use spaces, not underscores. No '#' characters.\n"
+                "- Must be unique vs. the existing names listed below.\n"
+                "- Base it on the actual topic of the conversation, not something generic.\n\n"
+                f"Existing conversation names to NOT reuse:\n{chr(10).join(conversation_list) if conversation_list else '(none)'}\n\n"
+                f"Recent conversation history:\n{conversation_history or '(empty)'}\n\n"
+                f"{extra}"
+                "Respond with JSON only, e.g.:\n"
+                '```json\n{"suggested_conversation_name": "Short Title Here"}\n```'
+            )
+
+        async def _ask_for_name(extra: str = "") -> str:
+            prompt = _build_name_prompt(extra)
+            return await agixt.agent.inference(prompt=prompt)
+
+        def _parse_name(raw: str) -> str:
+            text = raw or ""
+            if "```json" not in text and "```" in text:
+                text = text.replace("```", "```json", 1)
+            if "```json" in text:
+                text = text.split("```json")[1].split("```")[0].strip()
+            try:
+                data = json.loads(text)
+                return str(data.get("suggested_conversation_name", "")).strip()
+            except Exception:
+                # Fall back to first non-empty line of the raw response.
+                for line in (raw or "").splitlines():
+                    line = line.strip().strip('"').strip("'")
+                    if line:
+                        return line
+                return ""
+
+        try:
+            new_name = _parse_name(await _ask_for_name())
+            if not new_name or new_name in conversation_list:
+                new_name = _parse_name(
+                    await _ask_for_name(
+                        extra=f"**Do not use {new_name}!** Pick a different short title.\n\n"
                     )
-        except:
+                )
+            if not new_name or new_name in conversation_list:
+                new_name = datetime.now().strftime(
+                    "Conversation Created %Y-%m-%d %I:%M %p"
+                )
+        except Exception:
             new_name = datetime.now().strftime("Conversation Created %Y-%m-%d %I:%M %p")
         rename.new_conversation_name = new_name.replace("_", " ")
     if "#" in rename.new_conversation_name:
         rename.new_conversation_name = str(rename.new_conversation_name).replace(
             "#", ""
+        )
+    # Enforce a short conversation title. The AI is supposed to return a brief
+    # title (not a summary), but cap the length defensively in case it returns
+    # a sentence or paragraph.
+    rename.new_conversation_name = (
+        rename.new_conversation_name.strip().strip('"').strip("'")
+    )
+    # Take only the first line if it returned multiple lines.
+    rename.new_conversation_name = (
+        rename.new_conversation_name.splitlines()[0]
+        if rename.new_conversation_name
+        else rename.new_conversation_name
+    )
+    # Truncate to a reasonable title length.
+    if len(rename.new_conversation_name) > 60:
+        rename.new_conversation_name = (
+            rename.new_conversation_name[:60].rstrip() + "..."
         )
     c.rename_conversation(new_name=rename.new_conversation_name)
     c = Conversations(conversation_name=rename.new_conversation_name, user=user)
