@@ -8545,5 +8545,43 @@ def run_all_schema_migrations():
     migrate_cleanup_duplicate_wallet_settings()
     migrate_extract_data_urls_from_messages()
     migrate_backfill_channel_participants()
+    migrate_remove_outreach_bot_settings()
 
     logging.info("All schema migrations complete")
+
+
+def migrate_remove_outreach_bot_settings():
+    """
+    Migration to remove all outreach bot configuration. The outreach bot has
+    been disabled because it was eating tokens without producing useful results.
+
+    Removes:
+      - All CompanyExtensionSetting rows where extension_name == 'outreach'
+      - All ServerExtensionSetting rows where extension_name == 'outreach'
+
+    Idempotent: safe to run repeatedly. Cheap when nothing matches.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            company_deleted = (
+                session.query(CompanyExtensionSetting)
+                .filter(CompanyExtensionSetting.extension_name == "outreach")
+                .delete(synchronize_session=False)
+            )
+            server_deleted = (
+                session.query(ServerExtensionSetting)
+                .filter(ServerExtensionSetting.extension_name == "outreach")
+                .delete(synchronize_session=False)
+            )
+            session.commit()
+            total = (company_deleted or 0) + (server_deleted or 0)
+            if total > 0:
+                logging.info(
+                    f"Removed {total} outreach bot setting(s) "
+                    f"(company={company_deleted}, server={server_deleted})"
+                )
+    except Exception as e:
+        logging.error(f"Error removing outreach bot settings: {e}")

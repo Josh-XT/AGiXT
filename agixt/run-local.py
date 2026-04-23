@@ -129,6 +129,15 @@ def _run_extension_and_role_setup(DB, hub_ready_event=None):
         DB.initialize_extension_tables()
         startup_timer.section_end("initialize_extension_tables", section_start)
 
+        # Always remove outreach bot settings — the outreach bot is disabled.
+        # Runs even when schema migrations are skipped (fast-path).
+        section_start = startup_timer.section_start()
+        try:
+            DB.migrate_remove_outreach_bot_settings()
+        except Exception as e:
+            logger.warning(f"Failed to remove outreach bot settings: {e}")
+        startup_timer.section_end("remove_outreach_bot_settings", section_start)
+
         # Signal that hub is cloned and extension tables are ready
         # so seed_data can start import_extensions in parallel
         if hub_ready_event is not None:
@@ -426,10 +435,11 @@ async def start_service(is_restart=False):
         await start_discord_bots()
         startup_timer.section_end("Discord Bot Manager startup", section_start)
 
-        # Start Outreach Bot Manager as a background task (non-blocking)
-        section_start = startup_timer.section_start()
-        await start_outreach_bots()
-        startup_timer.section_end("Outreach Bot Manager startup", section_start)
+        # Outreach Bot Manager has been disabled — it consumed tokens without
+        # producing useful results. Kept code below commented out for reference.
+        # section_start = startup_timer.section_start()
+        # await start_outreach_bots()
+        # startup_timer.section_end("Outreach Bot Manager startup", section_start)
 
         # Print the startup timing report
         startup_timer.report(logger)
@@ -532,6 +542,7 @@ async def restart_service():
     try:
         # Stop bot managers first
         await stop_discord_bots()
+        # Outreach bot manager is disabled, but stop is a safe no-op if it was started.
         await stop_outreach_bots()
 
         # Kill existing uvicorn process if any

@@ -1117,6 +1117,11 @@ class Interactions:
         self.chain = Chain(user=user)
         self.cp = Prompts(user=user)
         self._processed_commands = set()
+        # Cumulative count of commands skipped because they were already-executed.
+        # Used by run_stream to detect a model stuck regenerating commands across
+        # many iterations even when one new variant slips through each round.
+        self._total_dedup_count = 0
+        self._last_iteration_dedup_count = 0
 
     def _check_cancelled(self):
         """
@@ -5619,12 +5624,54 @@ Analyze the actual output shown and continue with your response.
                 # productive (model is writing/fixing code) and shouldn't count as "stuck"
                 # BUT: if broke_for_execution but ALL commands were deduplicated,
                 # that's NOT productive — treat it like a non-exec iteration
+                # Hard cap on cumulative dedupes — even when at least one new command
+                # runs each iteration, if the model has been regenerating already-processed
+                # commands en masse, it is stuck. Break out and let the fallback answer
+                # extraction finalize the response. Threshold chosen high enough to allow
+                # legitimate retries (e.g. on transient errors) but low enough to terminate
+                # the runaway loops we have observed in the wild.
+                if self._total_dedup_count >= 15:
+                    logging.warning(
+                        f"[run_stream] Excessive dedup loop detected at iteration {continuation_count}. "
+                        f"Total cumulative deduplicated commands={self._total_dedup_count}. "
+                        f"Breaking out of continuation loop."
+                    )
+                    if has_incomplete_answer:
+                        self.response += "</answer>"
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message="[SUBACTIVITY][CONTINUATION] Finalizing response (dedup cap reached)...",
+                    )
+                    break
                 if broke_for_execution and _cont_commands_executed > 0:
                     _previous_iteration_executed = True
                     _no_answer_non_exec_streak = 0  # Reset streak on real execution
-                    _consecutive_dedup_iterations = (
-                        0  # Reset dedup streak on real execution
-                    )
+                    # Only reset dedup streak if this iteration had ZERO dedupes —
+                    # if some new commands ran but old ones were also regenerated,
+                    # the model is still partially stuck.
+                    if getattr(self, "_last_iteration_dedup_count", 0) == 0:
+                        _consecutive_dedup_iterations = 0
+                    else:
+                        _consecutive_dedup_iterations += 1
+                        logging.info(
+                            f"[run_stream] Iteration {continuation_count}: mixed iteration — "
+                            f"{_cont_commands_executed} new commands ran but "
+                            f"{self._last_iteration_dedup_count} were deduplicated. "
+                            f"Consecutive partial-dedup iterations: {_consecutive_dedup_iterations}."
+                        )
+                        if _consecutive_dedup_iterations >= 5:
+                            logging.warning(
+                                f"[run_stream] Mixed dedup loop detected at iteration {continuation_count}. "
+                                f"{_consecutive_dedup_iterations} consecutive iterations with partial dedupes. "
+                                f"Breaking out of continuation loop."
+                            )
+                            if has_incomplete_answer:
+                                self.response += "</answer>"
+                            c.log_interaction(
+                                role=self.agent_name,
+                                message="[SUBACTIVITY][CONTINUATION] Finalizing response (mixed-dedup loop)...",
+                            )
+                            break
                 else:
                     if broke_for_execution and _cont_commands_executed == 0:
                         # Broke for execution but everything was deduplicated
@@ -6211,6 +6258,7 @@ Analyze the actual output shown and continue with your response.
 
         if commands_to_execute:
             commands_actually_executed = 0
+            commands_deduplicated_this_call = 0
             for command_block, command_name, command_args in commands_to_execute:
                 # Check for cancellation before each command
                 self._check_cancelled()
@@ -6223,11 +6271,33 @@ Analyze the actual output shown and continue with your response.
                 command_id = f"{position}:{command_name}:{json.dumps(command_args, sort_keys=True)}"
                 # Skip if we've already processed this exact command
                 if command_id in self._processed_commands:
+                    commands_deduplicated_this_call += 1
+                    self._total_dedup_count += 1
                     logging.warning(
                         f"[execution_agent] Skipping already-processed command: {command_name} "
                         f"(args: {json.dumps(command_args, sort_keys=True)[:200]}). "
                         f"This usually means the model lost context about previous executions "
-                        f"and regenerated the same command."
+                        f"and regenerated the same command. "
+                        f"(iteration dedupes={commands_deduplicated_this_call}, "
+                        f"total dedupes={self._total_dedup_count})"
+                    )
+                    # Replace the offending command block in the response with an
+                    # explicit per-command rejection notice so the model sees on
+                    # the NEXT inference exactly which call was skipped and why.
+                    # Without this the model only sees its own raw <execute> tag
+                    # and has no signal that the call was rejected, which is a
+                    # primary driver of the regenerate-same-command loop.
+                    rejection_notice = (
+                        f"<output>[REJECTED — DUPLICATE] The command `{command_name}` "
+                        f"with the exact same arguments was already executed earlier in this "
+                        f"task. Its output is shown above. The system rejected this "
+                        f"re-execution to avoid redundant work. "
+                        f"Either: (a) call a DIFFERENT command, (b) call `{command_name}` "
+                        f"with DIFFERENT arguments, or (c) if you have enough information, "
+                        f"finalize your answer in <answer></answer> tags.</output>"
+                    )
+                    reformatted_response = reformatted_response.replace(
+                        command_block, rejection_notice, 1
                     )
                     continue
 
@@ -6549,4 +6619,7 @@ Analyze the actual output shown and continue with your response.
             return 0
         if reformatted_response != self.response:
             self.response = reformatted_response
+        # Expose dedup count for this call so run_stream can detect stuck loops
+        # even when at least one new command slipped through each iteration.
+        self._last_iteration_dedup_count = commands_deduplicated_this_call
         return commands_actually_executed
