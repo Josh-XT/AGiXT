@@ -2244,22 +2244,58 @@ async def rename_conversation(
         except Exception:
             conversation_history = ""
 
+        # These prefixes indicate the model returned a summary/description instead
+        # of a short title.  Any parsed name starting with one of these is
+        # treated as a bad result and triggers a retry.
+        _BAD_TITLE_PREFIXES = (
+            "topics discussed",
+            "topics:",
+            "topic:",
+            "summary",
+            "conversation",
+            "discussion",
+            "chat",
+            "overview",
+            "about:",
+            "subject:",
+            "re:",
+            "regarding",
+        )
+
+        def _is_bad_name(name: str) -> bool:
+            if not name:
+                return True
+            lower = name.lower().strip()
+            if any(lower.startswith(p) for p in _BAD_TITLE_PREFIXES):
+                return True
+            # Bad if it reads like a sentence (contains a period mid-name or
+            # exceeds a reasonable word count for a sidebar title).
+            if len(name.split()) > 8:
+                return True
+            return False
+
         def _build_name_prompt(extra: str = "") -> str:
             return (
-                "You are naming a chat conversation for a sidebar list.\n"
-                "Return ONLY a JSON object with one key: suggested_conversation_name.\n\n"
-                "Rules:\n"
-                "- The name must be a SHORT title of 2 to 6 words (max 60 characters).\n"
-                "- It is a TITLE, not a summary, sentence, or description.\n"
-                "- No trailing punctuation. No surrounding quotes. No markdown.\n"
+                "You are assigning a name to a chat conversation for display in a sidebar list.\n"
+                "Your response MUST be a single JSON object and nothing else — no preamble, no explanation.\n\n"
+                "STRICT Rules for the name:\n"
+                "- 2 to 5 words maximum (hard limit: 50 characters).\n"
+                "- It is a SHORT, SPECIFIC TITLE — not a summary, sentence, or label.\n"
+                "- FORBIDDEN first words: 'Topics', 'Summary', 'Conversation', 'Discussion',\n"
+                "  'Chat', 'Overview', 'About', 'Subject', 'Re', 'Regarding'.\n"
+                "- No colons, trailing punctuation, surrounding quotes, or markdown.\n"
                 "- Use spaces, not underscores. No '#' characters.\n"
                 "- Must be unique vs. the existing names listed below.\n"
-                "- Base it on the actual topic of the conversation, not something generic.\n\n"
+                "- Reflect the SPECIFIC subject matter — never something generic.\n\n"
+                "GOOD examples: 'Python Unit Testing', 'Mars Mission Budget',\n"
+                "               'React Hook Errors', 'Resume Formatting Tips'\n"
+                "BAD examples:  'Topics Discussed: AI', 'Conversation About Code',\n"
+                "               'Summary of Chat', 'Discussion Overview', 'Chat Session'\n\n"
                 f"Existing conversation names to NOT reuse:\n{chr(10).join(conversation_list) if conversation_list else '(none)'}\n\n"
-                f"Recent conversation history:\n{conversation_history or '(empty)'}\n\n"
+                f"Conversation history to name:\n{conversation_history or '(empty)'}\n\n"
                 f"{extra}"
-                "Respond with JSON only, e.g.:\n"
-                '```json\n{"suggested_conversation_name": "Short Title Here"}\n```'
+                "Return ONLY JSON — no text before or after it.\n"
+                'Format: {"suggested_conversation_name": "Short Title Here"}'
             )
 
         async def _ask_for_name(extra: str = "") -> str:
@@ -2268,6 +2304,7 @@ async def rename_conversation(
 
         def _parse_name(raw: str) -> str:
             text = raw or ""
+            # Strip code fences.
             if "```json" not in text and "```" in text:
                 text = text.replace("```", "```json", 1)
             if "```json" in text:
@@ -2276,22 +2313,52 @@ async def rename_conversation(
                 data = json.loads(text)
                 return str(data.get("suggested_conversation_name", "")).strip()
             except Exception:
-                # Fall back to first non-empty line of the raw response.
-                for line in (raw or "").splitlines():
-                    line = line.strip().strip('"').strip("'")
-                    if line:
-                        return line
-                return ""
+                pass
+            # Try to extract the JSON value with a regex even if the full
+            # parse failed (e.g. model added trailing text after the closing }).
+            import re as _re
+
+            match = _re.search(
+                r'"suggested_conversation_name"\s*:\s*"([^"]+)"', raw or ""
+            )
+            if match:
+                return match.group(1).strip()
+            # Last resort: return the first non-empty line that doesn't look
+            # like preamble/junk.
+            junk_starts = (
+                "topics",
+                "summary",
+                "conversation",
+                "discussion",
+                "chat",
+                "overview",
+                "{",
+                "}",
+                "```",
+                "#",
+                "*",
+            )
+            for line in (raw or "").splitlines():
+                line = line.strip().strip('"').strip("'").strip("`").strip("*")
+                if line and not any(line.lower().startswith(j) for j in junk_starts):
+                    return line
+            return ""
 
         try:
             new_name = _parse_name(await _ask_for_name())
-            if not new_name or new_name in conversation_list:
+            if _is_bad_name(new_name) or new_name in conversation_list:
+                bad = new_name or "(empty)"
                 new_name = _parse_name(
                     await _ask_for_name(
-                        extra=f"**Do not use {new_name}!** Pick a different short title.\n\n"
+                        extra=(
+                            f'The previous attempt returned "{bad}" which is NOT acceptable.\n'
+                            "It must be a specific 2-5 word title that reflects the actual subject.\n"
+                            "Do NOT start with 'Topics Discussed', 'Summary', 'Conversation', "
+                            "or any similar generic word.\n\n"
+                        )
                     )
                 )
-            if not new_name or new_name in conversation_list:
+            if _is_bad_name(new_name) or new_name in conversation_list:
                 new_name = datetime.now().strftime(
                     "Conversation Created %Y-%m-%d %I:%M %p"
                 )
