@@ -170,15 +170,21 @@ try:
         @event.listens_for(engine, "connect")
         def set_sqlite_pragma(dbapi_connection, connection_record):
             cursor = dbapi_connection.cursor()
-            # Use DELETE mode instead of WAL for simpler multi-process consistency
-            # WAL mode can cause read/write visibility issues with multiple processes
-            cursor.execute("PRAGMA journal_mode=DELETE")
-            # Synchronous FULL ensures data is written to disk before continuing
-            cursor.execute("PRAGMA synchronous=FULL")
+            # WAL mode allows concurrent readers while a single writer is active.
+            # This is critical for multi-worker performance: machine agents poll
+            # every few seconds (writing last_checkin), and without WAL those writes
+            # block all reads — causing 7+ second delays on GET /v1/machines.
+            cursor.execute("PRAGMA journal_mode=WAL")
+            # NORMAL is safe with WAL (data is durable after each transaction)
+            # and significantly faster than FULL (no fsync on every commit).
+            cursor.execute("PRAGMA synchronous=NORMAL")
             # Enable foreign keys
             cursor.execute("PRAGMA foreign_keys=ON")
-            # Set busy timeout to 30 seconds (in milliseconds)
-            cursor.execute("PRAGMA busy_timeout=30000")
+            # Set busy timeout to 10 seconds (in milliseconds); WAL contention is
+            # rare so a shorter timeout catches real deadlocks faster.
+            cursor.execute("PRAGMA busy_timeout=10000")
+            # Keep WAL file small; checkpoint after 1000 pages (~4MB)
+            cursor.execute("PRAGMA wal_autocheckpoint=1000")
             cursor.close()
 
     else:

@@ -976,29 +976,23 @@ async def reset_mfa(
 
 @app.post(
     "/v1/user/tos/accept",
-    dependencies=[Depends(verify_api_key)],
     response_model=Detail,
     summary="Accept Terms of Service",
     tags=["Auth"],
 )
 async def accept_tos(
     request: Request,
-    authorization: str = Header(None),
+    user=Depends(verify_api_key),
 ):
     """Record that the user has accepted the Terms of Service."""
-    token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
-    auth = MagicalAuth(token=token)
-    client_ip = request.headers.get("X-Forwarded-For") or request.client.host
-    user_data = auth.login(ip_address=client_ip)
-
     # Update the user's TOS acceptance timestamp
     from DB import get_session, User
 
     session = get_session()
     try:
-        user = session.query(User).filter(User.id == auth.user_id).first()
-        if user:
-            user.tos_accepted_at = datetime.now()
+        db_user = session.query(User).filter(User.id == user["id"]).first()
+        if db_user:
+            db_user.tos_accepted_at = datetime.now()
             session.commit()
             return Detail(detail="Terms of Service accepted successfully.")
         else:
