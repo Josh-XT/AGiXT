@@ -4204,7 +4204,18 @@ class Agent:
                     f"[get_commands_prompt] Found {len(client_commands)} client-defined tools: {[c['friendly_name'] for c in client_commands]}"
                 )
 
-            agent_commands = "## Available Commands\n\n**See command execution examples of commands that the assistant has access to below:**\n"
+            agent_commands = (
+                "## Available Commands\n\n"
+                "**See command execution examples of commands that the assistant has access to below:**\n\n"
+                "**STRICT ARGUMENT RULES — read carefully:**\n"
+                "- For each command, you MUST use the EXACT XML argument tag names shown in its execution format below. "
+                "Do NOT rename, abbreviate, or invent argument tags (e.g. do not send `<task>` when the format shows `<prompt>`, "
+                "do not send `<file>` when it shows `<filename>`).\n"
+                "- If you previously called a command and it appears to have done the wrong thing, the most likely cause is "
+                "that you used a wrong argument tag name. Re-check the command's execution format below before retrying.\n"
+                "- If an argument is optional you may omit its tag entirely; never send placeholder text like `null`, `none`, "
+                "or `The assistant will fill in the value`.\n\n"
+            )
 
             # First add client-defined tools as a special extension section
             if client_commands:

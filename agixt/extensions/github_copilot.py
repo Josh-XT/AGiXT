@@ -103,18 +103,23 @@ class github_copilot(Extensions):
 
     async def ask_github_copilot(
         self,
-        prompt: str,
+        prompt: str = "",
         branch: str = "",
         session_id: str = None,
+        **kwargs,
     ) -> str:
         """
         Send a request to GitHub Copilot CLI, which is an agentic coding assistant.
 
         Args:
-            prompt (str): The detailed request or task to send to GitHub Copilot
+            prompt (str): The detailed instructions to send to GitHub Copilot describing
+                          what you want it to do. Always pass this as the `prompt` argument.
+                          (Aliases `task`, `instructions`, `request`, `query`, `message`,
+                          and `input` are also accepted for robustness, but `prompt` is
+                          the canonical name.)
             branch (str): Optional branch name to work in. If specified, Copilot will checkout
                           or create this branch before making changes. If not specified,
-                          Copilot will create a new feature branch based on the task.
+                          Copilot will create a new feature branch based on the request.
             session_id (str): Optional session ID to resume a previous conversation. If provided,
                               Copilot will continue from where the previous session left off.
                               Leave empty or set to None to start a new session.
@@ -124,29 +129,36 @@ class github_copilot(Extensions):
                  The response also includes the session_id which can be used to continue
                  the conversation in future requests.
 
-        Note: If the users request might require coding, use "Ask GitHub Copilot" with a detailed request including links to which repositories to work in if applicable.
-        The agent's workspace will be shared with GitHub Copilot. Any data manipulation or coding tasks should use GitHub Copilot.
+        Note: If the user's request might require coding, use "Ask GitHub Copilot" with a
+        detailed `prompt` argument including links to which repositories to work in if applicable.
+        The agent's workspace will be shared with GitHub Copilot. Any data manipulation or
+        coding work should use GitHub Copilot.
 
         **IMPORTANT: If this command is available and the user asks to do ANYTHING related to GitHub
         (repositories, code, PRs, issues, branches, commits, merging, cloning, pushing, etc.),
         the assistant should delegate that request to GitHub Copilot using this command.**
+
+        **Argument names matter.** When emitting the `<execute>` block for this command, the
+        XML tag for the instructions you want Copilot to perform MUST be `<prompt>`. Do not
+        invent argument names like `<task>`, `<instructions>`, `<request>`, etc. — only
+        `<prompt>`, `<branch>`, and `<session_id>` are valid argument tags here.
 
         GitHub Copilot CLI can read, modify, create, and delete files in the working directory.
         It runs in an isolated Docker container (SafeExecute) with the agent's workspace mounted,
         allowing it to safely make changes to the codebase.
 
         This command should be used for:
-        - ANY GitHub-related tasks (clone repos, create PRs, merge branches, push commits, etc.)
-        - Complex code refactoring tasks
+        - ANY GitHub-related work (clone repos, create PRs, merge branches, push commits, etc.)
+        - Complex code refactoring
         - Generating new code files
         - Debugging and fixing issues in repositories
         - Code analysis and explanation
-        - Any task that requires AI-assisted code manipulation
+        - Any work that requires AI-assisted code manipulation
         - Working with git repositories (commits, branches, merges, rebases)
         - Creating, reviewing, or modifying pull requests
 
         Keywords that should trigger using this command: github, repo, repository, clone, fork,
-        pull request, PR, merge, branch, commit, push, pull, git, code, copilot, coding task
+        pull request, PR, merge, branch, commit, push, pull, git, code, copilot, coding
 
         Note: This command requires a **fine-grained** GitHub Personal Access Token (PAT)
         that starts with 'github_pat_'. Classic PATs (ghp_...) are NOT supported.
@@ -157,6 +169,36 @@ class github_copilot(Extensions):
         3. Under "Account permissions", enable "Copilot" with Read and write access
         4. Use the generated token (starts with 'github_pat_') as your GITHUB_COPILOT_TOKEN
         """
+        # Accept common alias arg names for `prompt`. Some models invent
+        # parameter names like "task" or "instructions" because the docstring
+        # uses those words colloquially. Rather than silently dropping those
+        # values (which would cause us to fall back to the last user message
+        # and produce confusing/wrong behavior), accept them here.
+        if (not prompt) or (
+            isinstance(prompt, str) and prompt.strip().lower() in ("", "none", "null")
+        ):
+            for _alias in (
+                "task",
+                "instructions",
+                "instruction",
+                "request",
+                "query",
+                "message",
+                "input",
+                "user_input",
+                "description",
+                "details",
+                "content",
+            ):
+                _val = kwargs.get(_alias)
+                if _val and str(_val).strip().lower() not in ("none", "null"):
+                    logging.info(
+                        f"[GitHub Copilot] Received '{_alias}' arg; treating as 'prompt'. "
+                        f"Please call this command with the canonical 'prompt' parameter."
+                    )
+                    prompt = _val
+                    break
+
         # If the agent didn't provide a prompt, fall back to the last user message
         prompt_str = str(prompt).strip() if prompt else ""
         if not prompt_str or prompt_str.lower() in ("none", "null"):
