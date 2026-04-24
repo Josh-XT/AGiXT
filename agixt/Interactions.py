@@ -2332,13 +2332,49 @@ Example: memories, persona, files"""
                     self.agent, prompt=section_selection_prompt
                 )
 
-            if selection_response.strip().lower() == "all":
-                # Need all sections, but may need to prune within sections
+            # Robust parser: strip code fences, markdown bold/italics, quotes,
+            # backticks, and any leading "answer:"/"keep:" prefixes that small
+            # models commonly produce. Without this, a single stray ``` or
+            # whitespace can cause the keep-list to be empty, dropping ALL
+            # context to 0 tokens (observed in production logs).
+            raw = (selection_response or "").strip()
+            # Remove fenced code blocks of any language
+            raw = re.sub(r"```[a-zA-Z0-9_-]*\n?", "", raw)
+            raw = raw.replace("```", "")
+            # Remove common preambles
+            raw = re.sub(
+                r"^(?:answer|keep|sections?|response)\s*[:\-]\s*",
+                "",
+                raw,
+                flags=re.IGNORECASE,
+            )
+            # Strip wrapping quotes/backticks/markdown emphasis
+            raw = raw.strip().strip("`'\"*_ \n\t")
+
+            valid_section_names = {k.lower() for k in context_sections.keys()}
+
+            if raw.lower() in ("all", "*", "everything", "keep all"):
                 sections_to_keep = list(context_sections.keys())
             else:
-                sections_to_keep = [
-                    s.strip().lower() for s in selection_response.split(",")
+                # Split on commas/newlines/semicolons and clean each token
+                candidates = [
+                    re.sub(r"[`'\"*_]", "", s).strip().lower()
+                    for s in re.split(r"[,\n;]+", raw)
                 ]
+                candidates = [c for c in candidates if c]
+                # Keep only candidates that are actually valid section names
+                sections_to_keep = [c for c in candidates if c in valid_section_names]
+                # SAFETY NET: if parser produced nothing valid, the selector
+                # output was malformed — keep ALL sections rather than drop
+                # everything to 0 tokens. The summarization step below will
+                # still bring us under target.
+                if not sections_to_keep:
+                    logging.warning(
+                        f"[reduce_context] Selector returned unparseable response "
+                        f"({selection_response!r}); keeping all sections and "
+                        f"relying on summarization."
+                    )
+                    sections_to_keep = list(context_sections.keys())
 
             logging.info(f"[reduce_context] Sections to keep: {sections_to_keep}")
 
@@ -2351,10 +2387,7 @@ Example: memories, persona, files"""
         reduced_tokens = 0
 
         for section_name, content in context_sections.items():
-            if (
-                section_name.lower() in sections_to_keep
-                or section_name.lower() == "persona"
-            ):
+            if section_name.lower() in sections_to_keep:
                 reduced_context[section_name] = content
                 reduced_tokens += section_tokens[section_name]
             else:
@@ -2417,14 +2450,36 @@ Respond with ONLY the condensed summary, no preamble."""
 
                     if summary and len(summary) > 50:
                         new_tokens = get_tokens(summary)
+                        # Quality guard: if the summarizer collapsed the
+                        # section to under 25% of the requested target, the
+                        # output is almost certainly lossy beyond usefulness
+                        # (observed: 17,438 -> 422 tokens, 97.6% loss). Reject
+                        # and fall through to bounded truncation instead so we
+                        # preserve actionable detail (e.g. flux numbers,
+                        # persona-driven analysis rules).
+                        min_acceptable = max(500, int(target_section_tokens * 0.25))
+                        if (
+                            new_tokens < min_acceptable
+                            and section_tok > min_acceptable * 4
+                        ):
+                            logging.warning(
+                                f"[reduce_context] Rejecting over-aggressive "
+                                f"summary for {section_name}: {section_tok} -> "
+                                f"{new_tokens} tokens (target ~{target_section_tokens}, "
+                                f"min acceptable {min_acceptable}). Falling back "
+                                f"to bounded truncation."
+                            )
+                            # Force the fallback path below
+                            summary = ""
+                            new_tokens = section_tok
                         saved = section_tok - new_tokens
-                        if saved > 0:
+                        if summary and saved > 0:
                             reduced_context[section_name] = summary
                             reduced_tokens -= saved
                             logging.info(
                                 f"[reduce_context] Summarized {section_name}: {section_tok} -> {new_tokens} tokens (saved {saved})"
                             )
-                    else:
+                    if not summary or len(summary) <= 50:
                         # Summarization failed, fall back to truncation
                         if isinstance(content, list) and len(content) > 3:
                             if section_name in [
