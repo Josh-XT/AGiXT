@@ -1,2 +1,2 @@
-safeexecute==0.0.31
+safeexecute==0.0.32
 gpsoauth>=1.1.1

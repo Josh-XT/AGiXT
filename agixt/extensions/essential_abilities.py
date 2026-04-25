@@ -521,8 +521,136 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
                             )
                             return candidate
         path_dir = os.path.dirname(new_path)
-        os.makedirs(path_dir, exist_ok=True)
+        if path_dir:
+            try:
+                os.makedirs(path_dir, exist_ok=True)
+            except PermissionError:
+                if not self._repair_workspace_permissions():
+                    raise
+                os.makedirs(path_dir, exist_ok=True)
         return new_path
+
+    def _repair_workspace_permissions(self) -> bool:
+        """Best-effort repair for workspace files created by root sandbox containers."""
+        try:
+            from safeexecute import repair_workspace_permissions
+
+            if repair_workspace_permissions(self.WORKING_DIRECTORY):
+                return True
+        except Exception as e:
+            logging.warning(
+                f"Unable to repair workspace permissions with SafeExecute: {e}"
+            )
+
+        try:
+            uid = os.getuid()
+            gid = os.getgid()
+        except AttributeError:
+            uid = 0
+            gid = 0
+
+        if uid != 0:
+            try:
+                import docker
+
+                image_name = "joshxt/safeexecute:latest"
+                try:
+                    import safeexecute
+
+                    image_name = getattr(safeexecute, "IMAGE_NAME", image_name)
+                except Exception:
+                    pass
+
+                docker_volume_path = self.WORKING_DIRECTORY
+                if os.path.exists("/.dockerenv"):
+                    host_workspace = os.environ.get("WORKING_DIRECTORY")
+                    if host_workspace:
+                        workspace_marker = "/WORKSPACE"
+                        if workspace_marker in self.WORKING_DIRECTORY:
+                            relative_part = self.WORKING_DIRECTORY.split(
+                                workspace_marker, 1
+                            )[1]
+                            docker_volume_path = (
+                                host_workspace.rstrip("/") + relative_part
+                            )
+                        else:
+                            docker_volume_path = host_workspace
+
+                client = docker.from_env()
+                try:
+                    client.images.get(image_name)
+                except Exception:
+                    client.images.pull(image_name)
+
+                repair_script = f"""
+find /workspace -xdev \\( -uid 0 -o -gid 0 \\) -exec chown -h {uid}:{gid} {{}} + 2>/dev/null || true
+find /workspace -xdev -type d -uid {uid} -exec chmod u+rwx {{}} + 2>/dev/null || true
+find /workspace -xdev -type f -uid {uid} -exec chmod u+rw {{}} + 2>/dev/null || true
+""".strip()
+                container = client.containers.run(
+                    image_name,
+                    ["bash", "-c", repair_script],
+                    volumes={
+                        os.path.abspath(docker_volume_path): {
+                            "bind": "/workspace",
+                            "mode": "rw",
+                        }
+                    },
+                    working_dir="/workspace",
+                    stderr=True,
+                    stdout=True,
+                    detach=True,
+                )
+                result = container.wait()
+                exit_code = result.get("StatusCode", 0)
+                logs = container.logs().decode("utf-8", errors="replace")
+                container.remove(force=True)
+                if exit_code == 0:
+                    return True
+                logging.warning(
+                    f"Docker workspace permission repair exited with {exit_code}: {logs}"
+                )
+            except Exception as e:
+                logging.warning(
+                    f"Unable to repair workspace permissions with Docker: {e}"
+                )
+
+        repaired_any = False
+        try:
+            for root, dirs, files in os.walk(self.WORKING_DIRECTORY):
+                for dirname in dirs:
+                    try:
+                        os.chmod(os.path.join(root, dirname), 0o755)
+                        repaired_any = True
+                    except Exception:
+                        continue
+                for filename in files:
+                    try:
+                        os.chmod(os.path.join(root, filename), 0o644)
+                        repaired_any = True
+                    except Exception:
+                        continue
+        except Exception as e:
+            logging.warning(f"Unable to chmod workspace files: {e}")
+        return repaired_any
+
+    def _run_with_permission_repair(self, action):
+        try:
+            return action()
+        except PermissionError:
+            if not self._repair_workspace_permissions():
+                raise
+            return action()
+
+    def _write_text_file(self, filepath: str, content: str) -> None:
+        def write_file():
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(content)
+
+        self._run_with_permission_repair(write_file)
+
+    def _remove_file(self, filepath: str) -> None:
+        self._run_with_permission_repair(lambda: os.remove(filepath))
 
     @staticmethod
     def we_are_running_in_a_docker_container() -> bool:
@@ -734,8 +862,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         """
         try:
             filepath = self.safe_join(filename)
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(text)
+            self._write_text_file(filepath, text)
             return f"File {filename} written successfully. The user can access it at {self.output_url}{filename}"
         except Exception as e:
             return f"Error writing file: {str(e)}"
@@ -1246,8 +1373,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
             modified_content = content.replace(old_text, new_text)
 
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(modified_content)
+            self._write_text_file(filepath, modified_content)
 
             return f"File {filename} modified successfully. The user can access it at {self.output_url}{filename}"
         except Exception as e:
@@ -1268,7 +1394,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         try:
             filepath = self.safe_join(filename)
             if os.path.exists(filepath):
-                os.remove(filepath)
+                self._remove_file(filepath)
                 return f"File {filename} deleted successfully."
             else:
                 return f"Error: File {filename} does not exist."
@@ -5001,8 +5127,7 @@ On the sidebar, expanding `Automation` reveals the following pages:
             for op in validated:
                 try:
                     new_content = op["content"].replace(op["old_text"], op["new_text"])
-                    with open(op["full_path"], "w", encoding="utf-8") as f:
-                        f.write(new_content)
+                    self._write_text_file(op["full_path"], new_content)
                     successful.append(op)
                 except Exception as e:
                     errors.append(f"Failed to write '{op['file']}': {str(e)}")
@@ -5839,7 +5964,9 @@ On the sidebar, expanding `Automation` reveals the following pages:
                 else:
                     return f"Error: `{path}` exists but is a file, not a directory."
 
-            os.makedirs(full_path, exist_ok=True)
+            self._run_with_permission_repair(
+                lambda: os.makedirs(full_path, exist_ok=True)
+            )
             return f"✅ Created directory: `{path}`"
 
         except Exception as e:
@@ -5873,9 +6000,13 @@ On the sidebar, expanding `Automation` reveals the following pages:
             # Create destination directory if needed
             dest_dir = os.path.dirname(full_new_path)
             if dest_dir:
-                os.makedirs(dest_dir, exist_ok=True)
+                self._run_with_permission_repair(
+                    lambda: os.makedirs(dest_dir, exist_ok=True)
+                )
 
-            os.rename(full_old_path, full_new_path)
+            self._run_with_permission_repair(
+                lambda: os.rename(full_old_path, full_new_path)
+            )
             return f"✅ Renamed `{old_path}` to `{new_path}`"
 
         except Exception as e:
@@ -5912,12 +6043,18 @@ On the sidebar, expanding `Automation` reveals the following pages:
                 else full_dest
             )
             if dest_dir:
-                os.makedirs(dest_dir, exist_ok=True)
+                self._run_with_permission_repair(
+                    lambda: os.makedirs(dest_dir, exist_ok=True)
+                )
 
             if os.path.isdir(full_source):
-                shutil.copytree(full_source, full_dest)
+                self._run_with_permission_repair(
+                    lambda: shutil.copytree(full_source, full_dest)
+                )
             else:
-                shutil.copy2(full_source, full_dest)
+                self._run_with_permission_repair(
+                    lambda: shutil.copy2(full_source, full_dest)
+                )
 
             return f"✅ Copied `{source}` to `{destination}`"
 
@@ -6232,8 +6369,7 @@ On the sidebar, expanding `Automation` reveals the following pages:
             else:
                 lines.insert(idx, content)
 
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.writelines(lines)
+            self._write_text_file(full_path, "".join(lines))
 
             return f"✅ Inserted content at line {line_number} in `{file_path}`\n\n- New total lines: {len(lines)}"
 
@@ -6284,8 +6420,7 @@ On the sidebar, expanding `Automation` reveals the following pages:
             deleted = lines[start_idx:end_idx]
             del lines[start_idx:end_idx]
 
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.writelines(lines)
+            self._write_text_file(full_path, "".join(lines))
 
             return f"✅ Deleted lines {start_line}-{end_line} from `{file_path}`\n\n- Lines deleted: {len(deleted)}\n- Original lines: {original_count}\n- New lines: {len(lines)}"
 
@@ -6377,8 +6512,7 @@ On the sidebar, expanding `Automation` reveals the following pages:
             # Perform replacement
             new_content = re.sub(pattern, replacement, content, flags=re_flags)
 
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.write(new_content)
+            self._write_text_file(full_path, new_content)
 
             return f"✅ Replaced {match_count} occurrence(s) in `{file_path}`\n\n- Pattern: `{pattern}`\n- Replacement: `{replacement}`"
 
