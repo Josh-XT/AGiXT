@@ -405,6 +405,7 @@ class AGiXT:
         agent_name: str,
         api_key: str,
         conversation_name: str = None,
+        conversation_id: str = None,
         collection_id=None,
     ):
         # Handle user dict from verify_api_key
@@ -419,7 +420,19 @@ class AGiXT:
         self.conversation = None
         self.conversation_id = None
         self.conversation_name = None
-        if conversation_name != None:
+        if conversation_id is not None:
+            self.conversation = Conversations(
+                conversation_name=conversation_name,
+                conversation_id=conversation_id,
+                user=self.user_email,
+            )
+            self.conversation_id = self.conversation.get_conversation_id()
+            self.conversation_name = (
+                self.conversation.conversation_name
+                or conversation_name
+                or str(conversation_id)
+            )
+        elif conversation_name != None:
             self.conversation = Conversations(
                 conversation_name=conversation_name, user=self.user_email
             )
@@ -429,7 +442,7 @@ class AGiXT:
         self.uri = getenv("AGIXT_URI")
         if collection_id is not None:
             self.collection_id = str(collection_id)
-        elif conversation_name:
+        elif self.conversation_id:
             self.collection_id = self.conversation_id
         else:
             self.collection_id = "0"

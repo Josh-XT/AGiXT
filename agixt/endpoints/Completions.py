@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from Globals import get_tokens
 from MagicalAuth import get_user_id
 from ApiClient import Agent, verify_api_key, get_api_client, get_agents
-from Conversations import get_conversation_name_by_id
+from Conversations import get_or_create_conversation_name_by_id
 from DB import get_session, Conversation, ConversationParticipant, Agent as AgentModel
 from Memories import embed
 from fastapi import UploadFile, File, Form
@@ -185,9 +185,14 @@ async def chat_completion(
                 conversation_id = None
             if conversation_id:
                 user_id = get_user_id(user)
-                conversation_name = get_conversation_name_by_id(
+                conversation_name = get_or_create_conversation_name_by_id(
                     conversation_id=conversation_id, user_id=user_id
                 )
+                if not conversation_name:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Conversation is not accessible.",
+                    )
         # Pre-fetch agents list once for model defaulting and @mention routing
         all_agents = get_agents(user=user)
         if not prompt.model:
@@ -323,6 +328,7 @@ async def chat_completion(
             agent_name=prompt.model,
             api_key=authorization,
             conversation_name=conversation_name,
+            conversation_id=conversation_id,
         )
 
         # Check if streaming is requested
@@ -394,9 +400,14 @@ async def mcp_chat_completion(
                 conversation_id = None
             if conversation_id:
                 user_id = get_user_id(user)
-                conversation_name = get_conversation_name_by_id(
+                conversation_name = get_or_create_conversation_name_by_id(
                     conversation_id=conversation_id, user_id=user_id
                 )
+                if not conversation_name:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Conversation is not accessible.",
+                    )
         # Pre-fetch agents list once for model defaulting and @mention routing
         all_agents = get_agents(user=user)
         if not prompt.model:
@@ -527,6 +538,7 @@ async def mcp_chat_completion(
             agent_name=prompt.model,
             api_key=authorization,
             conversation_name=conversation_name,
+            conversation_id=conversation_id,
         )
 
         # Check if streaming is requested

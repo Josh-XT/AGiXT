@@ -21,9 +21,11 @@ from DB import (
     UserCompany,
     get_session,
     get_new_id,
+    DATABASE_TYPE,
 )
 from Globals import getenv, DEFAULT_USER
 from sqlalchemy.sql import func, or_, and_, case, exists
+from sqlalchemy.exc import IntegrityError
 from MagicalAuth import convert_time, get_user_id, get_user_timezone
 from SharedCache import shared_cache
 
@@ -638,6 +640,77 @@ def get_conversation_name_by_id(conversation_id, user_id):
         conversation_name = conversation.name
         shared_cache.set(cache_key, conversation_name, ttl=30)
         return conversation_name
+    finally:
+        session.close()
+
+
+def get_or_create_conversation_name_by_id(
+    conversation_id, user_id, default_name: str = "-"
+):
+    """Resolve a conversation UUID to a name, creating that UUID if missing.
+
+    Chat completion clients often address conversations by UUID.  If that UUID
+    does not exist yet, create a private conversation using the requested UUID so
+    the caller can keep using the same stable identifier instead of silently
+    writing to a different conversation name.
+    """
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=user_id
+    )
+    if conversation_name:
+        return conversation_name
+
+    try:
+        parsed_conversation_id = uuid.UUID(str(conversation_id))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+    user_id = str(user_id)
+    db_conversation_id = (
+        str(parsed_conversation_id)
+        if DATABASE_TYPE == "sqlite"
+        else parsed_conversation_id
+    )
+    db_user_id = user_id if DATABASE_TYPE == "sqlite" else uuid.UUID(user_id)
+    session = get_session()
+    try:
+        existing = (
+            session.query(Conversation)
+            .filter(Conversation.id == db_conversation_id)
+            .first()
+        )
+        if existing:
+            # The conversation exists but get_conversation_name_by_id() did not
+            # grant access to it.  Do not create over another user's UUID.
+            return None
+
+        conversation = Conversation(
+            id=db_conversation_id,
+            name=default_name,
+            user_id=db_user_id,
+            conversation_type="private",
+        )
+        session.add(conversation)
+        session.flush()
+        session.add(
+            ConversationParticipant(
+                conversation_id=db_conversation_id,
+                user_id=db_user_id,
+                participant_type="user",
+                role="owner",
+                status="active",
+            )
+        )
+        session.commit()
+        cache_key = f"conv_name:{conversation_id}:{user_id}"
+        shared_cache.set(cache_key, default_name, ttl=30)
+        return default_name
+    except IntegrityError:
+        session.rollback()
+        # Another worker may have created the row between our read and insert.
+        return get_conversation_name_by_id(
+            conversation_id=conversation_id, user_id=user_id
+        )
     finally:
         session.close()
 
@@ -1738,6 +1811,29 @@ class Conversations:
                 .all()
             )
         )
+        if page == 1 and messages:
+            first_message = messages[0]
+            first_role = (first_message.role or "").upper()
+            first_content = str(first_message.content or "")
+            first_is_activity = first_content.startswith(
+                ("[ACTIVITY]", "[SUBACTIVITY]")
+            )
+            if first_role != "USER" or first_is_activity:
+                anchor_user_message = (
+                    session.query(Message)
+                    .filter(
+                        Message.conversation_id == conversation.id,
+                        Message.role == "USER",
+                        Message.timestamp < first_message.timestamp,
+                    )
+                    .order_by(Message.timestamp.desc())
+                    .first()
+                )
+                if anchor_user_message and all(
+                    str(message.id) != str(anchor_user_message.id)
+                    for message in messages
+                ):
+                    messages.insert(0, anchor_user_message)
         if not messages:
             session.close()
             return {
