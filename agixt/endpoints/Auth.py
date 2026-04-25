@@ -23,7 +23,7 @@ from Models import (
 )
 from pydantic import BaseModel
 from typing import Optional
-from DB import TokenBlacklist, get_session, default_roles
+from DB import TokenBlacklist, User, get_session, default_roles
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response
 from MagicalAuth import (
@@ -274,6 +274,73 @@ async def get_user_exists(email: str) -> bool:
         return MagicalAuth().user_exists_any(email=email)
     except:
         return False
+
+
+@app.get(
+    "/v1/user/minimal",
+    dependencies=[Depends(verify_api_key)],
+    summary="Get minimal user shell details",
+    tags=["Auth"],
+)
+async def get_user_minimal(
+    authorization: str = Header(None),
+    if_none_match: str = Header(None, alias="If-None-Match"),
+):
+    """
+    Return only identity fields needed to render the web app shell.
+
+    This avoids the heavier `/v1/user` company, agent, scopes, billing, and
+    onboarding work during SSR layout rendering. The browser still fetches the
+    full `/v1/user` payload immediately after hydration for permissions and
+    settings, preserving existing functionality while improving first paint.
+    """
+    token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+    auth = MagicalAuth(token=token)
+    auth.validate_user()
+
+    with get_session() as session:
+        blacklisted = (
+            session.query(TokenBlacklist)
+            .filter(TokenBlacklist.token == auth.token)
+            .first()
+        )
+        if blacklisted:
+            raise HTTPException(
+                status_code=401,
+                detail="Token has been revoked. Please log in again.",
+            )
+
+        user_data = session.query(User).filter(User.id == auth.user_id).first()
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        response_data = {
+            "id": auth.user_id,
+            "email": user_data.email,
+            "first_name": user_data.first_name,
+            "last_name": user_data.last_name,
+            "username": getattr(user_data, "username", None),
+            "avatar_url": getattr(user_data, "avatar_url", None),
+            "tos_accepted_at": (
+                user_data.tos_accepted_at.isoformat()
+                if user_data.tos_accepted_at
+                else None
+            ),
+            "companies": [],
+        }
+
+    etag_string = json.dumps(response_data, sort_keys=True, default=str)
+    etag = f'"{hashlib.sha256(etag_string.encode()).hexdigest()}"'
+    if if_none_match and if_none_match == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+
+    return JSONResponse(
+        content=response_data,
+        headers={
+            "ETag": etag,
+            "Cache-Control": "private, max-age=10, stale-while-revalidate=30",
+        },
+    )
 
 
 @app.get(
