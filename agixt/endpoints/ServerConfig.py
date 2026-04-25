@@ -4546,7 +4546,7 @@ class ServerSettingsAggregateResponse(BaseModel):
     extension_settings: ServerExtensionSettingsResponse
     extension_commands: Dict[str, Any]
     server_config: ServerConfigResponse
-    oauth_providers: OAuthProvidersResponse
+    oauth_providers: Optional[OAuthProvidersResponse] = None
 
 
 class OAuthProviderSettingUpdate(BaseModel):
@@ -4786,6 +4786,7 @@ async def get_server_oauth_providers(
 )
 async def get_server_settings_aggregate(
     authorization: str = Header(None),
+    include_oauth: bool = True,
 ):
     """
     Aggregate the server settings data needed by the web settings page.
@@ -4794,17 +4795,19 @@ async def get_server_settings_aggregate(
     reduces frontend round trips from four authenticated requests to one, which
     improves perceived settings-page load time without changing functionality.
     """
-    (
-        extension_settings,
-        extension_commands,
-        server_config,
-        oauth_providers,
-    ) = await asyncio.gather(
+    aggregate_tasks = [
         get_server_extension_settings(authorization=authorization),
         get_server_extension_commands(authorization=authorization),
         get_all_server_config(authorization=authorization, include_sensitive=True),
-        get_server_oauth_providers(authorization=authorization),
-    )
+    ]
+    if include_oauth:
+        aggregate_tasks.append(get_server_oauth_providers(authorization=authorization))
+
+    aggregate_results = await asyncio.gather(*aggregate_tasks)
+    extension_settings = aggregate_results[0]
+    extension_commands = aggregate_results[1]
+    server_config = aggregate_results[2]
+    oauth_providers = aggregate_results[3] if include_oauth else None
 
     return ServerSettingsAggregateResponse(
         extension_settings=extension_settings,

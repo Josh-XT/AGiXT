@@ -916,8 +916,16 @@ class Conversations:
                     Conversation.conversation_type.notin_(["group", "thread"]),
                 )
             )
-            # Only include conversations that have at least one message
-            .filter(exists().where(Message.conversation_id == Conversation.id))
+            # Keep ordinary empty/new chat placeholders out of the history list,
+            # but do not hide direct-message/private conversations just because
+            # they have not received their first message yet. The DM panel needs
+            # these rows for accurate people/agent counts after refresh.
+            .filter(
+                or_(
+                    exists().where(Message.conversation_id == Conversation.id),
+                    Conversation.conversation_type.in_(["dm", "private"]),
+                )
+            )
             .all()
         )
 
