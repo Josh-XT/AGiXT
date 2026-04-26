@@ -61,9 +61,15 @@ _tz_cache = {}
 
 def _make_time_converter(user_id):
     """Create a fast timezone converter closure for a user. Caches pytz timezone objects."""
-    user_timezone = get_user_timezone(user_id)
+    user_timezone = get_user_timezone(user_id) or "UTC"
+    if not user_timezone.strip():
+        user_timezone = "UTC"
     if user_timezone not in _tz_cache:
-        _tz_cache[user_timezone] = pytz.timezone(user_timezone)
+        try:
+            _tz_cache[user_timezone] = pytz.timezone(user_timezone)
+        except pytz.exceptions.UnknownTimeZoneError:
+            user_timezone = "UTC"
+            _tz_cache[user_timezone] = pytz.timezone(user_timezone)
     local_tz = _tz_cache[user_timezone]
     gmt = _GMT
 

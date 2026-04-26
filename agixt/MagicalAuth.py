@@ -9628,7 +9628,9 @@ def get_user_timezone(user_id):
             )
             session.add(user_preferences)
             session.commit()
-        timezone = user_preferences.pref_value
+        timezone = user_preferences.pref_value or getenv("TZ") or "UTC"
+        if not timezone.strip():
+            timezone = getenv("TZ") or "UTC"
         shared_cache.set(cache_key, timezone, ttl=_user_timezone_cache_ttl)
         return timezone
     finally:
