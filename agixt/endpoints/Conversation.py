@@ -16,9 +16,11 @@ from typing import Dict, List, Optional
 from ApiClient import verify_api_key, get_api_client, Agent
 from Conversations import (
     Conversations,
+    clean_conversation_name,
     get_conversation_name_by_id,
     get_conversation_id_by_name,
     get_conversation_name_by_message_id,
+    parse_generated_conversation_name,
 )
 from DB import Message, MessageReaction, Agent as DBAgent, User
 from XT import AGiXT
@@ -986,11 +988,16 @@ async def rename_conversation_v1(
     )
     if not old_conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    new_conversation_name = clean_conversation_name(rename_model.new_conversation_name)
+    if not new_conversation_name:
+        new_conversation_name = datetime.now().strftime(
+            "Conversation Created %Y-%m-%d %I:%M %p"
+        )
     Conversations(
         conversation_name=old_conversation_name,
         user=user,
         conversation_id=conversation_id,
-    ).rename_conversation(new_name=rename_model.new_conversation_name)
+    ).rename_conversation(new_name=new_conversation_name)
 
     # Notify user of renamed conversation via websocket
     asyncio.create_task(
@@ -998,12 +1005,12 @@ async def rename_conversation_v1(
             user_id=auth.user_id,
             conversation_id=conversation_id,
             old_name=old_conversation_name,
-            new_name=rename_model.new_conversation_name,
+            new_name=new_conversation_name,
         )
     )
 
     return ResponseMessage(
-        message=f"Conversation renamed to `{rename_model.new_conversation_name}`."
+        message=f"Conversation renamed to `{new_conversation_name}`."
     )
 
 
@@ -2244,36 +2251,6 @@ async def rename_conversation(
         except Exception:
             conversation_history = ""
 
-        # These prefixes indicate the model returned a summary/description instead
-        # of a short title.  Any parsed name starting with one of these is
-        # treated as a bad result and triggers a retry.
-        _BAD_TITLE_PREFIXES = (
-            "topics discussed",
-            "topics:",
-            "topic:",
-            "summary",
-            "conversation",
-            "discussion",
-            "chat",
-            "overview",
-            "about:",
-            "subject:",
-            "re:",
-            "regarding",
-        )
-
-        def _is_bad_name(name: str) -> bool:
-            if not name:
-                return True
-            lower = name.lower().strip()
-            if any(lower.startswith(p) for p in _BAD_TITLE_PREFIXES):
-                return True
-            # Bad if it reads like a sentence (contains a period mid-name or
-            # exceeds a reasonable word count for a sidebar title).
-            if len(name.split()) > 8:
-                return True
-            return False
-
         def _build_name_prompt(extra: str = "") -> str:
             return (
                 "You are assigning a name to a chat conversation for display in a sidebar list.\n"
@@ -2302,53 +2279,14 @@ async def rename_conversation(
             prompt = _build_name_prompt(extra)
             return await agixt.agent.inference(prompt=prompt)
 
-        def _parse_name(raw: str) -> str:
-            text = raw or ""
-            # Strip code fences.
-            if "```json" not in text and "```" in text:
-                text = text.replace("```", "```json", 1)
-            if "```json" in text:
-                text = text.split("```json")[1].split("```")[0].strip()
-            try:
-                data = json.loads(text)
-                return str(data.get("suggested_conversation_name", "")).strip()
-            except Exception:
-                pass
-            # Try to extract the JSON value with a regex even if the full
-            # parse failed (e.g. model added trailing text after the closing }).
-            import re as _re
-
-            match = _re.search(
-                r'"suggested_conversation_name"\s*:\s*"([^"]+)"', raw or ""
-            )
-            if match:
-                return match.group(1).strip()
-            # Last resort: return the first non-empty line that doesn't look
-            # like preamble/junk.
-            junk_starts = (
-                "topics",
-                "summary",
-                "conversation",
-                "discussion",
-                "chat",
-                "overview",
-                "{",
-                "}",
-                "```",
-                "#",
-                "*",
-            )
-            for line in (raw or "").splitlines():
-                line = line.strip().strip('"').strip("'").strip("`").strip("*")
-                if line and not any(line.lower().startswith(j) for j in junk_starts):
-                    return line
-            return ""
-
         try:
-            new_name = _parse_name(await _ask_for_name())
-            if _is_bad_name(new_name) or new_name in conversation_list:
+            new_name = parse_generated_conversation_name(
+                await _ask_for_name(),
+                existing_names=conversation_list,
+            )
+            if not new_name:
                 bad = new_name or "(empty)"
-                new_name = _parse_name(
+                new_name = parse_generated_conversation_name(
                     await _ask_for_name(
                         extra=(
                             f'The previous attempt returned "{bad}" which is NOT acceptable.\n'
@@ -2356,35 +2294,23 @@ async def rename_conversation(
                             "Do NOT start with 'Topics Discussed', 'Summary', 'Conversation', "
                             "or any similar generic word.\n\n"
                         )
-                    )
+                    ),
+                    existing_names=conversation_list,
                 )
-            if _is_bad_name(new_name) or new_name in conversation_list:
+            if not new_name:
                 new_name = datetime.now().strftime(
                     "Conversation Created %Y-%m-%d %I:%M %p"
                 )
         except Exception:
             new_name = datetime.now().strftime("Conversation Created %Y-%m-%d %I:%M %p")
         rename.new_conversation_name = new_name.replace("_", " ")
-    if "#" in rename.new_conversation_name:
-        rename.new_conversation_name = str(rename.new_conversation_name).replace(
-            "#", ""
-        )
     # Enforce a short conversation title. The AI is supposed to return a brief
     # title (not a summary), but cap the length defensively in case it returns
     # a sentence or paragraph.
-    rename.new_conversation_name = (
-        rename.new_conversation_name.strip().strip('"').strip("'")
-    )
-    # Take only the first line if it returned multiple lines.
-    rename.new_conversation_name = (
-        rename.new_conversation_name.splitlines()[0]
-        if rename.new_conversation_name
-        else rename.new_conversation_name
-    )
-    # Truncate to a reasonable title length.
-    if len(rename.new_conversation_name) > 60:
-        rename.new_conversation_name = (
-            rename.new_conversation_name[:60].rstrip() + "..."
+    rename.new_conversation_name = clean_conversation_name(rename.new_conversation_name)
+    if not rename.new_conversation_name:
+        rename.new_conversation_name = datetime.now().strftime(
+            "Conversation Created %Y-%m-%d %I:%M %p"
         )
     c.rename_conversation(new_name=rename.new_conversation_name)
     c = Conversations(conversation_name=rename.new_conversation_name, user=user)

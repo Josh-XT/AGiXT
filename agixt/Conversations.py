@@ -418,6 +418,161 @@ def mark_conversation_updated(conversation_id: str):
         pass  # Cache miss is fine — poll will just hit DB as before
 
 
+_BAD_GENERATED_CONVERSATION_NAME_PREFIXES = (
+    "topics discussed",
+    "topics:",
+    "topic:",
+    "summary",
+    "conversation",
+    "initial conversation",
+    "initial convesation",
+    "discussion",
+    "chat",
+    "overview",
+    "about:",
+    "subject:",
+    "re:",
+    "regarding",
+)
+
+_CONVERSATION_SUMMARY_MARKERS = (
+    "topics discussed",
+    "user preferences",
+    "lessons learned",
+    "key decisions",
+    "key outcomes",
+    "user context",
+    "ai behavior notes",
+    "what worked well",
+)
+
+
+def clean_conversation_name(name: str, max_length: int = 60) -> str:
+    """Normalize a conversation title for sidebar display."""
+    text = str(name or "").replace("\r", "\n").replace("_", " ").strip()
+    if not text:
+        return ""
+
+    # Keep only the first non-empty line. Summaries belong in Conversation.summary,
+    # not in the title column.
+    title = ""
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            title = line
+            break
+    if not title:
+        return ""
+
+    title = re.sub(r"^#{1,6}\s*", "", title).strip()
+    title = re.sub(r"^[-*+]\s+", "", title).strip()
+    title = title.strip().strip('"').strip("'").strip("`").strip()
+    title = title.strip("*").strip()
+
+    # Convert a whole-title markdown link to its label.
+    markdown_link = re.fullmatch(r"\[([^\]]+)\]\([^)]+\)", title)
+    if markdown_link:
+        title = markdown_link.group(1).strip()
+
+    title = title.replace("**", "").replace("__", "").strip()
+    title = re.sub(r"\s+", " ", title)
+    title = title.strip().strip('"').strip("'").strip("`").strip()
+    title = title.strip("*").strip()
+    if len(title) > max_length:
+        title = title[:max_length].rstrip() + "..."
+    return title
+
+
+def is_bad_generated_conversation_name(name: str, existing_names=None) -> bool:
+    """Return True when an AI-generated title is generic, duplicate, or summary-like."""
+    raw = str(name or "").strip()
+    if not raw:
+        return True
+
+    raw_lower = raw.lower()
+    if any(marker in raw_lower for marker in _CONVERSATION_SUMMARY_MARKERS):
+        return True
+    if "\n" in raw and len([line for line in raw.splitlines() if line.strip()]) > 1:
+        return True
+    if raw.lstrip().startswith("#") or "**" in raw or "```" in raw:
+        return True
+
+    title = clean_conversation_name(raw)
+    if not title:
+        return True
+
+    lower = title.lower().strip()
+    if any(
+        lower.startswith(prefix) for prefix in _BAD_GENERATED_CONVERSATION_NAME_PREFIXES
+    ):
+        return True
+    if len(title.split()) > 8:
+        return True
+    if title.endswith((".", "!", "?")):
+        return True
+    if ":" in title:
+        return True
+    if existing_names and title in existing_names:
+        return True
+    return False
+
+
+def extract_conversation_name_from_response(response: str) -> str:
+    """Extract a proposed conversation name from model output."""
+    text = str(response or "").strip()
+    if not text:
+        return ""
+
+    answer_match = re.search(r"<answer>(.*?)</answer>", text, re.DOTALL | re.IGNORECASE)
+    if answer_match:
+        text = answer_match.group(1).strip()
+
+    fence_match = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
+    if fence_match:
+        text = fence_match.group(1).strip()
+
+    json_start = text.find("{")
+    json_end = text.rfind("}")
+    if json_start != -1 and json_end != -1 and json_end > json_start:
+        json_text = text[json_start : json_end + 1]
+        try:
+            import json
+
+            data = json.loads(json_text)
+            for key in (
+                "suggested_conversation_name",
+                "conversation_name",
+                "title",
+                "name",
+            ):
+                if isinstance(data, dict) and data.get(key):
+                    return str(data[key]).strip()
+        except Exception:
+            pass
+
+    match = re.search(
+        r'"(?:suggested_conversation_name|conversation_name|title|name)"\s*:\s*"([^"]+)"',
+        text,
+        re.DOTALL,
+    )
+    if match:
+        return match.group(1).strip()
+
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return ""
+
+
+def parse_generated_conversation_name(response: str, existing_names=None) -> str:
+    """Parse and validate an AI-generated conversation title."""
+    candidate = extract_conversation_name_from_response(response)
+    if is_bad_generated_conversation_name(candidate, existing_names=existing_names):
+        return ""
+    return clean_conversation_name(candidate)
+
+
 async def broadcast_message_to_conversation(
     conversation_id: str, event_type: str, message_data: dict
 ) -> int:

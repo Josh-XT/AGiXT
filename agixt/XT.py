@@ -4,6 +4,7 @@ from Interactions import (
     _ability_selection_inference,
 )
 from ApiClient import get_api_client, Conversations, Prompts, Chain
+from Conversations import clean_conversation_name, parse_generated_conversation_name
 from Memories import Memories
 from Extensions import Extensions
 from Agent import get_agent_id_by_name
@@ -596,7 +597,9 @@ class AGiXT:
             # Default fallback name: use first words of user input instead of a
             # generic timestamp so conversations are identifiable even when the
             # LLM provider is unavailable.
-            _fallback_words = " ".join(user_input.split()[:8]).strip()[:60]
+            _fallback_words = clean_conversation_name(
+                " ".join(user_input.split()[:8]).strip()
+            )
             new_name = (
                 _fallback_words
                 if _fallback_words
@@ -620,8 +623,10 @@ Respond with ONLY a JSON object in this exact format:
 
 Rules:
 - Use spaces in the name, not underscores
-- Keep the name short (3-6 words)
-- Make it descriptive of the topic
+- Keep the name short (2-5 words, max 50 characters)
+- Make it a specific title, not a summary or description
+- Do not use markdown, headings, colons, or trailing punctuation
+- Do not start with Topics, Summary, Conversation, Discussion, Chat, or Overview
 - Do not use any name from the existing list above
 - Respond with ONLY the JSON, no explanation"""
 
@@ -645,37 +650,27 @@ Rules:
                     use_smartest=False,
                 )
 
-            # Extract JSON from the response
+            # Extract and validate the JSON title from the response.
             try:
-                # Handle potential thinking tags in response (strip them out)
-                if "<answer>" in new_convo:
-                    new_convo = (
-                        new_convo.split("<answer>")[-1].split("</answer>")[0].strip()
-                    )
-
-                if "```json" in new_convo:
-                    json_text = new_convo.split("```json")[1].split("```")[0].strip()
-                elif "```" in new_convo:
-                    json_text = new_convo.split("```")[1].split("```")[0].strip()
+                parsed_name = parse_generated_conversation_name(
+                    new_convo,
+                    existing_names=conversation_list,
+                )
+                if parsed_name:
+                    new_name = parsed_name
                 else:
-                    json_start = new_convo.find("{")
-                    json_end = new_convo.rfind("}")
-                    if json_start != -1 and json_end != -1 and json_end > json_start:
-                        json_text = new_convo[json_start : json_end + 1]
-                    else:
-                        raise ValueError("No valid JSON found in response")
-
-                parsed_json = json.loads(json_text)
-                new_name = parsed_json.get("suggested_conversation_name", new_name)
-
-                # Handle duplicate names with a simpler retry
-                if new_name in conversation_list:
-                    retry_prompt = f"""The name "{new_name}" is already taken. Suggest a DIFFERENT name.
+                    retry_prompt = f"""The previous conversation name suggestion was not acceptable. Suggest a different name.
 
 **User's message:**
 {user_input[:300]}
 
-Respond with ONLY: {{"suggested_conversation_name": "Different Name Here"}}"""
+Respond with ONLY JSON in this exact format:
+{{"suggested_conversation_name": "Different Name Here"}}
+
+Rules:
+- Use a specific 2-5 word title, max 50 characters
+- Do not write a summary, sentence, markdown heading, or label like Topics Discussed
+- Do not use any existing conversation name"""
 
                     if ability_selection_server:
                         retry_response = await _ability_selection_inference(
@@ -690,38 +685,13 @@ Respond with ONLY: {{"suggested_conversation_name": "Different Name Here"}}"""
                             use_smartest=False,
                         )
 
-                    # Handle potential thinking tags
-                    if "<answer>" in retry_response:
-                        retry_response = (
-                            retry_response.split("<answer>")[-1]
-                            .split("</answer>")[0]
-                            .strip()
-                        )
-
-                    if "```json" in retry_response:
-                        json_text = (
-                            retry_response.split("```json")[1].split("```")[0].strip()
-                        )
-                    elif "```" in retry_response:
-                        json_text = (
-                            retry_response.split("```")[1].split("```")[0].strip()
-                        )
+                    retry_name = parse_generated_conversation_name(
+                        retry_response,
+                        existing_names=conversation_list,
+                    )
+                    if retry_name:
+                        new_name = retry_name
                     else:
-                        json_start = retry_response.find("{")
-                        json_end = retry_response.rfind("}")
-                        if (
-                            json_start != -1
-                            and json_end != -1
-                            and json_end > json_start
-                        ):
-                            json_text = retry_response[json_start : json_end + 1]
-                        else:
-                            raise ValueError("No valid JSON found in retry response")
-
-                    parsed_json = json.loads(json_text)
-                    new_name = parsed_json.get("suggested_conversation_name", new_name)
-
-                    if new_name in conversation_list:
                         new_name = (
                             _fallback_words
                             if _fallback_words
@@ -732,15 +702,14 @@ Respond with ONLY: {{"suggested_conversation_name": "Different Name Here"}}"""
 
             except Exception as e:
                 logging.error(f"Error parsing conversation name: {e}")
-                if new_convo and isinstance(new_convo, str) and len(new_convo) < 100:
-                    # Try to use as name if it looks reasonable
-                    clean_name = new_convo.strip().strip('"').strip("'")
-                    if len(clean_name) > 3 and len(clean_name) < 80:
-                        new_name = clean_name
 
             # Apply the rename
             old_name = self.conversation_name
-            c.set_conversation_summary(summary=new_name)
+            new_name = clean_conversation_name(new_name)
+            if not new_name or new_name in conversation_list:
+                new_name = datetime.now().strftime(
+                    "Conversation Created %Y-%m-%d %I:%M %p"
+                )
             self.conversation_name = c.rename_conversation(new_name=new_name)
 
             # Notify the frontend via WebSocket so the sidebar updates immediately
