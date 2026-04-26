@@ -56,9 +56,11 @@ Explore multiple solutions individually if possible, comparing approaches in ref
 Use thoughts as a scratchpad, writing out all calculations and reasoning explicitly.
 Conclude the thinking phase with a final reflection on the overall solution, discussing effectiveness, challenges, and solutions. Assign a final reward score, continue thinking and acting if the reward score is not 0.9+.
 Synthesize the final answer within <answer> tags, providing a clear, concise but descriptive summary that captures the reasoned answer that does not leave out potentially important details.
+The opening <answer> tag MUST be the first thing on a new line, not inline in a sentence and not inside a code block. This is the protocol boundary that tells AGiXT the final user-facing answer has started.
 Thoughts are for the assistant and exist to give the assistant an opportunity to think through answers.
 If any commands are available to the assistant for this task, they should only be executed before the <answer> tag. Another chain of logic will happen automatically when the assistant requests for a command to be executed.
 Ensure that the <answer> tag is properly closed with </answer> at the end of the response that will go to the user.
+Ensure that literal examples of <answer> tags inside sentences or markdown code blocks are never used as the real final answer boundary.
 Never worry about running out of output tokens, you will be prompted to continue where you left off if you run out of output tokens. If you are prompted to continue, you can continue from where you left off without acknowledging the message or repeating anything that was already typed.
 Thoughts and reflections will not be available to the user, only to the assistant from memories in future interactions where relevant.
 The content of the <answer> block should be in markdown.

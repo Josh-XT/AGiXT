@@ -49,6 +49,9 @@ _RE_THINKING_OPEN = re.compile(r"<think(?:ing)?>", re.IGNORECASE)
 _RE_THINKING_CLOSE = re.compile(r"</think(?:ing)?>", re.IGNORECASE)
 _RE_REFLECTION_OPEN = re.compile(r"<reflection>", re.IGNORECASE)
 _RE_REFLECTION_CLOSE = re.compile(r"</reflection>", re.IGNORECASE)
+_RE_PROTOCOL_ANSWER_BOUNDARY = re.compile(
+    r"(</(?:think(?:ing)?|reflection)>)\s*(<answer>)", re.IGNORECASE
+)
 _RE_CLOSING_TAG = re.compile(
     r"</(think(?:ing)?|reflection|step|execute|output)>\s*$", re.IGNORECASE
 )
@@ -704,7 +707,8 @@ def extract_top_level_answer(response: str) -> str:
     Extract the content from a top-level <answer>...</answer> block.
 
     This properly handles cases where <answer> appears inside <thinking> blocks:
-    - <thinking>The <answer> block format...</thinking><answer>Real answer</answer>
+    - <thinking>The <answer> block format...</thinking>
+      <answer>Real answer</answer>
       → Returns "Real answer"
     - <answer>Simple answer</answer>
       → Returns "Simple answer"
@@ -779,10 +783,13 @@ def is_real_answer_tag(response: str, match_start: int) -> bool:
     Determine if an <answer> tag at the given position is a real XML tag
     or just a mention in natural language (e.g., "I'll respond in the <answer> block").
 
-    A real answer tag is typically:
+    A real answer tag must be:
     1. At the start of the string, OR
-    2. Preceded by a newline (possibly with whitespace), OR
-    3. Preceded by a closing tag like </thinking> or </reflection>
+    2. The first thing on a new line
+
+    It must not be inside a fenced markdown code block. This allows AGiXT to
+    safely discuss or write literal <answer> tags while coding without
+    accidentally ending the reasoning/acting phase.
 
     This is much stricter than trying to detect fake tags by context after the tag.
 
@@ -793,30 +800,23 @@ def is_real_answer_tag(response: str, match_start: int) -> bool:
     Returns:
         bool: True if this appears to be a real XML tag, False if it's just a mention
     """
-    # At start of string - real tag
+    text_before = response[:match_start]
+
+    # Reject answer tags inside fenced markdown code blocks. Count opening and
+    # closing fences before the candidate tag; an odd count means the tag is
+    # code/content, not the protocol boundary.
+    fence_count = len(re.findall(r"(?m)^[ \t]*(?:```|~~~)", text_before))
+    if fence_count % 2 != 0:
+        return False
+
+    # At start of string - real tag.
     if match_start == 0:
         return True
 
-    # Get text before the tag
-    text_before = response[:match_start]
-
-    # Check if preceded by newline (with optional whitespace)
-    # This matches: \n<answer>, \n  <answer>, etc.
-    stripped_before = text_before.rstrip(" \t")
-    if stripped_before.endswith("\n") or stripped_before.endswith("\r"):
-        return True
-
-    # Check if preceded by a closing tag (like </thinking> or </reflection>)
-    # Allow optional whitespace between closing tag and <answer>
-    if _RE_CLOSING_TAG.search(text_before):
-        return True
-
-    # Check if preceded by just ">" (end of some other tag)
-    if stripped_before.endswith(">"):
-        return True
-
-    # Otherwise, it's likely just mentioned in text
-    return False
+    # The opening answer tag must be the first thing on a new line. Do not
+    # allow inline tags after sentences, closing tags, indentation, or code.
+    previous_char = response[match_start - 1]
+    return previous_char in ("\n", "\r")
 
 
 def find_real_answer_tags(response: str, tag_type: str = "open") -> list:
@@ -863,7 +863,8 @@ def has_complete_answer(response: str) -> bool:
     - <thinking><answer>fake</answer></thinking> - NOT a valid top-level answer
     - <answer><step>plan step</step></answer> - NOT COMPLETE (only contains step tags)
     - <thinking>I'll put my response in the <answer> block</thinking> - NOT an answer (just mentioned in text)
-    - <thinking><name>tool_name</name></thinking><answer>...</answer> - NOT COMPLETE (has unexecuted tool call)
+    - <thinking><name>tool_name</name></thinking>
+      <answer>...</answer> - NOT COMPLETE (has unexecuted tool call)
 
     Returns:
         bool: True if there's a complete top-level answer block with meaningful content
@@ -997,7 +998,8 @@ def is_inside_top_level_answer(response: str, position: int = None) -> bool:
 
     This handles cases where <thinking> appears inside <answer>:
     - <answer>Text <thinking>thought</thinking> more</answer> - position after <thinking> IS inside answer
-    - <thinking>thoughts</thinking><answer>text - position at end IS inside answer
+    - <thinking>thoughts</thinking>
+      <answer>text - position at end IS inside answer
     - <thinking><answer>text</answer></thinking> - the answer is NOT top-level
     - <thinking>I'll put response in the <answer> block</thinking> - NOT an answer (just mentioned)
 
@@ -3996,6 +3998,12 @@ Example: If user says "list my files", use:
                     )
 
                 full_response += token
+                if "<answer>" in token.lower():
+                    normalized_full_response = _RE_PROTOCOL_ANSWER_BOUNDARY.sub(
+                        r"\1\n\2", full_response
+                    )
+                    if normalized_full_response != full_response:
+                        full_response = normalized_full_response
 
                 # Incremental tag depth tracking — only scan the new token
                 # Count both <think> and <thinking> forms for model compatibility
@@ -4757,15 +4765,37 @@ Example: If user says "list my files", use:
         _no_answer_non_exec_streak = (
             0  # Track consecutive non-exec iterations without <answer> tags
         )
-        _auto_injected_answer = (
-            False  # Track if <answer> was auto-injected (needs special prompt)
-        )
         _consecutive_dedup_iterations = (
             0  # Track consecutive iterations where ALL commands were deduplicated
         )
         _incomplete_answer_non_exec_count = (
             0  # Track consecutive non-exec iterations with incomplete answer
         )
+        _final_answer_review_server = getenv("ABILITY_SELECTION_SERVER")
+        _final_answer_review_model = getenv(
+            "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-0.8B-GGUF"
+        )
+        try:
+            _final_answer_review_max_attempts = int(
+                getenv("FINAL_ANSWER_REVIEW_MAX_ATTEMPTS", "3")
+            )
+        except (TypeError, ValueError):
+            _final_answer_review_max_attempts = 3
+        _final_answer_review_max_attempts = max(0, _final_answer_review_max_attempts)
+        try:
+            _final_answer_review_max_chars = int(
+                getenv("FINAL_ANSWER_REVIEW_MAX_CHARS", "600000")
+            )
+        except (TypeError, ValueError):
+            _final_answer_review_max_chars = 600000
+        _final_answer_review_max_chars = max(0, _final_answer_review_max_chars)
+        _answer_review_attempts = 0
+        _answer_review_approved_hash = None
+        _answer_review_rejected = False
+        _answer_review_rejected_hash = None
+        _answer_review_feedback = ""
+        _continuation_recovery_feedback = ""
+        _continuation_recovery_count = 0
 
         # Track the length of processed content to detect new executions
         processed_length = len(self.response)
@@ -4793,7 +4823,217 @@ Example: If user says "list my files", use:
 
         # Use has_complete_answer() to properly check for complete answer blocks
         # This handles edge cases like <thinking> inside <answer> tags
-        while not has_complete_answer(self.response):
+        while True:
+            _response_has_complete_answer = has_complete_answer(self.response)
+            _current_answer_hash = None
+            if _response_has_complete_answer:
+                _current_answer_for_review = extract_top_level_answer(self.response)
+                if not _current_answer_for_review:
+                    _current_answer_for_review = self.response
+                _current_answer_for_review = _current_answer_for_review.strip()
+                _current_answer_hash = str(hash(_current_answer_for_review))
+
+                if (
+                    _answer_review_rejected
+                    and _current_answer_hash != _answer_review_rejected_hash
+                ):
+                    _answer_review_rejected = False
+                    _answer_review_feedback = ""
+
+                if not _answer_review_rejected:
+                    if _answer_review_approved_hash == _current_answer_hash:
+                        break
+                    if (
+                        not _final_answer_review_server
+                        or _final_answer_review_max_attempts <= 0
+                    ):
+                        break
+                    if _answer_review_attempts >= _final_answer_review_max_attempts:
+                        logging.warning(
+                            "[run_stream] Final answer review attempt cap reached; "
+                            "continuing with self-healing feedback instead of "
+                            "allowing an unapproved answer."
+                        )
+                        _answer_review_rejected = True
+                        _answer_review_rejected_hash = _current_answer_hash
+                        _answer_review_feedback = (
+                            "The final answer review has not approved the answer "
+                            f"after {_final_answer_review_max_attempts} review "
+                            "attempts. Continue working from the review feedback "
+                            "and prior outputs; do not end the request until a new "
+                            "answer satisfies the completion criteria."
+                        )
+                        _answer_review_attempts = 0
+                        continue
+
+                    try:
+                        _answer_review_attempts += 1
+                        _review_context = self.compress_response_for_continuation(
+                            self.response,
+                            max_output_lines=120,
+                            max_thinking_chars=1000,
+                        )
+                        _review_prompt_base, _, _ = await self.format_prompt(
+                            user_input=user_input,
+                            top_results=int(context_results),
+                            conversation_results=conversation_results,
+                            prompt=prompt,
+                            prompt_category=prompt_category,
+                            conversation_name=conversation_name,
+                            websearch=websearch,
+                            vision_response=vision_response,
+                            selected_commands=self._selected_commands,
+                            **kwargs,
+                        )
+                        if self.outputs in _review_prompt_base:
+                            _review_prompt_base = _review_prompt_base.replace(
+                                self.outputs,
+                                f"http://localhost:7437/outputs/{self.agent.agent_id}",
+                            )
+                        if (
+                            _final_answer_review_max_chars > 0
+                            and len(_review_prompt_base)
+                            > _final_answer_review_max_chars
+                        ):
+                            _review_half = _final_answer_review_max_chars // 2
+                            _review_prompt_base = (
+                                _review_prompt_base[:_review_half]
+                                + "\n\n...[mandatory context truncated for review]...\n\n"
+                                + _review_prompt_base[-_review_half:]
+                            )
+
+                        _answer_review_prompt = f"""You are the final-answer completion gate for an autonomous AGiXT agent.
+
+Review whether the candidate <answer> is allowed to end the current inference request.
+The system has already confirmed the candidate came from a complete top-level <answer>...</answer> block.
+Do NOT reject solely because of answer tag formatting; judge whether the content actually completes the task.
+Brief answers can be correct for simple requests. Do not require hidden thinking, tool use, extra explanation, or length unless the user's request requires it.
+Before approving, actively extract the mandatory-context rules that apply to this user request. Treat explicit MUST, NEVER, DO NOT, REQUIRED, mandatory, persona, quality, safety, and scoring rules as hard approval criteria.
+Reject if the candidate answer violates any applicable hard rule, overstates evidence the context says to caveat, ignores a required caveat, fabricates certainty, skips required verification, or presents a result the mandatory context says must be excluded or de-emphasized.
+
+Approve only if ALL success criteria are met:
+1. The answer follows the mandatory context, system instructions, persona, and user-specific rules.
+2. The answer directly resolves the user's latest request, not merely a status update or promise to keep working.
+3. The answer is complete, specific, well reasoned, and includes concrete results from any work already performed.
+4. The answer does not skip required actions that the agent could still complete autonomously.
+5. For coding or tool tasks, when applicable, the answer reflects actual completed work and verification, or clearly states exact blockers.
+
+If any criterion is not met, reject the answer and explain what the agent must do next.
+Return ONLY compact JSON with this shape:
+{{"approved": true, "reason": "short reason", "missing": [], "instructions": ""}}
+or
+{{"approved": false, "reason": "short reason", "missing": ["specific missing item"], "instructions": "what the agent should do next"}}
+
+## Mandatory Context And User Request
+{_review_prompt_base}
+
+## Assistant Work So Far
+{_review_context}
+
+## Candidate Final Answer Block
+<answer>
+{_current_answer_for_review}
+</answer>
+"""
+                        _review_response = await _ability_selection_inference(
+                            server_url=_final_answer_review_server,
+                            model=_final_answer_review_model,
+                            prompt=_answer_review_prompt,
+                        )
+                        _review_text = str(_review_response or "").strip()
+                        _review_approved = True if not _review_text else False
+                        _review_feedback_parts = []
+
+                        if _review_text:
+                            _review_json = {}
+                            _review_json_match = re.search(
+                                r"\{.*\}", _review_text, re.DOTALL
+                            )
+                            if _review_json_match:
+                                try:
+                                    _review_json = json.loads(
+                                        _review_json_match.group(0)
+                                    )
+                                except Exception:
+                                    _review_json = {}
+
+                            if _review_json:
+                                _approved_value = _review_json.get("approved", False)
+                                if isinstance(_approved_value, bool):
+                                    _review_approved = _approved_value
+                                else:
+                                    _review_approved = str(
+                                        _approved_value
+                                    ).strip().lower() in (
+                                        "true",
+                                        "yes",
+                                        "approved",
+                                        "approve",
+                                        "pass",
+                                    )
+                                _reason = str(_review_json.get("reason", "")).strip()
+                                _instructions = str(
+                                    _review_json.get("instructions", "")
+                                ).strip()
+                                _missing = _review_json.get("missing", [])
+                                if _reason:
+                                    _review_feedback_parts.append(_reason)
+                                if isinstance(_missing, list):
+                                    _missing_text = "; ".join(
+                                        str(item).strip()
+                                        for item in _missing
+                                        if str(item).strip()
+                                    )
+                                else:
+                                    _missing_text = str(_missing).strip()
+                                if _missing_text:
+                                    _review_feedback_parts.append(
+                                        f"Missing: {_missing_text}"
+                                    )
+                                if _instructions:
+                                    _review_feedback_parts.append(
+                                        f"Next: {_instructions}"
+                                    )
+                            else:
+                                _review_lower = _review_text.lower()
+                                _review_approved = (
+                                    "approved" in _review_lower
+                                    and "not approved" not in _review_lower
+                                    and "reject" not in _review_lower
+                                    and "false" not in _review_lower[:120]
+                                )
+                                _review_feedback_parts.append(_review_text)
+
+                        if _review_approved:
+                            _answer_review_approved_hash = _current_answer_hash
+                            logging.info(
+                                f"[run_stream] Final answer review approved attempt "
+                                f"{_answer_review_attempts}."
+                            )
+                            break
+
+                        _answer_review_rejected = True
+                        _answer_review_rejected_hash = _current_answer_hash
+                        _answer_review_feedback = "\n".join(
+                            _review_feedback_parts
+                        ).strip()
+                        if not _answer_review_feedback:
+                            _answer_review_feedback = (
+                                "The candidate final answer did not satisfy the "
+                                "completion criteria. Continue thinking and acting "
+                                "until the user's request is fully completed."
+                            )
+                        _answer_review_feedback = _answer_review_feedback[:2500]
+                        logging.info(
+                            f"[run_stream] Final answer review rejected attempt "
+                            f"{_answer_review_attempts}: {_answer_review_feedback[:500]}"
+                        )
+                    except Exception as e:
+                        logging.warning(
+                            f"[run_stream] Final answer review failed; allowing answer. Error: {e}"
+                        )
+                        break
+
             # Check if there was a NEW execution in the unprocessed portion, or incomplete answer
             # Always use processed_length to avoid re-detecting already-executed commands
             unprocessed_response = self.response[processed_length:]
@@ -4805,33 +5045,57 @@ Example: If user says "list my files", use:
                 has_new_execution = True
                 _previous_iteration_executed = False
             # Use has_complete_answer for proper detection instead of simple string check
-            has_incomplete_answer = (
-                "<answer>" in self.response.lower()
-                and not has_complete_answer(self.response)
+            has_real_answer_open = bool(find_real_answer_tags(self.response, "open"))
+            has_incomplete_answer = has_real_answer_open and not has_complete_answer(
+                self.response
             )
-            # Also check if there's NO answer at all - we need to prompt for one
-            has_no_answer = "<answer>" not in self.response.lower()
+            # Also check if there's NO real answer at all - we need to prompt for one
+            has_no_answer = not has_real_answer_open
+            has_rejected_answer = _answer_review_rejected
 
-            # After many consecutive non-exec no-answer iterations, the model is
-            # generating useful content but not wrapping in <answer> tags.
-            # Inject <answer> to transition to has_incomplete_answer mode where
-            # the prompt tells the model to close the answer block.
-            # We use a very generous threshold here — the agent should be
-            # free to think and act as long as it needs without being
-            # forced into answering prematurely.
-            if _no_answer_non_exec_streak >= 25 and has_no_answer:
-                self.response += "\n<answer>"
+            # A fresh continuation can start with <answer> and stream user-facing
+            # answer content correctly, but if the prior buffer did not end with
+            # a newline, concatenation can make that tag look inline in the
+            # accumulated response. Preserve the stricter parser rule by
+            # re-wrapping the already streamed answer on its own line.
+            if has_no_answer and not has_new_execution and answer_content.strip():
+                self.response += f"\n<answer>{answer_content.strip()}</answer>"
                 has_no_answer = False
-                has_incomplete_answer = True
-                _auto_injected_answer = True
+                has_incomplete_answer = False
                 logging.info(
-                    f"[run_stream] Auto-injected <answer> tag after {_no_answer_non_exec_streak} "
-                    f"consecutive no-answer non-exec iterations"
+                    "[run_stream] Recovered streamed answer content into a real "
+                    "<answer> block after no-answer boundary detection."
+                )
+                continue
+
+            # After many consecutive non-exec no-answer iterations, self-heal
+            # by steering the next continuation instead of forcing a final
+            # answer boundary into the transcript.
+            if _no_answer_non_exec_streak >= 25 and has_no_answer:
+                _continuation_recovery_count += 1
+                _continuation_recovery_feedback = (
+                    f"The agent has produced {_no_answer_non_exec_streak} "
+                    "non-execution continuations without a real top-level "
+                    "<answer> block. Reassess the current state. If the user's "
+                    "request is fully satisfied by the existing work, provide a "
+                    "complete final <answer> now. If it is not complete, take the "
+                    "next distinct action needed to complete it. Do not repeat "
+                    "prior thinking, prior command outputs, or already executed "
+                    "commands."
+                )
+                _no_answer_non_exec_streak = 0
+                _continuation_iter_lengths = []
+                logging.info(
+                    "[run_stream] No-answer continuation recovery triggered; "
+                    "injecting self-healing feedback instead of forcing finalization."
                 )
 
             # Continue if: new execution, incomplete answer, OR no answer at all (need to prompt for one)
             should_continue = (
-                has_new_execution or has_incomplete_answer or has_no_answer
+                has_new_execution
+                or has_incomplete_answer
+                or has_no_answer
+                or has_rejected_answer
             )
 
             if not should_continue:
@@ -4875,51 +5139,90 @@ Example: If user says "list my files", use:
                 _all_small = all(l < 5000 for l in _last4)
                 _all_similar = all(abs(l - _avg) < 500 for l in _last4)
                 if _all_small and _all_similar:
+                    _continuation_recovery_count += 1
+                    _continuation_iter_lengths = []
                     if has_incomplete_answer:
-                        # Model opened <answer> but keeps generating without closing.
-                        # Force-close it — the answer content is already there.
                         logging.warning(
                             f"[run_stream] Stuck loop detected (incomplete answer) at iteration {continuation_count}. "
-                            f"Last {_stuck_window} non-exec lengths: {_last4}. Force-closing answer tag."
+                            f"Last {_stuck_window} non-exec lengths: {_last4}. "
+                            "Injecting self-healing feedback."
                         )
-                        self.response += "</answer>"
+                        _continuation_recovery_feedback = (
+                            "The answer block is open but the continuation loop is "
+                            "repeating similarly sized non-execution text without "
+                            "closing it. Continue from the existing answer content, "
+                            "include any missing concrete results, and close with "
+                            "</answer> only after the answer is complete. If more "
+                            "work is still required, leave the answer phase and take "
+                            "the next distinct action instead of repeating text."
+                        )
+                        _incomplete_answer_non_exec_count = 0
                         c.log_interaction(
                             role=self.agent_name,
-                            message="[SUBACTIVITY][CONTINUATION] Finalizing response...",
+                            message="[SUBACTIVITY][CONTINUATION] Recovering incomplete answer loop...",
                         )
-                        break
                     elif has_no_answer:
-                        # Model keeps generating thinking without ever producing an answer.
-                        # Break out and use fallback answer extraction.
                         logging.warning(
                             f"[run_stream] Stuck loop detected (no answer) at iteration {continuation_count}. "
-                            f"Last 15 non-exec lengths: {_last4}. Breaking to extract best available answer."
+                            f"Last 15 non-exec lengths: {_last4}. Injecting self-healing feedback."
+                        )
+                        _continuation_recovery_feedback = (
+                            "The agent appears to be repeating analysis without "
+                            "opening a real top-level <answer> block. Do not stop "
+                            "early and do not repeat the same analysis. Decide what "
+                            "is missing: either perform the next distinct action "
+                            "needed for the user request, or provide the complete "
+                            "final answer if the task is already satisfied."
                         )
                         c.log_interaction(
                             role=self.agent_name,
-                            message="[SUBACTIVITY][CONTINUATION] Finalizing response...",
+                            message="[SUBACTIVITY][CONTINUATION] Recovering no-answer loop...",
                         )
-                        break
+                    elif has_rejected_answer:
+                        logging.warning(
+                            f"[run_stream] Stuck loop detected after final answer review rejection "
+                            f"at iteration {continuation_count}. Last {_stuck_window} non-exec "
+                            f"lengths: {_last4}. Injecting stronger review feedback."
+                        )
+                        _continuation_recovery_feedback = (
+                            "The prior final answer was rejected and subsequent "
+                            "continuations are repeating. Use the review feedback "
+                            "as mandatory completion criteria, take a different "
+                            "action if needed, and only produce a new <answer> when "
+                            "those criteria are satisfied."
+                        )
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message="[SUBACTIVITY][CONTINUATION] Recovering rejected-answer loop...",
+                        )
 
-            # --- Hard cap for incomplete answer iterations ---
-            # If the model has been in has_incomplete_answer mode for 10+
-            # consecutive non-exec iterations, it's almost certainly stuck
-            # reopening <answer> without closing it (e.g. hitting output token
-            # limits repeatedly). Force-close regardless of similarity checks.
+            # --- Self-healing for repeated incomplete answer iterations ---
+            # If the model stays in has_incomplete_answer mode for many
+            # consecutive non-exec iterations, redirect the next continuation
+            # instead of force-closing the answer and ending early.
             if has_incomplete_answer and not has_new_execution:
                 _incomplete_answer_non_exec_count += 1
                 if _incomplete_answer_non_exec_count >= 10:
+                    _continuation_recovery_count += 1
                     logging.warning(
-                        f"[run_stream] Incomplete answer hard cap reached at iteration "
+                        f"[run_stream] Incomplete answer recovery triggered at iteration "
                         f"{continuation_count}. {_incomplete_answer_non_exec_count} consecutive "
-                        f"non-exec iterations with incomplete answer. Force-closing."
+                        "non-exec iterations with incomplete answer."
                     )
-                    self.response += "</answer>"
+                    _continuation_recovery_feedback = (
+                        "The answer has remained incomplete across many continuations. "
+                        "Continue from the current answer content without restarting or "
+                        "repeating it. Add the missing substance, then close </answer> "
+                        "only when the response fully completes the user's request. "
+                        "If the task is not actually complete, perform the next distinct "
+                        "action needed before closing the answer."
+                    )
+                    _incomplete_answer_non_exec_count = 0
+                    _continuation_iter_lengths = []
                     c.log_interaction(
                         role=self.agent_name,
-                        message="[SUBACTIVITY][CONTINUATION] Finalizing response...",
+                        message="[SUBACTIVITY][CONTINUATION] Recovering incomplete answer...",
                     )
-                    break
             else:
                 if has_new_execution:
                     _incomplete_answer_non_exec_count = 0
@@ -4928,6 +5231,8 @@ Example: If user says "list my files", use:
             # Build a descriptive status message so the user knows what's happening
             if has_new_execution:
                 _cont_status = "Analyzing command execution results"
+            elif has_rejected_answer:
+                _cont_status = "Improving final answer"
             elif has_incomplete_answer:
                 _cont_status = "Completing response"
             elif has_no_answer:
@@ -5016,6 +5321,18 @@ Analyze the actual output shown and continue with your response.
 2. DO NOT repeat or fabricate command outputs - they are already shown
 3. Based on the ACTUAL output, continue thinking and provide your <answer>
 4. If you need to execute more commands, you may do so
+5. When you are ready to answer, the opening <answer> tag MUST be the first thing on a new line, not inline in a sentence and not inside a code block
+"""
+                if has_rejected_answer:
+                    continuation_prompt += f"""
+
+## Final Answer Review Still Applies
+
+The previous <answer> block was not accepted as the final response.
+Review feedback:
+{_answer_review_feedback}
+
+Use the command output above plus this feedback to continue the task until it is complete.
 """
             else:
                 # Incomplete answer or no answer - prompt to continue/provide answer
@@ -5050,21 +5367,46 @@ Analyze the actual output shown and continue with your response.
                             f"iterations and their outputs are shown above in <output> tags. Do NOT generate "
                             f"any more <execute> blocks — regenerating the same commands will be ignored. "
                             f"Analyze the command outputs already provided and give your complete response "
-                            f"to the user inside <answer></answer> tags now."
+                            f"to the user inside <answer></answer> tags now. The opening <answer> tag "
+                            f"MUST be the first thing on a new line, not inline in a sentence and not inside a code block."
                         )
                     else:
-                        continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nContinue working on the user's request. You may continue thinking, analyzing, and executing commands as needed — take as much time as you need to do thorough work. When you have fully completed all necessary work and are ready to respond, provide your response inside <answer></answer> tags. Do not repeat previous thinking or command outputs."
+                        continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nContinue working on the user's request. You may continue thinking, analyzing, and executing commands as needed — take as much time as you need to do thorough work. When you have fully completed all necessary work and are ready to respond, provide your response inside <answer></answer> tags. The opening <answer> tag MUST be the first thing on a new line, not inline in a sentence and not inside a code block. Do not repeat previous thinking or command outputs."
+                elif has_rejected_answer:
+                    continuation_prompt = f"""{fresh_formatted_prompt}
+
+{self.agent_name}: {compressed_response}
+
+## Final Answer Review
+
+The previous <answer> block was not accepted as the final response.
+It should NOT end the task yet.
+
+Review feedback:
+{_answer_review_feedback}
+
+Continue thinking and acting autonomously until the user's request is actually complete.
+Do not repeat the rejected answer. If more tool use, verification, reasoning, or concrete details are needed, do that now.
+Only provide a new top-level <answer></answer> block when all review criteria are satisfied. The opening <answer> tag MUST be the first thing on a new line, not inline in a sentence and not inside a code block.
+"""
                 else:
                     # Incomplete answer - prompt to continue
                     # Use compressed response to prevent context explosion
-                    if _auto_injected_answer:
-                        # Auto-injected answer tag: model was generating analysis without
-                        # wrapping in <answer> tags. Tell it to provide a COMPLETE answer
-                        # with all findings, not just a brief closing reference.
-                        _auto_injected_answer = False  # Only use this prompt once
-                        continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe <answer> block is now open. Provide a COMPLETE response to the user's question. Include ALL key findings, numerical results, computed values, and analysis conclusions directly in your answer. Do NOT just reference output files or say 'see attached' - present the actual results. Close with </answer> when done."
-                    else:
-                        continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
+                    continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
+
+            if _continuation_recovery_feedback:
+                continuation_prompt += f"""
+
+## Continuation Self-Healing Feedback
+
+The continuation loop detected a recoverable failure mode. Do not treat this as a reason to stop early.
+Recovery attempt: {_continuation_recovery_count}
+
+{_continuation_recovery_feedback}
+
+Use the available context and outputs above to repair the trajectory. If the user's request is already fully satisfied, provide one complete top-level <answer></answer> block. If it is not complete, continue with the next distinct action required to complete it. Do not repeat already executed commands or previously generated analysis unless you are correcting it.
+"""
+                _continuation_recovery_feedback = ""
 
             # Check for new user messages sent during processing (mid-task steering)
             try:
@@ -5119,7 +5461,9 @@ Analyze the actual output shown and continue with your response.
                 # This is similar to the main stream processing but for continuation
                 continuation_response = ""
                 continuation_in_answer = False
-                continuation_answer_content = answer_content  # Inherit what was already streamed to avoid duplication
+                continuation_answer_content = (
+                    "" if _answer_review_rejected else answer_content
+                )  # Rejected answers must be replaced, not continued.
                 continuation_current_tag = None
                 continuation_current_tag_content = ""
                 continuation_current_tag_message_id = None  # Track message ID
@@ -5162,6 +5506,14 @@ Analyze the actual output shown and continue with your response.
 
                     prev_len = len(continuation_response)
                     continuation_response += token
+                    if "<answer>" in token.lower():
+                        normalized_continuation_response = (
+                            _RE_PROTOCOL_ANSWER_BOUNDARY.sub(
+                                r"\1\n\2", continuation_response
+                            )
+                        )
+                        if normalized_continuation_response != continuation_response:
+                            continuation_response = normalized_continuation_response
 
                     # Detect leaked <interaction> XML in continuation and convert
                     if "</interaction>" in continuation_response.lower():
@@ -5280,7 +5632,9 @@ Analyze the actual output shown and continue with your response.
                                         "\n<output>ALL COMMANDS ABOVE WERE ALREADY EXECUTED IN PREVIOUS ITERATIONS. "
                                         "Their outputs are already shown above. Do NOT regenerate these same commands. "
                                         "If you need to run DIFFERENT commands, do so. "
-                                        "If the task is complete, provide your answer in <answer></answer> tags.</output>"
+                                        "If the task is complete, provide your answer in <answer></answer> tags. "
+                                        "The opening <answer> tag MUST be the first thing on a new line, "
+                                        "not inline in a sentence and not inside a code block.</output>"
                                     )
 
                                 # Yield any remote command requests
@@ -5379,6 +5733,15 @@ Analyze the actual output shown and continue with your response.
                             open_tag in tag_check_window.lower()
                             and open_tag not in continuation_detected_tags
                         ):
+                            if canonical_name == "answer":
+                                answer_tag_pos = continuation_response.lower().rfind(
+                                    open_tag
+                                )
+                                if answer_tag_pos < 0 or not is_real_answer_tag(
+                                    continuation_response, answer_tag_pos
+                                ):
+                                    continue
+
                             # Finalize the current tag before switching to a new one.
                             # This prevents thought truncation when a new tag opens
                             # before the current tag's close is detected (e.g., model
@@ -5651,7 +6014,24 @@ Analyze the actual output shown and continue with your response.
 
                     # Break early if we have a complete answer - don't keep consuming
                     # potentially very long post-answer thinking tokens from the model
-                    if has_complete_answer(self.response + continuation_response):
+                    if has_complete_answer(continuation_response):
+                        break
+                    continuation_response_for_check = continuation_response
+                    if (
+                        self.response
+                        and not self.response.endswith(("\n", "\r"))
+                        and continuation_response.lstrip()
+                        .lower()
+                        .startswith("<answer>")
+                    ):
+                        continuation_response_for_check = (
+                            "\n" + continuation_response.lstrip()
+                        )
+                    if has_complete_answer(
+                        continuation_response_for_check
+                        if _answer_review_rejected
+                        else self.response + continuation_response_for_check
+                    ):
                         break
 
                 # Close/cancel the continuation stream to free the inference slot
@@ -5687,25 +6067,31 @@ Analyze the actual output shown and continue with your response.
                 # productive (model is writing/fixing code) and shouldn't count as "stuck"
                 # BUT: if broke_for_execution but ALL commands were deduplicated,
                 # that's NOT productive — treat it like a non-exec iteration
-                # Hard cap on cumulative dedupes — even when at least one new command
-                # runs each iteration, if the model has been regenerating already-processed
-                # commands en masse, it is stuck. Break out and let the fallback answer
-                # extraction finalize the response. Threshold chosen high enough to allow
-                # legitimate retries (e.g. on transient errors) but low enough to terminate
-                # the runaway loops we have observed in the wild.
+                # Repeated dedupes mean the model is re-requesting commands that
+                # already ran. Treat that as recoverable steering feedback rather
+                # than a reason to finalize before the task is complete.
                 if self._total_dedup_count >= 15:
+                    _continuation_recovery_count += 1
                     logging.warning(
                         f"[run_stream] Excessive dedup loop detected at iteration {continuation_count}. "
                         f"Total cumulative deduplicated commands={self._total_dedup_count}. "
-                        f"Breaking out of continuation loop."
+                        "Injecting self-healing feedback."
                     )
-                    if has_incomplete_answer:
-                        self.response += "</answer>"
+                    _continuation_recovery_feedback = (
+                        "Many generated commands were skipped because they were "
+                        "duplicates of commands that already ran. Do not regenerate "
+                        "those commands. Read the existing <output> blocks and decide "
+                        "whether the task is complete. If more work is required, call "
+                        "a different command with materially different arguments. If "
+                        "the task is complete, provide the final answer."
+                    )
+                    self._total_dedup_count = 0
+                    _consecutive_dedup_iterations = 0
+                    _continuation_iter_lengths = []
                     c.log_interaction(
                         role=self.agent_name,
-                        message="[SUBACTIVITY][CONTINUATION] Finalizing response (dedup cap reached)...",
+                        message="[SUBACTIVITY][CONTINUATION] Recovering duplicate-command loop...",
                     )
-                    break
                 if broke_for_execution and _cont_commands_executed > 0:
                     _previous_iteration_executed = True
                     _no_answer_non_exec_streak = 0  # Reset streak on real execution
@@ -5723,18 +6109,26 @@ Analyze the actual output shown and continue with your response.
                             f"Consecutive partial-dedup iterations: {_consecutive_dedup_iterations}."
                         )
                         if _consecutive_dedup_iterations >= 5:
+                            _continuation_recovery_count += 1
                             logging.warning(
                                 f"[run_stream] Mixed dedup loop detected at iteration {continuation_count}. "
                                 f"{_consecutive_dedup_iterations} consecutive iterations with partial dedupes. "
-                                f"Breaking out of continuation loop."
+                                "Injecting self-healing feedback."
                             )
-                            if has_incomplete_answer:
-                                self.response += "</answer>"
+                            _continuation_recovery_feedback = (
+                                "Some new commands ran, but the model is also "
+                                "regenerating commands that were already processed. "
+                                "Use the new outputs and the prior outputs together. "
+                                "Do not repeat any skipped command. Continue only with "
+                                "new actions that materially advance the user's request, "
+                                "or provide the final answer if the work is complete."
+                            )
+                            _consecutive_dedup_iterations = 0
+                            _continuation_iter_lengths = []
                             c.log_interaction(
                                 role=self.agent_name,
-                                message="[SUBACTIVITY][CONTINUATION] Finalizing response (mixed-dedup loop)...",
+                                message="[SUBACTIVITY][CONTINUATION] Recovering mixed duplicate-command loop...",
                             )
-                            break
                 else:
                     if broke_for_execution and _cont_commands_executed == 0:
                         # Broke for execution but everything was deduplicated
@@ -5746,23 +6140,27 @@ Analyze the actual output shown and continue with your response.
                             f"Consecutive dedup iterations: {_consecutive_dedup_iterations}. "
                             f"Treating as non-exec iteration."
                         )
-                        # If we've seen 2+ consecutive all-dedup iterations, the model
-                        # is stuck regenerating the same commands. Break immediately
-                        # regardless of whether an answer tag is open — the fallback
-                        # answer extraction will handle the response.
                         if _consecutive_dedup_iterations >= 4:
+                            _continuation_recovery_count += 1
                             logging.warning(
                                 f"[run_stream] Dedup loop detected at iteration {continuation_count}. "
                                 f"{_consecutive_dedup_iterations} consecutive iterations with all commands "
-                                f"deduplicated. Breaking out of continuation loop."
+                                "deduplicated. Injecting self-healing feedback."
                             )
-                            if has_incomplete_answer:
-                                self.response += "</answer>"
+                            _continuation_recovery_feedback = (
+                                "Every command in the last continuation was skipped "
+                                "as a duplicate. Stop requesting those commands. Read "
+                                "the existing outputs already in context. If they are "
+                                "enough, synthesize the final answer. If not, choose a "
+                                "new command or different arguments that directly address "
+                                "what is still missing."
+                            )
+                            _consecutive_dedup_iterations = 0
+                            _continuation_iter_lengths = []
                             c.log_interaction(
                                 role=self.agent_name,
-                                message="[SUBACTIVITY][CONTINUATION] Finalizing response...",
+                                message="[SUBACTIVITY][CONTINUATION] Recovering duplicate-command loop...",
                             )
-                            break
                     else:
                         _consecutive_dedup_iterations = (
                             0  # Reset on normal non-exec iteration
@@ -5785,22 +6183,34 @@ Analyze the actual output shown and continue with your response.
                             logging.info(
                                 "[run_stream] Appended </execute> in continuation (stop sequence detected)"
                             )
+                    if (
+                        self.response
+                        and not self.response.endswith(("\n", "\r"))
+                        and continuation_response.lstrip()
+                        .lower()
+                        .startswith("<answer>")
+                    ):
+                        continuation_response = "\n" + continuation_response.lstrip()
                     self.response += continuation_response
 
                 # Update processed_length to track what we've handled
                 processed_length = len(self.response)
 
-                # If we got a COMPLETE answer (properly closed, not inside thinking), we're done
-                # Use has_complete_answer to handle edge cases like <thinking> inside <answer>
+                # If we got a COMPLETE answer, loop back so the final-answer
+                # review gate can approve or reject it before we finalize.
                 if has_complete_answer(self.response):
-                    break
+                    continue
 
                 # If we hit an execute tag, continue loop to handle it
                 if "</execute>" in continuation_response:
                     continue
 
-                # If we still don't have an answer, continue to prompt for one
-                if "<answer>" not in self.response.lower():
+                has_real_answer_open = bool(
+                    find_real_answer_tags(self.response, "open")
+                )
+
+                # If we still don't have a real answer, continue to prompt for one
+                if not has_real_answer_open:
                     continue
 
                 # If <answer> is open but not closed and this inference didn't
@@ -5809,7 +6219,7 @@ Analyze the actual output shown and continue with your response.
                 # hit its output token limit while writing a long answer and
                 # should be given a chance to finish it properly.
                 if (
-                    "<answer>" in self.response.lower()
+                    has_real_answer_open
                     and not has_complete_answer(self.response)
                     and "</execute>" not in continuation_response
                 ):
@@ -5827,7 +6237,7 @@ Analyze the actual output shown and continue with your response.
                 # Save whatever response we've accumulated so far
                 # so the user sees partial work instead of nothing
                 partial_answer = self.response
-                if "<answer>" in partial_answer.lower():
+                if find_real_answer_tags(partial_answer, "open"):
                     partial_answer = extract_top_level_answer(partial_answer)
                 if partial_answer:
                     # Strip thinking/execute/output/speak content blocks
@@ -5928,10 +6338,19 @@ Analyze the actual output shown and continue with your response.
                     else:
                         logging.error(
                             f"[run_stream] Max retries (3) reached for continuation. "
-                            f"Breaking out. Error: {e}"
+                            f"Attempting self-healing continuation. Error: {e}"
                         )
                         self._continuation_retry_count = 0
-                        break
+                        _continuation_recovery_count += 1
+                        _continuation_recovery_feedback = (
+                            "The previous continuation inference hit repeated "
+                            "retryable provider or connection errors. Resume from "
+                            "the available context without repeating work. If the "
+                            "task can be completed from existing outputs, provide "
+                            "the final answer. If more work is required, take the "
+                            "next distinct action."
+                        )
+                        continue
                 else:
                     logging.error(f"Error during continuation: {e}")
                     import traceback
@@ -5996,7 +6415,7 @@ Your job now is to recover gracefully from the existing work:
 4. Provide the best possible final user-facing response, including concrete findings.
 5. If information is still missing, state the exact missing info and next best action.
 
-Return only one top-level <answer>...</answer> block.
+Return only one top-level <answer>...</answer> block. The opening <answer> tag MUST be the first thing on a new line, not inline in a sentence and not inside a code block.
 
 ### Prior Assistant State
 {recovery_context}
@@ -6025,8 +6444,7 @@ Return only one top-level <answer>...</answer> block.
         # Extract final answer using proper top-level detection
         # This handles cases where <answer> appears inside <thinking> blocks
         final_answer = ""
-        if "<answer>" in self.response.lower():
-            final_answer = extract_top_level_answer(self.response)
+        final_answer = extract_top_level_answer(self.response)
 
         if not final_answer:
             # No top-level answer found, use full response
@@ -6448,7 +6866,9 @@ Return only one top-level <answer>...</answer> block.
                         f"re-execution to avoid redundant work. "
                         f"Either: (a) call a DIFFERENT command, (b) call `{command_name}` "
                         f"with DIFFERENT arguments, or (c) if you have enough information, "
-                        f"finalize your answer in <answer></answer> tags.</output>"
+                        f"finalize your answer in <answer></answer> tags. The opening "
+                        f"<answer> tag MUST be the first thing on a new line, not inline "
+                        f"in a sentence and not inside a code block.</output>"
                     )
                     reformatted_response = reformatted_response.replace(
                         command_block, rejection_notice, 1
