@@ -2696,15 +2696,15 @@ async def conversation_stream(
         )
 
         # Get initial conversation history
-        # Respect client-requested limit (via ?limit= query param), defaulting to 50.
-        # The SWR HTTP endpoint already fetches 50 messages for display; loading
-        # hundreds/thousands here was the primary cause of slow DM loading.
+        # Respect client-requested limit (via ?limit= query param), defaulting to 500.
+        # Keep this bounded to avoid unbounded payloads while still supporting
+        # long-running activity-heavy sessions.
         try:
-            ws_limit_str = websocket.query_params.get("limit", "50")
+            ws_limit_str = websocket.query_params.get("limit", "500")
             try:
-                ws_limit = max(1, min(int(ws_limit_str), 200))  # Clamp 1-200
+                ws_limit = max(1, min(int(ws_limit_str), 2000))  # Clamp 1-2000
             except (ValueError, TypeError):
-                ws_limit = 50
+                ws_limit = 500
             initial_history = c.get_conversation(limit=ws_limit)
 
             messages = []

@@ -1447,7 +1447,10 @@ class Interactions:
         if agent_tasks != "":
             context.append(agent_tasks)
         conversation_history = ""
-        conversation = c.get_conversation()
+        # Fetch a wider window than the default to avoid silently dropping
+        # relevant turns in longer chats before we apply our own slicing.
+        history_fetch_limit = max(200, min(2000, conversation_results * 20))
+        conversation = c.get_conversation(limit=history_fetch_limit, page=1)
         if "interactions" in conversation:
             if conversation["interactions"] != []:
                 activity_history = [
@@ -1495,7 +1498,12 @@ class Interactions:
                     interactions = interactions[-conversation_results:]
                     conversation_history = "\n".join(interactions)
                 conversation_history += "\n## The assistant's recent activities:\n"
-                conversation_history += c.get_activities_with_subactivities()
+                activity_window = max(12, min(80, conversation_results * 4))
+                subactivity_window = max(6, min(20, conversation_results * 2))
+                conversation_history += c.get_activities_with_subactivities(
+                    max_activities=activity_window,
+                    max_subactivities_per_activity=subactivity_window,
+                )
         if conversation_history != "":
             context.append(
                 f"### Recent Activities and Conversation History\n{conversation_history}\n"
@@ -3613,7 +3621,7 @@ Example: Open Remote Terminal, Execute in Terminal, Get Terminal Output, Vision 
             try:
                 # Build recent conversation summary for command selection context
                 _recent_history = ""
-                _conv_data = c.get_conversation()
+                _conv_data = c.get_conversation(limit=1000, page=1)
                 if "interactions" in _conv_data and _conv_data["interactions"]:
                     _recent_msgs = [
                         i
@@ -4770,7 +4778,7 @@ Example: If user says "list my files", use:
                 user=self.user,
                 conversation_id=conversation_id,
             )
-            _snap_data = _snap_conv.get_conversation()
+            _snap_data = _snap_conv.get_conversation(limit=1000, page=1)
             for _msg in _snap_data.get("interactions", []):
                 if str(_msg.get("role", "")).lower() == "user":
                     _known_user_msg_ids.add(str(_msg.get("id", "")))
@@ -5065,7 +5073,7 @@ Analyze the actual output shown and continue with your response.
                     user=self.user,
                     conversation_id=conversation_id,
                 )
-                _iter_data = _iter_conv.get_conversation()
+                _iter_data = _iter_conv.get_conversation(limit=1000, page=1)
                 _new_user_msgs = []
                 for _msg in _iter_data.get("interactions", []):
                     if (
@@ -5936,6 +5944,84 @@ Analyze the actual output shown and continue with your response.
             f"has_complete_answer: {has_complete_answer(self.response)}. "
             f"Response length: {len(self.response)}"
         )
+
+        # Recovery pass: if continuation ended without a complete answer,
+        # run one non-streaming synthesis inference to produce a clean
+        # user-facing answer from the already collected outputs.
+        if not has_complete_answer(self.response):
+            try:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message="[SUBACTIVITY][CONTINUATION] Recovering response from prior execution context...",
+                )
+                yield {
+                    "type": "thinking_stream",
+                    "content": "*Recovering final response from prior execution context...*\n",
+                    "complete": False,
+                }
+
+                recovery_context = self.compress_response_for_continuation(
+                    self.response,
+                    max_output_lines=120,
+                    max_thinking_chars=1000,
+                )
+                recovery_prompt_base, _, _ = await self.format_prompt(
+                    user_input=user_input,
+                    top_results=int(context_results),
+                    conversation_results=conversation_results,
+                    prompt=prompt,
+                    prompt_category=prompt_category,
+                    conversation_name=conversation_name,
+                    websearch=websearch,
+                    vision_response=vision_response,
+                    selected_commands=self._selected_commands,
+                    **kwargs,
+                )
+                if self.outputs in recovery_prompt_base:
+                    recovery_prompt_base = recovery_prompt_base.replace(
+                        self.outputs,
+                        f"http://localhost:7437/outputs/{self.agent.agent_id}",
+                    )
+
+                recovery_prompt = f"""{recovery_prompt_base}
+
+## Recovery Mode
+
+The prior continuation loop did not produce a complete, clean <answer> block.
+Your job now is to recover gracefully from the existing work:
+
+1. Analyze the already available execution outputs and reasoning below.
+2. Do NOT generate any <execute> blocks in this recovery step.
+3. If prior attempts failed, explicitly state what failed and why.
+4. Provide the best possible final user-facing response, including concrete findings.
+5. If information is still missing, state the exact missing info and next best action.
+
+Return only one top-level <answer>...</answer> block.
+
+### Prior Assistant State
+{recovery_context}
+"""
+
+                recovery_result = await self.agent.inference(
+                    prompt=recovery_prompt,
+                    use_smartest=use_smartest,
+                    stream=False,
+                )
+                recovery_text = str(recovery_result or "").strip()
+                recovery_answer = extract_top_level_answer(recovery_text)
+                if not recovery_answer and "<execute>" not in recovery_text.lower():
+                    recovery_answer = recovery_text
+
+                if recovery_answer and recovery_answer.strip():
+                    self.response += f"\n<answer>{recovery_answer.strip()}</answer>"
+                    logging.info(
+                        "[run_stream] Recovery inference produced a synthetic final answer"
+                    )
+            except Exception as recovery_error:
+                logging.warning(
+                    f"[run_stream] Recovery inference failed, using fallback extraction: {recovery_error}"
+                )
+
         # Extract final answer using proper top-level detection
         # This handles cases where <answer> appears inside <thinking> blocks
         final_answer = ""
@@ -6045,6 +6131,19 @@ Analyze the actual output shown and continue with your response.
             )
             for match in reversed(output_matches):
                 stripped = match.strip()
+                stripped_lower = stripped.lower()
+                # Skip internal/system fallback outputs that should never be
+                # shown to the user as the final answer.
+                if any(
+                    marker in stripped_lower
+                    for marker in [
+                        "all commands above were already executed",
+                        "[remote command queued]",
+                        "[remote command pending]",
+                        "do not regenerate these same commands",
+                    ]
+                ):
+                    continue
                 if stripped:
                     final_answer = stripped
                     logging.info(
@@ -6519,7 +6618,7 @@ Analyze the actual output shown and continue with your response.
                             )
                             try:
                                 # Build conversation history for context
-                                _conv_data = c.get_conversation()
+                                _conv_data = c.get_conversation(limit=1000, page=1)
                                 _opt_history = ""
                                 if (
                                     "interactions" in _conv_data
