@@ -448,6 +448,22 @@ _CONVERSATION_SUMMARY_MARKERS = (
 )
 
 
+def _markdown_link_label(title: str) -> str:
+    """Return the label for a whole-title markdown link without regex backtracking."""
+    if not title.startswith("[") or not title.endswith(")"):
+        return ""
+
+    label_end = title.find("](")
+    if label_end <= 1:
+        return ""
+
+    label = title[1:label_end]
+    url = title[label_end + 2 : -1]
+    if not label or not url or "]" in label:
+        return ""
+    return label.strip()
+
+
 def clean_conversation_name(name: str, max_length: int = 60) -> str:
     """Normalize a conversation title for sidebar display."""
     text = str(name or "").replace("\r", "\n").replace("_", " ").strip()
@@ -471,9 +487,9 @@ def clean_conversation_name(name: str, max_length: int = 60) -> str:
     title = title.strip("*").strip()
 
     # Convert a whole-title markdown link to its label.
-    markdown_link = re.fullmatch(r"\[([^\]]+)\]\([^)]+\)", title)
-    if markdown_link:
-        title = markdown_link.group(1).strip()
+    markdown_link_label = _markdown_link_label(title)
+    if markdown_link_label:
+        title = markdown_link_label
 
     title = title.replace("**", "").replace("__", "").strip()
     title = re.sub(r"\s+", " ", title)

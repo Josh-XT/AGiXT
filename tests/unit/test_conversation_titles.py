@@ -23,6 +23,18 @@ def test_clean_conversation_name_strips_markdown_first_line():
     assert clean_conversation_name(raw_name) == "Initial Conversation"
 
 
+def test_clean_conversation_name_unwraps_markdown_link_title():
+    raw_name = "[Incident Review](https://example.com/review)"
+
+    assert clean_conversation_name(raw_name) == "Incident Review"
+
+
+def test_clean_conversation_name_keeps_malformed_markdown_link_title():
+    raw_name = "[Incident] Review](https://example.com/review)"
+
+    assert clean_conversation_name(raw_name) == raw_name
+
+
 def test_parse_generated_conversation_name_rejects_summary_markdown():
     raw_response = json.dumps(
         {

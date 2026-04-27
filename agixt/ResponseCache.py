@@ -231,7 +231,7 @@ class ResponseCacheManager:
     def _make_cache_key(self, user_id: str, path: str, query_string: str = "") -> str:
         """Create a cache key from user_id, path and query string"""
         full_path = f"{path}?{query_string}" if query_string else path
-        path_hash = hashlib.md5(full_path.encode()).hexdigest()
+        path_hash = hashlib.sha256(full_path.encode()).hexdigest()
         return f"{self.CACHE_PREFIX}:{user_id}:{path_hash}"
 
     def _make_path_pattern_key(self, user_id: str, path: str) -> str:
@@ -326,7 +326,7 @@ class ResponseCacheManager:
 
             if cached_data:
                 self._stats["hits"] += 1
-                logger.debug(f"Cache HIT: user={user_id[:8]}... path={path}")
+                logger.debug("Cache HIT")
 
                 # Decompress the response body
                 try:
@@ -347,12 +347,12 @@ class ResponseCacheManager:
                 )
             else:
                 self._stats["misses"] += 1
-                logger.debug(f"Cache MISS: user={user_id[:8]}... path={path}")
+                logger.debug("Cache MISS")
                 return None
 
-        except Exception as e:
+        except Exception:
             self._stats["errors"] += 1
-            logger.warning(f"Cache GET error: {e}")
+            logger.warning("Cache GET error")
             return None
 
     def set(
@@ -401,11 +401,11 @@ class ResponseCacheManager:
                 existing_keys.append(cache_key)
                 self._cache.set(path_key, existing_keys, ttl=ttl + 60)
 
-            logger.debug(f"Cache SET: user={user_id[:8]}... path={path} ttl={ttl}s")
+            logger.debug("Cache SET: ttl=%ss", ttl)
 
-        except Exception as e:
+        except Exception:
             self._stats["errors"] += 1
-            logger.warning(f"Cache SET error: {e}")
+            logger.warning("Cache SET error")
 
     def invalidate(self, user_id: str, method: str, path: str):
         """Invalidate caches based on a mutation"""
@@ -426,12 +426,14 @@ class ResponseCacheManager:
 
             self._stats["invalidations"] += deleted_count
             logger.debug(
-                f"Cache INVALIDATE: user={user_id[:8]}... patterns={patterns} deleted={deleted_count}"
+                "Cache INVALIDATE: pattern_count=%s deleted=%s",
+                len(patterns),
+                deleted_count,
             )
 
-        except Exception as e:
+        except Exception:
             self._stats["errors"] += 1
-            logger.warning(f"Cache INVALIDATE error: {e}")
+            logger.warning("Cache INVALIDATE error")
 
     def invalidate_user(self, user_id: str):
         """Clear all caches for a user"""
@@ -439,11 +441,11 @@ class ResponseCacheManager:
             # Delete all keys for this user
             pattern = f"{self.CACHE_PREFIX}:{user_id}:*"
             deleted = self._cache.delete_pattern(pattern)
-            logger.debug(f"Cache CLEAR: user={user_id[:8]}... deleted={deleted}")
+            logger.debug("Cache CLEAR: deleted=%s", deleted)
 
-        except Exception as e:
+        except Exception:
             self._stats["errors"] += 1
-            logger.warning(f"Cache CLEAR error: {e}")
+            logger.warning("Cache CLEAR error")
 
     def clear_all(self):
         """Clear all response caches for all users"""
@@ -459,9 +461,9 @@ class ResponseCacheManager:
             }
             logger.info(f"Cache CLEAR ALL: deleted={deleted} entries")
 
-        except Exception as e:
+        except Exception:
             self._stats["errors"] += 1
-            logger.warning(f"Cache CLEAR ALL error: {e}")
+            logger.warning("Cache CLEAR ALL error")
 
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics"""
@@ -483,9 +485,9 @@ class ResponseCacheManager:
                 "storage": "redis" if self._cache._redis else "local_memory",
             }
 
-        except Exception as e:
+        except Exception:
             # Log detailed error server-side, but do not expose exception details to clients
-            logger.warning(f"Cache stats error: {e}")
+            logger.warning("Cache stats error")
             return {
                 "hits": self._stats["hits"],
                 "misses": self._stats["misses"],
@@ -526,8 +528,8 @@ def extract_user_id(request: Request) -> Optional[str]:
         if isinstance(user, dict):
             user_id = user.get("id")
             return str(user_id) if user_id else None
-    except Exception as exc:
-        logger.debug(f"Response cache auth validation failed: {exc}")
+    except Exception:
+        logger.debug("Response cache auth validation failed")
 
     return None
 
