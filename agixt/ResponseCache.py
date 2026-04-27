@@ -1,3 +1,30 @@
+
+def _mask_sensitive_data(data):
+    """Mask sensitive data in logs."""
+    if isinstance(data, str):
+        # Simple heuristic: mask if it looks like a secret
+        if re.search(r'password|secret|key|token', data, re.IGNORECASE):
+            return '[REDACTED]'
+    return data
+
+
+def _mask_sensitive_data(data):
+    """Mask sensitive data in logs."""
+    if isinstance(data, str):
+        # Simple heuristic: mask if it looks like a secret
+        if re.search(r'password|secret|key|token', data, re.IGNORECASE):
+            return '[REDACTED]'
+    return data
+
+
+def _mask_sensitive_data(data):
+    """Mask sensitive data in logs."""
+    if isinstance(data, str):
+        # Simple heuristic: mask if it looks like a secret
+        if re.search(r'password|secret|key|token', data, re.IGNORECASE):
+            return '[REDACTED]'
+    return data
+
 """
 Response Caching Middleware for AGiXT
 
@@ -231,7 +258,7 @@ class ResponseCacheManager:
     def _make_cache_key(self, user_id: str, path: str, query_string: str = "") -> str:
         """Create a cache key from user_id, path and query string"""
         full_path = f"{path}?{query_string}" if query_string else path
-        path_hash = hashlib.md5(full_path.encode()).hexdigest()
+        path_hash = hashlib.sha256(full_path.encode()).hexdigest()
         return f"{self.CACHE_PREFIX}:{user_id}:{path_hash}"
 
     def _make_path_pattern_key(self, user_id: str, path: str) -> str:
@@ -401,7 +428,7 @@ class ResponseCacheManager:
                 existing_keys.append(cache_key)
                 self._cache.set(path_key, existing_keys, ttl=ttl + 60)
 
-            logger.debug(f"Cache SET: user={user_id[:8]}... path={path} ttl={ttl}s")
+            logger.debug(f"Cache SET: user={_mask_sensitive_data(user_id[:8])}... path={_mask_sensitive_data(path)} ttl={ttl}s")
 
         except Exception as e:
             self._stats["errors"] += 1
