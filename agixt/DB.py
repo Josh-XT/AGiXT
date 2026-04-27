@@ -6455,6 +6455,80 @@ def migrate_performance_indexes():
         logging.warning(f"Performance indexes migration error: {e}", exc_info=True)
 
 
+def migrate_search_indexes():
+    """Speed up conversation + message text search.
+
+    /v1/conversations/search runs ILIKE %q% across Conversation.name,
+    Conversation.summary, and Message.content. Without an index those scans
+    are O(n) and unbearable once a user has tens of thousands of messages.
+
+    On PostgreSQL we install ``pg_trgm`` and create GIN indexes that the
+    planner can use for ILIKE queries verbatim — no query rewrite needed
+    on the application side. On SQLite we fall back to LOWER()-based btree
+    indexes which are still faster than table scans for simple ILIKE.
+    Idempotent (CREATE INDEX IF NOT EXISTS / pg_trgm CREATE EXTENSION IF NOT EXISTS).
+    """
+    if engine is None:
+        return
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                # SQLite doesn't have a trigram index, but a btree on LOWER()
+                # of the searchable column is still useful for prefix queries
+                # the search UI is likely to issue.
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_name_lower "
+                        "ON conversation(LOWER(name))"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_summary_lower "
+                        "ON conversation(LOWER(summary))"
+                    )
+                )
+                # Message.content is too long for a useful btree on LOWER()
+                # in SQLite — leave the LIKE scan unindexed there. Most users
+                # run Postgres in production and get the trigram benefit.
+            else:
+                # PostgreSQL: enable pg_trgm and add GIN indexes that match
+                # ILIKE queries verbatim.
+                try:
+                    session.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+                except Exception as exc:
+                    # Some Postgres deployments don't allow CREATE EXTENSION
+                    # from the application role. Log and skip — queries still
+                    # work via sequential scan, just slower.
+                    logging.info(
+                        f"pg_trgm extension unavailable, search will use seq scan: {exc}"
+                    )
+                    return
+
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_name_trgm "
+                        "ON conversation USING gin (name gin_trgm_ops)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_summary_trgm "
+                        "ON conversation USING gin (summary gin_trgm_ops)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_content_trgm "
+                        "ON message USING gin (content gin_trgm_ops)"
+                    )
+                )
+            session.commit()
+            logging.info("Search indexes migration complete")
+    except Exception as e:
+        logging.warning(f"Search indexes migration error: {e}", exc_info=True)
+
+
 def migrate_extract_data_urls_from_messages():
     """
     One-time migration to extract inline base64 data URLs from existing messages
@@ -8459,6 +8533,19 @@ def check_schema_migrations_needed():
                         return True
                 except Exception:
                     return True
+
+                # Sentinel for the search-index migration. If absent, run.
+                try:
+                    result = session.execute(
+                        text(
+                            "SELECT 1 FROM sqlite_master "
+                            "WHERE type='index' AND name='ix_conversation_name_lower'"
+                        )
+                    )
+                    if not result.fetchone():
+                        return True
+                except Exception:
+                    return True
             else:
                 # PostgreSQL - check for latest migration indicators
                 result = session.execute(
@@ -8491,6 +8578,24 @@ def check_schema_migrations_needed():
                         SELECT 1 FROM information_schema.columns
                         WHERE table_name = 'UserCompany'
                         AND column_name = 'sort_order'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    return True
+
+                # Sentinel for the search-index migration. The trigram GIN
+                # index won't exist until the new migration runs; if absent,
+                # force a migration pass. Quietly tolerate environments where
+                # pg_trgm isn't installable — the migration logs and skips
+                # in that case, so subsequent boots will re-check until the
+                # extension lands or another migration adds a different
+                # sentinel.
+                result = session.execute(
+                    text(
+                        """
+                        SELECT 1 FROM pg_indexes
+                        WHERE indexname = 'ix_conversation_name_trgm'
                         """
                     )
                 )
@@ -8540,6 +8645,7 @@ def run_all_schema_migrations():
 
     # Phase 3: Performance indexes
     migrate_performance_indexes()
+    migrate_search_indexes()
 
     # Phase 4: One-time data cleanup migrations
     migrate_cleanup_duplicate_wallet_settings()

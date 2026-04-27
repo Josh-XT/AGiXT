@@ -12,7 +12,7 @@ from fastapi import (
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 import hashlib
 from pydantic import BaseModel
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from ApiClient import verify_api_key, get_api_client, Agent
 from Conversations import (
     Conversations,
@@ -774,6 +774,8 @@ async def get_conversations(
     user=Depends(verify_api_key),
     limit: int = None,
     offset: int = 0,
+    cursor: Optional[str] = None,
+    include_counts: bool = True,
     if_none_match: str = Header(None, alias="If-None-Match"),
 ):
     c = Conversations(user=user)
@@ -784,17 +786,51 @@ async def get_conversations(
     MAX_CONVERSATIONS = 500
     if limit is None or limit <= 0 or limit > MAX_CONVERSATIONS:
         limit = MAX_CONVERSATIONS
-    # Pass limit/offset to the core method so expensive batch queries
+    # Pass limit/offset/cursor to the core method so expensive batch queries
     # (unread counts, DM names, agent roles) are only computed for the
     # paginated subset instead of all conversations.
-    conversations = c.get_conversations_with_detail(limit=limit, offset=offset)
+    conversations = c.get_conversations_with_detail(
+        limit=limit, offset=offset, cursor=cursor
+    )
     if not conversations:
         conversations = {}
+
+    # Cheap aggregate counts so frontends can show stable "X conversations"
+    # labels immediately, without waiting for full client-side hydration.
+    # Defaults to on; an explicit ?include_counts=false skips the extra
+    # COUNT() queries (a few ms) for callers that don't need them.
+    payload = {"conversations": conversations}
+    if include_counts:
+        try:
+            counts = c.get_conversation_counts()
+        except (
+            Exception
+        ) as exc:  # pragma: no cover - defensive: never break list response on count failure
+            logging.warning(f"get_conversation_counts failed, omitting counts: {exc}")
+            counts = None
+        if counts is not None:
+            payload["total"] = counts.get("total", 0)
+            payload["pinned_count"] = counts.get("pinned", 0)
+            payload["unread_count"] = counts.get("unread", 0)
+            payload["by_agent"] = counts.get("by_agent", {})
+    # Cursor for the next page: the updated_at of the last row returned.
+    # Clients pass this back as ?cursor=… to skip O(offset) row discards on
+    # the database side. Null when this page is the last page.
+    if (
+        conversations
+        and isinstance(conversations, dict)
+        and len(conversations) >= limit
+    ):
+        last_entry = next(reversed(conversations.values()))
+        payload["next_cursor"] = last_entry.get("updated_at")
+    else:
+        payload["next_cursor"] = None
+
     # Conversations contain datetime values that JSONResponse can't serialize
     # directly; use jsonable_encoder to normalize before hashing/sending.
     from fastapi.encoders import jsonable_encoder
 
-    encoded = jsonable_encoder({"conversations": conversations})
+    encoded = jsonable_encoder(payload)
 
     # ETag based on response content. Lets the SSR layout fetch return 304
     # Not Modified on warm navigation, avoiding the 100-400ms recompute of
@@ -841,10 +877,111 @@ async def search_messages(
 
 
 @app.get(
+    "/v1/conversations/search",
+    summary="Search Conversations (sidebar-ready)",
+    description=(
+        "Search across conversation name, summary, and recent message content "
+        "and return at most one entry per conversation with the fields the "
+        "sidebar/DM panel needs to render a row directly. Use this for "
+        "type-to-search UX in accounts with many conversations; the POST "
+        "variant is still available for full message-level search."
+    ),
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def search_conversations(
+    q: str,
+    limit: int = 25,
+    company_id: Optional[str] = None,
+    user=Depends(verify_api_key),
+):
+    c = Conversations(user=user)
+    results = c.search_conversations(query=q, limit=limit, company_id=company_id)
+    return {"results": results}
+
+
+def _group_activities_into_tree(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Nest [ACTIVITY] (and their [SUBACTIVITY] children) under the following
+    non-activity message in the same conversation.
+
+    Long-horizon agent runs emit hundreds of activity rows interleaved with the
+    user message and the final agent response. The flat shape forces clients
+    to walk the whole list every render to re-pair activities with their owner.
+    The tree shape collapses those 500+ rows into a single "response with
+    activities" entry on the wire — same payload, dramatically smaller React
+    tree, and the client's grouping pass becomes the identity function.
+
+    Activities at the tail of a conversation (no following response yet,
+    e.g. agent is still working) are returned as a synthetic group with
+    ``response = None`` so the UI can render them under "in progress".
+    """
+    grouped: List[Dict[str, Any]] = []
+    pending: List[Dict[str, Any]] = []
+    sub_buffer: List[Dict[str, Any]] = []
+
+    def flush_subs_to(activity: Dict[str, Any]) -> None:
+        if sub_buffer:
+            activity.setdefault("subactivities", []).extend(sub_buffer)
+            sub_buffer.clear()
+
+    for msg in messages:
+        content = str(msg.get("message") or "")
+        if content.startswith("[SUBACTIVITY]"):
+            sub_buffer.append(msg)
+            continue
+        if content.startswith("[ACTIVITY]"):
+            # Hand any subactivities accumulated since the last activity to the
+            # previous activity (they belong to it, not the next one).
+            if pending:
+                flush_subs_to(pending[-1])
+            else:
+                # Subactivities before any activity: leave them at the top of
+                # the next activity once one shows up. Drop on the floor if
+                # none follows (shouldn't happen in practice).
+                sub_buffer.clear()
+            pending.append({**msg, "subactivities": []})
+            continue
+        # Non-activity message — close out the running activity group.
+        if pending:
+            flush_subs_to(pending[-1])
+        grouped.append(
+            {
+                **msg,
+                "activities": pending,
+            }
+        )
+        pending = []
+        sub_buffer.clear()
+
+    # Trailing activities with no closing response: emit a synthetic group so
+    # the frontend can render them under "still working". response_id is None
+    # so callers can distinguish from completed groups.
+    if pending:
+        flush_subs_to(pending[-1])
+        grouped.append(
+            {
+                "id": None,
+                "role": pending[0].get("role"),
+                "message": "",
+                "timestamp": pending[0].get("timestamp"),
+                "activities": pending,
+                "is_pending": True,
+            }
+        )
+
+    return grouped
+
+
+@app.get(
     "/v1/conversation/{conversation_id}",
     response_model=ConversationHistoryResponse,
     summary="Get Conversation History by ID",
-    description="Retrieves the complete history of a specific conversation using its ID.",
+    description=(
+        "Retrieves the complete history of a specific conversation using its ID. "
+        "Pass ?format=tree to receive activities nested under their owning "
+        "agent response (recommended for long-horizon tasks; cuts the top-level "
+        "message array from 500+ to a handful)."
+    ),
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -854,6 +991,7 @@ async def get_conversation_history(
     authorization: str = Header(None),
     limit: int = 100,
     page: int = 1,
+    format: str = "flat",
 ):
     auth = MagicalAuth(token=authorization)
     if conversation_id == "-":
@@ -879,11 +1017,14 @@ async def get_conversation_history(
     resp_limit = conversation_history.get("limit")
     if "interactions" in conversation_history:
         conversation_history = conversation_history["interactions"]
+    if format == "tree":
+        conversation_history = _group_activities_into_tree(conversation_history)
     return {
         "conversation_history": conversation_history,
         "total": total,
         "page": resp_page,
         "limit": resp_limit,
+        "format": format,
     }
 
 
@@ -3190,6 +3331,98 @@ async def notify_user_conversation_renamed(
             },
         },
     )
+
+
+async def notify_user_agent_working(
+    user_id: str,
+    conversation_id: str,
+    event: str,
+    agent_name: Optional[str] = None,
+    started_at: Optional[str] = None,
+):
+    """Push a working/idle transition for a conversation.
+
+    Replaces the frontend's 15s ``/v1/conversations/active`` polling: the
+    web client subscribes to the existing user-notification WebSocket and
+    pivots its ``isAgentWorking`` state on these events instead.
+    """
+    await user_notification_manager.broadcast_to_user(
+        user_id,
+        {
+            "type": (
+                "agent_working_started" if event == "started" else "agent_working_ended"
+            ),
+            "data": {
+                "conversation_id": conversation_id,
+                "agent_name": agent_name,
+                "started_at": started_at,
+                "timestamp": datetime.now().isoformat(),
+            },
+        },
+    )
+
+
+def _on_worker_state_change(event: str, info: Dict[str, Any]) -> None:
+    """Bridge: WorkerRegistry sync callback → async user-notification broadcast.
+
+    The registry callback runs in whatever thread/coroutine context triggered
+    the registration. Schedule the async broadcast on the FastAPI main loop so
+    it lands on the user's WebSocket without blocking the registration call.
+    """
+    user_id = info.get("user_id")
+    conversation_id = info.get("conversation_id")
+    if not user_id or not conversation_id:
+        return
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(
+                notify_user_agent_working(
+                    user_id=str(user_id),
+                    conversation_id=str(conversation_id),
+                    event=event,
+                    agent_name=info.get("agent_name"),
+                    started_at=info.get("started_at"),
+                )
+            )
+        else:
+            asyncio.run_coroutine_threadsafe(
+                notify_user_agent_working(
+                    user_id=str(user_id),
+                    conversation_id=str(conversation_id),
+                    event=event,
+                    agent_name=info.get("agent_name"),
+                    started_at=info.get("started_at"),
+                ),
+                loop,
+            )
+    except RuntimeError:
+        # No event loop in this thread (e.g. registration from a worker
+        # thread). Fall back to publishing through the same Redis channel
+        # the user_notification_manager already uses for cross-worker fanout.
+        try:
+            user_notification_manager._publish_to_redis(
+                str(user_id),
+                {
+                    "type": (
+                        "agent_working_started"
+                        if event == "started"
+                        else "agent_working_ended"
+                    ),
+                    "data": {
+                        "conversation_id": str(conversation_id),
+                        "agent_name": info.get("agent_name"),
+                        "started_at": info.get("started_at"),
+                        "timestamp": datetime.now().isoformat(),
+                    },
+                },
+            )
+        except Exception as exc:
+            logging.debug(f"agent_working broadcast fallback failed: {exc}")
+
+
+# Wire WorkerRegistry → user_notification_manager exactly once at import.
+worker_registry.add_state_listener(_on_worker_state_change)
 
 
 async def notify_user_message_added(

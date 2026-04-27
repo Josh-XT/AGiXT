@@ -14,6 +14,10 @@ class UserResponse(BaseModel):
     role: str
     role_id: int
     avatar_url: Optional[str] = None
+    # Presence fields used by sidebar/DM avatars. Optional so callers that only
+    # populate the basics keep working unchanged.
+    last_seen: Optional[str] = None
+    status_text: Optional[str] = None
 
 
 class CompanyResponse(BaseModel):
@@ -797,6 +801,19 @@ class ConversationListResponse(BaseModel):
 
 class ConversationDetailResponse(BaseModel):
     conversations: Dict[str, Dict[str, Any]]
+    # Aggregate counts across the user's full conversation list (not just the
+    # paginated page). Lets the UI show stable totals immediately. Optional so
+    # ?include_counts=false (or older clients) keep a minimal response shape.
+    total: Optional[int] = None
+    pinned_count: Optional[int] = None
+    unread_count: Optional[int] = None
+    # Per-agent conversation counts keyed by agent name. Lets the DM panel
+    # show stable "X conversations" labels under each agent immediately
+    # rather than watching the count climb during client-side hydration.
+    by_agent: Optional[Dict[str, int]] = None
+    # Cursor pagination — pass back as ?cursor= for the next page. Null when
+    # this is the last page.
+    next_cursor: Optional[str] = None
 
 
 class ConversationHistoryResponse(BaseModel):
@@ -804,6 +821,9 @@ class ConversationHistoryResponse(BaseModel):
     total: Optional[int] = None
     page: Optional[int] = None
     limit: Optional[int] = None
+    # Echo back the format the server returned. "flat" (default) preserves the
+    # legacy shape; "tree" nests activities under their owning agent response.
+    format: Optional[str] = None
 
 
 class NewConversationHistoryResponse(BaseModel):
