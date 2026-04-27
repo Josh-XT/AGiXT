@@ -43,6 +43,15 @@ def _mask_sensitive_data(data):
             return '[REDACTED]'
     return data
 
+
+def _mask_sensitive_data(data):
+    """Mask sensitive data in logs."""
+    if isinstance(data, str):
+        # Simple heuristic: mask if it looks like a secret
+        if re.search(r'password|secret|key|token', data, re.IGNORECASE):
+            return '[REDACTED]'
+    return data
+
 """
 Response Caching Middleware for AGiXT
 

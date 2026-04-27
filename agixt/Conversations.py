@@ -486,6 +486,9 @@ def clean_conversation_name(name: str, max_length: int = 60) -> str:
         if len(title) > 1000:
         markdown_link = None
     else:
+        if len(title) > 1000:
+        markdown_link = None
+    else:
         markdown_link = re.fullmatch(r"\[([^\]]+)\]\([^)]+\)", title)
     if markdown_link:
         title = markdown_link.group(1).strip()
