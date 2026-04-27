@@ -1,2 +1,3 @@
-safeexecute==0.0.32
+safeexecute==0.0.33
 gpsoauth>=1.1.1
+curl_cffi

@@ -27,7 +27,7 @@ pydub==0.25.1
 python-pptx==0.6.23
 pdf2image==1.17.0
 agixtsdk==0.0.82
-safeexecute==0.0.32
+safeexecute==0.0.33
 google-generativeai==0.7.2
 anthropic==0.34.2
 arxiv>=2.0.0
@@ -84,3 +84,4 @@ discord.py>=2.0.0
 botbuilder-core==4.17.1
 gpsoauth>=1.1.1
 slack-sdk==3.41.0
+curl_cffi
