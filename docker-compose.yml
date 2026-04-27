@@ -84,6 +84,7 @@ services:
       NEXT_TELEMETRY_DISABLED: 1
       APP_NAME: ${APP_NAME:-AGiXT}
       AGIXT_SERVER: ${AGIXT_URI:-http://agixt:7437}
+      INTERNAL_AGIXT_SERVER: ${INTERNAL_AGIXT_SERVER:-http://agixt:7437}
       APP_URI: ${APP_URI:-http://localhost:3437}
     ports:
       - "${AGIXT_WEB_PORT:-3051}:3437"
