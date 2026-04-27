@@ -4,6 +4,7 @@ import logging
 import signal
 import asyncio
 import mimetypes
+import threading
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -207,8 +208,11 @@ def signal_handler(signum, frame):
         logging.error(f"Error in signal handler: {e}")
 
 
-signal.signal(signal.SIGTERM, signal_handler)
-signal.signal(signal.SIGINT, signal_handler)
+if threading.current_thread() is threading.main_thread():
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+else:
+    logging.debug("Signal handlers skipped outside the main thread")
 
 app = FastAPI(
     title="AGiXT",
