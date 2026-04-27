@@ -7720,6 +7720,13 @@ class MagicalAuth:
                                     last_name=user.last_name,
                                     role=display_role,
                                     role_id=display_role_id,
+                                    avatar_url=getattr(user, "avatar_url", None),
+                                    last_seen=(
+                                        user.last_seen.isoformat()
+                                        if getattr(user, "last_seen", None)
+                                        else None
+                                    ),
+                                    status_text=getattr(user, "status_text", None),
                                 )
 
                     company_data = {

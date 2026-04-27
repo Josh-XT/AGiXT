@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from typing import Dict, Set, Optional
+from typing import Callable, Dict, List, Set, Optional
 from datetime import datetime
 import threading
 
@@ -23,6 +23,32 @@ class WorkerRegistry:
         )  # conversation_id -> task
         self._stopped_conversations: Set[str] = set()  # explicitly stopped by user
         self._lock = threading.Lock()
+        # Listeners notified whenever a conversation transitions between
+        # working and idle. Each listener receives ``(event, info_dict)`` where
+        # ``event`` is "started" or "ended". Used by the WebSocket layer to
+        # push live state changes to the frontend so it can stop polling
+        # /v1/conversations/active every 15 seconds.
+        self._state_listeners: List[Callable[[str, Dict], None]] = []
+
+    def add_state_listener(self, listener: Callable[[str, Dict], None]) -> None:
+        """Register a listener for working/idle transitions.
+
+        The listener runs synchronously inside the registry's lock-free path
+        (after the lock is released) so it MUST not raise. It SHOULD schedule
+        any async work via ``asyncio.create_task`` and return immediately.
+        """
+        with self._lock:
+            self._state_listeners.append(listener)
+
+    def _emit_state(self, event: str, info: Dict) -> None:
+        # Snapshot listeners outside any held lock to keep callbacks decoupled
+        # from registry internals.
+        listeners = list(self._state_listeners)
+        for listener in listeners:
+            try:
+                listener(event, info)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(f"WorkerRegistry state listener failed: {exc}")
 
     def register_conversation(
         self,
@@ -56,7 +82,18 @@ class WorkerRegistry:
             if task:
                 self._conversation_tasks[conversation_id] = task
 
-            return conversation_id
+        # Emit AFTER releasing the lock so listener callbacks can do whatever
+        # they need (including reading registry state) without deadlocking.
+        self._emit_state(
+            "started",
+            {
+                "conversation_id": conversation_id,
+                "user_id": user_id,
+                "agent_name": agent_name,
+                "started_at": worker_info["started_at"].isoformat(),
+            },
+        )
+        return conversation_id
 
     def unregister_conversation(self, conversation_id: str) -> bool:
         """
@@ -68,9 +105,16 @@ class WorkerRegistry:
         Returns:
             bool: True if conversation was found and removed
         """
+        info_snapshot: Optional[Dict] = None
         with self._lock:
             removed = False
             if conversation_id in self._active_conversations:
+                info_snapshot = self._active_conversations[conversation_id].copy()
+                # Drop the unserializable task before notifying listeners.
+                info_snapshot.pop("task", None)
+                started_at = info_snapshot.get("started_at")
+                if isinstance(started_at, datetime):
+                    info_snapshot["started_at"] = started_at.isoformat()
                 del self._active_conversations[conversation_id]
                 removed = True
 
@@ -79,7 +123,9 @@ class WorkerRegistry:
 
             self._stopped_conversations.discard(conversation_id)
 
-            return removed
+        if removed and info_snapshot is not None:
+            self._emit_state("ended", info_snapshot)
+        return removed
 
     def is_stopped(self, conversation_id: str) -> bool:
         """Check if a conversation was explicitly stopped by the user."""

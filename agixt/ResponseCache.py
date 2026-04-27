@@ -111,29 +111,37 @@ class ResponseCacheManager:
         "/v1/scopes": 600,  # Scopes list - 10 minutes (rarely changes, system-level)
         "/v1/roles": 300,  # Custom roles - 5 minutes
         "/v1/user/scopes": 60,  # User's effective scopes - 1 minute (per-user, changes with role changes)
+        # Chat-shell warmup endpoint. Composes user + companies + recent
+        # conversations + counts + active + billing into one response. The
+        # underlying components are individually cacheable up to 30-300s,
+        # but during the typical /user → /chat redirect the same payload
+        # gets requested twice within 50ms — caching for 15s collapses the
+        # second hit to ~0ms. Mutation invalidation rules below ensure
+        # creates/edits flush this cache so stale counts don't appear.
+        "/v1/me/bootstrap": 15,
     }
 
     # Invalidation rules: when a mutation happens on path pattern, invalidate these cache patterns
     INVALIDATION_RULES = {
         # Agent mutations invalidate agent-related caches
-        "POST:/v1/agent": ["agent", "company"],
-        "PUT:/v1/agent": ["agent"],
-        "DELETE:/v1/agent": ["agent", "company"],
-        "PUT:/v1/agent/*/settings": ["agent"],
-        "PUT:/v1/agent/*/commands": ["agent"],
+        "POST:/v1/agent": ["agent", "company", "me/bootstrap"],
+        "PUT:/v1/agent": ["agent", "me/bootstrap"],
+        "DELETE:/v1/agent": ["agent", "company", "me/bootstrap"],
+        "PUT:/v1/agent/*/settings": ["agent", "me/bootstrap"],
+        "PUT:/v1/agent/*/commands": ["agent", "me/bootstrap"],
         "PATCH:/v1/agent/*/command": ["agent", "extension"],  # Single command toggle
         "PATCH:/v1/agent/*/extension/commands": [
             "agent",
             "extension",
         ],  # Bulk command toggle
         # Conversation mutations
-        "POST:/v1/conversation": ["conversation"],
-        "PUT:/v1/conversation": ["conversation"],
-        "PATCH:/v1/conversation": ["conversation"],
-        "DELETE:/v1/conversation": ["conversation"],
+        "POST:/v1/conversation": ["conversation", "me/bootstrap"],
+        "PUT:/v1/conversation": ["conversation", "me/bootstrap"],
+        "PATCH:/v1/conversation": ["conversation", "me/bootstrap"],
+        "DELETE:/v1/conversation": ["conversation", "me/bootstrap"],
         # Company mutations
-        "POST:/v1/company": ["company"],
-        "PUT:/v1/company": ["company"],
+        "POST:/v1/company": ["company", "me/bootstrap"],
+        "PUT:/v1/company": ["company", "me/bootstrap"],
         "PATCH:/v1/companies/*/command": [
             "agent",
             "extension",
@@ -200,6 +208,7 @@ class ResponseCacheManager:
         "/v1/scopes",  # All system scopes - internal, rarely changes
         "/v1/roles",  # Custom roles list - internal AGiXT data
         "/v1/user/scopes",  # User's effective scopes - per-user permissions
+        "/v1/me/bootstrap",  # Chat-shell warmup composite (15s TTL)
     }
 
     def __init__(self):

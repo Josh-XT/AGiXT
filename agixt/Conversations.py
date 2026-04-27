@@ -24,7 +24,7 @@ from DB import (
     DATABASE_TYPE,
 )
 from Globals import getenv, DEFAULT_USER
-from sqlalchemy.sql import func, or_, and_, case, exists
+from sqlalchemy.sql import func, or_, and_, case, exists, select
 from sqlalchemy.exc import IntegrityError
 from MagicalAuth import convert_time, get_user_id, get_user_timezone
 from SharedCache import shared_cache
@@ -1066,7 +1066,214 @@ class Conversations:
         finally:
             session.close()
 
-    def get_conversations_with_detail(self, limit=None, offset=0):
+    def get_conversation_counts(self):
+        """Cheap aggregate counts for the user's conversation list.
+
+        Returns counts that match exactly the same scope as
+        ``get_conversations_with_detail`` (excludes group/thread, keeps DM/
+        private even without messages), so frontends can show stable
+        ``X conversations`` / unread badges immediately after the first
+        paginated request — no need to wait for full hydration.
+        """
+        session = get_session()
+        user_id = self._user_id
+        if not user_id:
+            session.close()
+            return {"total": 0, "pinned": 0, "unread": 0}
+
+        try:
+            # Materialise the set of in-scope conversation IDs once, then run
+            # the aggregate counts against that list. Using `Conversation.id.in_(ids)`
+            # in subsequent queries avoids SQLAlchemy auto-correlating an
+            # ``exists()`` subquery in unexpected ways across multiple SELECTs
+            # (which produced the "returned no FROM clauses" errors).
+            participant_rows = (
+                session.query(ConversationParticipant.conversation_id)
+                .filter(
+                    ConversationParticipant.user_id == user_id,
+                    ConversationParticipant.participant_type == "user",
+                    ConversationParticipant.status == "active",
+                )
+                .all()
+            )
+            participant_conv_id_list = [str(row[0]) for row in participant_rows]
+            participant_clause = (
+                Conversation.id.in_(participant_conv_id_list)
+                if participant_conv_id_list
+                else False
+            )
+
+            # Conversation IDs that have at least one message — flat list query
+            # rather than an EXISTS in scope_filter so it doesn't get
+            # auto-correlated when reused. Bounded to user-relevant convs to
+            # avoid scanning the full Message table.
+            owned_rows = (
+                session.query(Conversation.id)
+                .filter(or_(Conversation.user_id == user_id, participant_clause))
+                .all()
+            )
+            owned_ids = [str(row[0]) for row in owned_rows]
+            convs_with_messages = set()
+            if owned_ids:
+                msg_rows = (
+                    session.query(Message.conversation_id)
+                    .filter(Message.conversation_id.in_(owned_ids))
+                    .distinct()
+                    .all()
+                )
+                convs_with_messages = {str(row[0]) for row in msg_rows}
+
+            # Final in-scope ids: owned/participant + non-group/thread + has
+            # messages OR is a DM/private (which counts even when empty).
+            in_scope_rows = (
+                session.query(
+                    Conversation.id,
+                    Conversation.conversation_type,
+                    Conversation.pin_order,
+                )
+                .filter(or_(Conversation.user_id == user_id, participant_clause))
+                .filter(
+                    or_(
+                        Conversation.conversation_type.is_(None),
+                        Conversation.conversation_type.notin_(["group", "thread"]),
+                    ),
+                )
+                .all()
+            )
+            in_scope_ids: List[str] = []
+            pinned = 0
+            for cid, ctype, pin_order in in_scope_rows:
+                cid_str = str(cid)
+                # Match the same "keep DM/private even without messages"
+                # logic used by get_conversations_with_detail.
+                if ctype in ("dm", "private") or cid_str in convs_with_messages:
+                    in_scope_ids.append(cid_str)
+                    if pin_order is not None:
+                        pinned += 1
+
+            total = len(in_scope_ids)
+
+            unread = 0
+            if in_scope_ids:
+                # Unread approximation: any conversation with a non-USER,
+                # non-activity message newer than the user's last_read_at
+                # (or no participant row at all).
+                last_read_map: Dict[str, Any] = {}
+                user_participants = (
+                    session.query(
+                        ConversationParticipant.conversation_id,
+                        ConversationParticipant.last_read_at,
+                    )
+                    .filter(
+                        ConversationParticipant.conversation_id.in_(in_scope_ids),
+                        ConversationParticipant.user_id == user_id,
+                        ConversationParticipant.participant_type == "user",
+                    )
+                    .all()
+                )
+                for cid_val, last_read in user_participants:
+                    last_read_map[str(cid_val)] = last_read
+
+                # Ask the DB for each conversation's most-recent agent-message
+                # timestamp in one query.
+                latest_msgs = (
+                    session.query(
+                        Message.conversation_id,
+                        func.max(Message.timestamp).label("ts"),
+                    )
+                    .filter(
+                        Message.conversation_id.in_(in_scope_ids),
+                        Message.role != "USER",
+                        ~Message.content.like("[ACTIVITY]%"),
+                        ~Message.content.like("[SUBACTIVITY]%"),
+                    )
+                    .group_by(Message.conversation_id)
+                    .all()
+                )
+                for cid_val, ts in latest_msgs:
+                    if ts is None:
+                        continue
+                    last_read = last_read_map.get(str(cid_val))
+                    if last_read is None or ts > last_read:
+                        unread += 1
+
+            # Per-agent counts. Mirrors the agent-role resolution pattern
+            # used by get_conversations_with_detail: the "agent" for a
+            # conversation is the role string of its first non-USER, non-
+            # activity message. Default agent for the user fills in for
+            # conversations with no agent message yet. Lets the DM panel
+            # show stable per-agent totals immediately rather than watching
+            # the count climb during hydration.
+            by_agent_name: Dict[str, int] = {}
+            try:
+                default_agent = (
+                    session.query(Agent).filter(Agent.user_id == user_id).first()
+                )
+                default_agent_name = default_agent.name if default_agent else None
+
+                conv_to_agent: Dict[str, str] = {}
+                if in_scope_ids:
+                    # Same window-style query the per-row code uses, but
+                    # bounded to the scope set.
+                    min_ts_subq = (
+                        session.query(
+                            Message.conversation_id,
+                            func.min(Message.timestamp).label("min_ts"),
+                        )
+                        .filter(
+                            Message.conversation_id.in_(in_scope_ids),
+                            Message.role != "USER",
+                            ~Message.content.like("[ACTIVITY]%"),
+                            ~Message.content.like("[SUBACTIVITY]%"),
+                        )
+                        .group_by(Message.conversation_id)
+                        .subquery()
+                    )
+                    first_agent_msgs = (
+                        session.query(Message.conversation_id, Message.role)
+                        .join(
+                            min_ts_subq,
+                            and_(
+                                Message.conversation_id
+                                == min_ts_subq.c.conversation_id,
+                                Message.timestamp == min_ts_subq.c.min_ts,
+                            ),
+                        )
+                        .filter(
+                            Message.role != "USER",
+                            ~Message.content.like("[ACTIVITY]%"),
+                            ~Message.content.like("[SUBACTIVITY]%"),
+                        )
+                        .all()
+                    )
+                    for conv_id_val, role in first_agent_msgs:
+                        cid = str(conv_id_val)
+                        if cid not in conv_to_agent and role:
+                            conv_to_agent[cid] = str(role)
+
+                for cid in in_scope_ids:
+                    name = conv_to_agent.get(cid) or default_agent_name
+                    if name:
+                        by_agent_name[name] = by_agent_name.get(name, 0) + 1
+            except Exception as exc:  # pragma: no cover - defensive
+                logging.debug(f"by_agent breakdown failed: {exc}")
+                by_agent_name = {}
+
+            return {
+                "total": int(total),
+                "pinned": int(pinned),
+                "unread": int(unread),
+                "by_agent": by_agent_name,
+            }
+        finally:
+            session.close()
+
+    def get_conversations_with_detail(
+        self,
+        limit=None,
+        offset=0,
+        cursor=None,
+    ):
         """
         OPTIMIZED: Single query to get all conversation details with notifications
         and last message timestamps in one batch instead of N+1 queries.
@@ -1199,7 +1406,22 @@ class Conversations:
                 key=lambda pair: pair[1] or pair[0].updated_at or "",
                 reverse=True,
             )
-            conversations = conversations[offset : offset + limit]
+            # Cursor-based pagination. ``cursor`` is the ISO timestamp of the
+            # last conversation the client has — we drop everything at or
+            # newer than that and return the next ``limit`` rows. Lets clients
+            # walk past offset=10500 in O(log n) instead of forcing the DB to
+            # scan/discard 10500 rows. Falls back to offset pagination when
+            # cursor is omitted, preserving backward compatibility.
+            if cursor:
+                cursor_str = str(cursor)
+                conversations = [
+                    pair
+                    for pair in conversations
+                    if str(pair[1] or pair[0].updated_at or "") < cursor_str
+                ]
+                conversations = conversations[:limit]
+            else:
+                conversations = conversations[offset : offset + limit]
 
         # Batch-fetch participant records for this user to get last_read_at
         all_conv_ids = [str(c.id) for c, _ in conversations]
@@ -1633,6 +1855,162 @@ class Conversations:
 
         session.close()
         return results
+
+    def search_conversations(
+        self,
+        query: str,
+        limit: int = 25,
+        company_id: str = None,
+    ):
+        """Sidebar-ready conversation search.
+
+        Unlike :meth:`search_messages` (which returns one row per matching
+        message and is intended for the search-results page), this returns at
+        most one entry per conversation, ranked by recency, with the fields the
+        sidebar needs to render a row directly: id, name, agent_name,
+        updated_at, snippet.
+
+        Searches across conversation name, summary, and message content.
+        """
+        session = get_session()
+        user_id = self._user_id
+        if not user_id or not query or not query.strip():
+            session.close()
+            return []
+
+        try:
+            term = f"%{query.strip()}%"
+            cap = max(1, min(int(limit or 25), 100))
+
+            participant_rows = (
+                session.query(ConversationParticipant.conversation_id)
+                .filter(
+                    ConversationParticipant.user_id == user_id,
+                    ConversationParticipant.participant_type == "user",
+                    ConversationParticipant.status == "active",
+                )
+                .all()
+            )
+            participant_conv_id_list = [str(row[0]) for row in participant_rows]
+            participant_clause = (
+                Conversation.id.in_(participant_conv_id_list)
+                if participant_conv_id_list
+                else False
+            )
+
+            scope_filter = and_(
+                or_(Conversation.user_id == user_id, participant_clause),
+                or_(
+                    Conversation.conversation_type.is_(None),
+                    Conversation.conversation_type.notin_(["group", "thread"]),
+                ),
+            )
+            if company_id:
+                scope_filter = and_(scope_filter, Conversation.company_id == company_id)
+
+            # Conversations whose name or summary directly matches.
+            meta_matches = (
+                session.query(Conversation)
+                .filter(
+                    scope_filter,
+                    or_(
+                        Conversation.name.ilike(term),
+                        Conversation.summary.ilike(term),
+                    ),
+                )
+                .order_by(Conversation.updated_at.desc())
+                .limit(cap)
+                .all()
+            )
+
+            # Conversations whose message content matches. Rank by latest matching
+            # message timestamp so the most-recently-relevant rows surface first.
+            content_subq = (
+                session.query(
+                    Message.conversation_id.label("cid"),
+                    func.max(Message.timestamp).label("ts"),
+                    func.max(Message.content).label("snippet"),
+                )
+                .filter(
+                    Message.content.ilike(term),
+                    ~Message.content.like("[ACTIVITY]%"),
+                    ~Message.content.like("[SUBACTIVITY]%"),
+                )
+                .group_by(Message.conversation_id)
+                .subquery()
+            )
+
+            content_matches = (
+                session.query(Conversation, content_subq.c.ts, content_subq.c.snippet)
+                .join(content_subq, content_subq.c.cid == Conversation.id)
+                .filter(scope_filter)
+                .order_by(content_subq.c.ts.desc())
+                .limit(cap)
+                .all()
+            )
+
+            seen = set()
+            results = []
+            _convert_time_fast = _make_time_converter(user_id)
+
+            def _snippet_for(text: str) -> str:
+                if not text:
+                    return ""
+                # Center the snippet on the first match, with up to 80 chars
+                # of context on each side.
+                lower = text.lower()
+                hit = lower.find(query.strip().lower())
+                if hit < 0:
+                    return text[:200]
+                start = max(0, hit - 80)
+                end = min(len(text), hit + 80 + len(query))
+                snippet = text[start:end]
+                if start > 0:
+                    snippet = "…" + snippet
+                if end < len(text):
+                    snippet = snippet + "…"
+                return snippet
+
+            for conv in meta_matches:
+                cid = str(conv.id)
+                if cid in seen:
+                    continue
+                seen.add(cid)
+                results.append(
+                    {
+                        "id": cid,
+                        "name": conv.name,
+                        "summary": conv.summary,
+                        "agent_name": None,
+                        "conversation_type": conv.conversation_type,
+                        "updated_at": _convert_time_fast(conv.updated_at),
+                        "snippet": (conv.summary or conv.name or "")[:200],
+                        "match_type": "metadata",
+                    }
+                )
+
+            for conv, ts, snippet_content in content_matches:
+                cid = str(conv.id)
+                if cid in seen:
+                    continue
+                seen.add(cid)
+                results.append(
+                    {
+                        "id": cid,
+                        "name": conv.name,
+                        "summary": conv.summary,
+                        "agent_name": None,
+                        "conversation_type": conv.conversation_type,
+                        "updated_at": _convert_time_fast(ts or conv.updated_at),
+                        "snippet": _snippet_for(snippet_content or ""),
+                        "match_type": "content",
+                    }
+                )
+
+            results.sort(key=lambda r: r["updated_at"] or "", reverse=True)
+            return results[:cap]
+        finally:
+            session.close()
 
     def get_conversation_changes(self, since_timestamp=None, last_known_ids=None):
         """
