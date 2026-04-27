@@ -38,6 +38,7 @@ import time
 import hashlib
 import logging
 import zlib
+import fnmatch
 from typing import Dict, Optional, Any, Set, Callable
 from dataclasses import dataclass
 from fastapi import Request, Response
@@ -81,6 +82,7 @@ class ResponseCacheManager:
 
     # Cache key prefix for response cache entries
     CACHE_PREFIX = "response_cache"
+    MAX_CACHE_BODY_BYTES = 2 * 1024 * 1024
 
     # Endpoints that should NEVER be cached (even if they match CACHEABLE_ENDPOINTS patterns)
     # These are excluded because their data changes frequently or is security-sensitive
@@ -95,6 +97,8 @@ class ResponseCacheManager:
         "/v1/user/mfa",  # MFA - security sensitive
         "/v1/oauth",  # OAuth flows - security sensitive
         "/v1/cache",  # Cache management endpoints themselves
+        "/v1/conversation/*/workspace/download",  # Streams workspace files
+        "/v1/conversation/*/tts/*",  # Streams/generated audio should stay live
         "/health",  # Health checks should be real-time
     }
 
@@ -103,6 +107,7 @@ class ResponseCacheManager:
         "/v1/agent": 120,  # Agent list - 2 minutes
         "/api/provider": 300,  # Providers - 5 minutes (rarely changes)
         "/v1/provider": 300,  # Provider list v1 - 5 minutes (rarely changes)
+        "/v1/conversations": 30,  # Conversations - 30 seconds (changes often)
         "/v1/conversation": 30,  # Conversations - 30 seconds (changes often)
         "/v1/prompt": 300,  # Prompts - 5 minutes
         "/v1/chain": 300,  # Chains - 5 minutes
@@ -198,6 +203,7 @@ class ResponseCacheManager:
         "/v1/agent",  # Agent list/config - internal AGiXT data
         "/api/provider",  # Provider list - internal, rarely changes
         "/v1/provider",  # Provider list v1 - internal, rarely changes
+        "/v1/conversations",  # Conversation list/search/active - internal (short TTL)
         "/v1/conversation",  # Conversation list - internal (short TTL)
         "/v1/prompt",  # Prompts - internal AGiXT data
         "/v1/chain",  # Chains - internal AGiXT data
@@ -232,10 +238,16 @@ class ResponseCacheManager:
         """Create a key for tracking paths per user (for invalidation)"""
         return f"{self.CACHE_PREFIX}:{user_id}:path:{path}"
 
+    def _path_matches(self, pattern: str, path: str) -> bool:
+        """Match an API path against an exact/prefix or wildcard pattern."""
+        if "*" in pattern:
+            return fnmatch.fnmatchcase(path, pattern)
+        return path == pattern or path.startswith(f"{pattern}/")
+
     def _get_ttl(self, path: str) -> int:
         """Get TTL for a path based on patterns (in seconds)"""
         for pattern, ttl in self.DEFAULT_TTLS.items():
-            if path.startswith(pattern):
+            if self._path_matches(pattern, path):
                 return ttl
         return 60  # Default 1 minute
 
@@ -247,14 +259,35 @@ class ResponseCacheManager:
         """
         # Check exclusions first - these take precedence
         for excluded_pattern in self.EXCLUDED_ENDPOINTS:
-            if path.startswith(excluded_pattern):
+            if self._path_matches(excluded_pattern, path):
                 return False
 
         # Then check if it's in cacheable endpoints
         for pattern in self.CACHEABLE_ENDPOINTS:
-            if path.startswith(pattern):
+            if self._path_matches(pattern, path):
                 return True
         return False
+
+    def _is_cacheable_response(self, response: Response) -> bool:
+        """Only cache bounded JSON responses, never downloads or streams."""
+        if response.headers.get("content-disposition"):
+            return False
+
+        content_type = (
+            response.headers.get("content-type") or response.media_type or ""
+        ).lower()
+        if "application/json" not in content_type:
+            return False
+
+        content_length = response.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > self.MAX_CACHE_BODY_BYTES:
+                    return False
+            except ValueError:
+                return False
+
+        return True
 
     def _match_invalidation_pattern(self, method: str, path: str) -> Set[str]:
         """Find which cache patterns should be invalidated for a mutation"""
@@ -337,6 +370,9 @@ class ResponseCacheManager:
 
         # Only cache successful responses
         if status_code != 200:
+            return
+
+        if len(response_body) > self.MAX_CACHE_BODY_BYTES:
             return
 
         try:
@@ -474,7 +510,7 @@ def get_cache_manager() -> ResponseCacheManager:
 
 
 def extract_user_id(request: Request) -> Optional[str]:
-    """Extract user ID from request authorization"""
+    """Validate authorization and extract the real user ID for cache isolation."""
     auth_header = request.headers.get("authorization", "")
     if not auth_header:
         return None
@@ -483,8 +519,17 @@ def extract_user_id(request: Request) -> Optional[str]:
     if not token:
         return None
 
-    # Use token hash as user identifier (avoids JWT decode overhead)
-    return hashlib.md5(token.encode()).hexdigest()
+    try:
+        from MagicalAuth import verify_api_key
+
+        user = verify_api_key(authorization=token)
+        if isinstance(user, dict):
+            user_id = user.get("id")
+            return str(user_id) if user_id else None
+    except Exception as exc:
+        logger.debug(f"Response cache auth validation failed: {exc}")
+
+    return None
 
 
 class ResponseCacheMiddleware(BaseHTTPMiddleware):
@@ -505,17 +550,27 @@ class ResponseCacheMiddleware(BaseHTTPMiddleware):
         if not path.startswith("/v1/") and not path.startswith("/api/"):
             return await call_next(request)
 
-        # Extract user ID
+        cache_manager = get_cache_manager()
+        method = request.method.upper()
+        query_string = str(request.url.query)
+        is_cacheable_get = method == "GET" and cache_manager._is_cacheable(path)
+        is_cache_invalidating_mutation = method in (
+            "POST",
+            "PUT",
+            "DELETE",
+            "PATCH",
+        ) and bool(cache_manager._match_invalidation_pattern(method, path))
+
+        if not is_cacheable_get and not is_cache_invalidating_mutation:
+            return await call_next(request)
+
+        # Extract user ID only when this request can use or invalidate cache.
         user_id = extract_user_id(request)
         if not user_id:
             return await call_next(request)
 
-        cache_manager = get_cache_manager()
-        method = request.method.upper()
-        query_string = str(request.url.query)
-
         # For GET requests, try to return cached response
-        if method == "GET":
+        if is_cacheable_get:
             cached = cache_manager.get(user_id, path, query_string)
             if cached:
                 return Response(
@@ -529,14 +584,17 @@ class ResponseCacheMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         # For mutations, invalidate relevant caches
-        if method in ("POST", "PUT", "DELETE", "PATCH"):
+        if is_cache_invalidating_mutation:
             cache_manager.invalidate(user_id, method, path)
 
         # For successful GET requests, try to cache the response
-        if method == "GET" and response.status_code == 200:
+        if is_cacheable_get and response.status_code == 200:
             # Check if this endpoint is cacheable BEFORE reading body
             if not cache_manager._is_cacheable(path):
                 # Not cacheable - return response without X-Cache header
+                return response
+
+            if not cache_manager._is_cacheable_response(response):
                 return response
 
             # We need to read the response body to cache it

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Any, Dict, List
 import logging
 import secrets
 import asyncio
@@ -1081,6 +1082,12 @@ class Conversations:
             session.close()
             return {"total": 0, "pinned": 0, "unread": 0}
 
+        cache_key = f"conversation_counts:{user_id}"
+        cached_counts = shared_cache.get(cache_key)
+        if cached_counts is not None:
+            session.close()
+            return cached_counts
+
         try:
             # Materialise the set of in-scope conversation IDs once, then run
             # the aggregate counts against that list. Using `Conversation.id.in_(ids)`
@@ -1259,12 +1266,14 @@ class Conversations:
                 logging.debug(f"by_agent breakdown failed: {exc}")
                 by_agent_name = {}
 
-            return {
+            result = {
                 "total": int(total),
                 "pinned": int(pinned),
                 "unread": int(unread),
                 "by_agent": by_agent_name,
             }
+            shared_cache.set(cache_key, result, ttl=30)
+            return result
         finally:
             session.close()
 
@@ -1311,25 +1320,6 @@ class Conversations:
         )
         participant_conv_id_list = [str(row[0]) for row in participant_conv_ids]
 
-        # Get owned conversation IDs to scope the last_message subquery
-        owned_conv_ids = (
-            session.query(Conversation.id).filter(Conversation.user_id == user_id).all()
-        )
-        owned_conv_id_list = [str(row[0]) for row in owned_conv_ids]
-        all_relevant_conv_ids = list(set(owned_conv_id_list + participant_conv_id_list))
-
-        # Subquery to get max message timestamp per conversation
-        # BOUNDED to only user-relevant conversations (avoids full table scan)
-        last_message_subq = (
-            session.query(
-                Message.conversation_id,
-                func.max(Message.timestamp).label("last_message_time"),
-            )
-            .filter(Message.conversation_id.in_(all_relevant_conv_ids))
-            .group_by(Message.conversation_id)
-            .subquery()
-        )
-
         # Single query: conversations owned by user OR where user is a participant
         # Exclude group channels and threads from DM/conversation list
         ownership_filter = Conversation.user_id == user_id
@@ -1340,15 +1330,8 @@ class Conversations:
         )
 
         # Main query: non-group, non-thread conversations
-        main_conversations = (
-            session.query(
-                Conversation,
-                last_message_subq.c.last_message_time,
-            )
-            .outerjoin(
-                last_message_subq,
-                last_message_subq.c.conversation_id == Conversation.id,
-            )
+        main_query = (
+            session.query(Conversation)
             .filter(or_(ownership_filter, participant_filter))
             # Exclude group channels and threads from DM/conversation list
             .filter(
@@ -1357,18 +1340,26 @@ class Conversations:
                     Conversation.conversation_type.notin_(["group", "thread"]),
                 )
             )
-            # Keep ordinary empty/new chat placeholders out of the history list,
-            # but do not hide direct-message/private conversations just because
-            # they have not received their first message yet. The DM panel needs
-            # these rows for accurate people/agent counts after refresh.
-            .filter(
-                or_(
-                    exists().where(Message.conversation_id == Conversation.id),
-                    Conversation.conversation_type.in_(["dm", "private"]),
-                )
-            )
-            .all()
+            .order_by(Conversation.updated_at.desc())
         )
+
+        if cursor and limit is not None and limit > 0:
+            cursor_str = str(cursor)
+            main_conversations = [
+                (conversation, conversation.updated_at)
+                for conversation in main_query.all()
+                if str(conversation.updated_at or "") < cursor_str
+            ][:limit]
+        elif limit is not None and limit > 0:
+            main_conversations = [
+                (conversation, conversation.updated_at)
+                for conversation in main_query.offset(offset).limit(limit).all()
+            ]
+        else:
+            main_conversations = [
+                (conversation, conversation.updated_at)
+                for conversation in main_query.all()
+            ]
 
         # Second query: DM/private threads (threads whose parent is a non-group conversation)
         # Get IDs of the user's DM/private conversations to find their threads
@@ -1380,48 +1371,24 @@ class Conversations:
         dm_threads = []
         if dm_parent_ids:
             dm_threads = (
-                session.query(
-                    Conversation,
-                    last_message_subq.c.last_message_time,
-                )
-                .outerjoin(
-                    last_message_subq,
-                    last_message_subq.c.conversation_id == Conversation.id,
-                )
+                session.query(Conversation)
                 .filter(
                     Conversation.conversation_type == "thread",
                     Conversation.parent_id.in_(dm_parent_ids),
                 )
+                .order_by(Conversation.updated_at.desc())
                 .all()
             )
+            dm_threads = [
+                (conversation, conversation.updated_at) for conversation in dm_threads
+            ]
 
         conversations = main_conversations + dm_threads
 
-        # Apply early pagination BEFORE expensive batch queries.
-        # Sort by last_message_time (or conversation updated_at as fallback) descending,
-        # then slice to limit+offset. This avoids computing unread counts, DM names,
-        # and agent roles for conversations that won't be returned.
-        if limit is not None and limit > 0:
-            conversations.sort(
-                key=lambda pair: pair[1] or pair[0].updated_at or "",
-                reverse=True,
-            )
-            # Cursor-based pagination. ``cursor`` is the ISO timestamp of the
-            # last conversation the client has — we drop everything at or
-            # newer than that and return the next ``limit`` rows. Lets clients
-            # walk past offset=10500 in O(log n) instead of forcing the DB to
-            # scan/discard 10500 rows. Falls back to offset pagination when
-            # cursor is omitted, preserving backward compatibility.
-            if cursor:
-                cursor_str = str(cursor)
-                conversations = [
-                    pair
-                    for pair in conversations
-                    if str(pair[1] or pair[0].updated_at or "") < cursor_str
-                ]
-                conversations = conversations[:limit]
-            else:
-                conversations = conversations[offset : offset + limit]
+        conversations.sort(
+            key=lambda pair: pair[1] or pair[0].updated_at or "",
+            reverse=True,
+        )
 
         # Batch-fetch participant records for this user to get last_read_at
         all_conv_ids = [str(c.id) for c, _ in conversations]

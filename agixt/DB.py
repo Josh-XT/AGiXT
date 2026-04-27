@@ -6498,11 +6498,26 @@ def migrate_search_indexes():
                     session.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
                 except Exception as exc:
                     # Some Postgres deployments don't allow CREATE EXTENSION
-                    # from the application role. Log and skip — queries still
-                    # work via sequential scan, just slower.
+                    # from the application role. Roll back the failed transaction
+                    # and create lightweight fallback indexes so migration checks
+                    # do not force this same failed extension attempt every boot.
+                    session.rollback()
                     logging.info(
                         f"pg_trgm extension unavailable, search will use seq scan: {exc}"
                     )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_conversation_name_lower "
+                            "ON conversation(LOWER(name))"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_conversation_summary_lower "
+                            "ON conversation(LOWER(summary))"
+                        )
+                    )
+                    session.commit()
                     return
 
                 session.execute(
@@ -8584,18 +8599,17 @@ def check_schema_migrations_needed():
                 if not result.fetchone():
                     return True
 
-                # Sentinel for the search-index migration. The trigram GIN
-                # index won't exist until the new migration runs; if absent,
-                # force a migration pass. Quietly tolerate environments where
-                # pg_trgm isn't installable — the migration logs and skips
-                # in that case, so subsequent boots will re-check until the
-                # extension lands or another migration adds a different
-                # sentinel.
+                # Sentinel for the search-index migration. Prefer the trigram
+                # index, but accept the lower() fallback index created when the
+                # app role cannot install pg_trgm.
                 result = session.execute(
                     text(
                         """
                         SELECT 1 FROM pg_indexes
-                        WHERE indexname = 'ix_conversation_name_trgm'
+                        WHERE indexname IN (
+                            'ix_conversation_name_trgm',
+                            'ix_conversation_name_lower'
+                        )
                         """
                     )
                 )
