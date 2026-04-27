@@ -4,7 +4,7 @@ OpenAI Codex CLI extension for AGiXT.
 Required configuration:
 
 - OPENAI_CODEX_AUTH_JSON_SECRET: The contents of ~/.codex/auth.json from a
-  ChatGPT-based `codex login`, or a base64-encoded copy of that file.
+  ChatGPT-based Codex CLI login, or a base64-encoded copy of that file.
 
 Optional configuration:
 
@@ -21,16 +21,34 @@ from safeexecute import execute_openai_codex
 
 class openai_codex(Extensions):
     """
-    The OpenAI Codex extension provides access to Codex CLI, OpenAI's agentic
-    coding assistant, using ChatGPT login credentials.
+    Connect AGiXT to OpenAI Codex CLI using your ChatGPT login.
 
-    Codex runs in an isolated SafeExecute Docker container with the agent's
-    workspace mounted, allowing it to read, modify, create, and delete files in
-    that workspace. The default model is gpt-5.5 with medium reasoning effort.
+    Codex can inspect, edit, test, and commit code in the agent workspace. The
+    default model is gpt-5.5 and the default reasoning effort is medium.
 
-    To configure ChatGPT login, run `codex login` on a trusted machine, then put
-    the contents of ~/.codex/auth.json, or a base64-encoded copy of it, into
-    OPENAI_CODEX_AUTH_JSON_SECRET.
+    How to get OPENAI_CODEX_AUTH_JSON_SECRET:
+
+    1. If Codex CLI is not installed yet, install it with:
+       npm install -g @openai/codex
+
+    2. Sign in with your ChatGPT account:
+       codex login
+
+       If you already use Codex in VS Code or the terminal, you may already have
+       this login file on the same machine.
+
+    3. Open your Codex auth file:
+       ~/.codex/auth.json
+
+    4. Paste the full contents of that file into OPENAI_CODEX_AUTH_JSON_SECRET.
+       You can paste the raw JSON into the code block field in AGiXT.
+
+       If raw JSON is awkward to paste, base64 encode it and paste the single
+       line output instead:
+       base64 -w0 ~/.codex/auth.json
+
+    Keep this value private. It is a login credential for your ChatGPT-backed
+    Codex session.
     """
 
     CATEGORY = "Development & Code"
@@ -185,7 +203,7 @@ Work in the branch: `{branch.strip()}`
         system_guidelines = f"""
 # Development Workflow Guidelines
 
-You are working in a git-enabled workspace through AGiXT and SafeExecute.
+You are working in a git-enabled workspace through AGiXT.
 Follow these guidelines for all code changes:
 
 {branch_instruction}

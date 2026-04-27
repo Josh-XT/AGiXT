@@ -2687,6 +2687,21 @@ Respond with ONLY the condensed summary, no preamble."""
             if cmd_name.lower() in user_input_lower:
                 explicitly_requested_commands.append(cmd_name)
 
+        # Codex is a delegation-oriented coding ability. Users naturally ask for
+        # "Codex" or repo/codebase work without spelling the exact command name,
+        # so make the ability available whenever those signals appear.
+        codex_trigger_pattern = re.compile(
+            r"\b(codex|openai\s+codex|codebase|repo|repository|github|"
+            r"git\s+clone|clone|branch|pull\s+request|pr|commit|refactor)\b"
+        )
+        if codex_trigger_pattern.search(user_input_lower):
+            codex_command = "Ask OpenAI Codex"
+            if (
+                codex_command in all_command_names
+                and codex_command not in explicitly_requested_commands
+            ):
+                explicitly_requested_commands.append(codex_command)
+
         # Keyword-based command boosting: when user mentions specific media types,
         # always include the relevant generation commands so the LLM doesn't have to
         # guess across hundreds of commands split into batches.
