@@ -51,6 +51,36 @@ logging.basicConfig(
 )
 
 
+def _scope_covers_filter(scope: str, requested_scope: str) -> bool:
+    if scope == "*":
+        return True
+    if scope == requested_scope:
+        return True
+    if scope.endswith(":*"):
+        return requested_scope.startswith(scope[:-1])
+    return False
+
+
+def _filter_scopes(scopes: list, scope_filter: Optional[str] = None) -> list:
+    if not scope_filter or not isinstance(scopes, list):
+        return scopes
+
+    requested_scopes = {
+        item.strip() for item in scope_filter.split(",") if item and item.strip()
+    }
+    if not requested_scopes:
+        return scopes
+
+    return [
+        scope
+        for scope in scopes
+        if isinstance(scope, str)
+        and any(
+            _scope_covers_filter(scope, requested) for requested in requested_scopes
+        )
+    ]
+
+
 @app.post("/v1/user", summary="Register a new user", tags=["Auth"])
 async def register(register: Register):
     auth = MagicalAuth()
@@ -354,6 +384,8 @@ async def get_user(
     authorization: str = Header(None),
     if_none_match: str = Header(None, alias="If-None-Match"),
     light: bool = False,
+    include_scopes: bool = False,
+    scope_filter: Optional[str] = None,
 ):
     token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     auth = MagicalAuth(token=token)
@@ -367,16 +399,20 @@ async def get_user(
 
     # Light response: strip the heaviest fields that aren't needed for the
     # initial app shell render (sidebar, header, identity). Callers that need
-    # full data (settings page, scope checks, etc.) call the endpoint without
-    # ?light=true. Used by the Next.js root layout SSR to keep TTFB low — the
-    # client re-fetches the full payload on mount via SWR `revalidateOnMount`.
+    # scope-gated UI can opt into a filtered scope list with
+    # ?light=true&include_scopes=true&scope_filter=... without pulling the full
+    # user payload. Full settings data is still available by omitting light=true.
     if light and isinstance(companies, list):
         slim_companies = []
         for c in companies:
             if not isinstance(c, dict):
                 slim_companies.append(c)
                 continue
-            slim = {k: v for k, v in c.items() if k not in ("scopes", "icon_url")}
+            slim = dict(c)
+            if include_scopes:
+                slim["scopes"] = _filter_scopes(slim.get("scopes", []), scope_filter)
+            else:
+                slim.pop("scopes", None)
             agents = slim.get("agents")
             if isinstance(agents, list):
                 slim["agents"] = [
