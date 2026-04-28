@@ -477,7 +477,7 @@ ADMIN_ONLY_TESTS = {
 
 # Tests that should also fail for read_only_user (role_id=6)
 # These include write operations that regular users can do but read_only cannot
-# Note: read_only users CAN create conversations (they need to chat)
+# Note: read_only users can create conversations but cannot run inference.
 READ_ONLY_RESTRICTED_TESTS = (
     set()
 )  # Currently empty - read_only can do what users can do
@@ -1174,7 +1174,7 @@ def test_get_conversations():
 
 
 def test_chat_completions():
-    """Test chat completions endpoint (non-streaming) - should work for all roles"""
+    """Test chat completions endpoint (non-streaming). Requires agents:execute."""
     sdk = ctx.current_user.sdk
 
     # Use admin's agent if regular user doesn't have one
@@ -1228,7 +1228,7 @@ def test_chat_completions():
 
 
 def test_chat_completions_streaming():
-    """Test chat completions endpoint (streaming) - should work for all roles"""
+    """Test chat completions endpoint (streaming). Requires agents:execute."""
     sdk = ctx.current_user.sdk
 
     # Use admin's agent if regular user doesn't have one
@@ -1807,21 +1807,21 @@ def run_all_role_tests():
             False,
             False,
         ),  # All authenticated users can create conversations
-        # Chat completions (inference) - should work for all roles
+        # Chat completions (inference) - read_only does not have agents:execute
         (
             test_chat_completions,
             "chat_completions",
             False,
+            True,
             False,
-            False,
-        ),  # All authenticated users can use chat completions
+        ),
         (
             test_chat_completions_streaming,
             "chat_completions_streaming",
             False,
+            True,
             False,
-            False,
-        ),  # All authenticated users can use streaming chat completions
+        ),
         # Company and billing operations
         (
             test_get_companies,
