@@ -77,6 +77,40 @@ _RE_REFLECTION_BLOCK = re.compile(
 _RE_MULTI_NEWLINE = re.compile(r"\n\s*\n\s*\n")
 _RE_TRIPLE_NEWLINE = re.compile(r"\n{3,}")
 _RE_CUSTOM_FORMAT = re.compile(r"(?<!{){([^{}\n]+)}(?!})")
+_RE_MARKDOWN_FENCE_LINE = re.compile(r"(?m)^[ \t]*(`{3,}|~{3,})")
+
+
+def _get_unclosed_markdown_fence_marker(text: str) -> str:
+    """
+    Return the currently open markdown fence marker, if the text ends inside one.
+    """
+    open_marker = ""
+    for match in _RE_MARKDOWN_FENCE_LINE.finditer(text or ""):
+        marker = match.group(1)
+        if not open_marker:
+            open_marker = marker
+        elif marker[0] == open_marker[0] and len(marker) >= len(open_marker):
+            open_marker = ""
+    return open_marker
+
+
+def _append_recovered_answer_block(response: str, answer_text: str) -> str:
+    """
+    Append a synthetic protocol answer outside markdown/code boundaries.
+    """
+    response = response or ""
+    answer_text = (answer_text or "").strip()
+    if not answer_text:
+        return response
+
+    additions = []
+    if response and not response.endswith(("\n", "\r")):
+        additions.append("\n")
+    open_fence = _get_unclosed_markdown_fence_marker(response)
+    if open_fence:
+        additions.append(f"\n{open_fence}\n")
+    additions.append(f"<answer>{answer_text}</answer>")
+    return response + "".join(additions)
 
 
 def _convert_interaction_to_execute(response: str) -> str:
@@ -4811,6 +4845,7 @@ Example: If user says "list my files", use:
         _answer_review_feedback = ""
         _continuation_recovery_feedback = ""
         _continuation_recovery_count = 0
+        _last_recovered_answer_hash = None
 
         # Track the length of processed content to detect new executions
         processed_length = len(self.response)
@@ -5074,13 +5109,34 @@ or
             # accumulated response. Preserve the stricter parser rule by
             # re-wrapping the already streamed answer on its own line.
             if has_no_answer and not has_new_execution and answer_content.strip():
-                self.response += f"\n<answer>{answer_content.strip()}</answer>"
-                has_no_answer = False
-                has_incomplete_answer = False
-                logging.info(
-                    "[run_stream] Recovered streamed answer content into a real "
-                    "<answer> block after no-answer boundary detection."
-                )
+                _recovered_answer_text = answer_content.strip()
+                _recovered_answer_hash = str(hash(_recovered_answer_text))
+                if _recovered_answer_hash == _last_recovered_answer_hash:
+                    _continuation_recovery_count += 1
+                    _continuation_recovery_feedback = (
+                        "The same streamed answer content was already recovered, "
+                        "but the loop still did not recognize a complete final "
+                        "answer. Stop repeating the same response. Produce a fresh, "
+                        "complete top-level <answer> on its own line, or take the "
+                        "next distinct action required to complete the user's request."
+                    )
+                    answer_content = ""
+                    logging.warning(
+                        "[run_stream] Skipping duplicate streamed-answer recovery; "
+                        "injecting self-healing feedback instead."
+                    )
+                else:
+                    self.response = _append_recovered_answer_block(
+                        self.response, _recovered_answer_text
+                    )
+                    processed_length = len(self.response)
+                    _last_recovered_answer_hash = _recovered_answer_hash
+                    has_no_answer = False
+                    has_incomplete_answer = False
+                    logging.info(
+                        "[run_stream] Recovered streamed answer content into a real "
+                        "<answer> block after no-answer boundary detection."
+                    )
                 continue
 
             # After many consecutive non-exec no-answer iterations, self-heal
