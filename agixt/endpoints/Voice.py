@@ -72,6 +72,7 @@ async def voice_conversation(
             )
             await websocket.close()
             return
+        authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
 
         try:
             from ApiClient import verify_api_key as _verify
@@ -85,6 +86,19 @@ async def voice_conversation(
 
             user = _verify(authorization=_MockHeader(authorization))
             auth = MagicalAuth(token=authorization)
+            if not auth.has_scope("agents:execute"):
+                await websocket.send_text(
+                    json.dumps(
+                        {
+                            "type": "error",
+                            "data": {
+                                "message": "Insufficient permissions. Required scope: agents:execute"
+                            },
+                        }
+                    )
+                )
+                await websocket.close()
+                return
         except Exception as e:
             await websocket.send_text(
                 json.dumps(

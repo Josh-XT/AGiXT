@@ -1586,6 +1586,9 @@ class MagicalAuth:
         encryption_key = os.getenv("AGIXT_API_KEY", "")
         self.link = getenv("APP_URI")
         self.encryption_key = encryption_key
+        self._pat_scopes = None
+        self._pat_agent_ids = None
+        self._pat_company_ids = None
         if token:
             token = str(token)
             if token.startswith("Bearer ") or token.startswith("bearer "):
@@ -1594,25 +1597,43 @@ class MagicalAuth:
                 token = urllib.parse.unquote(token)
         else:
             token = None
-        try:
-            # Decode jwt
-            decoded = jwt.decode(
-                jwt=token,
-                key=self.encryption_key,
-                algorithms=["HS256"],
-                leeway=timedelta(hours=5),
-            )
-            self.email = decoded["email"]
-            self.user_id = decoded["sub"]
-            self.token = token
-            self._company_id = None
-            self._company_id_loaded = False
-        except:
-            self.email = None
-            self.token = None
-            self.user_id = None
-            self._company_id = None
-            self._company_id_loaded = True  # No user, no company
+        if token and token.startswith("agixt_"):
+            pat_validation = validate_personal_access_token(token)
+            if pat_validation.get("valid"):
+                self.email = pat_validation.get("user_email")
+                self.user_id = pat_validation.get("user_id")
+                self.token = token
+                self._pat_scopes = set(pat_validation.get("scopes", []))
+                self._pat_agent_ids = set(pat_validation.get("agent_ids", []))
+                self._pat_company_ids = set(pat_validation.get("company_ids", []))
+                self._company_id = None
+                self._company_id_loaded = False
+            else:
+                self.email = None
+                self.token = None
+                self.user_id = None
+                self._company_id = None
+                self._company_id_loaded = True  # No user, no company
+        else:
+            try:
+                # Decode jwt
+                decoded = jwt.decode(
+                    jwt=token,
+                    key=self.encryption_key,
+                    algorithms=["HS256"],
+                    leeway=timedelta(hours=5),
+                )
+                self.email = decoded["email"]
+                self.user_id = decoded["sub"]
+                self.token = token
+                self._company_id = None
+                self._company_id_loaded = False
+            except:
+                self.email = None
+                self.token = None
+                self.user_id = None
+                self._company_id = None
+                self._company_id_loaded = True  # No user, no company
         if token == encryption_key:
             self.email = getenv("DEFAULT_USER")
             self.user_id = get_user_id(self.email)
@@ -2625,6 +2646,9 @@ class MagicalAuth:
         if self.user_id is None:
             return set()
 
+        if self._pat_scopes is not None:
+            return set(self._pat_scopes)
+
         if not company_id:
             company_id = self.company_id
 
@@ -2736,6 +2760,54 @@ class MagicalAuth:
         set_user_scopes_cache(self.user_id, company_id, scopes)
         return scopes
 
+    @staticmethod
+    def _scope_matches(scope: str, user_scopes: set) -> bool:
+        """Return True when a scope is granted by exact or wildcard match."""
+        if "*" in user_scopes:
+            return True
+
+        if scope in user_scopes:
+            return True
+
+        parts = scope.split(":")
+        if parts[0] == "ext" and len(parts) >= 3:
+            ext_name = parts[1]
+
+            if "ext:*" in user_scopes:
+                return True
+
+            if len(parts) == 3:
+                action = parts[2]
+                if f"ext:*:{action}" in user_scopes:
+                    return True
+                if f"ext:{ext_name}:*" in user_scopes:
+                    return True
+
+            elif len(parts) == 4:
+                feature = parts[2]
+                action = parts[3]
+                if f"ext:*:{feature}:{action}" in user_scopes:
+                    return True
+                if f"ext:*:*:{action}" in user_scopes:
+                    return True
+                if f"ext:{ext_name}:*" in user_scopes:
+                    return True
+                if f"ext:{ext_name}:{feature}:*" in user_scopes:
+                    return True
+                if f"ext:{ext_name}:*:{action}" in user_scopes:
+                    return True
+                if action == "execute" and f"ext:{ext_name}:execute" in user_scopes:
+                    return True
+                if action == "read" and f"ext:{ext_name}:read" in user_scopes:
+                    return True
+
+        if len(parts) >= 2:
+            resource = parts[0]
+            if f"{resource}:*" in user_scopes:
+                return True
+
+        return False
+
     def has_scope(self, scope: str, company_id: str = None) -> bool:
         """
         Check if the user has a specific scope in a company.
@@ -2750,83 +2822,15 @@ class MagicalAuth:
         if self.user_id is None:
             return False
 
+        if self._pat_scopes is not None:
+            return self._scope_matches(scope, self._pat_scopes)
+
         # Super admins have all scopes
         if self.is_super_admin():
             return True
 
         user_scopes = self.get_user_scopes(company_id)
-
-        # Check global wildcard - user has all permissions
-        if "*" in user_scopes:
-            return True
-
-        # Check exact match
-        if scope in user_scopes:
-            return True
-
-        # Parse the scope to check
-        parts = scope.split(":")
-
-        # Handle extension-specific scopes
-        if parts[0] == "ext" and len(parts) >= 3:
-            ext_name = parts[1]
-
-            # Check if user has ext:* (all extension scopes)
-            if "ext:*" in user_scopes:
-                return True
-
-            # Handle 3-part extension scopes (ext:name:action)
-            if len(parts) == 3:
-                action = parts[2]
-
-                # Check if user has ext:*:action (e.g., ext:*:read for all extensions read access)
-                if f"ext:*:{action}" in user_scopes:
-                    return True
-
-                # Check if user has ext:name:* (all actions for specific extension)
-                if f"ext:{ext_name}:*" in user_scopes:
-                    return True
-
-            # Handle 4-part deep extension scopes (ext:name:feature:action)
-            elif len(parts) == 4:
-                feature = parts[2]
-                action = parts[3]
-
-                # Check if user has ext:*:feature:action (all extensions, same feature)
-                if f"ext:*:{feature}:{action}" in user_scopes:
-                    return True
-
-                # Check if user has ext:*:*:action (all extensions, all features, same action)
-                if f"ext:*:*:{action}" in user_scopes:
-                    return True
-
-                # Check if user has ext:name:* (all actions for specific extension)
-                if f"ext:{ext_name}:*" in user_scopes:
-                    return True
-
-                # Check if user has ext:name:feature:* (all actions for specific feature)
-                if f"ext:{ext_name}:{feature}:*" in user_scopes:
-                    return True
-
-                # Check if user has ext:name:*:action (specific extension, all features, specific action)
-                if f"ext:{ext_name}:*:{action}" in user_scopes:
-                    return True
-
-                # Check if user has the simpler ext:name:execute scope (grants all execute for that extension)
-                if action == "execute" and f"ext:{ext_name}:execute" in user_scopes:
-                    return True
-
-                # Check if user has ext:name:read (grants all read features for that extension)
-                if action == "read" and f"ext:{ext_name}:read" in user_scopes:
-                    return True
-
-        # Check standard wildcard patterns (e.g., if user has 'agents:*', they have 'agents:read')
-        if len(parts) >= 2:
-            resource = parts[0]
-            if f"{resource}:*" in user_scopes:
-                return True
-
-        return False
+        return self._scope_matches(scope, user_scopes)
 
     def has_any_scope(self, scopes: list, company_id: str = None) -> bool:
         """
@@ -9330,6 +9334,19 @@ class MagicalAuth:
 
         available_scopes = []
         categories = {}
+
+        if self.has_scope("*"):
+            wildcard_scope = {
+                "id": "*",
+                "name": "*",
+                "resource": "*",
+                "action": "*",
+                "description": "All current and future scopes",
+                "category": "System",
+                "is_system": True,
+            }
+            available_scopes.append(wildcard_scope)
+            categories["System"] = [wildcard_scope]
 
         for scope_info in all_scopes_info:
             # Check if user has this scope (including wildcard matching)

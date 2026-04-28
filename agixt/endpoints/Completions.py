@@ -7,7 +7,7 @@ import traceback
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from Globals import get_tokens
-from MagicalAuth import get_user_id
+from MagicalAuth import get_user_id, require_scope
 from ApiClient import Agent, verify_api_key, get_api_client, get_agents
 from Conversations import get_or_create_conversation_name_by_id
 from DB import get_session, Conversation, ConversationParticipant, Agent as AgentModel
@@ -163,7 +163,7 @@ async def safe_stream_wrapper(stream_generator):
 @app.post(
     "/v1/chat/completions",
     tags=["Completions"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Create Chat Completion",
     description="Creates a completion for the chat message. Compatible with OpenAI's chat completions API format. Supports streaming responses when stream=true.",
 )
@@ -372,7 +372,7 @@ async def chat_completion(
 @app.post(
     "/v1/mcp/chat/completions",
     tags=["Completions"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Create Chat Completion",
     description="Creates a completion for the chat message. Compatible with OpenAI's chat completions API format. Supports streaming responses when stream=true.",
 )
@@ -579,7 +579,7 @@ async def mcp_chat_completion(
 @app.post(
     "/v1/embeddings",
     tags=["Completions"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Create Text Embeddings",
     description="Creates embeddings for the input text. Compatible with OpenAI's embeddings API format.",
 )
@@ -606,7 +606,7 @@ async def embedding(
 @app.post(
     "/v1/audio/transcriptions",
     tags=["Audio"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Create Audio Transcription",
     description="Transcribes audio into text. Compatible with OpenAI's audio transcription API format.",
     response_model=AudioTranscriptionResponse,
@@ -652,7 +652,7 @@ async def speech_to_text(
 @app.post(
     "/v1/audio/transcriptions/live",
     tags=["Audio"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Live Conversation Transcription",
     description=(
         "Process an audio chunk from an ongoing live conversation recording. "
@@ -895,7 +895,7 @@ async def live_conversation_chunk(
 @app.post(
     "/v1/audio/translations",
     tags=["Audio"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Create Audio Translation",
     description="Translates audio into English text. Compatible with OpenAI's audio translation API format.",
     response_model=AudioTranslationResponse,
@@ -929,7 +929,7 @@ async def translate_audio(
 @app.post(
     "/v1/audio/speech",
     tags=["Audio"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Create Text-to-Speech Audio",
     description="Converts text into speech audio. Compatible with OpenAI's text-to-speech API format.",
     response_model=TextToSpeechResponse,
@@ -952,7 +952,7 @@ async def text_to_speech(
 @app.post(
     "/v1/audio/speech/stream",
     tags=["Audio"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Stream Text-to-Speech Audio",
     description="Stream TTS audio as it's generated. Returns raw PCM audio stream with header information.",
 )
