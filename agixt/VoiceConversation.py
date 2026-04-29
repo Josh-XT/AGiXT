@@ -6,6 +6,7 @@ import uuid
 import base64
 import asyncio
 import logging
+import struct
 import httpx
 from enum import Enum
 from typing import Optional, Dict, List
@@ -64,7 +65,7 @@ class VoiceConversationSession:
         self._state_lock = asyncio.Lock()
 
         # Server configuration
-        self.voice_server = getenv("VOICE_SERVER")
+        self.voice_server = self._resolve_voice_server()
         self.ability_server = getenv("ABILITY_SELECTION_SERVER")
         self.ability_model = getenv("ABILITY_SELECTION_MODEL")
 
@@ -79,6 +80,9 @@ class VoiceConversationSession:
         # Audio config
         self.tts_voice = "default"
         self.tts_language = "en"
+        self.tts_audio_format = self._normalize_audio_format(
+            getenv("VOICE_AUDIO_FORMAT") or "pcm"
+        )
 
         # Keepalive
         self._keepalive_task: Optional[asyncio.Task] = None
@@ -114,6 +118,48 @@ class VoiceConversationSession:
 
         # Conversation helper (lazy-initialized)
         self._conversations: Optional[Conversations] = None
+
+    @staticmethod
+    def _normalize_base_url(value: str) -> str:
+        value = (value or "").strip().rstrip("/")
+        if not value or value.lower() in {"true", "false", "none", "null"}:
+            return ""
+        if value.endswith("/v1"):
+            value = value[:-3].rstrip("/")
+        return value
+
+    def _resolve_voice_server(self) -> str:
+        voice_server = self._normalize_base_url(getenv("VOICE_SERVER"))
+        if voice_server:
+            return voice_server
+        return self._normalize_base_url(
+            getenv("EZLOCALAI_URI") or getenv("EZLOCALAI_API_URI")
+        )
+
+    @staticmethod
+    def _normalize_audio_format(value: str) -> str:
+        value = (value or "pcm").strip().lower()
+        aliases = {
+            "audio/wav": "wav",
+            "x-wav": "wav",
+            "wave": "wav",
+            "raw": "pcm",
+            "pcm16": "pcm",
+            "s16le": "pcm",
+            "pcm_s16le": "pcm",
+            "framed_pcm": "pcm_framed",
+            "pcm-framed": "pcm_framed",
+        }
+        return aliases.get(
+            value, value if value in {"pcm", "pcm_framed", "wav"} else "pcm"
+        )
+
+    def _voice_api_key(self) -> str:
+        return (
+            getenv("VOICE_SERVER_API_KEY")
+            or getenv("EZLOCALAI_API_KEY", "none")
+            or "none"
+        )
 
     def _get_conversations(self) -> Conversations:
         """Get or create Conversations instance for logging."""
@@ -507,15 +553,59 @@ INTENT:"""
         if not text:
             return
 
-        api_url = self.voice_server.rstrip("/") + "/v1/audio/speech/stream"
-        api_key = getenv("EZLOCALAI_API_KEY", "none") or "none"
+        if self.tts_audio_format == "wav":
+            await self._speak_wav(text)
+            return
 
-        payload = {
+        await self._speak_pcm_stream(text)
+
+    def _tts_payload(self, text: str) -> dict:
+        return {
             "model": "tts-1",
             "voice": self.tts_voice,
             "input": text,
             "language": self.tts_language,
+            "audio_format": self.tts_audio_format,
         }
+
+    async def _speak_wav(self, text: str):
+        api_url = self.voice_server.rstrip("/") + "/v1/audio/speech"
+        api_key = self._voice_api_key()
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            client = self._get_http_client()
+            response = await client.post(
+                api_url,
+                headers=headers,
+                json=self._tts_payload(text),
+                timeout=120.0,
+            )
+            response.raise_for_status()
+            if self._cancelled:
+                return
+            await self._send_event(
+                "audio.header",
+                {
+                    "format": "wav",
+                    "mime_type": response.headers.get("content-type", "audio/wav"),
+                },
+            )
+            await self._send_audio_chunk(response.content)
+            await self._send_event("audio.end", {})
+        except httpx.HTTPStatusError as e:
+            logging.error(f"[VoiceConversation] TTS WAV HTTP error: {e}")
+        except Exception as e:
+            logging.error(f"[VoiceConversation] TTS WAV error: {e}")
+
+    async def _speak_pcm_stream(self, text: str):
+        api_url = self.voice_server.rstrip("/") + "/v1/audio/speech/stream"
+        api_key = self._voice_api_key()
+
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -524,18 +614,18 @@ INTENT:"""
         try:
             client = self._get_http_client()
             async with client.stream(
-                "POST", api_url, headers=headers, json=payload
+                "POST", api_url, headers=headers, json=self._tts_payload(text)
             ) as response:
                 response.raise_for_status()
                 first_chunk = True
-                async for chunk in response.aiter_bytes(chunk_size=4096):
+                async for chunk in self._iter_tts_stream(response):
                     if self._cancelled:
                         break
                     if first_chunk:
                         await self._send_event(
                             "audio.header",
                             {
-                                "format": "pcm",
+                                "format": self.tts_audio_format,
                                 "sample_rate": 24000,
                                 "bits_per_sample": 16,
                                 "channels": 1,
@@ -550,6 +640,50 @@ INTENT:"""
             logging.error(f"[VoiceConversation] TTS stream HTTP error: {e}")
         except Exception as e:
             logging.error(f"[VoiceConversation] TTS stream error: {e}")
+
+    async def _iter_tts_stream(self, response):
+        if self.tts_audio_format == "pcm_framed":
+            async for chunk in response.aiter_bytes(chunk_size=4096):
+                if chunk:
+                    yield chunk
+            return
+
+        buffer = bytearray()
+        framed_stream = None
+        max_frame_size = 2 * 1024 * 1024
+
+        async for chunk in response.aiter_bytes(chunk_size=4096):
+            if not chunk:
+                continue
+            if framed_stream is False:
+                yield chunk
+                continue
+
+            buffer.extend(chunk)
+            while len(buffer) >= 4:
+                frame_size = struct.unpack("<I", buffer[:4])[0]
+                if frame_size == 0:
+                    del buffer[:4]
+                    continue
+                if frame_size > max_frame_size:
+                    framed_stream = False
+                    if buffer:
+                        yield bytes(buffer)
+                        buffer.clear()
+                    break
+                if len(buffer) < frame_size + 4:
+                    break
+                framed_stream = True
+                yield bytes(buffer[4 : frame_size + 4])
+                del buffer[: frame_size + 4]
+
+        if buffer:
+            if framed_stream is True:
+                logging.warning(
+                    "[VoiceConversation] Dropping incomplete framed TTS chunk"
+                )
+            else:
+                yield bytes(buffer)
 
     def _clean_for_tts(self, text: str) -> str:
         """Clean text for TTS - remove code blocks, URLs, XML tags."""

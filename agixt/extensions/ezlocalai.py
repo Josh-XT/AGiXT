@@ -539,7 +539,7 @@ class ezlocalai(Extensions):
         resp.raise_for_status()
         return base64.b64encode(resp.content).decode("utf-8")
 
-    async def text_to_speech_stream(self, text: str):
+    async def text_to_speech_stream(self, text: str, audio_format: str = "pcm"):
         """
         Stream TTS audio as it's generated from ezLocalai.
 
@@ -574,6 +574,7 @@ class ezlocalai(Extensions):
             "voice": self.VOICE,
             "input": text,
             "language": self.TTS_LANGUAGE,
+            "audio_format": audio_format or "pcm",
         }
 
         async with httpx.AsyncClient(timeout=300.0) as client:

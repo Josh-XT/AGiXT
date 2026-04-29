@@ -978,14 +978,17 @@ async def text_to_speech_stream(
         raise HTTPException(status_code=400, detail="No TTS provider available")
 
     async def audio_stream_generator():
-        async for chunk in agent.text_to_speech_stream(text=tts.input):
+        async for chunk in agent.text_to_speech_stream(
+            text=tts.input, audio_format=tts.audio_format or "pcm"
+        ):
             yield chunk
 
+    audio_format = (tts.audio_format or "pcm").lower()
     return StreamingResponse(
         audio_stream_generator(),
         media_type="application/octet-stream",
         headers={
-            "X-Audio-Format": "pcm",
+            "X-Audio-Format": audio_format,
             "X-Sample-Rate": "24000",
             "X-Bits-Per-Sample": "16",
             "X-Channels": "1",

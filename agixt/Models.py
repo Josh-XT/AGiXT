@@ -337,6 +337,7 @@ class TextToSpeech(BaseModel):
     model: Optional[str] = "XT"
     voice: Optional[str] = "default"
     language: Optional[str] = "en"
+    audio_format: Optional[str] = "pcm"
     user: Optional[str] = None
 
 

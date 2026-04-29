@@ -23,6 +23,7 @@ async def voice_conversation(
     websocket: WebSocket,
     conversation_id: str,
     authorization: str = None,
+    audio_format: str = None,
 ):
     """
     WebSocket endpoint for real-time voice conversations.
@@ -39,7 +40,9 @@ async def voice_conversation(
         {"type": "image.input", "data": "<base64 jpeg>"} - Camera frame for vision context
         {"type": "interrupt"} - Barge-in / stop speaking
         {"type": "config", ...} - Session configuration
-            Optional fields: voice, language, agent
+            Optional fields: voice, language, agent, audio_format
+            audio_format can be "pcm" (raw 24kHz 16-bit mono), "pcm_framed"
+            (upstream length-prefixed PCM), or "wav" (complete WAV blobs).
         {"type": "tools.register", "tools": [...]} - Register client-side tools
             Each tool: {"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}
         {"type": "tool.result", "request_id": "...", "result": "..."} - Tool execution result
@@ -48,7 +51,7 @@ async def voice_conversation(
     - Binary frames: Raw audio data (PCM chunks)
     - JSON text frames:
         {"type": "status", "data": {"state": "..."}} - State changes
-        {"type": "audio.header", "data": {"format": "pcm", ...}} - Audio format info
+        {"type": "audio.header", "data": {"format": "pcm|pcm_framed|wav", ...}} - Audio format info
         {"type": "audio.end", "data": {}} - Audio playback complete
         {"type": "audio.interrupt", "data": {}} - Stop playing audio
         {"type": "transcript.user", "data": {"text": "..."}} - User speech transcript
@@ -131,6 +134,8 @@ async def voice_conversation(
             ApiClient=ApiClient,
         )
         session.websocket = websocket
+        if audio_format:
+            session.tts_audio_format = session._normalize_audio_format(audio_format)
 
         # Start keepalive
         await session.start_keepalive()
@@ -144,6 +149,7 @@ async def voice_conversation(
                         "state": "idle",
                         "message": "Voice conversation ready",
                         "conversation_id": conversation_id,
+                        "audio_format": session.tts_audio_format,
                     },
                 }
             )
@@ -265,6 +271,10 @@ async def voice_conversation(
                         session.tts_voice = msg["voice"]
                     if "language" in msg:
                         session.tts_language = msg["language"]
+                    if "audio_format" in msg:
+                        session.tts_audio_format = session._normalize_audio_format(
+                            msg["audio_format"]
+                        )
                     if "agent" in msg:
                         session.agent_name = msg["agent"]
                         session.agent = Agent(
@@ -279,6 +289,7 @@ async def voice_conversation(
                                 "data": {
                                     "state": "idle",
                                     "message": "Configuration updated",
+                                    "audio_format": session.tts_audio_format,
                                 },
                             }
                         )

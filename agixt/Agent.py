@@ -64,6 +64,7 @@ import time
 import asyncio
 import hashlib
 import uuid as uuid_module
+import inspect
 from solders.keypair import Keypair
 from typing import Tuple
 import binascii
@@ -3120,7 +3121,7 @@ class Agent:
                 output_url = f"{agixt_uri}/outputs/{safe_agent_id}/{safe_conversation_id}/{secure_filename}"
                 return output_url
 
-    async def text_to_speech_stream(self, text: str):
+    async def text_to_speech_stream(self, text: str, audio_format: str = "pcm"):
         """
         Stream TTS audio as it's generated, chunk by chunk.
 
@@ -3175,7 +3176,14 @@ class Agent:
                 text,
             )
 
-        async for chunk in tts_provider.text_to_speech_stream(text=text):
+        stream_kwargs = {"text": text}
+        provider_params = inspect.signature(
+            tts_provider.text_to_speech_stream
+        ).parameters
+        if "audio_format" in provider_params:
+            stream_kwargs["audio_format"] = audio_format or "pcm"
+
+        async for chunk in tts_provider.text_to_speech_stream(**stream_kwargs):
             yield chunk
 
     def get_agent_extensions(self):
