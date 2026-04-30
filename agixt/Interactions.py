@@ -4820,7 +4820,12 @@ Example: If user says "list my files", use:
         _incomplete_answer_non_exec_count = (
             0  # Track consecutive non-exec iterations with incomplete answer
         )
-        _final_answer_review_server = getenv("ABILITY_SELECTION_SERVER")
+        _final_answer_review_enabled = str(
+            getenv("FINAL_ANSWER_REVIEW_ENABLED", "false")
+        ).lower() in ("1", "true", "yes", "on")
+        _final_answer_review_server = (
+            getenv("ABILITY_SELECTION_SERVER") if _final_answer_review_enabled else None
+        )
         _final_answer_review_model = getenv(
             "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-0.8B-GGUF"
         )
@@ -4831,6 +4836,8 @@ Example: If user says "list my files", use:
         except (TypeError, ValueError):
             _final_answer_review_max_attempts = 3
         _final_answer_review_max_attempts = max(0, _final_answer_review_max_attempts)
+        if not _final_answer_review_enabled:
+            _final_answer_review_max_attempts = 0
         try:
             _final_answer_review_max_chars = int(
                 getenv("FINAL_ANSWER_REVIEW_MAX_CHARS", "600000")
@@ -4846,6 +4853,11 @@ Example: If user says "list my files", use:
         _continuation_recovery_feedback = ""
         _continuation_recovery_count = 0
         _last_recovered_answer_hash = None
+        if not _final_answer_review_enabled:
+            logging.info(
+                "[run_stream] Final answer review gate disabled; complete answers "
+                "will finalize without ability-model rejection."
+            )
 
         # Track the length of processed content to detect new executions
         processed_length = len(self.response)
@@ -6267,8 +6279,8 @@ Use the available context and outputs above to repair the trajectory. If the use
                 # Update processed_length to track what we've handled
                 processed_length = len(self.response)
 
-                # If we got a COMPLETE answer, loop back so the final-answer
-                # review gate can approve or reject it before we finalize.
+                # If we got a COMPLETE answer, loop back so complete-answer
+                # handling can finalize it.
                 if has_complete_answer(self.response):
                     continue
 
