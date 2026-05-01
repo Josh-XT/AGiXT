@@ -4778,15 +4778,71 @@ Example: If user says "list my files", use:
         # and append the closing tag so the execution logic can process them.
         _lower_resp = full_response.lower()
         _last_exec_open = _lower_resp.rfind("<execute>")
+        _stop_sequence_execute_appended = False
         if _last_exec_open != -1:
             _last_exec_close = _lower_resp.rfind("</execute>")
             if _last_exec_close < _last_exec_open:
                 # Unclosed <execute> tag — stop sequence likely fired
                 full_response += "</execute>"
                 self.response = full_response
+                _stop_sequence_execute_appended = True
                 logging.info(
                     "[run_stream] Appended </execute> closing tag (stop sequence detected)"
                 )
+
+        if (
+            _stop_sequence_execute_appended
+            and "{COMMANDS}" in unformatted_prompt
+            and "disable_commands" not in kwargs
+        ):
+            logging.info(
+                "[run_stream] Executing initial command completed by stop sequence"
+            )
+            stop_remote_queue = asyncio.Queue()
+
+            async def stop_remote_callback(remote_cmd):
+                await stop_remote_queue.put(remote_cmd)
+                return (
+                    "[REMOTE COMMAND QUEUED] Waiting for client-side execution.\n"
+                    f"Request ID: {remote_cmd.get('request_id', 'unknown')}"
+                )
+
+            stop_execution_task = asyncio.create_task(
+                self.execution_agent(
+                    conversation_name=conversation_name,
+                    conversation_id=conversation_id,
+                    thinking_id=thinking_id,
+                    remote_command_callback=stop_remote_callback,
+                )
+            )
+            while not stop_execution_task.done():
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(stop_execution_task),
+                        timeout=10.0,
+                    )
+                except asyncio.TimeoutError:
+                    yield {
+                        "type": "keepalive",
+                        "content": "",
+                        "complete": False,
+                    }
+                except Exception:
+                    break
+            if stop_execution_task.done():
+                stop_execution_task.result()
+
+            while not stop_remote_queue.empty():
+                remote_cmd = await stop_remote_queue.get()
+                remote_command_yielded = True
+                yield {
+                    "type": "remote_command_request",
+                    "content": remote_cmd,
+                    "complete": True,
+                }
+
+            full_response = self.response
+            _break_for_continuation = True
 
         # Skip continuation logic if a remote command was yielded
         # The CLI will handle the command execution and submit the result
@@ -6259,10 +6315,12 @@ Use the available context and outputs above to repair the trajectory. If the use
                     # Check for unclosed <execute> tag from stop sequence in continuation
                     _cont_lower = continuation_response.lower()
                     _cont_last_open = _cont_lower.rfind("<execute>")
+                    _cont_stop_sequence_execute_appended = False
                     if _cont_last_open != -1:
                         _cont_last_close = _cont_lower.rfind("</execute>")
                         if _cont_last_close < _cont_last_open:
                             continuation_response += "</execute>"
+                            _cont_stop_sequence_execute_appended = True
                             logging.info(
                                 "[run_stream] Appended </execute> in continuation (stop sequence detected)"
                             )
@@ -6275,6 +6333,66 @@ Use the available context and outputs above to repair the trajectory. If the use
                     ):
                         continuation_response = "\n" + continuation_response.lstrip()
                     self.response += continuation_response
+
+                    if (
+                        _cont_stop_sequence_execute_appended
+                        and "{COMMANDS}" in unformatted_prompt
+                        and "disable_commands" not in kwargs
+                    ):
+                        logging.info(
+                            "[run_stream] Executing continuation command completed by stop sequence"
+                        )
+                        cont_stop_remote_queue = asyncio.Queue()
+
+                        async def cont_stop_remote_callback(remote_cmd):
+                            await cont_stop_remote_queue.put(remote_cmd)
+                            return (
+                                "[REMOTE COMMAND QUEUED] Waiting for client-side execution.\n"
+                                f"Request ID: {remote_cmd.get('request_id', 'unknown')}"
+                            )
+
+                        cont_stop_execution_task = asyncio.create_task(
+                            self.execution_agent(
+                                conversation_name=conversation_name,
+                                conversation_id=conversation_id,
+                                remote_command_callback=cont_stop_remote_callback,
+                            )
+                        )
+                        while not cont_stop_execution_task.done():
+                            try:
+                                await asyncio.wait_for(
+                                    asyncio.shield(cont_stop_execution_task),
+                                    timeout=10.0,
+                                )
+                            except asyncio.TimeoutError:
+                                yield {
+                                    "type": "keepalive",
+                                    "content": "",
+                                    "complete": False,
+                                }
+                            except Exception:
+                                break
+                        if cont_stop_execution_task.done():
+                            _cont_commands_executed = (
+                                cont_stop_execution_task.result() or 0
+                            )
+                        else:
+                            _cont_commands_executed = 0
+
+                        while not cont_stop_remote_queue.empty():
+                            remote_cmd = await cont_stop_remote_queue.get()
+                            yield {
+                                "type": "remote_command_request",
+                                "content": remote_cmd,
+                                "complete": True,
+                            }
+
+                        broke_for_execution = True
+                        if _cont_commands_executed:
+                            _previous_iteration_executed = True
+                            _no_answer_non_exec_streak = 0
+                            if _continuation_iter_lengths:
+                                _continuation_iter_lengths.pop()
 
                 # Update processed_length to track what we've handled
                 processed_length = len(self.response)
