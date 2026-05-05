@@ -24,6 +24,7 @@ from MagicalAuth import get_user_id
 from Models import (
     AgentNewName,
     AgentPrompt,
+    AgentVision,
     ToggleCommandPayload,
     ToggleExtensionCommandsPayload,
     AgentCommands,
@@ -172,6 +173,39 @@ async def import_agent_v1(
         user=user,
     )
     return result
+
+
+@app.post(
+    "/v1/agent/{agent_id}/vision",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Run agent vision inference",
+    description="Runs the selected agent's configured vision provider against one or more images without entering the normal chat/tool pipeline.",
+    response_model=AgentPromptResponse,
+)
+async def vision_agent_v1(
+    agent_id: str,
+    vision: AgentVision,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    try:
+        if not vision.prompt or not vision.prompt.strip():
+            raise HTTPException(status_code=400, detail="prompt is required")
+        ApiClient = get_api_client(authorization=authorization)
+        agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+        response = await agent.vision_inference(
+            prompt=vision.prompt,
+            images=vision.images or [],
+            use_smartest=bool(vision.use_smartest),
+        )
+        return {"response": str(response or "")}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error running agent vision: {e}")
+        logging.error(traceback.format_exc())
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post(

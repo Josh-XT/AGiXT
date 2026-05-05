@@ -157,6 +157,12 @@ class AgentPrompt(BaseModel):
     prompt_args: dict
 
 
+class AgentVision(BaseModel):
+    prompt: str
+    images: List[str] = []
+    use_smartest: Optional[bool] = False
+
+
 class ThinkingPrompt(BaseModel):
     user_input: str
     agent_name: str
