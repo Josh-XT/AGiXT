@@ -1916,7 +1916,13 @@ Rules:
             )
             # Separate vision inference from memory writing to avoid false errors
             vision_response = None
-            vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
+            vision_prompt = (
+                "The assistant has an image in context\n"
+                f"The user's last message was: {user_input}\n"
+                f"The uploaded image is `{file_name}`.\n\n"
+                "Answer anything relevant to the image that the user is questioning "
+                "if anything, additionally, describe the image in detail."
+            )
             self.input_tokens += get_tokens(vision_prompt)
             # Read image and encode as base64 for vision inference
             with open(file_path, "rb") as img_file:
@@ -2611,6 +2617,7 @@ Rules:
                 str(self.agent_settings["include_sources"]).lower() == "true"
             )
         disable_commands = False
+        enable_command_selection = True
         running_command = None
         additional_context = ""
         parent_activity_id = None
@@ -2683,6 +2690,10 @@ Rules:
                 )
             if "disable_commands" in message:
                 disable_commands = str(message["disable_commands"]).lower() == "true"
+            if "enable_command_selection" in message:
+                enable_command_selection = (
+                    str(message["enable_command_selection"]).lower() == "true"
+                )
             if "running_command" in message:
                 running_command = message["running_command"]
             if "content" not in message:
@@ -3388,7 +3399,7 @@ Rules:
                 voice_response=tts,
                 log_user_input=False,
                 log_output=False,
-                enable_command_selection=True,  # Enable intelligent command selection for main user interactions
+                enable_command_selection=enable_command_selection,
                 data_analysis=data_analysis,
                 language=language,
                 include_sources=include_sources,
@@ -3662,9 +3673,12 @@ Rules:
         log_output = True
         log_user_input = True
         disable_commands = False
+        enable_command_selection = None
         running_command = None
         additional_context = ""
         command_overrides = None
+        has_tool_result = False
+        tool_result_text = ""
         # TTS streaming mode: "off", "audio_only", or "interleaved"
         tts_mode = getattr(prompt, "tts_mode", "off") or "off"
 
@@ -3819,23 +3833,43 @@ Rules:
                 )
             if "disable_commands" in message:
                 disable_commands = str(message["disable_commands"]).lower() == "true"
+            if "enable_command_selection" in message:
+                enable_command_selection = (
+                    str(message["enable_command_selection"]).lower() == "true"
+                )
             if "running_command" in message:
                 running_command = message["running_command"]
             if "content" not in message:
                 continue
             if isinstance(message["content"], str):
                 role = message["role"] if "role" in message else "User"
-                if role.lower() == "system":
+                if role.lower() == "tool":
+                    has_tool_result = True
+                    tool_call_id = message.get("tool_call_id", "unknown")
+                    tool_content = str(message["content"])
+                    new_prompt += f"{tool_content}\n\n"
+                    tool_result_text += (
+                        f"Tool result ({tool_call_id}):\n{tool_content}\n\n"
+                    )
+                elif role.lower() == "system":
                     if "/" in message["content"]:
                         new_prompt += f"{message['content']}\n\n"
-                if role.lower() == "user":
+                elif role.lower() == "user":
                     new_prompt += f"{message['content']}\n\n"
             if isinstance(message["content"], list):
+                role = message["role"] if "role" in message else "User"
+                if role.lower() == "tool":
+                    has_tool_result = True
+                    tool_call_id = message.get("tool_call_id", "unknown")
                 for msg in message["content"]:
                     if "text" in msg:
-                        role = message["role"] if "role" in message else "User"
-                        if role.lower() == "user":
-                            new_prompt += f"{msg['text']}\n\n"
+                        if role.lower() in ["user", "tool"]:
+                            text_part = str(msg["text"])
+                            new_prompt += f"{text_part}\n\n"
+                            if role.lower() == "tool":
+                                tool_result_text += (
+                                    f"Tool result ({tool_call_id}):\n{text_part}\n\n"
+                                )
                     # Process file type messages (streaming)
                     await self._process_file_type_message(msg, files)
                     # Iterate over the msg to find _url in one of the keys then use the value of that key unless it has a "url" under it
@@ -4034,11 +4068,16 @@ Rules:
             new_prompt += f"\nUploaded file: `{file['file_name']}`."
 
         # Log user input (log original prompt without file names appended)
-        if log_user_input:
+        if log_user_input and not has_tool_result and original_user_prompt:
             c.log_interaction(role="USER", message=original_user_prompt)
 
         # Get thinking_id for activity logging
         thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+        if has_tool_result and tool_result_text and thinking_id:
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{thinking_id}] Received tool result:\n```\n{tool_result_text.strip()}\n```",
+            )
 
         # Handle prompt_args cleanup like non-streaming version
         if "user_input" in prompt_args:
@@ -4233,6 +4272,8 @@ Rules:
             # Build prompt args for processing
             if disable_commands:
                 prompt_args["disable_commands"] = True
+            if enable_command_selection is not None:
+                prompt_args["enable_command_selection"] = enable_command_selection
             if running_command:
                 prompt_args["running_command"] = running_command
 

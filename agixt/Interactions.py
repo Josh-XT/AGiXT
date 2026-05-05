@@ -3711,12 +3711,18 @@ Example: Open Remote Terminal, Execute in Terminal, Get Terminal Output, Vision 
                 f"selected {len(selected_commands) if selected_commands is not None else 'None'} commands"
             )
 
-        # Always include client-defined tools regardless of command selection
-        # Client explicitly provided these tools, so they should always be available
-        if self._client_tools and selected_commands is not None:
-            for client_tool_name in self._client_tools.keys():
-                if client_tool_name not in selected_commands:
-                    selected_commands.append(client_tool_name)
+        # Always include client-defined tools regardless of command selection.
+        # When command selection is intentionally skipped for a tool-result
+        # continuation, constrain the command prompt to the client tools
+        # instead of falling back to every server-side ability.
+        if self._client_tools:
+            client_tool_names = list(self._client_tools.keys())
+            if selected_commands is None and not enable_command_selection:
+                selected_commands = client_tool_names
+            elif selected_commands is not None:
+                for client_tool_name in client_tool_names:
+                    if client_tool_name not in selected_commands:
+                        selected_commands.append(client_tool_name)
 
         # Store selected_commands as instance variable to persist across continuation loops
         self._selected_commands = selected_commands
