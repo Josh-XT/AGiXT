@@ -43,6 +43,8 @@ streamlit/
 # 3rd party
 package.json
 package-lock.json
+!clients/desktop/package.json
+!clients/desktop/package-lock.json
 *cookies.json
 data/
 agents/

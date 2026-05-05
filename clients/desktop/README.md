@@ -1,4 +1,4 @@
-# AGiXT-Desktop
+# AGiXT Desktop
 
 A native desktop AGiXT client written in Rust (Tauri 2). It runs as a
 tray-anchored sidebar popover with rich activity grouping, voice input,
@@ -26,7 +26,7 @@ so they actually load — same trick the web's
 ## Layout
 
 ```
-AGiXT-Desktop/
+clients/desktop/
 ├── README.md
 ├── src/                       # Frontend (HTML/JS/CSS, no build step)
 │   ├── index.html             # Sidebar shell
@@ -121,6 +121,12 @@ cargo tauri build       # if tauri-cli is installed (recommended)
 # or
 cargo build --release   # produces target/release/agixt-desktop
 ```
+
+When AGiXT is started from this repository with `agixt start` or
+`agixt restart`, the CLI will also build and install this desktop app
+on machines with a graphical desktop session. It skips CI/headless
+terminal-only environments and can be disabled with
+`AGIXT_DESKTOP_INSTALL=false`.
 
 Set `RUST_LOG=info,agixt_desktop_lib=debug` for verbose logging.
 Frontend `console.log` is forwarded to the same Rust tracing log via
