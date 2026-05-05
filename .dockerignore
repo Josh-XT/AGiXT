@@ -13,3 +13,17 @@ tests/
 docs/
 .github/
 *.ipynb
+
+# Client app local dependencies and generated build output
+clients/*/node_modules/
+clients/*/coverage/
+clients/*/dist/
+clients/*/build/
+clients/*/.next/
+clients/*/.turbo/
+clients/*/target/
+clients/*/src-tauri/target/
+clients/*/src-tauri/gen/
+clients/*/src-tauri/WixTools/
+clients/*/src-tauri/.tauri/
+clients/*/src-tauri/Cargo.lock.bak
