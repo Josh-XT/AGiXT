@@ -1,0 +1,1381 @@
+/* AGiXT Desktop sidebar styles
+ * Layout, dark theme tuned for an always-on-top sidebar.
+ * Activity/subactivity rendering mirrors the AGiXT web client conventions
+ * (parent group with collapsible children, accent colors per type).
+ */
+
+:root {
+  color-scheme: dark;
+  --bg: rgba(15, 17, 24, 0.96);
+  --panel: rgba(20, 24, 36, 0.92);
+  --panel-2: rgba(28, 32, 46, 0.92);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text: #e6e8ee;
+  --text-dim: #a1a7b5;
+  --text-faint: #6f7585;
+  --accent: #6b7bff;
+  --accent-2: #9a6cff;
+  --user-bubble: linear-gradient(135deg, #4a5dff 0%, #7a4dff 100%);
+  --assistant-bubble: rgba(36, 41, 56, 0.95);
+  --activity: rgba(60, 80, 130, 0.30);
+  --activity-thought: rgba(120, 90, 200, 0.22);
+  --activity-error: rgba(220, 60, 80, 0.25);
+  --activity-warn: rgba(220, 160, 60, 0.20);
+  --activity-info: rgba(60, 140, 220, 0.20);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  font-family: var(--font);
+  color: var(--text);
+  background: transparent;
+  overflow: hidden;
+  /* Hard-clip at the window border. Any internal area that needs
+   * scrolling (chat log, auth fields when small) handles its own
+   * overflow inside the popover — never the body, otherwise we'd get
+   * a chrome scrollbar that looks awful. */
+}
+
+/* ---------- Tray-anchored popover ----------
+ *
+ * The window is shown/hidden as a unit at the OS level. The `.dock-panel`
+ * fills the whole window — borders + shadow give it the visual identity
+ * of a Discord/Slack-style menu popover.
+ */
+
+.dock-panel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+/* Borderless windows don't get OS-native resize edges, so we render
+ * our own grip corners. Tauri 2 ships with built-in resize behavior
+ * for elements with the `data-tauri-resize-*` attributes. */
+.resize-handle {
+  position: fixed;
+  width: 16px;
+  height: 16px;
+  z-index: 1000;
+  cursor: nwse-resize;
+}
+.resize-handle-br {
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+  background: linear-gradient(135deg,
+    transparent 0%, transparent 55%,
+    rgba(255,255,255,0.12) 55%, rgba(255,255,255,0.12) 60%,
+    transparent 60%, transparent 70%,
+    rgba(255,255,255,0.18) 70%, rgba(255,255,255,0.18) 75%,
+    transparent 75%, transparent 85%,
+    rgba(255,255,255,0.24) 85%, rgba(255,255,255,0.24) 90%,
+    transparent 90%);
+  border-bottom-right-radius: 14px;
+}
+.resize-handle-bl {
+  bottom: 0;
+  left: 0;
+  cursor: sw-resize;
+  background: linear-gradient(225deg,
+    transparent 0%, transparent 55%,
+    rgba(255,255,255,0.12) 55%, rgba(255,255,255,0.12) 60%,
+    transparent 60%, transparent 70%,
+    rgba(255,255,255,0.18) 70%, rgba(255,255,255,0.18) 75%,
+    transparent 75%, transparent 85%,
+    rgba(255,255,255,0.24) 85%, rgba(255,255,255,0.24) 90%,
+    transparent 90%);
+  border-bottom-left-radius: 14px;
+}
+.resize-handle:hover {
+  background-color: rgba(255,255,255,0.06);
+}
+
+/* Topbar */
+
+.topbar {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  /* Anchor for the agent/convo popovers — they use top: 100% to drop
+     down below the topbar. Without `relative` they fall through to the
+     dock-panel and land at the bottom of the window. */
+  position: relative;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.brand-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+}
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+/* When no SVG is available we fall back to a gradient tile + initials. */
+.brand-mark.fallback {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+
+/* Connection-state dot, overlaid on the logo. Hidden when connected so
+   the topbar stays clean; only shows when there's a problem. */
+.brand-conn {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffd591;
+  border: 1.5px solid var(--panel);
+  display: block;
+}
+.brand-conn.connected { display: none; }
+.brand-conn.error { background: #ff6b7a; }
+
+/* Two stacked rows on the right side of the topbar. The agent chip and
+   icon buttons share the top row; the conversation chip + new-conv
+   button share the bottom row. The stack flexes against the logo so
+   long agent or conversation names get the available width. */
+.topbar-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.topbar-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.topbar-row > .chip-btn { flex: 1 1 auto; min-width: 0; }
+
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+}
+.icon-btn:hover { background: var(--panel-2); color: var(--text); }
+.icon-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+/* Chip-style switchers — agent + conversation, hosted in the topbar. */
+
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  /* In the topbar both chips share a single flex track with the action
+     buttons. Allow them to shrink so long agent/conversation names get
+     ellipsised instead of pushing the row over the window width. */
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.chip-btn-icon {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+.chip-btn:hover { background: var(--panel); border-color: var(--border-strong); }
+.chip-btn[aria-expanded="true"] { background: var(--panel); border-color: var(--accent); }
+.chip-btn-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.popover-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 8px;
+  right: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  z-index: 50;
+  max-height: 380px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.popover-menu[hidden] { display: none; }
+.popover-menu-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-faint);
+  padding: 8px 10px 4px;
+}
+.popover-menu-search {
+  padding: 8px 8px 4px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.popover-menu-search input {
+  width: 100%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+  font-family: inherit;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+.popover-menu-search input:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+.popover-menu-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 2px 4px 6px;
+}
+.popover-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text);
+}
+.popover-menu-item:hover { background: var(--panel-2); }
+.popover-menu-item.is-selected { color: var(--text); }
+.popover-menu-item.is-selected .popover-menu-check { color: #5dd28f; }
+.popover-menu-check {
+  width: 14px;
+  flex-shrink: 0;
+  color: transparent;
+}
+.popover-menu-item .agent-name { font-weight: 600; }
+.popover-menu-item .agent-company {
+  color: var(--text-faint);
+  font-size: 11px;
+  margin-left: 4px;
+}
+.popover-menu-footer {
+  border-top: 1px solid var(--border);
+  padding: 4px;
+}
+.popover-menu-action {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  border-radius: 6px;
+}
+.popover-menu-action:hover { background: var(--panel-2); }
+.convo-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.convo-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.convo-time {
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+/* Chat scroll area */
+
+.chat {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 12px;
+  scroll-behavior: smooth;
+}
+
+.empty-state {
+  text-align: center;
+  color: var(--text-dim);
+  margin-top: 60px;
+  padding: 0 16px;
+}
+.empty-state-icon { font-size: 32px; margin-bottom: 8px; }
+.empty-state-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.empty-state-body { font-size: 13px; line-height: 1.5; }
+
+.messages { display: flex; flex-direction: column; gap: 10px; }
+
+/* Message bubble */
+
+.message { display: flex; flex-direction: column; max-width: 100%; }
+.message-row { display: flex; gap: 8px; align-items: flex-end; }
+.message-user { align-items: flex-end; }
+.message-user .message-row { justify-content: flex-end; }
+.message-assistant .message-row { justify-content: flex-start; }
+
+/* Timestamp pinned to the bubble's bottom edge. Hidden until the user
+   hovers the message row. The full date sits in the title attribute. */
+.message-ts {
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding-bottom: 4px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.message-row:hover .message-ts { opacity: 1; }
+
+.bubble {
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 92%;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.message-user .bubble {
+  background: var(--user-bubble);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.message-assistant .bubble {
+  background: var(--assistant-bubble);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+
+.message-meta {
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-top: 2px;
+  padding: 0 4px;
+}
+
+/* Activity groups */
+
+.activity {
+  background: var(--activity);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin: 4px 0;
+  overflow: hidden;
+  font-size: 12px;
+}
+.activity[data-type="thought"] { background: var(--activity-thought); }
+.activity[data-type="error"]   { background: var(--activity-error); }
+.activity[data-type="warn"]    { background: var(--activity-warn); }
+.activity[data-type="info"]    { background: var(--activity-info); }
+
+.activity-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-dim);
+}
+.activity-head .chev { transition: transform 0.15s ease; }
+.activity[aria-expanded="true"] .activity-head .chev { transform: rotate(90deg); }
+.activity-title { flex: 1; font-weight: 500; color: var(--text); }
+.activity-spinner {
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 2px solid var(--text-faint);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+  display: none;
+}
+.activity[data-running="true"] .activity-spinner { display: inline-block; }
+
+.activity-body {
+  padding: 0 10px 8px 28px;
+  display: none;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.activity[aria-expanded="true"] .activity-body { display: block; }
+
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin: 4px 0 4px;
+  align-self: flex-start;
+}
+.tool-chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex-shrink: 0;
+}
+.tool-chip.pending .tool-chip-dot {
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.tool-chip.ok .tool-chip-dot { background: #5dd28f; }
+.tool-chip.error { color: #ff8a96; border-color: rgba(255,138,150,0.3); }
+.tool-chip.error .tool-chip-dot { background: #ff8a96; }
+
+.subactivity {
+  display: flex;
+  gap: 8px;
+  padding: 6px 0;
+  align-items: flex-start;
+}
+.subactivity + .subactivity { border-top: 1px dashed var(--border); }
+.subactivity .sub-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-faint);
+  user-select: none;
+}
+.subactivity .sub-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.subactivity .sub-content .md { font-size: 11.5px; line-height: 1.45; }
+
+.subactivity[data-tag="THOUGHT"]     .sub-icon { color: #c4b3ff; }
+.subactivity[data-tag="THOUGHT"]     .sub-content { color: #c4b3ff; }
+.subactivity[data-tag="ERROR"]       .sub-icon,
+.subactivity[data-tag="ERROR"]       .sub-content { color: #ff8a96; }
+.subactivity[data-tag="WARNING"]     .sub-icon,
+.subactivity[data-tag="WARNING"]     .sub-content { color: #ffd591; }
+.subactivity[data-tag="INFO"]        .sub-icon { color: #8bc7ff; }
+.subactivity[data-tag="CLIENT_TOOL"] .sub-icon { color: #9ee0a3; }
+.subactivity[data-tag="REMOTE"]      .sub-icon { color: #74c2ff; }
+.subactivity[data-tag="DIAGRAM"]     .sub-icon { color: #d8a3ff; }
+
+/* Tool-call group: one collapsed line per tool call ("Called <name>")
+ * that, when expanded, reveals the request payload + every follow-up
+ * subactivity (REMOTE queue, REMOTE complete, received result, uploads). */
+details.sub-tool-group {
+  margin: 4px 0;
+}
+details.sub-tool-group > summary.sub-tool-group-summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: rgba(158, 224, 163, 0.04);
+}
+details.sub-tool-group > summary.sub-tool-group-summary::-webkit-details-marker { display: none; }
+details.sub-tool-group > summary.sub-tool-group-summary::before {
+  content: '▸';
+  display: inline-block;
+  width: 10px;
+  font-size: 10px;
+  color: #9ee0a3;
+  transition: transform 0.15s ease;
+}
+details.sub-tool-group[open] > summary.sub-tool-group-summary::before {
+  transform: rotate(90deg);
+}
+details.sub-tool-group > summary.sub-tool-group-summary:hover {
+  border-color: rgba(158, 224, 163, 0.25);
+  background: rgba(158, 224, 163, 0.08);
+}
+.sub-tool-group-body {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-left: 2px solid rgba(158, 224, 163, 0.2);
+  margin-left: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* CLIENT_TOOL — collapsed by default, expands on click */
+details.sub-tool {
+  margin: 0;
+}
+details.sub-tool > summary.sub-tool-summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+}
+details.sub-tool > summary.sub-tool-summary::-webkit-details-marker { display: none; }
+details.sub-tool > summary.sub-tool-summary::before {
+  content: '▸';
+  display: inline-block;
+  width: 10px;
+  font-size: 10px;
+  color: var(--text-faint);
+  transition: transform 0.15s ease;
+}
+details.sub-tool[open] > summary.sub-tool-summary::before { transform: rotate(90deg); }
+details.sub-tool > summary.sub-tool-summary:hover {
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.03);
+}
+.sub-tool-name {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #9ee0a3;
+  background: rgba(158, 224, 163, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.sub-tool-pre {
+  margin: 6px 0 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 6px 8px;
+  border-radius: 5px;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--text-dim);
+}
+
+/* REMOTE / command result terminal block */
+.sub-remote {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.sub-remote-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(116, 194, 255, 0.08);
+  font-size: 11px;
+}
+.sub-remote-name {
+  font-family: var(--mono);
+  color: #74c2ff;
+}
+.sub-remote-exit {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.sub-remote-exit.ok  { color: #5dd28f; background: rgba(93, 210, 143, 0.12); }
+.sub-remote-exit.err { color: #ff8a96; background: rgba(255, 138, 150, 0.15); }
+.sub-remote-out, .sub-remote-err {
+  margin: 0;
+  padding: 6px 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text);
+}
+.sub-remote-err { color: #ff8a96; }
+
+/* Markdown content inside bubbles */
+
+.md p { margin: 0 0 8px; }
+.md p:last-child { margin-bottom: 0; }
+.md code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.md pre {
+  background: rgba(0, 0, 0, 0.4);
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.4;
+  margin: 6px 0;
+}
+.md pre code { background: transparent; padding: 0; }
+.md a { color: var(--accent); text-decoration: none; }
+.md a:hover { text-decoration: underline; }
+.md ul, .md ol { padding-left: 22px; margin: 6px 0; }
+.md li { margin: 2px 0; }
+.md img, .md video {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 6px 0;
+  display: block;
+}
+.md video { background: #000; }
+.md audio { width: 100%; margin: 6px 0; }
+.md table { border-collapse: collapse; margin: 6px 0; font-size: 11.5px; }
+.md th, .md td { border: 1px solid var(--border); padding: 4px 6px; text-align: left; }
+.md blockquote {
+  margin: 6px 0;
+  padding: 4px 10px;
+  border-left: 3px solid var(--accent);
+  color: var(--text-dim);
+}
+.md hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+
+/* Composer */
+
+.composer {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  padding: 6px 10px;
+}
+.composer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.composer-input {
+  flex: 1;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  resize: none;
+  min-height: 32px;
+  max-height: 160px;
+}
+.composer-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+/* All composer-row buttons share the same square footprint as the
+   textarea's min-height so the row reads as one ruled bar instead of
+   icons floating below the input. */
+.composer-row .icon-btn,
+.composer-row .send-btn {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+.send-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease;
+}
+.send-btn:hover { background: var(--accent-2); }
+.send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Send/stop swap. The `display: flex` on .send-btn would normally
+   override the HTML `hidden` attribute (UA `display: none`), so without
+   this both buttons render side-by-side. Defer to [hidden] explicitly. */
+.send-btn[hidden] { display: none; }
+/* Stop button shares the send-btn footprint (already covered by the
+   .composer-row .send-btn rule) but reads as a destructive action. */
+.send-btn.stop-btn { background: #e34555; }
+.send-btn.stop-btn:hover { background: #c83a48; }
+.send-btn.stop-btn svg { display: block; }
+.composer-status {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 2px;
+  min-height: 0;
+}
+.composer-status:empty { display: none; }
+.composer-status.error { color: #ff8a96; }
+
+/* Attachments tray sits above the composer row. Chips show the file's
+   basename with the full path on hover, and an × to drop it before
+   sending. The selected files are local-only — they get cleared after
+   the message goes out.
+   The [hidden] override is load-bearing: without it the `display: flex`
+   would override the HTML hidden attribute and the empty tray would
+   keep reserving margin above the composer. */
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.attachments[hidden] { display: none; }
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 4px 2px 10px;
+  font-size: 11px;
+  color: var(--text);
+  max-width: 100%;
+}
+.attachment-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+.attachment-remove {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.attachment-remove:hover { background: var(--border); color: var(--text); }
+.attach-btn { color: var(--text-dim); }
+.attach-btn:hover { color: var(--text); }
+
+/* Mic button — tap to record, tap again to stop+transcribe+send. The
+   data-state attribute toggles which inner glyph is visible. */
+.mic-btn { color: var(--text-dim); position: relative; }
+.mic-btn:hover { color: var(--text); }
+.mic-btn .mic-icon-idle,
+.mic-btn .mic-icon-recording,
+.mic-btn .mic-icon-busy { display: none; }
+.mic-btn[data-state="idle"] .mic-icon-idle { display: inline-block; }
+.mic-btn[data-state="recording"] {
+  color: #fff;
+  background: #e34555;
+  border-color: #e34555;
+}
+.mic-btn[data-state="recording"] .mic-icon-recording {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border-radius: 2px;
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+.mic-btn[data-state="busy"] .mic-icon-busy {
+  display: inline-block;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { transform: scale(1);   opacity: 1; }
+  50%      { transform: scale(0.7); opacity: 0.7; }
+}
+.composer-status.speaking { color: #5dd28f; }
+
+/* Auth screen */
+
+.auth-screen {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 14px 18px;
+  min-height: 0;
+}
+.auth-screen[hidden] { display: none; }
+.chat-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.chat-screen[hidden] { display: none; }
+
+.auth-card {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  margin-bottom: 6px;
+}
+.auth-tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.auth-tab[aria-selected="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.field[hidden],
+.auth-pane[hidden],
+.auth-row[hidden] { display: none !important; }
+.field-label {
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-size: 10px;
+  color: var(--text-faint);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.field-meta {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 10px;
+  color: var(--text-faint);
+  opacity: 0.7;
+}
+.field-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.field input[type="email"],
+.field input[type="text"],
+.field input[type="password"],
+.field input[type="url"],
+.field select,
+.field textarea {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 12px;
+}
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+.field.readonly input,
+.field input:read-only {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.auth-pane { display: flex; flex-direction: column; gap: 10px; }
+.auth-pane[hidden] { display: none; }
+
+.auth-cta {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.auth-row { display: flex; flex-direction: column; gap: 8px; }
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 4px 0;
+}
+.auth-divider::before, .auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { background: var(--panel-2); color: var(--text); }
+.btn-secondary {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover { background: var(--panel); }
+
+.oauth-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.btn-oauth {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+}
+.btn-oauth:hover { background: var(--panel); border-color: var(--border-strong); }
+.oauth-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  /* Real provider mark SVGs are colored on their own; we just frame
+   * them in a neutral background so light marks (Apple, GitHub) stay
+   * visible against the panel. */
+  background: rgba(255, 255, 255, 0.04);
+}
+.oauth-icon img,
+.oauth-icon svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  border-radius: 4px;
+}
+.oauth-icon.fallback {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff;
+  font-weight: 700;
+  font-size: 11px;
+  border-radius: 50%;
+}
+
+/* "Local" mode pane: localhost:7437 status + one-click installer.
+   Lives between the URL fields and the login/register panes. The
+   pane itself is hidden unless the user picks the "Local" service. */
+.local-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.local-pane[hidden] { display: none; }
+.local-status {
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.local-status::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex-shrink: 0;
+}
+.local-status.ok { color: var(--text); }
+.local-status.ok::before { background: #22c55e; }
+.local-status.warn::before { background: #eab308; }
+.local-status.error { color: #ef4444; }
+.local-status.error::before { background: #ef4444; }
+.local-status.info::before { background: var(--accent); }
+
+.local-row { display: flex; align-items: center; gap: 8px; }
+.local-row[hidden] { display: none; }
+.local-row-stack { flex-direction: column; align-items: stretch; }
+
+.local-hw-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.local-hw-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.local-hw-label {
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-size: 10px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+.local-hw-value {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  word-break: break-all;
+}
+.local-hw-note {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-faint);
+}
+
+.local-install-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.local-install-log {
+  background: #0b0d10;
+  color: #d1d5db;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.local-log-line { margin: 0; }
+.local-log-phase { color: #93c5fd; font-weight: 600; }
+.local-log-stderr { color: #fca5a5; }
+.local-log-ok { color: #86efac; font-weight: 600; }
+.local-log-err { color: #fca5a5; font-weight: 600; }
+
+.auth-paste {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.auth-paste summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  user-select: none;
+}
+.auth-paste[open] summary { border-bottom: 1px solid var(--border); }
+.auth-paste textarea {
+  width: 100%;
+  min-height: 70px;
+  margin: 8px 0;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.auth-paste .btn { margin: 0 10px 10px; }
+
+.auth-status {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  min-height: 16px;
+  padding: 4px 2px;
+}
+.auth-status.error { color: #ff8a96; }
+.auth-status.success { color: #5dd28f; }
+.auth-status.info { color: #8bc7ff; }
+
+.settings-user {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* Modal (Settings) */
+
+.modal {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 16px;
+}
+.modal.open { display: flex; }
+.modal-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 360px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-header h2 { margin: 0; font-size: 14px; }
+.modal-body { padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
+.field input[type="url"], .field input[type="text"], .field textarea {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  font-family: inherit;
+  font-size: 12px;
+}
+.field textarea { resize: vertical; font-family: var(--mono); font-size: 11px; }
+.field code { font-family: var(--mono); font-size: 11px; background: rgba(255,255,255,0.08); padding: 1px 4px; border-radius: 3px; }
+.field.check {
+  flex-direction: row; align-items: flex-start; gap: 8px;
+  cursor: pointer;
+}
+.field.check span { line-height: 1.4; padding-top: 1px; }
+.sudo-session-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sudo-session-row input {
+  flex: 1;
+  min-width: 0;
+}
+.sudo-session-row .btn {
+  white-space: nowrap;
+}
+.sudo-session-actions {
+  justify-content: space-between;
+  align-items: center;
+}
+.sudo-session-status {
+  min-width: 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: right;
+}
+.sudo-session-status.error { color: #ff8a96; }
+.sudo-session-status.success { color: #5dd28f; }
+.field-actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; }
+
+.btn {
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-2); }
+.btn-danger { background: transparent; color: #ff8a96; border: 1px solid #ff8a96; }
+.btn-danger:hover { background: rgba(255, 138, 150, 0.12); }
+
+.settings-status { font-size: 11px; color: var(--text-faint); min-height: 14px; }
+.settings-status.error { color: #ff8a96; }
+.settings-status.success { color: #5dd28f; }
+
+/* Scrollbar */
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* Custom right-click context menu (replaces the webkit2gtk default,
+   which exposed Inspect Element and other dev affordances we don't want
+   shipped to users). */
+.ctx-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 160px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 4px;
+  font-size: 12px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.ctx-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+.ctx-menu-item:hover:not(:disabled) { background: var(--panel-2); }
+.ctx-menu-item:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+.ctx-menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 2px;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.cursor-blink::after {
+  content: "▍";
+  margin-left: 1px;
+  animation: pulse 0.9s ease-in-out infinite;
+  color: var(--accent);
+}

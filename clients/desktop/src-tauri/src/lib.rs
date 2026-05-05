@@ -1,0 +1,2315 @@
+//! AGiXT Desktop — Tauri 2 application entry.
+//!
+//! Two windows:
+//!   * "sidebar"  — the chat panel docked to the right edge of the primary
+//!                  monitor. Borderless, transparent, always-on-top.
+//!   * "toggle"   — a tiny floating chat icon that lives over other windows
+//!                  and shows/hides the sidebar when clicked.
+//!
+//! Rust IPC commands expose: settings, agent/company list, conversation
+//! creation, prompt send (REST fallback), local automation (screenshot,
+//! click, key, type, drag), and window control.
+
+pub mod api;
+pub mod automation;
+pub mod chat_stream;
+pub mod client_tool_specs;
+pub mod client_tools_prompt;
+pub mod config;
+pub mod filesystem;
+pub mod hardware;
+pub mod local_install;
+pub mod terminal;
+
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
+use tauri::{
+    image::Image,
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewWindow,
+};
+use tokio::sync::Mutex;
+
+use config::{ConfigStore, DesktopSettings};
+
+const MAIN_LABEL: &str = "main";
+
+/// Margin (logical px) between the popover window and the tray icon /
+/// screen edge.
+const POPOVER_MARGIN: f64 = 6.0;
+/// Popover size in logical pixels.
+const PANEL_WIDTH: f64 = 400.0;
+const PANEL_HEIGHT: f64 = 800.0;
+
+pub struct AppState {
+    pub store: Arc<ConfigStore>,
+    pub settings: Mutex<DesktopSettings>,
+    pub terminals: Arc<terminal::TerminalManager>,
+    pub sudo_keepalive: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Set to `true` for ~400ms after a programmatic show to keep the
+    /// blur handler from immediately re-hiding the popover when the
+    /// triggering tray-click steals focus back to the panel area.
+    pub suppress_blur_hide: Arc<AtomicBool>,
+}
+
+/// Wrapper around the registered TrayIcon so we can park it in
+/// `app.manage` and keep it alive for the duration of the app process.
+/// Without this, the icon has been observed to disappear after the
+/// first interaction on Ubuntu's AppIndicator extension.
+#[allow(dead_code)]
+struct TrayHolder(pub std::sync::Mutex<Option<tauri::tray::TrayIcon>>);
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ToolError {
+    pub error: String,
+}
+
+impl From<anyhow::Error> for ToolError {
+    fn from(e: anyhow::Error) -> Self {
+        Self {
+            error: format!("{e:#}"),
+        }
+    }
+}
+
+type ToolResult<T> = Result<T, ToolError>;
+
+#[tauri::command]
+fn frontend_log(level: String, message: String) {
+    let text: String = message.chars().take(4_000).collect();
+    match level.to_ascii_lowercase().as_str() {
+        "error" => tracing::error!(target: "frontend", "{text}"),
+        "warn" | "warning" => tracing::warn!(target: "frontend", "{text}"),
+        "debug" => tracing::debug!(target: "frontend", "{text}"),
+        "trace" => tracing::trace!(target: "frontend", "{text}"),
+        _ => tracing::info!(target: "frontend", "{text}"),
+    }
+}
+
+// --------------------------------------------------------------------------
+// Settings IPC
+// --------------------------------------------------------------------------
+
+#[tauri::command]
+async fn get_settings(state: State<'_, AppState>) -> ToolResult<DesktopSettings> {
+    let s = state.settings.lock().await.clone();
+    tracing::info!(
+        "get_settings -> sidebar_open={}, has_jwt={}",
+        s.sidebar_open,
+        s.jwt.is_some()
+    );
+    Ok(s)
+}
+
+#[tauri::command]
+async fn save_settings(
+    state: State<'_, AppState>,
+    settings: DesktopSettings,
+) -> ToolResult<DesktopSettings> {
+    state.store.save(&settings).await.map_err(ToolError::from)?;
+    let mut current = state.settings.lock().await;
+    *current = settings.clone();
+    Ok(settings)
+}
+
+#[tauri::command]
+async fn logout(state: State<'_, AppState>) -> ToolResult<()> {
+    state.store.clear_jwt().await.map_err(ToolError::from)?;
+    let mut current = state.settings.lock().await;
+    current.jwt = None;
+    current.user_email = None;
+    current.agent_id = None;
+    current.agent_name = None;
+    current.company_id = None;
+    current.company_name = None;
+    current.conversation_id = None;
+    current.conversation_name = None;
+    state.store.save(&current).await.map_err(ToolError::from)?;
+    Ok(())
+}
+
+// --------------------------------------------------------------------------
+// Auth
+// --------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct ServiceBrand {
+    pub slug: String,
+    pub label: String,
+    pub default_url: String,
+    /// Public URL of the brand's web client — also the OAuth redirect
+    /// host. Each AGiXT brand pre-registers `{web}/user/close/{provider}`
+    /// with Microsoft, Google, etc., so we must match exactly.
+    pub default_web_url: String,
+}
+
+#[tauri::command]
+fn list_service_brands() -> Vec<ServiceBrand> {
+    config::SERVICE_BRANDS
+        .iter()
+        .map(|(slug, label, url, web)| ServiceBrand {
+            slug: (*slug).into(),
+            label: (*label).into(),
+            default_url: (*url).into(),
+            default_web_url: (*web).into(),
+        })
+        .collect()
+}
+
+#[tauri::command]
+async fn list_oauth_providers(server_url: String) -> ToolResult<Vec<api::OAuthProvider>> {
+    let providers = api::list_oauth_providers(&server_url)
+        .await
+        .map_err(ToolError::from)?;
+    // Filter to login-capable, then dedupe by authorize host. AGiXT
+    // exposes both `microsoft_sso` (dedicated SSO login) and `teams`
+    // (extension provider that's also login-capable). Both go to
+    // login.microsoftonline.com — showing both as separate buttons is
+    // confusing UX, so we keep just the canonical SSO entry per host.
+    let login_capable: Vec<_> = providers.into_iter().filter(|p| p.login_capable).collect();
+    Ok(api::dedupe_login_providers(login_capable))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LoginArgs {
+    pub server_url: String,
+    pub email: String,
+    #[serde(default)]
+    pub password: String,
+    #[serde(default)]
+    pub mfa_token: Option<String>,
+}
+
+#[tauri::command]
+async fn login_password(
+    state: State<'_, AppState>,
+    args: LoginArgs,
+) -> ToolResult<api::LoginResponse> {
+    let resp = api::login_password(
+        &args.server_url,
+        &args.email,
+        &args.password,
+        args.mfa_token.as_deref(),
+    )
+    .await
+    .map_err(ToolError::from)?;
+    if let Some(token) = &resp.token {
+        let mut s = state.settings.lock().await;
+        s.server_url = args.server_url.clone();
+        s.jwt = Some(token.clone());
+        s.user_email = Some(args.email.clone());
+        state.store.save(&s).await.map_err(ToolError::from)?;
+    }
+    Ok(resp)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MagicLinkArgs {
+    pub server_url: String,
+    pub email: String,
+}
+
+#[tauri::command]
+async fn request_magic_link(args: MagicLinkArgs) -> ToolResult<()> {
+    api::request_magic_link(&args.server_url, &args.email)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RegisterArgs {
+    pub server_url: String,
+    pub email: String,
+    pub first_name: String,
+    pub last_name: String,
+    pub password: String,
+    #[serde(default)]
+    pub invitation_id: Option<String>,
+}
+
+#[tauri::command]
+async fn register_account(
+    state: State<'_, AppState>,
+    args: RegisterArgs,
+) -> ToolResult<api::LoginResponse> {
+    let resp = api::register_user(
+        &args.server_url,
+        &args.email,
+        &args.first_name,
+        &args.last_name,
+        &args.password,
+        args.invitation_id.as_deref(),
+    )
+    .await
+    .map_err(ToolError::from)?;
+    if let Some(token) = &resp.token {
+        let mut s = state.settings.lock().await;
+        s.server_url = args.server_url.clone();
+        s.jwt = Some(token.clone());
+        s.user_email = Some(args.email.clone());
+        state.store.save(&s).await.map_err(ToolError::from)?;
+    }
+    Ok(resp)
+}
+
+/// Accept a JWT pasted from a magic-link URL or from the user's web
+/// session. Validates by hitting `/v1/user`; on success persists.
+#[tauri::command]
+async fn login_with_jwt(
+    state: State<'_, AppState>,
+    server_url: String,
+    raw: String,
+) -> ToolResult<()> {
+    let token = extract_jwt(&raw).ok_or_else(|| ToolError {
+        error: "couldn't find a JWT in that input".into(),
+    })?;
+    // Verify by calling /v1/user.
+    let client = api::build_client().map_err(ToolError::from)?;
+    let url = format!("{}/v1/user", server_url.trim_end_matches('/'));
+    let resp = client
+        .get(&url)
+        .bearer_auth(&token)
+        .send()
+        .await
+        .map_err(|e| ToolError {
+            error: format!("verify jwt: {e}"),
+        })?;
+    if !resp.status().is_success() {
+        return Err(ToolError {
+            error: format!("server rejected token: HTTP {}", resp.status()),
+        });
+    }
+    let user: serde_json::Value = resp.json().await.unwrap_or_default();
+    let email = user
+        .get("email")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let mut s = state.settings.lock().await;
+    s.server_url = server_url;
+    s.jwt = Some(token);
+    if email.is_some() {
+        s.user_email = email;
+    }
+    state.store.save(&s).await.map_err(ToolError::from)?;
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OAuthUrlArgs {
+    pub server_url: String,
+    /// Public URL of the AGiXT web client — *not* the backend. AGiXT
+    /// pre-registered `{web_url}/user/close/{provider}` with each OAuth
+    /// provider, so the redirect URI we send must match this exactly,
+    /// not the backend URL.
+    pub web_url: String,
+    pub provider: api::OAuthProvider,
+    /// Override for the default `{web_url}/user/close/{provider}`. Only
+    /// useful if an embedder wants to handle OAuth callbacks themselves.
+    #[serde(default)]
+    pub redirect_uri: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OAuthUrlResult {
+    pub url: String,
+    pub redirect_uri: String,
+    pub pkce: Option<api::PkceChallenge>,
+}
+
+#[tauri::command]
+async fn build_oauth_login_url(args: OAuthUrlArgs) -> ToolResult<OAuthUrlResult> {
+    // Default to `{web_url}/user/close/{slug}` — that's the URL the
+    // AGiXT web client uses and what each OAuth app config has
+    // pre-registered. The slug is *not* the raw provider name —
+    // `microsoft_sso` becomes `microsoft`, `_`/`.`/` ` become `-`.
+    // See `api::redirect_slug_for` for the exact rules (kept in sync
+    // with web/components/auth/OAuth.tsx).
+    //
+    // We can't put any extra query params on the redirect_uri itself
+    // (most OAuth providers reject mismatches), but the desktop-app
+    // hint is carried separately as `state` so the close page can
+    // detect it and redirect to `agixt://login?token=...` instead of
+    // landing the user in the web UI.
+    let redirect_uri = args.redirect_uri.unwrap_or_else(|| {
+        format!(
+            "{}/user/close/{}",
+            args.web_url.trim_end_matches('/'),
+            api::redirect_slug_for(&args.provider.name),
+        )
+    });
+    let pkce = if args.provider.pkce_required {
+        Some(
+            api::pkce_challenge(&args.server_url)
+                .await
+                .map_err(ToolError::from)?,
+        )
+    } else {
+        None
+    };
+    // The web close page reads `state` to decide whether to redirect
+    // to `agixt://login?token=...` (desktop) vs. landing in /chat (web).
+    // Tag every desktop-launched flow with `desktop=1`.
+    let url = api::build_oauth_url_with_state(
+        &args.provider,
+        &redirect_uri,
+        pkce.as_ref(),
+        Some("desktop=1"),
+    );
+    Ok(OAuthUrlResult {
+        url,
+        redirect_uri,
+        pkce,
+    })
+}
+
+/// Called when a `agixt://login?token=<jwt>` deep link arrives. Validates
+/// the token against the configured server's `/v1/user`, persists it to
+/// settings, and notifies the front-end that auth completed so the chat
+/// UI can swap in.
+async fn handle_deep_link_login(app: &AppHandle, token: String) {
+    tracing::info!("handle_deep_link_login: token len={}", token.len());
+    let state = match app.try_state::<AppState>() {
+        Some(s) => s,
+        None => {
+            tracing::warn!("deep link login: no AppState");
+            return;
+        }
+    };
+    let jwt = match extract_jwt(&token) {
+        Some(j) => j,
+        None => {
+            tracing::warn!("deep link login: token didn't look like a JWT");
+            return;
+        }
+    };
+    let server_url = state.settings.lock().await.server_url.clone();
+    // Verify by hitting /v1/user.
+    let client = match api::build_client() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("build_client: {e}");
+            return;
+        }
+    };
+    let url = format!("{}/v1/user", server_url.trim_end_matches('/'));
+    let resp = client.get(&url).bearer_auth(&jwt).send().await;
+    let resp = match resp {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("deep link login verify failed: {e}");
+            return;
+        }
+    };
+    if !resp.status().is_success() {
+        tracing::warn!("deep link login: server rejected token: {}", resp.status());
+        return;
+    }
+    let user: serde_json::Value = resp.json().await.unwrap_or_default();
+    let email = user
+        .get("email")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    {
+        let mut s = state.settings.lock().await;
+        s.jwt = Some(jwt);
+        if email.is_some() {
+            s.user_email = email;
+        }
+        let _ = state.store.save(&s).await;
+    }
+    let _ = app.emit("agixt-authenticated", ());
+    tracing::info!("deep link login: success");
+}
+
+/// Try to pull a JWT out of a string that might be:
+///   * the raw JWT (`eyJhbGci…`)
+///   * a magic-link URL with `?token=…` or `?jwt=…`
+///   * the URL-encoded `detail` field returned by `/v1/login`
+fn extract_jwt(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.starts_with("eyJ") && trimmed.split('.').count() == 3 {
+        return Some(trimmed.to_string());
+    }
+    // Try parse as URL with token param.
+    let candidate = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        trimmed.to_string()
+    } else if trimmed.starts_with("?") {
+        format!("http://x{trimmed}")
+    } else {
+        format!("http://x?{trimmed}")
+    };
+    if let Ok(url) = url::Url::parse(&candidate) {
+        for (k, v) in url.query_pairs() {
+            if k == "token" || k == "jwt" || k == "authorization" {
+                let v = v.to_string();
+                if v.starts_with("eyJ") {
+                    return Some(v);
+                }
+            }
+        }
+        // fragment too
+        if let Some(frag) = url.fragment() {
+            for part in frag.split('&') {
+                let mut it = part.splitn(2, '=');
+                let k = it.next().unwrap_or("");
+                let v = it.next().unwrap_or("");
+                if (k == "token" || k == "jwt") && v.starts_with("eyJ") {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+// --------------------------------------------------------------------------
+// "Local" mode: localhost:7437 probe + one-click installer
+// --------------------------------------------------------------------------
+
+/// Probe `http://localhost:7437` and report whether an AGiXT instance
+/// is already running. Used by the auth screen when the user picks the
+/// "Local" service brand: a green check + Connect button if running,
+/// otherwise the installer flow.
+#[tauri::command]
+async fn check_local_agixt() -> ToolResult<local_install::LocalAgixtStatus> {
+    Ok(local_install::check_local_agixt().await)
+}
+
+/// Probe local hardware (CPU cores, RAM, GPUs/VRAM) and return both
+/// the raw figures *and* the ezLocalai default-model recommendation.
+/// Best-effort: missing signals degrade gracefully rather than erroring.
+#[tauri::command]
+async fn detect_hardware() -> ToolResult<hardware::HardwareInfo> {
+    Ok(hardware::probe().await)
+}
+
+/// Default AGiXT install location (`$HOME/AGiXT`) so the frontend can
+/// pre-fill the "install to" field without hardcoding paths in JS.
+#[tauri::command]
+fn default_install_path() -> ToolResult<String> {
+    local_install::default_install_path()
+        .map(|p| p.display().to_string())
+        .map_err(ToolError::from)
+}
+
+/// Run the full local AGiXT install flow. Streams progress to the
+/// frontend via the `local-install-progress` event channel; the
+/// `Result` resolves only after the install finishes (success or
+/// failure). The frontend should subscribe to the event channel
+/// *before* invoking this command to avoid missing early lines.
+#[tauri::command]
+async fn install_agixt_local(
+    app: AppHandle,
+    args: local_install::InstallArgs,
+) -> ToolResult<local_install::InstallResult> {
+    local_install::run_install(app, args)
+        .await
+        .map_err(ToolError::from)
+}
+
+// --------------------------------------------------------------------------
+// AGiXT REST helpers (proxied through Rust to keep JWT off the JS console)
+// --------------------------------------------------------------------------
+
+#[tauri::command]
+async fn list_companies(state: State<'_, AppState>) -> ToolResult<Vec<api::CompanyInfo>> {
+    let s = state.settings.lock().await.clone();
+    let jwt = s.jwt.clone().ok_or_else(|| ToolError {
+        error: "not logged in".into(),
+    })?;
+    api::list_companies(&s.server_url, &jwt)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn list_agents(state: State<'_, AppState>) -> ToolResult<Vec<api::AgentInfo>> {
+    let s = state.settings.lock().await.clone();
+    let jwt = s.jwt.clone().ok_or_else(|| ToolError {
+        error: "not logged in".into(),
+    })?;
+    api::list_agents(&s.server_url, &jwt)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn list_conversations(
+    state: State<'_, AppState>,
+) -> ToolResult<Vec<api::ConversationSummary>> {
+    let s = state.settings.lock().await.clone();
+    let jwt = s.jwt.clone().ok_or_else(|| ToolError {
+        error: "not logged in".into(),
+    })?;
+    api::list_conversations(&s.server_url, &jwt)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn select_conversation(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+) -> ToolResult<()> {
+    let mut s = state.settings.lock().await;
+    s.conversation_id = Some(id);
+    s.conversation_name = Some(name);
+    state.store.save(&s).await.map_err(ToolError::from)?;
+    Ok(())
+}
+
+/// Pull the message history for a conversation. Returns a flat list of
+/// `{ id, role, message, timestamp }` records the JS chat renderer
+/// can replay through its existing `ingest()` path.
+#[tauri::command]
+async fn get_conversation_history(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    limit: Option<u32>,
+    page: Option<u32>,
+) -> ToolResult<Vec<serde_json::Value>> {
+    let s = state.settings.lock().await.clone();
+    let jwt = s.jwt.clone().ok_or_else(|| ToolError {
+        error: "not logged in".into(),
+    })?;
+    api::get_conversation_history(
+        &s.server_url,
+        &jwt,
+        &conversation_id,
+        limit.unwrap_or(200),
+        page.unwrap_or(1),
+    )
+    .await
+    .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn new_conversation(
+    state: State<'_, AppState>,
+    name: String,
+) -> ToolResult<api::NewConversationResponse> {
+    let s = state.settings.lock().await.clone();
+    let jwt = s.jwt.clone().ok_or_else(|| ToolError {
+        error: "not logged in".into(),
+    })?;
+    let agent_name = s.agent_name.clone().unwrap_or_else(|| "XT".to_string());
+    let resp = api::new_conversation(&s.server_url, &jwt, &agent_name, &name)
+        .await
+        .map_err(ToolError::from)?;
+    let mut cur = state.settings.lock().await;
+    cur.conversation_id = Some(resp.id.clone());
+    cur.conversation_name = Some(name);
+    state.store.save(&cur).await.map_err(ToolError::from)?;
+    Ok(resp)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChatStreamArgs {
+    /// Client-generated stream id. JS attaches its Tauri listener before
+    /// invoking `chat_send`, then passes the id here so early deltas cannot
+    /// race ahead of the listener.
+    #[serde(default)]
+    pub stream_id: Option<String>,
+    /// The new messages for this turn. For normal user prompts this is one
+    /// user message. For OpenAI-shaped tool continuations this is only the
+    /// new role:tool result messages.
+    pub messages: Vec<chat_stream::ChatMessage>,
+    pub conversation_name: String,
+}
+
+/// Streams a chat completion. Emits `chat-stream` Tauri events keyed by
+/// `stream_id` that the JS layer subscribes to. Returns the stream id
+/// the caller should listen on. When a client tool is requested, the JS
+/// layer executes it locally and calls this command again with matching
+/// `role: tool` results.
+#[tauri::command]
+async fn chat_send(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: ChatStreamArgs,
+) -> ToolResult<String> {
+    let s = state.settings.lock().await.clone();
+    let jwt = s.jwt.clone().ok_or_else(|| ToolError {
+        error: "not logged in".into(),
+    })?;
+    let agent_name = s.agent_name.clone().unwrap_or_else(|| "XT".to_string());
+    let server_url = s.server_url.clone();
+    let voice = s.voice_enabled;
+    let conversation_name = s
+        .conversation_id
+        .clone()
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| args.conversation_name.clone());
+    tracing::info!(
+        "chat_send: convo='{}' messages={}",
+        conversation_name,
+        args.messages.len()
+    );
+    let tools = if s.allow_client_commands {
+        client_tool_specs::all()
+    } else {
+        Vec::new()
+    };
+    tracing::info!(
+        "chat_send: agent='{}' server='{}' tools={} voice={}",
+        agent_name,
+        server_url,
+        tools.len(),
+        voice
+    );
+    let stream_id = args
+        .stream_id
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let stream_id_for_thread = stream_id.clone();
+    let app_for_thread = app.clone();
+
+    tauri::async_runtime::spawn(async move {
+        let app2 = app_for_thread.clone();
+        let sid = stream_id_for_thread.clone();
+        let result = chat_stream::stream_chat(
+            &server_url,
+            &jwt,
+            &agent_name,
+            &conversation_name,
+            &args.messages,
+            &tools,
+            voice,
+            move |ev| {
+                let _ = app2.emit(
+                    &format!("chat-stream:{}", sid),
+                    serde_json::json!({ "stream_id": sid, "event": ev }),
+                );
+            },
+        )
+        .await;
+        if let Err(e) = result {
+            tracing::warn!("chat_send stream error: {e:#}");
+            let _ = app_for_thread.emit(
+                &format!("chat-stream:{}", stream_id_for_thread),
+                serde_json::json!({
+                    "stream_id": stream_id_for_thread,
+                    "event": { "kind": "error", "data": { "message": format!("{e:#}") } }
+                }),
+            );
+        }
+    });
+
+    Ok(stream_id)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgentVisionArgs {
+    pub prompt: String,
+    #[serde(default)]
+    pub images: Vec<String>,
+    #[serde(default)]
+    pub use_smartest: bool,
+}
+
+/// Runs the configured agent's vision provider directly. This is used by
+/// the local desktop vision-control loop so screenshot interpretation stays
+/// a client-side tool concern instead of a special case in the main chat
+/// pipeline.
+#[tauri::command]
+async fn agent_vision(
+    state: State<'_, AppState>,
+    args: AgentVisionArgs,
+) -> ToolResult<api::VisionResponse> {
+    let s = state.settings.lock().await.clone();
+    let jwt = s.jwt.clone().ok_or_else(|| ToolError {
+        error: "not logged in".into(),
+    })?;
+    let agent_id = s.agent_id.clone().ok_or_else(|| ToolError {
+        error: "no agent selected".into(),
+    })?;
+    api::agent_vision(
+        &s.server_url,
+        &jwt,
+        &agent_id,
+        &args.prompt,
+        &args.images,
+        args.use_smartest,
+    )
+    .await
+    .map_err(ToolError::from)
+}
+
+#[cfg(test)]
+mod auth_tests {
+    use super::extract_jwt;
+
+    const JWT: &str = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature";
+
+    #[test]
+    fn raw_jwt_passes_through() {
+        assert_eq!(extract_jwt(JWT), Some(JWT.to_string()));
+        // Whitespace tolerated.
+        assert_eq!(extract_jwt(&format!("  {JWT}\n")), Some(JWT.to_string()));
+    }
+
+    #[test]
+    fn three_part_check_rejects_random_strings() {
+        assert!(extract_jwt("hello world").is_none());
+        assert!(
+            extract_jwt("eyJfoo").is_none(),
+            "two-part token must not match"
+        );
+    }
+
+    #[test]
+    fn extracts_from_magic_link_url() {
+        let url = format!("https://app.example.com/user/close?token={JWT}");
+        assert_eq!(extract_jwt(&url), Some(JWT.to_string()));
+    }
+
+    #[test]
+    fn extracts_from_jwt_query_param_alias() {
+        let url = format!("http://localhost:3437/?jwt={JWT}");
+        assert_eq!(extract_jwt(&url), Some(JWT.to_string()));
+    }
+
+    #[test]
+    fn extracts_from_url_fragment() {
+        let url = format!("https://example.com/x#token={JWT}&foo=bar");
+        assert_eq!(extract_jwt(&url), Some(JWT.to_string()));
+    }
+
+    #[test]
+    fn extracts_from_bare_query_string() {
+        let raw = format!("?token={JWT}");
+        assert_eq!(extract_jwt(&raw), Some(JWT.to_string()));
+        let raw = format!("token={JWT}&extra=1");
+        assert_eq!(extract_jwt(&raw), Some(JWT.to_string()));
+    }
+
+    #[test]
+    fn ignores_non_jwt_tokens() {
+        let url = "https://example.com/?token=plaintext-not-a-jwt";
+        assert!(extract_jwt(url).is_none());
+    }
+}
+
+// --------------------------------------------------------------------------
+// Local desktop automation
+// --------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, Default)]
+pub struct VisionArgs {
+    #[serde(default)]
+    pub normalized: bool,
+    #[serde(default)]
+    pub coordinate_space: Option<String>,
+    #[serde(default)]
+    pub image_coordinates: bool,
+    #[serde(default)]
+    pub target_width: Option<u32>,
+    #[serde(default)]
+    pub target_height: Option<u32>,
+    #[serde(default)]
+    pub screen_width: Option<u32>,
+    #[serde(default)]
+    pub screen_height: Option<u32>,
+    #[serde(default)]
+    pub monitor_offset_x: Option<i32>,
+    #[serde(default)]
+    pub monitor_offset_y: Option<i32>,
+}
+
+impl From<VisionArgs> for automation::VisionContext {
+    fn from(v: VisionArgs) -> Self {
+        Self {
+            normalized: v.normalized,
+            coordinate_space: v.coordinate_space,
+            image_coordinates: v.image_coordinates,
+            target_width: v.target_width,
+            target_height: v.target_height,
+            screen_width: v.screen_width,
+            screen_height: v.screen_height,
+            monitor_offset_x: v.monitor_offset_x,
+            monitor_offset_y: v.monitor_offset_y,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ClickArgs {
+    pub x: i32,
+    pub y: i32,
+    #[serde(default = "default_button")]
+    pub button: String,
+    #[serde(default = "default_click_type")]
+    pub click_type: String,
+    #[serde(default, flatten)]
+    pub vision: VisionArgs,
+}
+fn default_button() -> String {
+    "left".into()
+}
+fn default_click_type() -> String {
+    "single".into()
+}
+
+#[derive(Debug, Serialize)]
+pub struct ClickResult {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[tauri::command]
+async fn desktop_screenshot(
+    state: State<'_, AppState>,
+    monitor_index: Option<usize>,
+    target_width: Option<u32>,
+    target_height: Option<u32>,
+) -> ToolResult<automation::ScreenshotResult> {
+    require_client_commands(&state).await?;
+    tokio::task::spawn_blocking(move || {
+        automation::screenshot(monitor_index, target_width, target_height)
+    })
+    .await
+    .map_err(|e| ToolError {
+        error: format!("join: {e}"),
+    })?
+    .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn desktop_click(state: State<'_, AppState>, args: ClickArgs) -> ToolResult<ClickResult> {
+    require_client_commands(&state).await?;
+    let ClickArgs {
+        x,
+        y,
+        button,
+        click_type,
+        vision,
+    } = args;
+    let ctx = automation::VisionContext::from(vision);
+    let log_ctx = ctx.clone();
+    let log_button = button.clone();
+    let log_click_type = click_type.clone();
+    let (rx, ry) =
+        tokio::task::spawn_blocking(move || automation::click(x, y, &button, &click_type, &ctx))
+            .await
+            .map_err(|e| ToolError {
+                error: format!("join: {e}"),
+            })?
+            .map_err(ToolError::from)?;
+    tracing::info!(
+        "desktop_click: raw=({}, {}) resolved=({}, {}) button={} click_type={} vision={:?}",
+        x,
+        y,
+        rx,
+        ry,
+        log_button,
+        log_click_type,
+        log_ctx
+    );
+    Ok(ClickResult { x: rx, y: ry })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MoveArgs {
+    pub x: i32,
+    pub y: i32,
+    #[serde(default, flatten)]
+    pub vision: VisionArgs,
+}
+
+#[tauri::command]
+async fn desktop_move(state: State<'_, AppState>, args: MoveArgs) -> ToolResult<ClickResult> {
+    require_client_commands(&state).await?;
+    let ctx = automation::VisionContext::from(args.vision);
+    let (rx, ry) =
+        tokio::task::spawn_blocking(move || automation::move_mouse(args.x, args.y, &ctx))
+            .await
+            .map_err(|e| ToolError {
+                error: format!("join: {e}"),
+            })?
+            .map_err(ToolError::from)?;
+    Ok(ClickResult { x: rx, y: ry })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DragArgs {
+    pub from_x: i32,
+    pub from_y: i32,
+    pub to_x: i32,
+    pub to_y: i32,
+    #[serde(default = "default_button")]
+    pub button: String,
+    #[serde(default, flatten)]
+    pub vision: VisionArgs,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DragResult {
+    pub from_x: i32,
+    pub from_y: i32,
+    pub to_x: i32,
+    pub to_y: i32,
+}
+
+#[tauri::command]
+async fn desktop_drag(state: State<'_, AppState>, args: DragArgs) -> ToolResult<DragResult> {
+    require_client_commands(&state).await?;
+    let DragArgs {
+        from_x,
+        from_y,
+        to_x,
+        to_y,
+        button,
+        vision,
+    } = args;
+    let ctx = automation::VisionContext::from(vision);
+    let ((fx, fy), (tx, ty)) = tokio::task::spawn_blocking(move || {
+        automation::drag(from_x, from_y, to_x, to_y, &button, &ctx)
+    })
+    .await
+    .map_err(|e| ToolError {
+        error: format!("join: {e}"),
+    })?
+    .map_err(ToolError::from)?;
+    Ok(DragResult {
+        from_x: fx,
+        from_y: fy,
+        to_x: tx,
+        to_y: ty,
+    })
+}
+
+#[tauri::command]
+async fn desktop_scroll(
+    state: State<'_, AppState>,
+    amount: i32,
+    axis: Option<String>,
+) -> ToolResult<()> {
+    require_client_commands(&state).await?;
+    let ax = axis.unwrap_or_else(|| "vertical".into());
+    tokio::task::spawn_blocking(move || automation::scroll(amount, &ax))
+        .await
+        .map_err(|e| ToolError {
+            error: format!("join: {e}"),
+        })?
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn desktop_type(
+    state: State<'_, AppState>,
+    text: Option<String>,
+    keys: Option<Vec<String>>,
+) -> ToolResult<()> {
+    require_client_commands(&state).await?;
+    tokio::task::spawn_blocking(move || automation::keyboard(text, keys))
+        .await
+        .map_err(|e| ToolError {
+            error: format!("join: {e}"),
+        })?
+        .map_err(ToolError::from)
+}
+
+async fn require_client_commands(state: &State<'_, AppState>) -> ToolResult<()> {
+    let s = state.settings.lock().await;
+    if !s.allow_client_commands {
+        return Err(ToolError {
+            error: "client commands are disabled in settings".into(),
+        });
+    }
+    Ok(())
+}
+
+// --------------------------------------------------------------------------
+// Local filesystem ops on the user's machine
+// --------------------------------------------------------------------------
+
+#[tauri::command]
+async fn fs_read(state: State<'_, AppState>, path: String) -> ToolResult<filesystem::ReadResult> {
+    require_client_commands(&state).await?;
+    tokio::task::spawn_blocking(move || filesystem::read(&path))
+        .await
+        .map_err(|e| ToolError {
+            error: format!("join: {e}"),
+        })?
+        .map_err(ToolError::from)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WriteFileArgs {
+    pub path: String,
+    pub content: String,
+    #[serde(default)]
+    pub encoding: Option<String>,
+    #[serde(default)]
+    pub create_dirs: bool,
+}
+
+#[tauri::command]
+async fn fs_write(
+    state: State<'_, AppState>,
+    args: WriteFileArgs,
+) -> ToolResult<filesystem::WriteResult> {
+    require_client_commands(&state).await?;
+    tokio::task::spawn_blocking(move || {
+        filesystem::write(
+            &args.path,
+            &args.content,
+            args.encoding.as_deref(),
+            args.create_dirs,
+        )
+    })
+    .await
+    .map_err(|e| ToolError {
+        error: format!("join: {e}"),
+    })?
+    .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn fs_append(
+    state: State<'_, AppState>,
+    args: WriteFileArgs,
+) -> ToolResult<filesystem::WriteResult> {
+    require_client_commands(&state).await?;
+    tokio::task::spawn_blocking(move || {
+        filesystem::append(&args.path, &args.content, args.encoding.as_deref())
+    })
+    .await
+    .map_err(|e| ToolError {
+        error: format!("join: {e}"),
+    })?
+    .map_err(ToolError::from)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EditFileArgs {
+    pub path: String,
+    pub edits: Vec<filesystem::EditOp>,
+}
+
+#[tauri::command]
+async fn fs_edit(
+    state: State<'_, AppState>,
+    args: EditFileArgs,
+) -> ToolResult<filesystem::WriteResult> {
+    require_client_commands(&state).await?;
+    tokio::task::spawn_blocking(move || filesystem::edit(&args.path, &args.edits))
+        .await
+        .map_err(|e| ToolError {
+            error: format!("join: {e}"),
+        })?
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn fs_list(state: State<'_, AppState>, path: String) -> ToolResult<Vec<filesystem::FsEntry>> {
+    require_client_commands(&state).await?;
+    tokio::task::spawn_blocking(move || filesystem::list(&path))
+        .await
+        .map_err(|e| ToolError {
+            error: format!("join: {e}"),
+        })?
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn fs_stat(state: State<'_, AppState>, path: String) -> ToolResult<filesystem::FsStat> {
+    require_client_commands(&state).await?;
+    tokio::task::spawn_blocking(move || filesystem::stat(&path))
+        .await
+        .map_err(|e| ToolError {
+            error: format!("join: {e}"),
+        })?
+        .map_err(ToolError::from)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MkdirArgs {
+    pub path: String,
+    #[serde(default = "default_true")]
+    pub parents: bool,
+}
+fn default_true() -> bool {
+    true
+}
+
+#[tauri::command]
+async fn fs_mkdir(state: State<'_, AppState>, args: MkdirArgs) -> ToolResult<()> {
+    require_client_commands(&state).await?;
+    tokio::task::spawn_blocking(move || filesystem::mkdir(&args.path, args.parents))
+        .await
+        .map_err(|e| ToolError {
+            error: format!("join: {e}"),
+        })?
+        .map_err(ToolError::from)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteArgs {
+    pub path: String,
+    #[serde(default)]
+    pub recursive: bool,
+}
+
+#[tauri::command]
+async fn fs_delete(state: State<'_, AppState>, args: DeleteArgs) -> ToolResult<()> {
+    require_client_commands(&state).await?;
+    tokio::task::spawn_blocking(move || filesystem::delete(&args.path, args.recursive))
+        .await
+        .map_err(|e| ToolError {
+            error: format!("join: {e}"),
+        })?
+        .map_err(ToolError::from)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RenameArgs {
+    pub from: String,
+    pub to: String,
+    #[serde(default)]
+    pub overwrite: bool,
+}
+
+#[tauri::command]
+async fn fs_rename(state: State<'_, AppState>, args: RenameArgs) -> ToolResult<()> {
+    require_client_commands(&state).await?;
+    tokio::task::spawn_blocking(move || filesystem::rename(&args.from, &args.to, args.overwrite))
+        .await
+        .map_err(|e| ToolError {
+            error: format!("join: {e}"),
+        })?
+        .map_err(ToolError::from)
+}
+
+// --------------------------------------------------------------------------
+// Workspace bridge: user disk ↔ AGiXT conversation workspace
+// --------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct UploadResult {
+    pub local_path: String,
+    pub workspace_path: Option<String>,
+    pub bytes: u64,
+    pub server_response: serde_json::Value,
+}
+
+#[tauri::command]
+async fn workspace_upload_local(
+    state: State<'_, AppState>,
+    local_path: String,
+    workspace_path: Option<String>,
+) -> ToolResult<UploadResult> {
+    require_client_commands(&state).await?;
+    let s = state.settings.lock().await.clone();
+    let jwt = s.jwt.clone().ok_or_else(|| ToolError {
+        error: "not logged in".into(),
+    })?;
+    let convo = s.conversation_id.clone().ok_or_else(|| ToolError {
+        error: "no active conversation".into(),
+    })?;
+
+    let path_clone = local_path.clone();
+    let bytes = tokio::task::spawn_blocking(move || std::fs::read(&path_clone))
+        .await
+        .map_err(|e| ToolError {
+            error: format!("join: {e}"),
+        })?
+        .map_err(|e| ToolError {
+            error: format!("read {local_path}: {e}"),
+        })?;
+    let size = bytes.len() as u64;
+
+    let file_name = std::path::Path::new(&local_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "upload.bin".to_string());
+
+    let server_response = api::workspace_upload(
+        &s.server_url,
+        &jwt,
+        &convo,
+        &file_name,
+        bytes,
+        workspace_path.as_deref(),
+    )
+    .await
+    .map_err(ToolError::from)?;
+
+    Ok(UploadResult {
+        local_path,
+        workspace_path,
+        bytes: size,
+        server_response,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct DownloadResult {
+    pub workspace_path: String,
+    pub local_path: String,
+    pub bytes: u64,
+}
+
+#[tauri::command]
+async fn workspace_download_to_local(
+    state: State<'_, AppState>,
+    workspace_path: String,
+    local_path: String,
+    overwrite: Option<bool>,
+) -> ToolResult<DownloadResult> {
+    require_client_commands(&state).await?;
+    let s = state.settings.lock().await.clone();
+    let jwt = s.jwt.clone().ok_or_else(|| ToolError {
+        error: "not logged in".into(),
+    })?;
+    let convo = s.conversation_id.clone().ok_or_else(|| ToolError {
+        error: "no active conversation".into(),
+    })?;
+
+    let bytes = api::workspace_download(&s.server_url, &jwt, &convo, &workspace_path)
+        .await
+        .map_err(ToolError::from)?;
+    let len = bytes.len() as u64;
+
+    let local_p = filesystem::resolve(&local_path, None).map_err(ToolError::from)?;
+    if local_p.exists() && !overwrite.unwrap_or(false) {
+        return Err(ToolError {
+            error: format!(
+                "local path exists and overwrite=false: {}",
+                local_p.display()
+            ),
+        });
+    }
+    let local_p_str = local_p.display().to_string();
+    let bytes_clone = bytes.clone();
+    let local_clone = local_p_str.clone();
+    tokio::task::spawn_blocking(move || std::fs::write(&local_clone, &bytes_clone))
+        .await
+        .map_err(|e| ToolError {
+            error: format!("join: {e}"),
+        })?
+        .map_err(|e| ToolError {
+            error: format!("write {local_p_str}: {e}"),
+        })?;
+
+    Ok(DownloadResult {
+        workspace_path,
+        local_path: local_p.display().to_string(),
+        bytes: len,
+    })
+}
+
+#[tauri::command]
+async fn workspace_list(
+    state: State<'_, AppState>,
+    sub_path: Option<String>,
+) -> ToolResult<Vec<api::WorkspaceItem>> {
+    let s = state.settings.lock().await.clone();
+    let jwt = s.jwt.clone().ok_or_else(|| ToolError {
+        error: "not logged in".into(),
+    })?;
+    let convo = s.conversation_id.clone().ok_or_else(|| ToolError {
+        error: "no active conversation".into(),
+    })?;
+    api::workspace_list(&s.server_url, &jwt, &convo, sub_path.as_deref())
+        .await
+        .map_err(ToolError::from)
+}
+
+// --------------------------------------------------------------------------
+// Background terminal sessions (PTY-backed shells the agent can drive)
+// --------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, Default)]
+pub struct OpenTerminalArgs {
+    #[serde(default)]
+    pub shell: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub cols: Option<u16>,
+    #[serde(default)]
+    pub rows: Option<u16>,
+}
+
+#[tauri::command]
+async fn shell_run(
+    state: State<'_, AppState>,
+    command: String,
+    timeout_ms: Option<u64>,
+) -> ToolResult<terminal::ShellRunResult> {
+    require_client_commands(&state).await?;
+    terminal::shell_run(command, timeout_ms.unwrap_or(8_000))
+        .await
+        .map_err(ToolError::from)
+}
+
+#[derive(Debug, Serialize)]
+pub struct SudoStatus {
+    pub authenticated: bool,
+}
+
+fn sudo_error_from_result(result: &terminal::ShellRunResult) -> String {
+    let detail = if !result.stderr.trim().is_empty() {
+        result.stderr.trim()
+    } else if !result.stdout.trim().is_empty() {
+        result.stdout.trim()
+    } else {
+        "sudo did not return a diagnostic"
+    };
+    format!("{detail}")
+}
+
+#[tauri::command]
+async fn sudo_status(state: State<'_, AppState>) -> ToolResult<SudoStatus> {
+    require_client_commands(&state).await?;
+    let result = terminal::sudo_refresh().await.map_err(ToolError::from)?;
+    Ok(SudoStatus {
+        authenticated: result.exit_code == 0,
+    })
+}
+
+#[tauri::command]
+async fn sudo_auth(state: State<'_, AppState>, password: String) -> ToolResult<SudoStatus> {
+    require_client_commands(&state).await?;
+    if password.is_empty() {
+        return Err(ToolError {
+            error: "sudo password is required".into(),
+        });
+    }
+
+    let result = terminal::sudo_validate(password)
+        .await
+        .map_err(ToolError::from)?;
+    if result.exit_code != 0 {
+        return Err(ToolError {
+            error: format!(
+                "sudo authentication failed: {}",
+                sudo_error_from_result(&result)
+            ),
+        });
+    }
+
+    let mut keepalive = state.sudo_keepalive.lock().await;
+    if let Some(handle) = keepalive.take() {
+        handle.abort();
+    }
+    *keepalive = Some(tokio::spawn(async {
+        loop {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            match terminal::sudo_refresh().await {
+                Ok(result) if result.exit_code == 0 => {}
+                Ok(result) => {
+                    tracing::warn!(
+                        "sudo keepalive failed with exit_code={}: {}",
+                        result.exit_code,
+                        sudo_error_from_result(&result)
+                    );
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!("sudo keepalive failed: {e:#}");
+                    break;
+                }
+            }
+        }
+    }));
+
+    Ok(SudoStatus {
+        authenticated: true,
+    })
+}
+
+#[tauri::command]
+async fn sudo_clear(state: State<'_, AppState>) -> ToolResult<SudoStatus> {
+    require_client_commands(&state).await?;
+    let mut keepalive = state.sudo_keepalive.lock().await;
+    if let Some(handle) = keepalive.take() {
+        handle.abort();
+    }
+    drop(keepalive);
+    terminal::sudo_clear().await.map_err(ToolError::from)?;
+    Ok(SudoStatus {
+        authenticated: false,
+    })
+}
+
+#[tauri::command]
+async fn sudo_run(
+    state: State<'_, AppState>,
+    command: String,
+    timeout_ms: Option<u64>,
+) -> ToolResult<terminal::ShellRunResult> {
+    require_client_commands(&state).await?;
+    let result = terminal::sudo_run(command, timeout_ms.unwrap_or(600_000))
+        .await
+        .map_err(ToolError::from)?;
+    if terminal::sudo_auth_required(&result) {
+        return Err(ToolError {
+            error: "SUDO_AUTH_REQUIRED: Open AGiXT Desktop settings, authenticate the Privileged Commands sudo session once, then retry the sudo_run tool."
+                .into(),
+        });
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+async fn terminal_open(
+    state: State<'_, AppState>,
+    args: Option<OpenTerminalArgs>,
+) -> ToolResult<terminal::SessionInfo> {
+    require_client_commands(&state).await?;
+    let mgr = state.terminals.clone();
+    let a = args.unwrap_or_default();
+    tokio::task::spawn_blocking(move || mgr.open(a.shell, a.cwd, a.cols, a.rows))
+        .await
+        .map_err(|e| ToolError {
+            error: format!("join: {e}"),
+        })?
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn terminal_list(state: State<'_, AppState>) -> ToolResult<Vec<terminal::SessionInfo>> {
+    Ok(state.terminals.list())
+}
+
+#[tauri::command]
+async fn terminal_close(state: State<'_, AppState>, session_id: String) -> ToolResult<()> {
+    state.terminals.close(&session_id).map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn terminal_exec(
+    state: State<'_, AppState>,
+    session_id: String,
+    command: String,
+    idle_ms: Option<u64>,
+    timeout_ms: Option<u64>,
+) -> ToolResult<terminal::ExecResult> {
+    require_client_commands(&state).await?;
+    let mgr = state.terminals.clone();
+    let idle = idle_ms.unwrap_or(250);
+    let timeout = timeout_ms.unwrap_or(15_000);
+    tokio::task::spawn_blocking(move || mgr.exec(&session_id, &command, idle, timeout))
+        .await
+        .map_err(|e| ToolError {
+            error: format!("join: {e}"),
+        })?
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn terminal_send_input(
+    state: State<'_, AppState>,
+    session_id: String,
+    data: String,
+) -> ToolResult<()> {
+    require_client_commands(&state).await?;
+    state
+        .terminals
+        .write(&session_id, data.as_bytes())
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn terminal_read(
+    state: State<'_, AppState>,
+    session_id: String,
+    offset: Option<u64>,
+) -> ToolResult<terminal::ReadResult> {
+    state
+        .terminals
+        .read(&session_id, offset.unwrap_or(0))
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn terminal_resize(
+    state: State<'_, AppState>,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+) -> ToolResult<()> {
+    state
+        .terminals
+        .resize(&session_id, cols, rows)
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn terminal_signal(
+    state: State<'_, AppState>,
+    session_id: String,
+    signal: String,
+) -> ToolResult<()> {
+    require_client_commands(&state).await?;
+    state
+        .terminals
+        .signal(&session_id, &signal)
+        .map_err(ToolError::from)
+}
+
+// --------------------------------------------------------------------------
+// Window management — sidebar dock + floating toggle
+// --------------------------------------------------------------------------
+
+/// On Linux/X11 with mutter (GNOME), normal `_NET_WM_WINDOW_TYPE_NORMAL`
+/// windows still participate in tile-snap and edge-tiling. We need to
+/// promote our popover to a non-tilable window type. `Utility` is the
+/// closest match — Slack and Discord use the same hint for their popups.
+#[cfg(target_os = "linux")]
+fn promote_to_utility(win: &WebviewWindow) {
+    use gdk::WindowTypeHint;
+    use gtk::prelude::*;
+    if let Ok(gw) = win.gtk_window() {
+        gw.set_type_hint(WindowTypeHint::Utility);
+        gw.set_skip_taskbar_hint(true);
+        gw.set_skip_pager_hint(true);
+        gw.set_keep_above(true);
+        gw.set_decorated(false);
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn promote_to_utility(_: &WebviewWindow) {}
+
+/// Linux-specific hide via gtk_widget_hide on the underlying GtkWindow.
+/// Tauri 2's `WebviewWindow::hide` and `minimize` have both proven
+/// unreliable on this Ubuntu+mutter+AppIndicator stack — the former no-ops
+/// re-show on UTILITY windows, the latter doesn't actually unmap. Going
+/// straight to GTK gives us the canonical path that always works.
+#[cfg(target_os = "linux")]
+fn linux_hide(win: &WebviewWindow) -> bool {
+    use gtk::prelude::*;
+    match win.gtk_window() {
+        Ok(gw) => {
+            gw.hide();
+            true
+        }
+        Err(e) => {
+            tracing::warn!("linux_hide gtk_window err: {e}");
+            false
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_show(win: &WebviewWindow) -> bool {
+    use gtk::prelude::*;
+    match win.gtk_window() {
+        Ok(gw) => {
+            gw.show_all();
+            gw.present();
+            true
+        }
+        Err(e) => {
+            tracing::warn!("linux_show gtk_window err: {e}");
+            false
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn linux_hide(_: &WebviewWindow) -> bool {
+    false
+}
+#[cfg(not(target_os = "linux"))]
+fn linux_show(_: &WebviewWindow) -> bool {
+    false
+}
+
+/// `WebviewWindow::is_visible` reports the *requested* state, which
+/// disagrees with reality after our gtk-direct hide on Linux. Check the
+/// gtk visibility AND the X11 mapping state instead.
+#[cfg(target_os = "linux")]
+fn is_actually_visible(win: &WebviewWindow) -> bool {
+    use gtk::prelude::*;
+    let tauri_says = win.is_visible().unwrap_or(false);
+    let gtk_says = win
+        .gtk_window()
+        .ok()
+        .map(|gw| gw.is_visible())
+        .unwrap_or(false);
+    let mapped = win
+        .gtk_window()
+        .ok()
+        .and_then(|gw| gw.window())
+        .map(|w| w.is_visible())
+        .unwrap_or(false);
+    tracing::info!(
+        "is_actually_visible: tauri={tauri_says} gtk_widget={gtk_says} gdk_mapped={mapped}"
+    );
+    // Trust the GDK window mapping state — that's the X11 reality.
+    mapped
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_actually_visible(win: &WebviewWindow) -> bool {
+    win.is_visible().unwrap_or(false)
+}
+
+/// Position the popover window so it sits next to the tray icon, like
+/// Discord / Slack / most tray-driven chat apps.
+///
+/// `tray_rect` is the physical-pixel rectangle of the tray icon, supplied
+/// by `TrayIconEvent::Click`. We pick the screen edge nearest the tray,
+/// then offset the panel by `POPOVER_MARGIN` so it doesn't overlap the
+/// icon itself. If the tray rect is unavailable (some Linux DEs don't
+/// report it) we fall back to the right edge of the primary monitor —
+/// the same place a top-right tray would put us.
+fn position_popover(
+    app: &AppHandle,
+    win: &WebviewWindow,
+    tray_rect: Option<(i32, i32, i32, i32)>,
+) -> ToolResult<()> {
+    let monitor = win
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten())
+        .ok_or_else(|| ToolError {
+            error: "no monitor".into(),
+        })?;
+
+    let scale = monitor.scale_factor();
+    let mon_pos = monitor.position();
+    let mon_size = monitor.size();
+    let mon_right = mon_pos.x + mon_size.width as i32;
+    let mon_bottom = mon_pos.y + mon_size.height as i32;
+
+    // Honor whatever size the user has dragged the window to, capped
+    // to sensible min/max. We only set the size when it's outside the
+    // bounds. set_resizable(true) is left on so the user can keep
+    // resizing freely once the window is shown.
+    let _ = win.set_resizable(true);
+    let min_w = 320.0_f64;
+    let min_h = 420.0_f64;
+    let _ = win.set_min_size(Some(LogicalSize::new(min_w, min_h)));
+    let _ = win.set_max_size::<LogicalSize<f64>>(None);
+    let current = win
+        .inner_size()
+        .ok()
+        .map(|sz| (sz.width as f64 / scale, sz.height as f64 / scale));
+    let (logical_w, logical_h) = match current {
+        Some((w, h)) if w >= min_w && h >= min_h => (w, h),
+        _ => (PANEL_WIDTH, PANEL_HEIGHT),
+    };
+    if current.is_none()
+        || current
+            .map(|(w, h)| (w - logical_w).abs() > 0.5 || (h - logical_h).abs() > 0.5)
+            .unwrap_or(true)
+    {
+        let _ = win.set_size(LogicalSize::new(logical_w, logical_h));
+    }
+
+    let phys_w = (logical_w * scale).round() as i32;
+    let phys_h = (logical_h * scale).round() as i32;
+    let margin = (POPOVER_MARGIN * scale).round() as i32;
+
+    let (phys_x, phys_y) = match tray_rect {
+        Some((tx, ty, tw, th)) => {
+            // Heuristic: stand the panel on whichever edge of the tray is
+            // closer to the inside of the monitor. Tray on top → panel
+            // drops down; tray on bottom → panel rises up; tray on right →
+            // panel slides left; tray on left → panel slides right.
+            let tray_cx = tx + tw / 2;
+            let tray_cy = ty + th / 2;
+            let mon_cx = mon_pos.x + mon_size.width as i32 / 2;
+            let mon_cy = mon_pos.y + mon_size.height as i32 / 2;
+
+            let dist_top = (ty - mon_pos.y).abs();
+            let dist_bottom = (mon_bottom - (ty + th)).abs();
+            let dist_left = (tx - mon_pos.x).abs();
+            let dist_right = (mon_right - (tx + tw)).abs();
+
+            // Edge with the smallest distance is the one the tray hugs.
+            let nearest = [
+                ("top", dist_top),
+                ("bottom", dist_bottom),
+                ("left", dist_left),
+                ("right", dist_right),
+            ]
+            .into_iter()
+            .min_by_key(|&(_, d)| d)
+            .map(|(name, _)| name)
+            .unwrap_or("top");
+
+            let (mut x, mut y) = match nearest {
+                "top" => (tray_cx - phys_w / 2, ty + th + margin),
+                "bottom" => (tray_cx - phys_w / 2, ty - phys_h - margin),
+                "left" => (tx + tw + margin, tray_cy - phys_h / 2),
+                "right" => (tx - phys_w - margin, tray_cy - phys_h / 2),
+                _ => (mon_cx - phys_w / 2, mon_cy - phys_h / 2),
+            };
+            // Clamp to the monitor so a partial tray rect (or weird DE
+            // panel layout) doesn't shove the window off-screen.
+            x = x.clamp(mon_pos.x + margin, mon_right - phys_w - margin);
+            y = y.clamp(mon_pos.y + margin, mon_bottom - phys_h - margin);
+            (x, y)
+        }
+        None => {
+            // No tray rect → assume top-right tray (Windows/GNOME default)
+            // and pin the panel to the top-right corner of the monitor.
+            let x = mon_right - phys_w - margin;
+            let y = mon_pos.y + margin + (28.0 * scale).round() as i32; // leave room for a typical top panel
+            (x, y)
+        }
+    };
+
+    let _ = win.set_position(PhysicalPosition::new(phys_x, phys_y));
+    let _ = win.set_always_on_top(true);
+    let _ = win.set_skip_taskbar(true);
+    // Leave `resizable(true)` set so the user can drag corners.
+    tracing::info!(
+        "position_popover tray={:?} -> pos=({}, {}) size=({}, {}) scale={}",
+        tray_rect,
+        phys_x,
+        phys_y,
+        phys_w,
+        phys_h,
+        scale
+    );
+    Ok(())
+}
+
+/// Show the popover window anchored to a tray-icon rectangle (or the
+/// monitor corner if `tray_rect` is None).
+///
+/// On Linux/X11 with mutter we fight a known issue: position requests on
+/// already-mapped windows are coalesced with the WM's auto-placement.
+/// Mitigation: hide the window first (if it's visible), set position, then
+/// show — unmapped windows accept geometry hints reliably.
+fn show_popover(
+    app: &AppHandle,
+    win: &WebviewWindow,
+    tray_rect: Option<(i32, i32, i32, i32)>,
+) -> ToolResult<()> {
+    tracing::info!("show_popover ENTER tray_rect={:?}", tray_rect);
+    // Show via gtk directly on Linux. We also call Tauri's `show` so
+    // its internal "is_visible" tracking gets updated.
+    #[cfg(target_os = "linux")]
+    {
+        let _ = win.show();
+        if !linux_show(win) {
+            let _ = win.unminimize();
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = win.show();
+        let _ = win.unminimize();
+    }
+    promote_to_utility(win);
+    if let Err(e) = position_popover(app, win, tray_rect) {
+        tracing::warn!("show_popover: position_popover err: {:?}", e);
+    }
+    let _ = win.set_focus();
+    let _ = win.set_always_on_top(true);
+    tracing::info!("show_popover EXIT");
+    // Re-apply position once on a small delay in case mutter coalesced
+    // the configure-request through the show transition. Use Tauri's
+    // async runtime so this works whether we were called from the
+    // tokio-bound IPC thread or from the GTK main thread (tray menu /
+    // global shortcut handlers).
+    let app_clone = app.clone();
+    let win_clone = win.clone();
+    let tray_clone = tray_rect;
+    tauri::async_runtime::spawn(async move {
+        for delay_ms in [60u64, 200, 500] {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            let _ = position_popover(&app_clone, &win_clone, tray_clone);
+        }
+    });
+    let _ = app.emit("popover-visible", true);
+    Ok(())
+}
+
+fn hide_popover(app: &AppHandle, win: &WebviewWindow) {
+    tracing::info!("hide_popover called");
+    // Hide via gtk directly on Linux — Tauri's wrapper has proven
+    // unreliable here. Cross-platform fallback uses Tauri's hide.
+    #[cfg(target_os = "linux")]
+    {
+        if !linux_hide(win) {
+            let _ = win.hide();
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = win.hide();
+    }
+    let _ = app.emit("popover-visible", false);
+}
+
+/// IPC: imperative show. Front-end calls this after a global-shortcut hit
+/// or a settings/menu action. Tray clicks bypass IPC and call
+/// `show_popover` directly so they can pass the tray rect through.
+#[tauri::command]
+async fn show_chat(app: AppHandle, state: State<'_, AppState>) -> ToolResult<()> {
+    let win = app
+        .get_webview_window(MAIN_LABEL)
+        .ok_or_else(|| ToolError {
+            error: "main window missing".into(),
+        })?;
+    show_popover(&app, &win, None)?;
+    let mut s = state.settings.lock().await;
+    s.sidebar_open = true;
+    state.store.save(&s).await.map_err(ToolError::from)?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn hide_chat(app: AppHandle, state: State<'_, AppState>) -> ToolResult<()> {
+    if let Some(win) = app.get_webview_window(MAIN_LABEL) {
+        hide_popover(&app, &win);
+    }
+    let mut s = state.settings.lock().await;
+    s.sidebar_open = false;
+    state.store.save(&s).await.map_err(ToolError::from)?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn toggle_chat(app: AppHandle, state: State<'_, AppState>) -> ToolResult<bool> {
+    let win = app
+        .get_webview_window(MAIN_LABEL)
+        .ok_or_else(|| ToolError {
+            error: "main window missing".into(),
+        })?;
+    let visible = win.is_visible().unwrap_or(false);
+    if visible {
+        hide_chat(app, state).await?;
+        Ok(false)
+    } else {
+        show_chat(app, state).await?;
+        Ok(true)
+    }
+}
+
+// Legacy aliases — older IPC callers still reference these names.
+#[tauri::command]
+async fn toggle_sidebar(app: AppHandle, state: State<'_, AppState>) -> ToolResult<bool> {
+    toggle_chat(app, state).await
+}
+
+#[tauri::command]
+async fn set_sidebar_visible(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    visible: bool,
+) -> ToolResult<()> {
+    if visible {
+        show_chat(app, state).await
+    } else {
+        hide_chat(app, state).await
+    }
+}
+
+#[tauri::command]
+async fn set_dock_mode(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    mode: String,
+) -> ToolResult<String> {
+    match mode.as_str() {
+        "panel" | "expanded" | "open" => {
+            show_chat(app, state).await?;
+            Ok("panel".into())
+        }
+        "bubble" | "collapsed" | "closed" => {
+            hide_chat(app, state).await?;
+            Ok("bubble".into())
+        }
+        other => Err(ToolError {
+            error: format!("unknown dock mode: {other}"),
+        }),
+    }
+}
+
+#[tauri::command]
+async fn toggle_dock_mode(app: AppHandle, state: State<'_, AppState>) -> ToolResult<String> {
+    let opened = toggle_chat(app, state).await?;
+    Ok(if opened {
+        "panel".into()
+    } else {
+        "bubble".into()
+    })
+}
+
+#[tauri::command]
+async fn save_dock_position(app: AppHandle, state: State<'_, AppState>) -> ToolResult<()> {
+    // Kept for back-compat with the older drag-the-bubble flow; the
+    // tray-anchored popover doesn't need to remember position.
+    let _ = (app, state);
+    Ok(())
+}
+
+// --------------------------------------------------------------------------
+// Tauri setup
+// --------------------------------------------------------------------------
+
+pub fn run() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,agixt_desktop_lib=debug".into()),
+        )
+        .init();
+
+    tauri::Builder::default()
+        // single-instance must run before any other plugin so that a
+        // second `agixt-desktop` invocation (e.g. from a deep-link
+        // dispatcher) is forwarded to the first instance instead of
+        // booting a parallel app.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // When a deep-link comes in while we're already running,
+            // single-instance hands us the args. We don't need to do
+            // anything with `argv` directly — `deep-link`'s `on_open_url`
+            // listener (registered in setup) handles the URL.
+            tracing::info!("single_instance: another invocation received, raising");
+            if let Some(w) = app.get_webview_window(MAIN_LABEL) {
+                let _ = show_popover(app, &w, None);
+            }
+        }))
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    use tauri_plugin_global_shortcut::ShortcutState;
+                    tracing::info!("global shortcut fired, state={:?}", event.state());
+                    if event.state() != ShortcutState::Pressed {
+                        return;
+                    }
+                    if let Some(w) = app.get_webview_window(MAIN_LABEL) {
+                        let shown = is_actually_visible(&w);
+                        tracing::info!("global shortcut: shown={shown}");
+                        if shown {
+                            hide_popover(app, &w);
+                        } else {
+                            let _ = show_popover(app, &w, None);
+                        }
+                    } else {
+                        tracing::warn!("global shortcut: no main window");
+                    }
+                })
+                .build(),
+        )
+        .setup(|app| {
+            // Load settings synchronously up-front so the front-end can render
+            // immediately with the cached state.
+            let store = tauri::async_runtime::block_on(async {
+                ConfigStore::open().await.expect("open settings db")
+            });
+            let settings =
+                tauri::async_runtime::block_on(async { store.load().await.unwrap_or_default() });
+
+            let initial_visible = settings.sidebar_open;
+            app.manage(AppState {
+                store: Arc::new(store),
+                settings: Mutex::new(settings),
+                terminals: Arc::new(terminal::TerminalManager::new()),
+                sudo_keepalive: Mutex::new(None),
+                suppress_blur_hide: Arc::new(AtomicBool::new(false)),
+            });
+
+            // Show the popover on launch — Linux AppIndicator has been
+            // unreliable enough on this dev box (icon disappears mid-
+            // interaction) that we can't depend on the tray as the
+            // *only* path to the window. Visible-by-default fixes the
+            // "I clicked something and nothing happened" problem.
+            //
+            // We deliberately skip `hide-on-blur`: it races every other
+            // focus event on GTK and is the source of the
+            // "click-tray-it-doesn't-come-back" reports. Users dismiss
+            // explicitly via the X button, Esc, the tray menu, or
+            // Ctrl+Shift+Space.
+            let _ = initial_visible;
+            let handle = app.handle().clone();
+            if let Some(win) = app.get_webview_window(MAIN_LABEL) {
+                promote_to_utility(&win);
+                let _ = position_popover(&handle, &win, None);
+                let _ = win.show();
+                let _ = win.set_focus();
+                // Re-apply position once after the WM has placed it —
+                // mutter sometimes coalesces the first set_position
+                // through the show transition.
+                let win_clone = win.clone();
+                let handle_clone = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    for delay_ms in [80u64, 250, 600] {
+                        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                        let _ = position_popover(&handle_clone, &win_clone, None);
+                    }
+                });
+            }
+
+            // Listen for `agixt://` deep links. These come in two flavors:
+            //
+            //   agixt://login?token=<JWT>      — auto-sign-in after OAuth
+            //   agixt://open                    — just raise the popover
+            //
+            // The web client's `/user/close/{provider}` page redirects to
+            // `agixt://login?token=...` once it has exchanged the OAuth
+            // code for a JWT, so the user never has to copy-paste.
+            use tauri_plugin_deep_link::DeepLinkExt;
+            let dl_handle = handle.clone();
+            handle.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    tracing::info!("deep link received: {}", url);
+                    let scheme = url.scheme();
+                    if scheme != "agixt" {
+                        continue;
+                    }
+                    // url::Url treats `agixt://login?token=X` so that
+                    // `host_str()` is "login" and the token is in
+                    // query_pairs().
+                    let action = url.host_str().unwrap_or(url.path()).to_string();
+                    let token = url.query_pairs().find_map(|(k, v)| {
+                        if k == "token" || k == "jwt" {
+                            Some(v.into_owned())
+                        } else {
+                            None
+                        }
+                    });
+                    let app = dl_handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Some(w) = app.get_webview_window(MAIN_LABEL) {
+                            let _ = show_popover(&app, &w, None);
+                        }
+                        if action == "login" {
+                            if let Some(tok) = token {
+                                handle_deep_link_login(&app, tok).await;
+                            } else {
+                                tracing::warn!("agixt://login received with no token");
+                            }
+                        }
+                    });
+                }
+            });
+            // On Linux we may be invoked via xdg-open before the runtime
+            // is ready; the plugin queues those URLs and replays them
+            // once we've subscribed.
+            if let Err(e) = handle.deep_link().register("agixt") {
+                tracing::warn!("could not register agixt:// scheme: {e}");
+            }
+
+            // Register Ctrl+Shift+Space as a global "open AGiXT" shortcut
+            // so the user always has a way in even if their DE hides the
+            // tray (e.g. stock GNOME without an extension).
+            use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+            let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::Space);
+            if let Err(e) = handle.global_shortcut().register(shortcut) {
+                tracing::warn!("global shortcut unavailable: {e}");
+            }
+
+            // System tray menu — on Linux AppIndicator (GNOME), the
+            // canonical interaction is to open a menu when the icon is
+            // clicked. Bare "click without menu" events are unreliable
+            // there, so we use the menu as the primary entry point —
+            // exactly like Slack and Discord.
+            //
+            // We also still listen to `on_tray_icon_event` so that on
+            // platforms that DO give us bare click events (Windows,
+            // macOS) we get the snappier toggle behavior.
+            let tray_handle = handle.clone();
+            let menu = Menu::with_items(
+                &handle,
+                &[
+                    &MenuItem::with_id(&handle, "open", "Open AGiXT", true, None::<&str>)
+                        .map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?,
+                    &MenuItem::with_id(&handle, "hide", "Hide AGiXT", true, None::<&str>)
+                        .map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?,
+                    &MenuItem::with_id(&handle, "quit", "Quit AGiXT", true, None::<&str>)
+                        .map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?,
+                ],
+            )
+            .map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
+
+            let icon_bytes = include_bytes!("../icons/32x32.png");
+            let tray_icon = Image::from_bytes(icon_bytes).ok();
+            let mut builder = TrayIconBuilder::with_id("agixt-desktop")
+                .tooltip("AGiXT")
+                .menu(&menu)
+                .on_menu_event(move |app, event| {
+                    let id = event.id().as_ref().to_string();
+                    tracing::info!("tray menu event: id={id}");
+                    match id.as_str() {
+                        "open" => {
+                            if let Some(w) = app.get_webview_window(MAIN_LABEL) {
+                                tracing::info!("menu open -> show_popover");
+                                let _ = show_popover(app, &w, None);
+                            } else {
+                                tracing::warn!("menu open: no main window");
+                            }
+                        }
+                        "hide" => {
+                            if let Some(w) = app.get_webview_window(MAIN_LABEL) {
+                                tracing::info!("menu hide -> hide_popover");
+                                hide_popover(app, &w);
+                            }
+                        }
+                        "quit" => {
+                            tracing::info!("menu quit");
+                            app.exit(0);
+                        }
+                        other => tracing::warn!("unknown menu id: {other}"),
+                    }
+                })
+                .on_tray_icon_event(move |tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        rect,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(w) = app.get_webview_window(MAIN_LABEL) {
+                            let shown = is_actually_visible(&w);
+                            tracing::info!("tray click: shown={shown}");
+                            if shown {
+                                hide_popover(&app, &w);
+                            } else {
+                                let scale = w.scale_factor().unwrap_or(1.0);
+                                let pos = rect.position.to_physical::<i32>(scale);
+                                let size = rect.size.to_physical::<u32>(scale);
+                                let tray_rect =
+                                    Some((pos.x, pos.y, size.width as i32, size.height as i32));
+                                let _ = show_popover(&app, &w, tray_rect);
+                            }
+                        } else {
+                            tracing::warn!("tray click but no main window");
+                        }
+                    }
+                });
+            if let Some(img) = tray_icon {
+                builder = builder.icon(img);
+            }
+            // IMPORTANT: hold on to the TrayIcon handle. Even though
+            // Tauri's app manager keeps a reference internally, dropping
+            // the local binding has been observed to free GTK
+            // AppIndicator handles on some Ubuntu setups, which is what
+            // makes the icon vanish after the first menu interaction.
+            // We stash it in `app.manage` so it lives for the app's
+            // entire lifetime.
+            match builder.build(&tray_handle) {
+                Ok(tray) => {
+                    app.manage(TrayHolder(std::sync::Mutex::new(Some(tray))));
+                }
+                Err(e) => tracing::warn!("system tray unavailable: {e}"),
+            }
+
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            frontend_log,
+            get_settings,
+            save_settings,
+            logout,
+            list_service_brands,
+            check_local_agixt,
+            detect_hardware,
+            default_install_path,
+            install_agixt_local,
+            list_oauth_providers,
+            login_password,
+            request_magic_link,
+            register_account,
+            login_with_jwt,
+            build_oauth_login_url,
+            list_companies,
+            list_agents,
+            list_conversations,
+            select_conversation,
+            get_conversation_history,
+            new_conversation,
+            chat_send,
+            agent_vision,
+            desktop_screenshot,
+            desktop_click,
+            desktop_move,
+            desktop_drag,
+            desktop_scroll,
+            desktop_type,
+            shell_run,
+            sudo_status,
+            sudo_auth,
+            sudo_clear,
+            sudo_run,
+            terminal_open,
+            terminal_list,
+            terminal_close,
+            terminal_exec,
+            terminal_send_input,
+            terminal_read,
+            terminal_resize,
+            terminal_signal,
+            fs_read,
+            fs_write,
+            fs_append,
+            fs_edit,
+            fs_list,
+            fs_stat,
+            fs_mkdir,
+            fs_delete,
+            fs_rename,
+            workspace_upload_local,
+            workspace_download_to_local,
+            workspace_list,
+            show_chat,
+            hide_chat,
+            toggle_chat,
+            set_dock_mode,
+            toggle_dock_mode,
+            save_dock_position,
+            toggle_sidebar,
+            set_sidebar_visible,
+        ])
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { code, api, .. } => {
+                tracing::warn!("run event: exit requested code={code:?}");
+                if code.is_none() {
+                    if let Some(win) = app.get_webview_window(MAIN_LABEL) {
+                        tracing::warn!(
+                            "run event: preventing user/window requested exit; hiding popover"
+                        );
+                        hide_popover(app, &win);
+                    }
+                    api.prevent_exit();
+                }
+            }
+            tauri::RunEvent::Exit => {
+                tracing::warn!("run event: exit");
+            }
+            tauri::RunEvent::WindowEvent { label, event, .. } => match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    tracing::warn!("window event: close requested label={label}");
+                    api.prevent_close();
+                    if let Some(win) = app.get_webview_window(&label) {
+                        hide_popover(app, &win);
+                    }
+                }
+                tauri::WindowEvent::Destroyed => {
+                    tracing::warn!("window event: destroyed label={label}");
+                }
+                tauri::WindowEvent::Focused(focused) => {
+                    tracing::debug!("window event: focused label={label} focused={focused}");
+                }
+                _ => {}
+            },
+            _ => {}
+        });
+}

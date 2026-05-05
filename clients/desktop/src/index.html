@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; img-src 'self' data: blob: https: http:; media-src 'self' data: blob: https: http:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http: https: ws: wss:; font-src 'self' data:;" />
+    <title>AGiXT</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="dock dock-popover">
+    <!-- The window is hidden by default and only shown when the user
+         clicks the tray icon or hits the global shortcut. The body is
+         the entire popover. -->
+    <section class="dock-panel" id="dock-panel" aria-hidden="false">
+      <header class="topbar" data-tauri-drag-region>
+        <div class="brand">
+          <div class="brand-mark" id="brand-mark" title="">
+            <img src="assets/brands/agixt.svg" alt="" id="brand-mark-img" />
+            <span class="brand-conn" id="connection-state" aria-hidden="true"></span>
+          </div>
+        </div>
+        <!-- Two stacked rows on the right side of the topbar.
+             Row 1: agent switcher + settings + close.
+             Row 2: conversation switcher + new-conversation. -->
+        <div class="topbar-stack">
+          <div class="topbar-row">
+            <button class="chip-btn" id="agent-switcher-btn" type="button" aria-haspopup="menu" aria-expanded="false">
+              <svg class="chip-btn-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                      d="M12 3v3M7 9h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2zM9 13h.01M15 13h.01M9 17h6"/>
+              </svg>
+              <span class="chip-btn-label" id="agent-switcher-label">XT @ Home</span>
+            </button>
+            <button class="icon-btn" id="btn-settings" title="Settings" aria-label="Settings">⚙</button>
+            <button class="icon-btn" id="btn-collapse" title="Hide (Ctrl+Shift+Space)" aria-label="Hide">×</button>
+          </div>
+          <div class="topbar-row">
+            <button class="chip-btn" id="convo-switcher-btn" type="button" aria-haspopup="menu" aria-expanded="false">
+              <svg class="chip-btn-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"
+                      d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>
+              </svg>
+              <span class="chip-btn-label" id="convo-switcher-label">New conversation</span>
+            </button>
+            <button class="icon-btn" id="btn-new-conversation" title="New conversation" aria-label="New conversation">+</button>
+          </div>
+
+          <!-- Popovers anchor to .topbar (position: relative) so their
+               `top: 100%` lands at the topbar's bottom edge. -->
+          <div class="popover-menu" id="agent-menu" role="menu" hidden>
+            <div class="popover-menu-label">Agents</div>
+            <div class="popover-menu-list" id="agent-menu-list"></div>
+          </div>
+          <div class="popover-menu" id="convo-menu" role="menu" hidden>
+            <div class="popover-menu-search">
+              <input type="search" id="convo-search" placeholder="Search conversations…" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="popover-menu-list" id="convo-menu-list"></div>
+            <div class="popover-menu-footer">
+              <button class="popover-menu-action" id="convo-new-btn">+ New conversation</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- AUTH SCREEN — shown when no JWT -->
+      <section class="auth-screen" id="auth-screen" hidden>
+        <div class="auth-card">
+          <div class="auth-tabs" role="tablist">
+            <button class="auth-tab" id="tab-login" role="tab" aria-selected="true">Sign in</button>
+            <button class="auth-tab" id="tab-register" role="tab" aria-selected="false">Create account</button>
+          </div>
+
+          <label class="field">
+            <span class="field-label">Service</span>
+            <select id="service-brand"></select>
+          </label>
+          <label class="field" id="custom-server-field">
+            <span class="field-label">Server URL <span class="field-meta">(API)</span></span>
+            <input id="server-url" type="url" placeholder="http://localhost:7437" autocomplete="url" />
+          </label>
+          <label class="field" id="custom-web-field">
+            <span class="field-label">Web URL <span class="field-meta">(OAuth callback host)</span></span>
+            <input id="web-url" type="url" placeholder="http://localhost:3437" autocomplete="url" />
+          </label>
+
+          <!-- LOCAL MODE PANE — shown only when brand === 'local'.
+               Probes localhost:7437; if running, the user proceeds via
+               the regular login pane below. If not running, surfaces
+               the one-click installer with hardware-tier model
+               recommendation and a live progress log. -->
+          <div class="local-pane" id="local-pane" hidden>
+            <div class="local-status" id="local-status">Checking localhost:7437…</div>
+
+            <div class="local-row" id="local-connect-row" hidden>
+              <button class="btn btn-secondary" id="btn-local-refresh" type="button">Re-check</button>
+              <span class="field-hint">AGiXT is up — sign in below to continue.</span>
+            </div>
+
+            <div class="local-row local-row-stack" id="local-install-row">
+              <div class="local-hw-summary" id="local-hw-summary"></div>
+              <label class="field">
+                <span class="field-label">Install path</span>
+                <input id="local-install-path" type="text" placeholder="$HOME/AGiXT" autocomplete="off" />
+                <span class="field-hint">Where to clone Josh-XT/AGiXT. Leave blank for the default.</span>
+              </label>
+              <label class="field" id="local-sudo-field" hidden>
+                <span class="field-label">Sudo password <span class="field-meta">(Linux)</span></span>
+                <input id="local-sudo-password" type="password" autocomplete="current-password" placeholder="••••••••" />
+                <span class="field-hint">
+                  Used once to install Docker and (if you have an NVIDIA GPU) the Container Toolkit.
+                  Not saved. Skip if Docker + the toolkit are already installed.
+                </span>
+              </label>
+              <button class="btn btn-primary auth-cta" id="btn-local-install" type="button">
+                Install AGiXT locally
+              </button>
+              <span class="field-hint">
+                Setup downloads Docker images and the chosen model. First run is typically
+                30+ minutes depending on model size and your connection.
+              </span>
+            </div>
+
+            <div class="local-install-progress" id="local-install-progress" hidden>
+              <div class="field-label">Install log</div>
+              <div class="local-install-log" id="local-install-log" role="log" aria-live="polite"></div>
+            </div>
+          </div>
+
+          <div class="auth-pane" id="pane-login">
+            <label class="field">
+              <span class="field-label">Email</span>
+              <input id="login-email" type="email" autocomplete="username" placeholder="you@example.com" />
+            </label>
+            <label class="field">
+              <span class="field-label">Password</span>
+              <input id="login-password" type="password" autocomplete="current-password" placeholder="••••••••" />
+            </label>
+            <label class="field" id="mfa-field" hidden>
+              <span class="field-label">Authenticator code</span>
+              <input id="login-mfa" type="text" inputmode="numeric" maxlength="8" placeholder="123456" />
+            </label>
+            <button class="btn btn-primary auth-cta" id="btn-login">Sign in</button>
+            <div class="auth-divider"><span>or</span></div>
+            <div class="auth-row">
+              <button class="btn btn-ghost" id="btn-magic-link">Email me a magic link</button>
+            </div>
+            <div class="auth-row" id="oauth-row" hidden>
+              <div class="oauth-buttons" id="oauth-buttons"></div>
+            </div>
+            <div class="auth-row">
+              <details class="auth-paste">
+                <summary>Have a login URL or JWT? Paste it</summary>
+                <textarea id="paste-jwt" rows="3" placeholder="Paste the magic-link URL from your email, or a raw JWT" spellcheck="false"></textarea>
+                <button class="btn btn-secondary" id="btn-paste-jwt">Use this token</button>
+              </details>
+            </div>
+          </div>
+
+          <div class="auth-pane" id="pane-register" hidden>
+            <div class="field-row">
+              <label class="field">
+                <span class="field-label">First name</span>
+                <input id="reg-first" type="text" autocomplete="given-name" />
+              </label>
+              <label class="field">
+                <span class="field-label">Last name</span>
+                <input id="reg-last" type="text" autocomplete="family-name" />
+              </label>
+            </div>
+            <label class="field">
+              <span class="field-label">Email</span>
+              <input id="reg-email" type="email" autocomplete="email" placeholder="you@example.com" />
+            </label>
+            <label class="field">
+              <span class="field-label">Password</span>
+              <input id="reg-password" type="password" autocomplete="new-password" placeholder="At least one uppercase, lowercase, number, symbol" />
+              <span class="field-hint">Must contain upper + lower + digit + symbol.</span>
+            </label>
+            <button class="btn btn-primary auth-cta" id="btn-register">Create account</button>
+          </div>
+
+          <div class="auth-status" id="auth-status"></div>
+        </div>
+      </section>
+
+      <!-- CHAT SCREEN — shown after auth. Agent + conversation switchers
+           live in the topbar above; the chat surface is just the message
+           list and composer. -->
+      <section class="chat-screen" id="chat-screen" hidden>
+        <main class="chat" id="chat-scroll">
+          <div class="empty-state" id="empty-state">
+            <div class="empty-state-icon">⬛</div>
+            <div class="empty-state-title">Ready when you are</div>
+            <div class="empty-state-body">Type a message below to start chatting with the AGiXT agent.</div>
+          </div>
+          <div id="messages" class="messages" role="log" aria-live="polite"></div>
+        </main>
+
+        <footer class="composer">
+          <!-- Attachment chips tray. Hidden until the user picks files via
+               the paperclip; each chip is removable. The selected paths
+               are prepended to the prompt as context — the files
+               themselves stay on the user's desktop and the agent reads
+               them through fs_read / shell_run / etc. -->
+          <div class="attachments" id="attachments" hidden></div>
+          <div class="composer-row">
+            <button class="icon-btn attach-btn" id="btn-attach" title="Attach files from your computer" aria-label="Attach files">
+              <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                      d="M21 11l-9 9a5 5 0 0 1-7.07-7.07l9-9a3.5 3.5 0 0 1 4.95 4.95l-9 9a2 2 0 0 1-2.83-2.83l8.49-8.49"/>
+              </svg>
+            </button>
+            <textarea
+              id="composer-input"
+              class="composer-input"
+              rows="1"
+              placeholder="Ask AGiXT…"
+              autocomplete="off"
+              autocapitalize="sentences"
+              spellcheck="true"
+            ></textarea>
+            <!-- Mic: tap to record, tap again to stop+transcribe+send.
+                 Esc cancels without sending. The state attribute drives
+                 the visual: idle → microphone, recording → red square +
+                 pulse, transcribing → spinner. -->
+            <button class="icon-btn mic-btn" id="btn-mic" title="Record voice message (Esc to cancel)" aria-label="Record voice message" data-state="idle">
+              <svg class="mic-icon-idle" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                      d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/>
+              </svg>
+              <span class="mic-icon-recording" aria-hidden="true"></span>
+              <svg class="mic-icon-busy" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-dasharray="40" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <!-- Send / Stop. While the agent is generating we swap the
+                 send button for a stop button (same slot). Click stop to
+                 abort the in-flight turn locally and POST to AGiXT's
+                 /v1/conversation/{id}/stop so the server halts too —
+                 mirrors the web's chat input pattern. -->
+            <button class="send-btn" id="btn-send" aria-label="Send" title="Send (Enter)">➤</button>
+            <button class="send-btn stop-btn" id="btn-stop" aria-label="Stop generating" title="Stop generating" hidden>
+              <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor"/>
+              </svg>
+            </button>
+          </div>
+          <div class="composer-status" id="composer-status"></div>
+        </footer>
+      </section>
+    </section>
+
+    <!-- Resize handles for the borderless window. The data-tauri-resize
+         attribute hooks into Tauri's native window-resize gesture — we
+         only need to render the visual affordance and Tauri does the
+         rest. Two corners give the user enough flexibility (bottom-right
+         is typical, bottom-left covers right-edge-pinned popovers). -->
+    <div class="resize-handle resize-handle-br" data-tauri-drag-region="false" aria-hidden="true"></div>
+    <div class="resize-handle resize-handle-bl" data-tauri-drag-region="false" aria-hidden="true"></div>
+
+    <!-- Settings modal -->
+    <div class="modal" id="settings-modal" aria-hidden="true">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2>Settings</h2>
+          <button class="icon-btn" id="btn-settings-close" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <span class="field-label">Signed in as</span>
+            <div id="settings-user" class="settings-user">—</div>
+          </div>
+          <label class="field check">
+            <input type="checkbox" id="setting-allow-commands" />
+            <span>Allow this agent to control my desktop (screenshot, click, type, files)</span>
+          </label>
+          <label class="field check">
+            <input type="checkbox" id="setting-voice" />
+            <span>Auto-play voice replies when available</span>
+          </label>
+          <div class="field sudo-session">
+            <span class="field-label">Privileged commands</span>
+            <div class="sudo-session-row">
+              <input id="setting-sudo-password" type="password" autocomplete="current-password" placeholder="Sudo password" />
+              <button class="btn btn-primary" id="btn-sudo-auth" type="button">Authenticate</button>
+            </div>
+            <div class="sudo-session-row sudo-session-actions">
+              <button class="btn btn-secondary" id="btn-sudo-clear" type="button">Forget sudo session</button>
+              <span class="sudo-session-status" id="sudo-session-status">Not checked.</span>
+            </div>
+            <span class="field-hint">Used only to refresh sudo for this app session. The password is not saved.</span>
+          </div>
+          <div class="field-actions">
+            <button class="btn btn-danger" id="btn-logout">Log out</button>
+            <button class="btn btn-primary" id="btn-save-settings">Save</button>
+          </div>
+          <div class="settings-status" id="settings-status"></div>
+        </div>
+      </div>
+    </div>
+
+    <audio id="tts-audio" preload="auto"></audio>
+
+    <script src="frontend-log.js"></script>
+    <script src="markdown.js"></script>
+    <script src="audio.js"></script>
+    <script src="client-actions.js"></script>
+    <script src="context-menu.js"></script>
+    <script src="chat.js"></script>
+    <script src="auth.js"></script>
+    <script src="dock.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

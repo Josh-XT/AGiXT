@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>AGiXT</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body {
+        margin: 0; padding: 0;
+        width: 100%; height: 100%;
+        background: transparent;
+        overflow: hidden;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      .bubble {
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #5b6cff 0%, #8a4dff 100%);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        font-weight: 800;
+        font-size: 22px;
+        letter-spacing: 0.5px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55), 0 0 0 2px rgba(255,255,255,0.18);
+        cursor: pointer;
+        transition: transform 0.12s ease, box-shadow 0.12s ease;
+        -webkit-app-region: drag;
+        animation: pulse-glow 2.4s ease-in-out infinite;
+      }
+      @keyframes pulse-glow {
+        0%, 100% { box-shadow: 0 8px 28px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.18), 0 0 0 0 rgba(91,108,255,0.55); }
+        50%      { box-shadow: 0 8px 28px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.28), 0 0 0 12px rgba(91,108,255,0.0); }
+      }
+      .bubble:hover {
+        transform: scale(1.05);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+      }
+      .bubble:active {
+        transform: scale(0.96);
+      }
+      .label {
+        -webkit-app-region: no-drag;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bubble" id="bubble" title="Open AGiXT">
+      <span class="label">XT</span>
+    </div>
+    <script>
+      const bubble = document.getElementById('bubble');
+      let down = null;
+      let dragged = false;
+
+      bubble.addEventListener('mousedown', (e) => {
+        down = { x: e.screenX, y: e.screenY };
+        dragged = false;
+      });
+      bubble.addEventListener('mousemove', (e) => {
+        if (down && (Math.abs(e.screenX - down.x) > 4 || Math.abs(e.screenY - down.y) > 4)) {
+          dragged = true;
+        }
+      });
+      bubble.addEventListener('mouseup', async () => {
+        if (!dragged && window.__TAURI__) {
+          try { await window.__TAURI__.core.invoke('toggle_sidebar'); } catch (_) {}
+        }
+        down = null;
+        dragged = false;
+      });
+    </script>
+  </body>
+</html>
