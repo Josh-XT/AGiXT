@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
@@ -47,6 +48,9 @@ LOCAL_PID_FILE = STATE_DIR / "agixt-local.pid"
 LOCAL_LOG_FILE = STATE_DIR / f"agixt-local-{int(time.time())}.log"
 WEB_PID_FILE = STATE_DIR / "agixt-web.pid"
 CREDENTIALS_FILE = STATE_DIR / "credentials.json"
+DESKTOP_CLIENT_DIR = REPO_ROOT / "clients" / "desktop"
+DESKTOP_TAURI_DIR = DESKTOP_CLIENT_DIR / "src-tauri"
+DESKTOP_INSTALL_STATE_FILE = STATE_DIR / "desktop-install.json"
 
 
 class CLIError(RuntimeError):
@@ -2740,6 +2744,261 @@ def _is_ezlocalai_enabled() -> bool:
     return os.getenv("WITH_EZLOCALAI", "true").lower() == "true"
 
 
+def _env_truthy(name: str, default: bool = True) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    stripped = value.strip().lower()
+    if stripped == "":
+        return default
+    return stripped not in {"0", "false", "no", "off"}
+
+
+def _has_desktop_session() -> bool:
+    if not _env_truthy("AGIXT_DESKTOP_INSTALL", default=True):
+        return False
+    if _env_truthy("CI", default=False):
+        return False
+
+    system = platform.system().lower()
+    if system == "linux":
+        return any(
+            os.getenv(name) for name in ("DISPLAY", "WAYLAND_DISPLAY", "MIR_SOCKET")
+        )
+    if system in {"darwin", "windows"}:
+        return True
+    return False
+
+
+def _desktop_source_build_id() -> str:
+    git_commit = "unknown"
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            git_commit = result.stdout.strip()
+    except (subprocess.SubprocessError, OSError):
+        pass
+
+    git_status = ""
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--", "clients/desktop"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            git_status = result.stdout
+    except (subprocess.SubprocessError, OSError):
+        pass
+
+    newest_source_mtime = 0
+    source_roots = [
+        DESKTOP_CLIENT_DIR / "src",
+        DESKTOP_TAURI_DIR / "src",
+        DESKTOP_TAURI_DIR / "capabilities",
+        DESKTOP_TAURI_DIR / "icons",
+    ]
+    source_files = [
+        DESKTOP_CLIENT_DIR / "package.json",
+        DESKTOP_CLIENT_DIR / "package-lock.json",
+        DESKTOP_TAURI_DIR / "Cargo.toml",
+        DESKTOP_TAURI_DIR / "Cargo.lock",
+        DESKTOP_TAURI_DIR / "tauri.conf.json",
+        DESKTOP_TAURI_DIR / "build.rs",
+    ]
+    for root in source_roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*"):
+            if path.is_file():
+                try:
+                    newest_source_mtime = max(
+                        newest_source_mtime, int(path.stat().st_mtime)
+                    )
+                except OSError:
+                    pass
+    for path in source_files:
+        if not path.exists():
+            continue
+        try:
+            newest_source_mtime = max(newest_source_mtime, int(path.stat().st_mtime))
+        except OSError:
+            pass
+
+    dirty_hash = hashlib.sha256(git_status.encode("utf-8")).hexdigest()[:12]
+    return f"{git_commit}:{dirty_hash}:{newest_source_mtime}"
+
+
+def _desktop_binary_name() -> str:
+    return (
+        "agixt-desktop.exe"
+        if platform.system().lower() == "windows"
+        else "agixt-desktop"
+    )
+
+
+def _desktop_installed_binary_path() -> Path:
+    system = platform.system().lower()
+    binary_name = _desktop_binary_name()
+    if system == "windows":
+        base_dir = Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base_dir / "AGiXT" / "Desktop" / binary_name
+    if system == "darwin":
+        return (
+            Path.home()
+            / "Applications"
+            / "AGiXT Desktop.app"
+            / "Contents"
+            / "MacOS"
+            / binary_name
+        )
+    return Path.home() / ".local" / "bin" / binary_name
+
+
+def _install_desktop_linux_launcher(binary_path: Path) -> None:
+    applications_dir = Path.home() / ".local" / "share" / "applications"
+    applications_dir.mkdir(parents=True, exist_ok=True)
+    icon_path = DESKTOP_TAURI_DIR / "icons" / "icon.png"
+    desktop_file = applications_dir / "agixt-desktop.desktop"
+    desktop_file.write_text(
+        "\n".join(
+            [
+                "[Desktop Entry]",
+                "Type=Application",
+                "Name=AGiXT Desktop",
+                "Comment=Native AGiXT desktop client",
+                f"Exec={binary_path}",
+                f"Icon={icon_path}",
+                "Terminal=false",
+                "Categories=Utility;Network;",
+                "StartupNotify=true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    desktop_file.chmod(0o755)
+    if shutil.which("update-desktop-database"):
+        subprocess.run(
+            ["update-desktop-database", str(applications_dir)],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+
+def _install_desktop_macos_launcher(binary_path: Path) -> None:
+    app_dir = binary_path.parents[2]
+    contents_dir = app_dir / "Contents"
+    resources_dir = contents_dir / "Resources"
+    resources_dir.mkdir(parents=True, exist_ok=True)
+    icon_source = DESKTOP_TAURI_DIR / "icons" / "icon.icns"
+    if icon_source.exists():
+        shutil.copy2(icon_source, resources_dir / "icon.icns")
+    (contents_dir / "Info.plist").write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDisplayName</key>
+  <string>AGiXT Desktop</string>
+  <key>CFBundleExecutable</key>
+  <string>agixt-desktop</string>
+  <key>CFBundleIdentifier</key>
+  <string>systems.xt.agixt.desktop</string>
+  <key>CFBundleName</key>
+  <string>AGiXT Desktop</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundleVersion</key>
+  <string>0.1.0</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>10.15</string>
+</dict>
+</plist>
+""",
+        encoding="utf-8",
+    )
+
+
+def _build_and_install_desktop_app(build_id: str) -> None:
+    cargo_toml = DESKTOP_TAURI_DIR / "Cargo.toml"
+    if not cargo_toml.exists():
+        print("AGiXT Desktop app is not present in this checkout; skipping install.")
+        return
+    if shutil.which("cargo") is None:
+        print("Rust cargo was not found; skipping AGiXT Desktop app install.")
+        return
+
+    binary_name = _desktop_binary_name()
+    built_binary = DESKTOP_TAURI_DIR / "target" / "release" / binary_name
+    installed_binary = _desktop_installed_binary_path()
+    installed_binary.parent.mkdir(parents=True, exist_ok=True)
+
+    print("Building AGiXT Desktop app...")
+    subprocess.run(["cargo", "build", "--release"], cwd=DESKTOP_TAURI_DIR, check=True)
+    if not built_binary.exists():
+        raise CLIError(f"AGiXT Desktop build did not create {built_binary}.")
+
+    shutil.copy2(built_binary, installed_binary)
+    try:
+        installed_binary.chmod(installed_binary.stat().st_mode | 0o755)
+    except OSError:
+        pass
+
+    system = platform.system().lower()
+    if system == "linux":
+        _install_desktop_linux_launcher(installed_binary)
+    elif system == "darwin":
+        _install_desktop_macos_launcher(installed_binary)
+
+    DESKTOP_INSTALL_STATE_FILE.write_text(
+        json.dumps(
+            {
+                "build_id": build_id,
+                "installed_binary": str(installed_binary),
+                "installed_at": int(time.time()),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    print(f"AGiXT Desktop app installed at {installed_binary}")
+
+
+def _maybe_install_desktop_app() -> None:
+    if not _has_desktop_session():
+        return
+
+    try:
+        build_id = _desktop_source_build_id()
+        installed_binary = _desktop_installed_binary_path()
+        if DESKTOP_INSTALL_STATE_FILE.exists() and installed_binary.exists():
+            try:
+                install_state = json.loads(
+                    DESKTOP_INSTALL_STATE_FILE.read_text(encoding="utf-8")
+                )
+                if install_state.get("build_id") == build_id:
+                    return
+            except (json.JSONDecodeError, OSError):
+                pass
+        _build_and_install_desktop_app(build_id=build_id)
+    except CLIError as exc:
+        print(f"Warning: {exc}")
+    except Exception as exc:
+        print(f"Warning: Failed to install AGiXT Desktop app: {exc}")
+
+
 # Redis container management for local mode
 REDIS_CONTAINER_NAME = "agixt-redis"
 
@@ -3285,6 +3544,7 @@ def _start_local(env_updates: Optional[dict] = None) -> None:
     print(f"  App:  {app_url}")
     print(f"  Logs: {LOCAL_LOG_FILE}")
     cleanup_log_files()
+    _maybe_install_desktop_app()
 
 
 def _stop_local(stop_ezlocalai_too: bool = True, stop_redis_too: bool = False) -> None:
@@ -3426,6 +3686,7 @@ def _start_docker(env_updates: Optional[dict] = None) -> None:
         print("AGiXT Docker services started successfully.")
         print(f"  API: {api_url}")
         print(f"  App: {app_url}")
+        _maybe_install_desktop_app()
     except KeyboardInterrupt:
         print("\nStopping AGiXT containers...")
         subprocess.run(
