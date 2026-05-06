@@ -1,6 +1,7 @@
 use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Context};
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 
@@ -18,6 +19,7 @@ pub struct DesktopUpdateStatus {
     pub platform: String,
     pub ready: bool,
     pub download_url: String,
+    pub artifact_name: Option<String>,
     pub message: String,
 }
 
@@ -48,6 +50,8 @@ struct BuildState {
     ready: Option<bool>,
     #[serde(default)]
     download: Option<String>,
+    #[serde(default)]
+    artifact: Option<String>,
 }
 
 pub fn current_build_id() -> String {
@@ -130,6 +134,7 @@ pub async fn check() -> anyhow::Result<DesktopUpdateStatus> {
         .and_then(|s| s.download.clone())
         .unwrap_or_else(|| format!("/desktop/{platform}"));
     let download_url = format!("{base_url}{download_path}");
+    let artifact_name = build_state.and_then(|s| s.artifact.clone());
     let message = if !update_available {
         "AGiXT Desktop is up to date.".into()
     } else if ready {
@@ -151,6 +156,7 @@ pub async fn check() -> anyhow::Result<DesktopUpdateStatus> {
         platform,
         ready,
         download_url,
+        artifact_name,
         message,
     })
 }
@@ -200,6 +206,28 @@ async fn download_update(status: &DesktopUpdateStatus) -> anyhow::Result<PathBuf
         .timeout(Duration::from_secs(900))
         .build()
         .context("build desktop update downloader")?;
+
+    let mut last_error = None;
+    for attempt in 1..=3 {
+        match download_update_once(&client, status).await {
+            Ok(path) => return Ok(path),
+            Err(err) => {
+                last_error = Some(err);
+                if attempt < 3 {
+                    tokio::time::sleep(Duration::from_secs(2 * attempt)).await;
+                }
+            }
+        }
+    }
+    Err(last_error
+        .unwrap_or_else(|| anyhow!("download failed"))
+        .context("download update failed after 3 attempts"))
+}
+
+async fn download_update_once(
+    client: &reqwest::Client,
+    status: &DesktopUpdateStatus,
+) -> anyhow::Result<PathBuf> {
     let resp = client
         .get(&status.download_url)
         .send()
@@ -219,20 +247,62 @@ async fn download_update(status: &DesktopUpdateStatus) -> anyhow::Result<PathBuf
         .and_then(|v| v.to_str().ok())
         .map(sanitize_filename)
         .filter(|v| !v.is_empty())
+        .or_else(|| {
+            status
+                .artifact_name
+                .as_deref()
+                .map(sanitize_filename)
+                .filter(|v| !v.is_empty())
+        })
         .unwrap_or_else(|| default_update_filename(status));
     let dir = std::env::temp_dir().join("agixt-desktop-updates");
     tokio::fs::create_dir_all(&dir)
         .await
         .with_context(|| format!("create {}", dir.display()))?;
     let path = dir.join(artifact_name);
-    let bytes = resp.bytes().await.context("read update body")?;
-    let mut file = tokio::fs::File::create(&path)
+    let expected_len = resp.content_length();
+    if let Some(expected_len) = expected_len {
+        if expected_len > 0 {
+            if let Ok(metadata) = tokio::fs::metadata(&path).await {
+                if metadata.len() == expected_len {
+                    return Ok(path);
+                }
+            }
+        }
+    }
+
+    let tmp_name = path
+        .file_name()
+        .and_then(|v| v.to_str())
+        .map(|v| format!(".{v}.part-{}", std::process::id()))
+        .unwrap_or_else(|| format!(".agixt-desktop-update.part-{}", std::process::id()));
+    let tmp_path = path.with_file_name(tmp_name);
+    let _ = tokio::fs::remove_file(&tmp_path).await;
+    let mut file = tokio::fs::File::create(&tmp_path)
         .await
-        .with_context(|| format!("create {}", path.display()))?;
-    file.write_all(&bytes)
-        .await
-        .with_context(|| format!("write {}", path.display()))?;
+        .with_context(|| format!("create {}", tmp_path.display()))?;
+    let mut downloaded = 0_u64;
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.context("read update body chunk")?;
+        downloaded += chunk.len() as u64;
+        file.write_all(&chunk)
+            .await
+            .with_context(|| format!("write {}", tmp_path.display()))?;
+    }
     file.flush().await.ok();
+    drop(file);
+    if let Some(expected_len) = expected_len {
+        if downloaded != expected_len {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return Err(anyhow!(
+                "downloaded {downloaded} bytes but expected {expected_len} bytes"
+            ));
+        }
+    }
+    tokio::fs::rename(&tmp_path, &path)
+        .await
+        .with_context(|| format!("move {} to {}", tmp_path.display(), path.display()))?;
     Ok(path)
 }
 
