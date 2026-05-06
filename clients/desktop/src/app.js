@@ -151,6 +151,7 @@
     if (!desktopUpdateStatus) return null;
     const autoInstall = !!opts.autoInstall;
     setDesktopUpdateStatus('Checking…');
+    if (desktopUpdateInstallBtn) desktopUpdateInstallBtn.hidden = true;
     try {
       const status = await invoke('desktop_update_check');
       const current = status.current_build_id || status.app_version || 'current';
@@ -159,6 +160,7 @@
         setDesktopUpdateStatus(`Up to date (${current}).`, 'success');
       } else if (status.ready) {
         setDesktopUpdateStatus(`Update ready: ${current} → ${latest}.`);
+        if (desktopUpdateInstallBtn) desktopUpdateInstallBtn.hidden = false;
         if (autoInstall && settings && settings.desktop_auto_update) {
           await installDesktopUpdate(true);
         }
@@ -175,12 +177,15 @@
   async function installDesktopUpdate(auto) {
     if (!desktopUpdateStatus) return;
     setDesktopUpdateStatus(auto ? 'Installing update…' : 'Downloading update…');
+    if (desktopUpdateInstallBtn) desktopUpdateInstallBtn.hidden = true;
     try {
       const result = await invoke('desktop_update_install');
       setDesktopUpdateStatus(result.message || 'Update installed.', result.installed ? 'success' : '');
+      if (desktopUpdateInstallBtn && !result.installed) desktopUpdateInstallBtn.hidden = false;
     } catch (err) {
       const message = err && err.error ? err.error : String(err);
       setDesktopUpdateStatus(message, 'error');
+      if (desktopUpdateInstallBtn) desktopUpdateInstallBtn.hidden = false;
     }
   }
 
@@ -781,7 +786,9 @@
   // app's behavior.
   if (window.AgixtChat && typeof window.AgixtChat.onGeneratingChange === 'function') {
     window.AgixtChat.onGeneratingChange((on) => {
-      if (sendBtn) sendBtn.hidden = !!on;
+      // Keep the send button hidden if a recording is in progress, so the
+      // red mic button stays the lone send-the-recording target.
+      if (sendBtn) sendBtn.hidden = !!on || micState.state === 'recording';
       if (stopBtn) stopBtn.hidden = !on;
     });
   }
@@ -802,7 +809,26 @@
 
   function setMicState(state) {
     micState.state = state;
-    if (micBtn) micBtn.setAttribute('data-state', state);
+    if (micBtn) {
+      micBtn.setAttribute('data-state', state);
+      if (state === 'recording') {
+        micBtn.title = 'Send recording (Esc to cancel)';
+        micBtn.setAttribute('aria-label', 'Send recording');
+      } else if (state === 'busy') {
+        micBtn.title = 'Transcribing…';
+        micBtn.setAttribute('aria-label', 'Transcribing');
+      } else {
+        micBtn.title = 'Record voice message (Esc to cancel)';
+        micBtn.setAttribute('aria-label', 'Record voice message');
+      }
+    }
+    // Hide the regular send button while recording so the red stop/send
+    // button (mic-btn in its recording state) is the only call-to-action.
+    // Don't fight the generating-state swap: only touch send/stop when
+    // the agent isn't generating a response.
+    if (sendBtn && stopBtn && stopBtn.hidden) {
+      sendBtn.hidden = state === 'recording';
+    }
   }
 
   function pickRecorderMime() {
@@ -908,7 +934,7 @@
       micState.cancelled = false;
       setMicState('recording');
       const label = info && info.device_name ? ` (${info.device_name})` : '';
-      window.AgixtChat.setComposerStatus(`Listening${label} — tap mic again to send, Esc to cancel`);
+      window.AgixtChat.setComposerStatus(`Listening${label} — tap the red button to send, Esc to cancel`);
       frontendLog('info', 'native voice recording started', JSON.stringify(info || {}));
       return true;
     } catch (err) {
@@ -949,7 +975,7 @@
     recorder.addEventListener('stop', handleRecordingStopped);
     recorder.start(250);
     setMicState('recording');
-    window.AgixtChat.setComposerStatus('Listening — tap mic again to send, Esc to cancel');
+    window.AgixtChat.setComposerStatus('Listening — tap the red button to send, Esc to cancel');
   }
 
   function teardownRecorderStream() {
