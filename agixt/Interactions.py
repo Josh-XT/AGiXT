@@ -30,7 +30,6 @@ from Globals import getenv, DEFAULT_USER, get_tokens
 from WebhookManager import WebhookEventEmitter
 from middleware import log_silenced_exception
 
-
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
@@ -275,7 +274,7 @@ def _small_model_inference_sync(
     import requests as _requests
 
     server_url = getenv("ABILITY_SELECTION_SERVER", "")
-    model = getenv("ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-0.8B-GGUF")
+    model = getenv("ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-4B-GGUF")
     if not server_url:
         return ""
 
@@ -2361,7 +2360,7 @@ Example: memories, persona, files"""
         # Use dedicated ability selection server if configured (fast small model)
         ability_selection_server = getenv("ABILITY_SELECTION_SERVER")
         ability_selection_model = getenv(
-            "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-0.8B-GGUF"
+            "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-4B-GGUF"
         )
 
         try:
@@ -2867,7 +2866,7 @@ Example: Open Remote Terminal, Execute in Terminal, Get Terminal Output, Vision 
         # Check if a dedicated ability selection server is configured
         ability_selection_server = getenv("ABILITY_SELECTION_SERVER")
         ability_selection_model = getenv(
-            "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-0.8B-GGUF"
+            "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-4B-GGUF"
         )
 
         # Process batches in parallel for speed using DIRECT inference (not run())
@@ -3404,7 +3403,7 @@ Example: Open Remote Terminal, Execute in Terminal, Get Terminal Output, Vision 
                         server_url=ability_selection_server,
                         model=getenv(
                             "ABILITY_SELECTION_MODEL",
-                            "unsloth/Qwen3.5-0.8B-GGUF",
+                            "unsloth/Qwen3.5-4B-GGUF",
                         ),
                         prompt=websearch_decision_prompt,
                     )
@@ -3448,7 +3447,7 @@ Example: Open Remote Terminal, Execute in Terminal, Get Terminal Output, Vision 
                             server_url=ability_selection_server,
                             model=getenv(
                                 "ABILITY_SELECTION_MODEL",
-                                "unsloth/Qwen3.5-0.8B-GGUF",
+                                "unsloth/Qwen3.5-4B-GGUF",
                             ),
                             prompt=websearch_query_prompt,
                         )
@@ -3745,9 +3744,7 @@ Example: Open Remote Terminal, Execute in Terminal, Get Terminal Output, Vision 
             tts_enabled = tts_provider and tts_provider not in ("None", "", None)
 
         if tts_enabled:
-            kwargs[
-                "tts_filler_instructions"
-            ] = """
+            kwargs["tts_filler_instructions"] = """
 **VOICE MODE - IMMEDIATE RESPONSE REQUIRED**
 
 The user is speaking to you and will hear your response aloud. You MUST begin with TWO `<speak>` tags IMMEDIATELY - before ANY thinking, commands, or processing:
@@ -4889,7 +4886,7 @@ Example: If user says "list my files", use:
             getenv("ABILITY_SELECTION_SERVER") if _final_answer_review_enabled else None
         )
         _final_answer_review_model = getenv(
-            "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-0.8B-GGUF"
+            "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-4B-GGUF"
         )
         try:
             _final_answer_review_max_attempts = int(

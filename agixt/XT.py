@@ -635,7 +635,7 @@ Rules:
             # Use dedicated ability selection server if configured (fast small model).
             ability_selection_server = getenv("ABILITY_SELECTION_SERVER")
             ability_selection_model = getenv(
-                "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-0.8B-GGUF"
+                "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-4B-GGUF"
             )
             if ability_selection_server:
                 new_convo = await _ability_selection_inference(

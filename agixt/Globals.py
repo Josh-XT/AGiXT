@@ -216,7 +216,7 @@ def getenv(var_name: str, default_value: str = "") -> str:
         "RESTART_COOLDOWN": "60",
         "INITIAL_STARTUP_DELAY": "180",
         "ABILITY_SELECTION_SERVER": "",
-        "ABILITY_SELECTION_MODEL": "unsloth/Qwen3.5-0.8B-GGUF",
+        "ABILITY_SELECTION_MODEL": "unsloth/Qwen3.5-4B-GGUF",
         "VOICE_SERVER": "",
         "VOICE_SERVER_API_KEY": "",
         "VOICE_AUDIO_FORMAT": "pcm",
