@@ -20,10 +20,10 @@ name = "agixt-desktop-cli"
 path = "src/bin/cli.rs"
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.6.1", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2.11.1", features = ["tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
