@@ -56,6 +56,10 @@
   const convoMenu = $('convo-menu');
   const convoMenuList = $('convo-menu-list');
   const convoNewBtn = $('convo-new-btn');
+  let lastDesktopUpdateStatus = null;
+  let desktopUpdateBusyMode = '';
+  let desktopAutoUpdateTimer = null;
+  let pendingDesktopUpdateInstall = false;
 
   function setSettingsStatus(text, cls) {
     settingsStatus.textContent = text || '';
@@ -72,6 +76,52 @@
     if (!desktopUpdateStatus) return;
     desktopUpdateStatus.textContent = text || '';
     desktopUpdateStatus.className = 'sudo-session-status' + (cls ? ' ' + cls : '');
+  }
+
+  function desktopUpdateIsReady(status = lastDesktopUpdateStatus) {
+    return !!(status && status.update_available && status.ready);
+  }
+
+  function setDesktopUpdateControls(updateReady = desktopUpdateIsReady()) {
+    const busy = !!desktopUpdateBusyMode;
+    const installing = desktopUpdateBusyMode === 'installing';
+    if (desktopUpdateCheckBtn) {
+      desktopUpdateCheckBtn.disabled = busy;
+      desktopUpdateCheckBtn.hidden = installing;
+      desktopUpdateCheckBtn.setAttribute('aria-busy', busy ? 'true' : 'false');
+    }
+    if (desktopUpdateInstallBtn) {
+      desktopUpdateInstallBtn.disabled = busy;
+      desktopUpdateInstallBtn.hidden = busy || !updateReady;
+      desktopUpdateInstallBtn.setAttribute('aria-busy', busy ? 'true' : 'false');
+    }
+  }
+
+  function setDesktopUpdateBusy(mode) {
+    desktopUpdateBusyMode = mode || '';
+    setDesktopUpdateControls();
+  }
+
+  function desktopUpdateErrorText(err) {
+    if (err && err.error) return String(err.error);
+    if (err && err.message) return String(err.message);
+    return String(err || '');
+  }
+
+  function isSudoAuthRequired(message) {
+    return /SUDO_AUTH_REQUIRED|sudo.*password.*required|authenticate.*Privileged Commands/i.test(message || '');
+  }
+
+  function requestSudoForDesktopUpdate() {
+    pendingDesktopUpdateInstall = true;
+    setDesktopUpdateBusy('');
+    openSettings({ skipUpdateRefresh: true });
+    setDesktopUpdateStatus('Authenticate Privileged Commands to install this update.', 'error');
+    setSudoSessionStatus('Enter your sudo password to continue the desktop update.', 'error');
+    setDesktopUpdateControls(true);
+    if (sudoPasswordInput) {
+      window.setTimeout(() => sudoPasswordInput.focus(), 50);
+    }
   }
 
   // ----- Screen switching --------------------------------------------------
@@ -111,13 +161,22 @@
   async function onSaveSettings() {
     setSettingsStatus('Saving…');
     try {
+      const autoUpdateEnabled = desktopAutoUpdateInput
+        ? desktopAutoUpdateInput.checked
+        : !!settings.desktop_auto_update;
       await persistSettings({
         allow_client_commands: $('setting-allow-commands').checked,
         voice_enabled: $('setting-voice').checked,
-        desktop_auto_update: desktopAutoUpdateInput ? desktopAutoUpdateInput.checked : !!settings.desktop_auto_update,
+        desktop_auto_update: autoUpdateEnabled,
       });
       setSettingsStatus('Saved.', 'success');
       await refreshSudoStatus();
+      if (autoUpdateEnabled) {
+        scheduleDesktopAutoUpdateCheck(400);
+      } else if (desktopAutoUpdateTimer) {
+        window.clearTimeout(desktopAutoUpdateTimer);
+        desktopAutoUpdateTimer = null;
+      }
     } catch (err) {
       setSettingsStatus(err && err.error ? err.error : String(err), 'error');
     }
@@ -149,51 +208,82 @@
 
   async function refreshDesktopUpdateStatus(opts = {}) {
     if (!desktopUpdateStatus) return null;
+    if (desktopUpdateBusyMode) return lastDesktopUpdateStatus;
     const autoInstall = !!opts.autoInstall;
+    setDesktopUpdateBusy('checking');
     setDesktopUpdateStatus('Checking…');
-    if (desktopUpdateInstallBtn) desktopUpdateInstallBtn.hidden = true;
     try {
       const status = await invoke('desktop_update_check');
+      lastDesktopUpdateStatus = status;
       const current = status.current_build_id || status.app_version || 'current';
       const latest = status.latest_build_id || 'unknown';
       if (!status.update_available) {
         setDesktopUpdateStatus(`Up to date (${current}).`, 'success');
       } else if (status.ready) {
         setDesktopUpdateStatus(`Update ready: ${current} → ${latest}.`);
-        if (desktopUpdateInstallBtn) desktopUpdateInstallBtn.hidden = false;
         if (autoInstall && settings && settings.desktop_auto_update) {
+          if (desktopUpdateBusyMode === 'checking') setDesktopUpdateBusy('');
           await installDesktopUpdate(true);
+          return status;
         }
       } else {
         setDesktopUpdateStatus(`Update ${latest} is still building.`);
+        if (autoInstall && settings && settings.desktop_auto_update) {
+          scheduleDesktopAutoUpdateCheck(300000);
+        }
       }
+      if (desktopUpdateBusyMode === 'checking') setDesktopUpdateBusy('');
+      setDesktopUpdateControls(desktopUpdateIsReady(status));
       return status;
     } catch (err) {
-      setDesktopUpdateStatus(err && err.error ? err.error : String(err), 'error');
+      const message = desktopUpdateErrorText(err);
+      setDesktopUpdateStatus(message, 'error');
+      if (autoInstall && settings && settings.desktop_auto_update) {
+        scheduleDesktopAutoUpdateCheck(600000);
+      }
+      if (desktopUpdateBusyMode === 'checking') setDesktopUpdateBusy('');
+      setDesktopUpdateControls(false);
       return null;
     }
   }
 
   async function installDesktopUpdate(auto) {
     if (!desktopUpdateStatus) return;
+    if (desktopUpdateBusyMode) return;
+    pendingDesktopUpdateInstall = false;
+    setDesktopUpdateBusy('installing');
     setDesktopUpdateStatus(auto ? 'Installing update…' : 'Downloading update…');
-    if (desktopUpdateInstallBtn) desktopUpdateInstallBtn.hidden = true;
     try {
       const result = await invoke('desktop_update_install');
       setDesktopUpdateStatus(result.message || 'Update installed.', result.installed ? 'success' : '');
-      if (desktopUpdateInstallBtn && !result.installed) desktopUpdateInstallBtn.hidden = false;
+      if (desktopUpdateBusyMode === 'installing') setDesktopUpdateBusy('');
+      if (result.installed) {
+        setDesktopUpdateControls(false);
+      } else {
+        setDesktopUpdateControls(desktopUpdateIsReady());
+      }
     } catch (err) {
-      const message = err && err.error ? err.error : String(err);
+      const message = desktopUpdateErrorText(err);
+      if (isSudoAuthRequired(message)) {
+        requestSudoForDesktopUpdate();
+        return;
+      }
       setDesktopUpdateStatus(message, 'error');
-      if (desktopUpdateInstallBtn) desktopUpdateInstallBtn.hidden = false;
+      if (desktopUpdateBusyMode === 'installing') setDesktopUpdateBusy('');
+      setDesktopUpdateControls(desktopUpdateIsReady());
     }
   }
 
-  function scheduleDesktopAutoUpdateCheck() {
+  function scheduleDesktopAutoUpdateCheck(delayMs = 2500) {
+    if (desktopAutoUpdateTimer) {
+      window.clearTimeout(desktopAutoUpdateTimer);
+      desktopAutoUpdateTimer = null;
+    }
     if (!settings || !settings.desktop_auto_update) return;
-    setTimeout(() => {
+    desktopAutoUpdateTimer = window.setTimeout(() => {
+      desktopAutoUpdateTimer = null;
       refreshDesktopUpdateStatus({ autoInstall: true });
-    }, 2500);
+    }, delayMs);
   }
 
   async function onSudoAuth() {
@@ -209,7 +299,10 @@
       await invoke('sudo_auth', { password });
       sudoPasswordInput.value = '';
       setSudoSessionStatus('Authenticated.', 'success');
-      if (settings && settings.desktop_auto_update) {
+      if (pendingDesktopUpdateInstall) {
+        pendingDesktopUpdateInstall = false;
+        await installDesktopUpdate(true);
+      } else if (settings && settings.desktop_auto_update) {
         await refreshDesktopUpdateStatus({ autoInstall: true });
       }
     } catch (err) {
@@ -1091,14 +1184,14 @@
     try { await invoke('set_sidebar_visible', { visible: false }); } catch (_) { /* ignore */ }
   });
 
-  function openSettings() {
+  function openSettings(opts = {}) {
     settingsModal.classList.add('open');
     settingsModal.setAttribute('aria-hidden', 'false');
     settingsUser.textContent = settings.user_email
       ? `${settings.user_email} @ ${settings.server_url}`
       : 'not signed in';
     refreshSudoStatus();
-    refreshDesktopUpdateStatus();
+    if (!opts || !opts.skipUpdateRefresh) refreshDesktopUpdateStatus();
   }
   function closeSettings() { settingsModal.classList.remove('open'); settingsModal.setAttribute('aria-hidden', 'true'); setSettingsStatus(''); }
 

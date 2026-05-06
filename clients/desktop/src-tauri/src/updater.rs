@@ -173,9 +173,25 @@ pub async fn install() -> anyhow::Result<DesktopUpdateInstallResult> {
             status.platform
         ));
     }
+    ensure_linux_update_sudo_ready().await?;
 
     let path = download_update(&status).await?;
     install_downloaded_update(&status, path).await
+}
+
+async fn ensure_linux_update_sudo_ready() -> anyhow::Result<()> {
+    if !cfg!(target_os = "linux") {
+        return Ok(());
+    }
+    let result = terminal::sudo_refresh()
+        .await
+        .context("check desktop update sudo session")?;
+    if result.exit_code == 0 {
+        return Ok(());
+    }
+    return Err(anyhow!(
+        "SUDO_AUTH_REQUIRED: Authenticate the Privileged Commands sudo session once, then retry installing the desktop update."
+    ));
 }
 
 async fn download_update(status: &DesktopUpdateStatus) -> anyhow::Result<PathBuf> {

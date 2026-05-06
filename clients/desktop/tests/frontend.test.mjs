@@ -90,6 +90,7 @@ function loadFullApp({ ipc } = {}) {
             company_name: 'Home',
             allow_client_commands: true,
             voice_enabled: false,
+            desktop_auto_update: false,
             user_email: 'test@example.com',
           };
         }
@@ -293,6 +294,87 @@ test('app: sudo auth button primes privileged command session', async () => {
   assert.equal(authCall.args.password, 'secret');
   assert.equal(input.value, '');
   assert.equal(window.document.getElementById('sudo-session-status').textContent, 'Authenticated.');
+  window.AgixtChat.disconnect();
+});
+
+test('app: desktop update install locks controls and asks for sudo auth', async () => {
+  let rejectInstall;
+  let installCalls = 0;
+  const { window } = loadFullApp({
+    ipc: {
+      desktop_update_check: async () => ({
+        current_build_id: 'old',
+        app_version: '0.1.0',
+        latest_build_id: 'new',
+        update_available: true,
+        ready: true,
+        platform: 'linux',
+      }),
+      desktop_update_install: async () => {
+        installCalls += 1;
+        if (installCalls === 1) {
+          return new Promise((_, reject) => { rejectInstall = reject; });
+        }
+        return { installed: true, message: 'Update installed.' };
+      },
+      sudo_status: async () => ({ authenticated: false }),
+      sudo_auth: async () => ({ authenticated: true }),
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  window.document.getElementById('btn-settings').click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const checkButton = window.document.getElementById('btn-check-desktop-update');
+  const installButton = window.document.getElementById('btn-install-desktop-update');
+  assert.equal(installButton.hidden, false);
+
+  installButton.click();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(checkButton.hidden, true);
+  assert.equal(installButton.hidden, true);
+
+  rejectInstall({ error: 'SUDO_AUTH_REQUIRED: Authenticate first.' });
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.match(window.document.getElementById('desktop-update-status').textContent, /Authenticate Privileged Commands/);
+  assert.equal(window.document.activeElement, window.document.getElementById('setting-sudo-password'));
+
+  const input = window.document.getElementById('setting-sudo-password');
+  input.value = 'secret';
+  window.document.getElementById('btn-sudo-auth').click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(installCalls, 2);
+  assert.equal(window.document.getElementById('desktop-update-status').textContent, 'Update installed.');
+  window.AgixtChat.disconnect();
+});
+
+test('app: enabling automatic desktop updates schedules install', async () => {
+  const { window, calls } = loadFullApp({
+    ipc: {
+      desktop_update_check: async () => ({
+        current_build_id: 'old',
+        app_version: '0.1.0',
+        latest_build_id: 'new',
+        update_available: true,
+        ready: true,
+        platform: 'linux',
+      }),
+      desktop_update_install: async () => ({ installed: true, message: 'Update installed.' }),
+      sudo_status: async () => ({ authenticated: true }),
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  window.document.getElementById('btn-settings').click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  window.document.getElementById('setting-auto-update').checked = true;
+  window.document.getElementById('btn-save-settings').click();
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
+  assert.ok(calls.some((c) => c.cmd === 'desktop_update_install'));
+  assert.equal(window.document.getElementById('desktop-update-status').textContent, 'Update installed.');
   window.AgixtChat.disconnect();
 });
 
