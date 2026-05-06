@@ -132,7 +132,7 @@ function loadFullApp({ ipc } = {}) {
     };
     window.WebSocket.OPEN = 1;
   }
-  for (const name of ['markdown.js', 'audio.js', 'client-actions.js', 'chat.js', 'auth.js', 'dock.js', 'app.js']) {
+  for (const name of ['markdown.js', 'audio.js', 'client-actions.js', 'chat.js', 'notifications.js', 'auth.js', 'dock.js', 'app.js']) {
     const code = fs.readFileSync(path.join(SRC, name), 'utf8');
     vm.runInContext(code, dom.getInternalVMContext(), { filename: name });
   }

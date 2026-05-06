@@ -234,6 +234,7 @@
       await invoke('logout');
       window.AgixtChat.disconnect();
       window.AgixtChat.clear();
+      if (window.AgixtNotifications) window.AgixtNotifications.stop();
       companies = [];
       agents = [];
       renderSelectors();
@@ -590,6 +591,20 @@
       serverUrl: settings.server_url,
       jwt: settings.jwt,
       conversationId: settings.conversation_id,
+    });
+  }
+
+  // Open (or re-auth) the user-level notifications WebSocket. Mirrors
+  // web/components/providers/BrowserNotificationProvider — the singleton
+  // inside notifications.js dedupes calls, so it's safe to invoke from
+  // both the boot path and onAuthenticated.
+  function startNotifications() {
+    if (!window.AgixtNotifications) return;
+    if (!settings || !settings.jwt || !settings.server_url) return;
+    window.AgixtNotifications.start({
+      serverUrl: settings.server_url,
+      jwt: settings.jwt,
+      getActiveConversationId: () => (settings && settings.conversation_id) || null,
     });
   }
 
@@ -1136,6 +1151,7 @@
     if (settings.conversation_id) {
       await window.AgixtChat.loadHistory(settings.conversation_id);
     }
+    startNotifications();
     scheduleDesktopAutoUpdateCheck();
   }
 
@@ -1154,6 +1170,7 @@
       if (settings.conversation_id) {
         await window.AgixtChat.loadHistory(settings.conversation_id);
       }
+      startNotifications();
       scheduleDesktopAutoUpdateCheck();
     } else {
       showScreen('auth');
@@ -1163,6 +1180,26 @@
     }
     frontendLog('info', 'app boot sequence complete');
   })();
+
+  // Refresh the cached conversations list when a conversation is created
+  // or deleted on the server (e.g. from another window/device). Cheaper
+  // than re-fetching on every dropdown open and keeps the chip label
+  // accurate immediately.
+  window.addEventListener('agixt-conversation-created', () => {
+    refreshConversations().catch((e) => console.warn('refreshConversations after create failed', e));
+  });
+  window.addEventListener('agixt-conversation-deleted', (ev) => {
+    const data = (ev && ev.detail) || {};
+    const id = data.conversation_id || data.id;
+    if (id) conversations = conversations.filter((c) => c.id !== id);
+    if (id && id === settings.conversation_id) {
+      // Active conversation was deleted out from under us — reset to a
+      // fresh placeholder so the user isn't staring at a dead thread.
+      startNewConversation().catch((e) => console.warn('reset after delete failed', e));
+    } else {
+      renderConversationList();
+    }
+  });
 
   // Live-update the conversation chip + cache when AGiXT renames a
   // conversation server-side. Chat.js forwards the WebSocket event as a
