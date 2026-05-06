@@ -3,9 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; img-src 'self' data: blob: https: http:; media-src 'self' data: blob: https: http:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http: https: ws: wss:; font-src 'self' data:;" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; img-src 'self' data: blob: https: http:; media-src 'self' data: blob: https: http:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http: https: ws: wss:; font-src 'self' data:;" />
     <title>AGiXT</title>
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="workspace.css" />
   </head>
   <body class="dock dock-popover">
     <!-- The window is hidden by default and only shown when the user
@@ -211,6 +212,12 @@
                       d="M21 11l-9 9a5 5 0 0 1-7.07-7.07l9-9a3.5 3.5 0 0 1 4.95 4.95l-9 9a2 2 0 0 1-2.83-2.83l8.49-8.49"/>
               </svg>
             </button>
+            <button class="icon-btn workspace-btn" id="btn-workspace" title="Open conversation workspace" aria-label="Open conversation workspace">
+              <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                      d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              </svg>
+            </button>
             <textarea
               id="composer-input"
               class="composer-input"
@@ -271,6 +278,12 @@
             <span class="field-label">Signed in as</span>
             <div id="settings-user" class="settings-user">—</div>
           </div>
+          <div class="field-actions">
+            <!-- Opens the dedicated Agent Settings window (extensions,
+                 connections, training). The desktop client's own settings
+                 (sudo, voice, etc) stay below in this modal. -->
+            <button class="btn btn-secondary" id="btn-open-agent-settings" type="button">Configure Agent…</button>
+          </div>
           <label class="field check">
             <input type="checkbox" id="setting-allow-commands" />
             <span>Allow this agent to control my desktop (screenshot, click, type, files)</span>
@@ -310,6 +323,14 @@
     <script src="chat.js"></script>
     <script src="auth.js"></script>
     <script src="dock.js"></script>
+    <!-- Workspace editor (vanilla JS port of web/.../workspace) -->
+    <script src="vendor/papaparse.min.js"></script>
+    <script src="vendor/xlsx.full.min.js"></script>
+    <script src="vendor/mammoth.browser.min.js"></script>
+    <script src="workspace-api.js"></script>
+    <script src="workspace-preview.js"></script>
+    <script src="workspace-models.js"></script>
+    <script src="workspace.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

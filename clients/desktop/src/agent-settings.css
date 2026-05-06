@@ -1,0 +1,471 @@
+/* Agent Settings window styles. Layered on top of styles.css for shared
+ * variables (colors, fonts, base button), then everything below is specific
+ * to the agent-settings.html shell.
+ */
+
+.as-body {
+  margin: 0;
+  min-height: 100vh;
+  background: rgb(15, 17, 24);
+  color: var(--text);
+  font-family: var(--font);
+  display: flex;
+  flex-direction: column;
+}
+
+.as-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 28px 0;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.as-header-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.as-title { font-size: 18px; font-weight: 600; margin: 0; letter-spacing: 0.2px; }
+.as-subtitle { font-size: 12.5px; color: var(--text-dim); }
+
+.as-tabs { display: flex; gap: 0; }
+.as-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.as-tab:hover { color: var(--text); }
+.as-tab.is-active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.as-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+.as-panel {
+  flex: 1;
+  display: none;
+  flex-direction: column;
+  min-height: 0;
+}
+.as-panel.is-active { display: flex; }
+
+.as-panel-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.as-panel-blurb { margin: 0; font-size: 13px; color: var(--text-dim); }
+
+.as-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 28px 28px;
+}
+
+.as-search-wrap { flex: 1; min-width: 240px; }
+.as-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.as-input:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+.as-input-narrow { width: 220px; flex: 0 0 auto; }
+
+.as-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.as-check input[type="checkbox"] { accent-color: var(--accent); }
+
+.as-stats {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-left: auto;
+}
+
+.as-empty {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+.as-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  max-width: 480px;
+  z-index: 9999;
+}
+.as-toast.success { border-color: rgba(98, 200, 134, 0.5); }
+.as-toast.error { border-color: rgba(255, 110, 110, 0.55); }
+
+/* ---------- Extensions tab ---------- */
+
+.ext-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 14px;
+}
+.ext-category {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.ext-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+}
+.ext-category-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+.ext-category-blurb {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin: 2px 0 0;
+  line-height: 1.4;
+}
+.ext-category-badges { display: flex; gap: 6px; flex-shrink: 0; }
+.ext-badge {
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  color: var(--text-faint);
+  background: rgba(255,255,255,0.03);
+}
+.ext-badge.ok { color: #62c886; border-color: rgba(98, 200, 134, 0.4); }
+.ext-badge.partial { color: #e0c168; border-color: rgba(224, 193, 104, 0.4); }
+.ext-badge.connected { color: var(--accent); border-color: rgba(107, 123, 255, 0.5); }
+
+.ext-category-body { padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+
+.ext-card {
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.02);
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+.ext-card[open], .ext-card:hover { background: var(--panel-2); border-color: var(--border); }
+
+.ext-card-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  list-style: none;
+  outline: none;
+}
+.ext-card-summary::-webkit-details-marker { display: none; }
+.ext-card-summary::marker { content: ""; }
+.ext-card-chevron {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--text-faint);
+  transition: transform 0.12s ease;
+}
+.ext-card[open] .ext-card-chevron { transform: rotate(90deg); }
+
+.ext-card-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ext-card-counts {
+  font-size: 11px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+.ext-card-conn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex-shrink: 0;
+}
+.ext-card-conn-dot.connected { background: #62c886; }
+
+.ext-card-body {
+  padding: 4px 12px 12px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ext-card-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.ext-card-desc p:first-child { margin-top: 0; }
+.ext-card-desc p:last-child { margin-bottom: 0; }
+.ext-card-desc code {
+  background: rgba(255,255,255,0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+.ext-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ext-bulk-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.ext-cmds {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.ext-cmd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+.ext-cmd-name { flex: 1; min-width: 0; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ext-cmd-name-tooltip { cursor: help; }
+
+.ext-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.ext-settings-row { display: flex; flex-direction: column; gap: 3px; }
+.ext-settings-label { font-size: 11px; color: var(--text-dim); }
+.ext-settings-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* Switch toggle (used in extension command list) */
+.as-switch {
+  position: relative;
+  display: inline-block;
+  width: 30px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.as-switch input { opacity: 0; width: 0; height: 0; }
+.as-switch-slider {
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.12);
+  border-radius: 16px;
+  transition: background 0.15s ease;
+  cursor: pointer;
+}
+.as-switch-slider::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+}
+.as-switch input:checked + .as-switch-slider { background: var(--accent); }
+.as-switch input:checked + .as-switch-slider::before { transform: translateX(14px); }
+.as-switch input:disabled + .as-switch-slider { opacity: 0.5; cursor: not-allowed; }
+
+/* ---------- Connections tab ---------- */
+
+.conn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.conn-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.conn-icon {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.conn-icon img { width: 22px; height: 22px; }
+.conn-icon-letter {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.conn-meta { flex: 1; min-width: 0; }
+.conn-name { font-size: 13px; font-weight: 500; }
+.conn-status { font-size: 11.5px; color: var(--text-faint); margin-top: 2px; }
+.conn-status.connected { color: #62c886; }
+.conn-actions { flex-shrink: 0; }
+
+/* ---------- Training tab ---------- */
+
+.as-section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+.as-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+.as-section-blurb {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin: 0 0 12px;
+  line-height: 1.45;
+}
+
+.as-textarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.as-textarea:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+
+.as-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.as-row-tight { gap: 6px; margin-top: 8px; }
+.as-row-end { justify-content: flex-end; }
+.as-row-between { justify-content: space-between; align-items: center; margin-top: 0; margin-bottom: 10px; }
+
+.as-progress {
+  margin-top: 10px;
+  width: 100%;
+  height: 8px;
+  background: var(--panel-2);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 0;
+  appearance: none;
+}
+.as-progress::-webkit-progress-bar { background: var(--panel-2); border-radius: 4px; }
+.as-progress::-webkit-progress-value { background: var(--accent); border-radius: 4px; transition: width 0.15s ease; }
+.as-progress::-moz-progress-bar { background: var(--accent); border-radius: 4px; }
+
+.as-status { font-size: 12px; color: var(--text-faint); }
+.as-status.success { color: #62c886; }
+.as-status.error { color: #ff8585; }
+
+.as-sources { display: flex; flex-direction: column; gap: 8px; }
+.as-source {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.as-source-icon {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: rgba(107, 123, 255, 0.15);
+  color: var(--accent);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.as-source-meta { flex: 1; min-width: 0; }
+.as-source-name {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.as-source-type { font-size: 11px; color: var(--text-faint); margin-top: 1px; }
+.as-source-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+.btn-icon-danger {
+  background: transparent;
+  border: 0;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 14px;
+}
+.btn-icon-danger:hover { background: rgba(255, 110, 110, 0.12); color: #ff8585; }
+
+/* Inherit `btn` and friends from styles.css. The agent-settings window
+ * uses .btn, .btn-primary, .btn-secondary which are already defined. */

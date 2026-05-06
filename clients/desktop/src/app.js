@@ -272,6 +272,12 @@
     });
     renderSelectors();
     reconnectChat();
+    // Notify peer windows (Agent Settings) so they can re-fetch for the
+    // newly active agent without requiring a manual reload.
+    if (event && event.emit) {
+      try { await event.emit('agixt-agent-changed', { agent_id: a.id, agent_name: a.name }); }
+      catch (e) { /* ignore — best-effort cross-window sync */ }
+    }
   }
 
   function filteredAgents() {
@@ -611,6 +617,37 @@
   }
 
   if (attachBtn) attachBtn.addEventListener('click', pickAttachments);
+
+  // Workspace toggle — opens the conversation workspace editor (1:1
+  // port of the web /chat?file=… view). Requires JWT + an active
+  // conversation; both are surfaced by `settings`.
+  const workspaceBtn = $('btn-workspace');
+  if (workspaceBtn) {
+    workspaceBtn.addEventListener('click', () => {
+      if (!window.AgixtWorkspace) return;
+      if (!settings || !settings.jwt) {
+        if (window.AgixtChat && window.AgixtChat.setComposerStatus) {
+          window.AgixtChat.setComposerStatus('Sign in first.', 'error');
+        }
+        return;
+      }
+      const conversationId = (window.AgixtChat && typeof window.AgixtChat.getConversationId === 'function')
+        ? window.AgixtChat.getConversationId()
+        : (settings && settings.conversation_id);
+      if (!conversationId || conversationId === '-') {
+        if (window.AgixtChat && window.AgixtChat.setComposerStatus) {
+          window.AgixtChat.setComposerStatus('Send a message first to create a conversation.', 'error');
+        }
+        return;
+      }
+      window.AgixtWorkspace.toggle({
+        serverUrl: settings.server_url,
+        jwt: settings.jwt,
+        agentName: (agents && agents[0] && agents[0].name) || 'XT',
+        conversationId,
+      });
+    });
+  }
 
   // Build the context block sent to the agent for the attached files.
   // Phrasing primes the model that the *user* attached them deliberately
@@ -967,6 +1004,17 @@
   settingsBtn.addEventListener('click', openSettings);
   settingsClose.addEventListener('click', closeSettings);
   saveSettingsBtn.addEventListener('click', onSaveSettings);
+  const openAgentSettingsBtn = $('btn-open-agent-settings');
+  if (openAgentSettingsBtn) {
+    openAgentSettingsBtn.addEventListener('click', async () => {
+      try {
+        await invoke('open_agent_settings');
+        closeSettings();
+      } catch (err) {
+        setSettingsStatus(err && err.error ? err.error : String(err), 'error');
+      }
+    });
+  }
   if (sudoAuthBtn) sudoAuthBtn.addEventListener('click', onSudoAuth);
   if (sudoClearBtn) sudoClearBtn.addEventListener('click', onSudoClear);
   if (sudoPasswordInput) {

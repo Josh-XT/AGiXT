@@ -31,6 +31,24 @@
         "center": true,
         "focus": true,
         "shadow": true
+      },
+      {
+        "label": "agent-settings",
+        "title": "Agent Settings",
+        "url": "agent-settings.html",
+        "width": 1100,
+        "height": 760,
+        "minWidth": 720,
+        "minHeight": 520,
+        "resizable": true,
+        "decorations": true,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "visible": false,
+        "center": true,
+        "focus": true,
+        "shadow": true
       }
     ],
     "security": {

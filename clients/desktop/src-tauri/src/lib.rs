@@ -389,6 +389,212 @@ async fn build_oauth_login_url(args: OAuthUrlArgs) -> ToolResult<OAuthUrlResult>
     })
 }
 
+/// Sibling of `build_oauth_login_url` for *extension* OAuth flows. Same
+/// redirect URI shape (`{web_url}/user/close/{slug}`) so we don't need new
+/// app-config registrations on the OAuth provider side, but tags the state
+/// param with `desktop_connect=1` so the web close page knows to hand the
+/// authorization `code` back to the desktop via `agixt://oauth-connect`
+/// instead of POSTing it itself (the browser doesn't have the desktop's
+/// JWT and couldn't authenticate the POST anyway).
+#[tauri::command]
+async fn build_oauth_connect_url(args: OAuthUrlArgs) -> ToolResult<OAuthUrlResult> {
+    let redirect_uri = args.redirect_uri.unwrap_or_else(|| {
+        format!(
+            "{}/user/close/{}",
+            args.web_url.trim_end_matches('/'),
+            api::redirect_slug_for(&args.provider.name),
+        )
+    });
+    let pkce = if args.provider.pkce_required {
+        Some(
+            api::pkce_challenge(&args.server_url)
+                .await
+                .map_err(ToolError::from)?,
+        )
+    } else {
+        None
+    };
+    // Carry the canonical provider name in the state so the deep-link
+    // handler doesn't have to reverse-engineer it from the slug. Format
+    // matches the close page's regex: `desktop_connect=1|provider=<name>`.
+    let state_payload = format!(
+        "desktop_connect=1|provider={}",
+        urlencode_state(&args.provider.name)
+    );
+    let url = api::build_oauth_url_with_state(
+        &args.provider,
+        &redirect_uri,
+        pkce.as_ref(),
+        Some(&state_payload),
+    );
+    Ok(OAuthUrlResult {
+        url,
+        redirect_uri,
+        pkce,
+    })
+}
+
+/// Bare percent-encode for state values. We can't pull `urlencode` out of
+/// `api.rs` (it's private), and OAuth state allowed-chars are conservative
+/// across providers, so we encode anything that isn't unreserved.
+fn urlencode_state(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
+/// Show the dedicated Agent Settings window. The window is declared in
+/// tauri.conf.json with `visible: false`; this command just promotes it,
+/// focuses it, and centers it (the user might've moved/hidden it earlier).
+#[tauri::command]
+async fn open_agent_settings(app: AppHandle) -> ToolResult<()> {
+    if let Some(win) = app.get_webview_window("agent-settings") {
+        let _ = win.show();
+        let _ = win.unminimize();
+        let _ = win.set_focus();
+        Ok(())
+    } else {
+        Err(ToolError {
+            error: "agent-settings window not found".into(),
+        })
+    }
+}
+
+/// Called when a `agixt://oauth-connect?provider=<name>&code=<code>` deep
+/// link arrives. The web close page hands us the authorization code; we
+/// POST it to `/v1/oauth2/{slug}` server-side using the desktop's JWT (the
+/// browser has no JWT for the desktop session) and emit
+/// `agixt-extension-connected` so the agent-settings window can refresh.
+async fn handle_deep_link_oauth_connect(
+    app: &AppHandle,
+    provider: Option<String>,
+    code: Option<String>,
+) {
+    let provider = match provider.filter(|p| !p.is_empty()) {
+        Some(p) => p,
+        None => {
+            tracing::warn!("agixt://oauth-connect missing provider");
+            let _ = app.emit(
+                "agixt-extension-connect-failed",
+                serde_json::json!({ "detail": "missing provider" }),
+            );
+            return;
+        }
+    };
+    let code = match code.filter(|c| !c.is_empty()) {
+        Some(c) => c,
+        None => {
+            tracing::warn!("agixt://oauth-connect missing code");
+            let _ = app.emit(
+                "agixt-extension-connect-failed",
+                serde_json::json!({ "provider": provider, "detail": "missing code" }),
+            );
+            return;
+        }
+    };
+    let state = match app.try_state::<AppState>() {
+        Some(s) => s,
+        None => {
+            tracing::warn!("oauth-connect deep link: no AppState");
+            return;
+        }
+    };
+    let (server_url, web_url, jwt) = {
+        let s = state.settings.lock().await;
+        (s.server_url.clone(), s.web_url.clone(), s.jwt.clone())
+    };
+    let jwt = match jwt {
+        Some(j) => j,
+        None => {
+            tracing::warn!("oauth-connect: no JWT — user not signed in");
+            let _ = app.emit(
+                "agixt-extension-connect-failed",
+                serde_json::json!({
+                    "provider": provider,
+                    "detail": "not signed in",
+                }),
+            );
+            return;
+        }
+    };
+    let slug = api::redirect_slug_for(&provider);
+    let referrer = format!("{}/user/close/{}", web_url.trim_end_matches('/'), slug);
+    let url = format!(
+        "{}/v1/oauth2/{}",
+        server_url.trim_end_matches('/'),
+        slug,
+    );
+    let client = match api::build_client() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("oauth-connect build_client: {e}");
+            let _ = app.emit(
+                "agixt-extension-connect-failed",
+                serde_json::json!({ "provider": provider, "detail": format!("client build: {e}") }),
+            );
+            return;
+        }
+    };
+    let body = serde_json::json!({ "code": code, "referrer": referrer });
+    let resp = client
+        .post(&url)
+        .bearer_auth(&jwt)
+        .json(&body)
+        .send()
+        .await;
+    let resp = match resp {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("oauth-connect POST failed: {e}");
+            let _ = app.emit(
+                "agixt-extension-connect-failed",
+                serde_json::json!({ "provider": provider, "detail": format!("network: {e}") }),
+            );
+            return;
+        }
+    };
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        // The close page treats `invalid_grant` as a benign duplicate (the
+        // code was already redeemed), and so do we — emit a success event
+        // so the UI doesn't strand the user.
+        let benign = text.contains("invalid_grant") || text.contains("Invalid");
+        if benign {
+            tracing::info!(
+                "oauth-connect: provider={} treated as success despite {status} (likely duplicate code)",
+                provider
+            );
+            let _ = app.emit(
+                "agixt-extension-connected",
+                serde_json::json!({ "provider": provider }),
+            );
+            return;
+        }
+        tracing::warn!("oauth-connect: provider={} http {status}: {text}", provider);
+        let _ = app.emit(
+            "agixt-extension-connect-failed",
+            serde_json::json!({
+                "provider": provider,
+                "detail": format!("HTTP {status}: {text}"),
+            }),
+        );
+        return;
+    }
+    tracing::info!("oauth-connect: provider={} success", provider);
+    let _ = app.emit(
+        "agixt-extension-connected",
+        serde_json::json!({ "provider": provider }),
+    );
+}
+
 /// Called when a `agixt://login?token=<jwt>` deep link arrives. Validates
 /// the token against the configured server's `/v1/user`, persists it to
 /// settings, and notifies the front-end that auth completed so the chat
@@ -2125,14 +2331,15 @@ pub fn run() {
                 });
             }
 
-            // Listen for `agixt://` deep links. These come in two flavors:
+            // Listen for `agixt://` deep links. These come in three flavors:
             //
-            //   agixt://login?token=<JWT>      — auto-sign-in after OAuth
-            //   agixt://open                    — just raise the popover
+            //   agixt://login?token=<JWT>                   — auto-sign-in after OAuth
+            //   agixt://oauth-connect?provider=&code=       — extension OAuth callback
+            //   agixt://open                                — just raise the popover
             //
             // The web client's `/user/close/{provider}` page redirects to
-            // `agixt://login?token=...` once it has exchanged the OAuth
-            // code for a JWT, so the user never has to copy-paste.
+            // these URLs once it has the authorization code, so the user
+            // never has to copy-paste.
             use tauri_plugin_deep_link::DeepLinkExt;
             let dl_handle = handle.clone();
             handle.deep_link().on_open_url(move |event| {
@@ -2153,17 +2360,33 @@ pub fn run() {
                             None
                         }
                     });
+                    let provider = url.query_pairs().find_map(|(k, v)| {
+                        if k == "provider" { Some(v.into_owned()) } else { None }
+                    });
+                    let code = url.query_pairs().find_map(|(k, v)| {
+                        if k == "code" { Some(v.into_owned()) } else { None }
+                    });
                     let app = dl_handle.clone();
                     tauri::async_runtime::spawn(async move {
                         if let Some(w) = app.get_webview_window(MAIN_LABEL) {
                             let _ = show_popover(&app, &w, None);
                         }
-                        if action == "login" {
-                            if let Some(tok) = token {
-                                handle_deep_link_login(&app, tok).await;
-                            } else {
-                                tracing::warn!("agixt://login received with no token");
+                        match action.as_str() {
+                            "login" => {
+                                if let Some(tok) = token {
+                                    handle_deep_link_login(&app, tok).await;
+                                } else {
+                                    tracing::warn!("agixt://login received with no token");
+                                }
                             }
+                            "oauth-connect" => {
+                                handle_deep_link_oauth_connect(&app, provider, code).await;
+                                if let Some(w) = app.get_webview_window("agent-settings") {
+                                    let _ = w.show();
+                                    let _ = w.set_focus();
+                                }
+                            }
+                            _ => {}
                         }
                     });
                 }
@@ -2302,6 +2525,8 @@ pub fn run() {
             register_account,
             login_with_jwt,
             build_oauth_login_url,
+            build_oauth_connect_url,
+            open_agent_settings,
             list_companies,
             list_agents,
             list_conversations,
