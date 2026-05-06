@@ -700,6 +700,7 @@
     recorder: null,
     stream: null,
     chunks: [],
+    native: false,
     state: 'idle', // 'idle' | 'recording' | 'busy'
   };
 
@@ -721,91 +722,47 @@
     return '';
   }
 
-  async function startRecording() {
-    if (micState.state !== 'idle') return;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      window.AgixtChat.setComposerStatus('Microphone API unavailable in this webview', 'error');
-      return;
+  function micErrorMessage(err) {
+    const message = err && err.error ? err.error : (err && err.message ? err.message : String(err || ''));
+    const name = err && err.name ? err.name : '';
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      return 'Microphone access denied — allow it in system settings';
     }
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (err) {
-      window.AgixtChat.setComposerStatus(
-        err && err.name === 'NotAllowedError'
-          ? 'Microphone access denied — allow it in system settings'
-          : `Mic error: ${err && err.message ? err.message : err}`,
-        'error',
-      );
-      return;
-    }
-    const mime = pickRecorderMime();
-    const recorder = mime
-      ? new MediaRecorder(stream, { mimeType: mime })
-      : new MediaRecorder(stream);
-    micState.stream = stream;
-    micState.recorder = recorder;
-    micState.chunks = [];
-    micState.cancelled = false;
-    recorder.addEventListener('dataavailable', (e) => {
-      if (e.data && e.data.size > 0) micState.chunks.push(e.data);
-    });
-    recorder.addEventListener('stop', handleRecordingStopped);
-    recorder.start();
-    setMicState('recording');
-    window.AgixtChat.setComposerStatus('Listening — tap mic again to send, Esc to cancel');
+    if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'No microphone detected';
+    if (name === 'NotReadableError') return 'Microphone is already in use by another app';
+    return message ? `Mic error: ${message}` : 'Microphone unavailable';
   }
 
-  function teardownRecorderStream() {
-    if (micState.stream) {
-      micState.stream.getTracks().forEach((t) => t.stop());
-      micState.stream = null;
-    }
+  function blobFromBase64(b64, mime) {
+    const bin = atob(b64 || '');
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: mime || 'audio/wav' });
   }
 
-  function stopRecording() {
-    const r = micState.recorder;
-    if (!r || micState.state !== 'recording') return;
-    setMicState('busy');
-    try { if (r.state !== 'inactive') r.stop(); } catch (e) { console.warn(e); }
+  function audioExtension(mime) {
+    const clean = (mime || 'audio/wav').split(';')[0].toLowerCase();
+    if (clean.includes('wav')) return 'wav';
+    if (clean.includes('mpeg') || clean.includes('mp3')) return 'mp3';
+    if (clean.includes('mp4') || clean.includes('m4a') || clean.includes('aac')) return 'm4a';
+    if (clean.includes('ogg')) return 'ogg';
+    if (clean.includes('webm')) return 'webm';
+    return (clean.split('/')[1] || 'wav').replace(/[^a-z0-9]/g, '') || 'wav';
   }
 
-  function cancelRecording() {
-    if (micState.state !== 'recording') return;
-    micState.cancelled = true;
-    const r = micState.recorder;
-    try { if (r && r.state !== 'inactive') r.stop(); } catch (_) { /* ignore */ }
-    teardownRecorderStream();
-    micState.recorder = null;
-    micState.chunks = [];
-    setMicState('idle');
-    window.AgixtChat.setComposerStatus('');
-  }
-
-  async function handleRecordingStopped() {
-    teardownRecorderStream();
-    const r = micState.recorder;
-    micState.recorder = null;
-    if (micState.cancelled) {
-      micState.chunks = [];
-      setMicState('idle');
-      return;
-    }
-    const mime = (r && r.mimeType) || 'audio/webm';
-    const blob = new Blob(micState.chunks, { type: mime });
-    micState.chunks = [];
+  async function transcribeAndSendBlob(blob, mime) {
     if (!blob.size) {
       setMicState('idle');
       window.AgixtChat.setComposerStatus('No audio captured', 'error');
       return;
     }
+
     setMicState('busy');
     window.AgixtChat.setComposerStatus('Transcribing…');
     let transcript = '';
     try {
-      const ext = (mime.split('/')[1] || 'webm').split(';')[0];
       const fd = new FormData();
-      fd.append('file', blob, `recording.${ext}`);
+      fd.append('file', blob, `recording.${audioExtension(mime)}`);
       // AGiXT keys the transcription to the active agent via the `model`
       // form field — same convention as /v1/chat/completions.
       fd.append('model', settings.agent_name || 'XT');
@@ -829,23 +786,158 @@
       );
       return;
     }
+
     transcript = (transcript || '').trim();
     if (!transcript) {
       setMicState('idle');
       window.AgixtChat.setComposerStatus("Couldn't hear anything", 'error');
       return;
     }
+
     composerInput.value = transcript;
     autoResize();
     setMicState('idle');
+    window.AgixtChat.setComposerStatus('Voice sent.');
+    const sendPromise = sendCurrent();
+    setTimeout(() => {
+      if (micState.state === 'idle') window.AgixtChat.setComposerStatus('');
+    }, 1400);
+    await sendPromise;
+  }
+
+  async function startNativeRecording() {
+    try {
+      const info = await invoke('voice_start_recording');
+      micState.native = true;
+      micState.cancelled = false;
+      setMicState('recording');
+      const label = info && info.device_name ? ` (${info.device_name})` : '';
+      window.AgixtChat.setComposerStatus(`Listening${label} — tap mic again to send, Esc to cancel`);
+      frontendLog('info', 'native voice recording started', JSON.stringify(info || {}));
+      return true;
+    } catch (err) {
+      micState.native = false;
+      frontendLog('warn', 'native voice recording unavailable', err && (err.error || err.message || String(err)));
+      return false;
+    }
+  }
+
+  async function startRecording() {
+    if (micState.state !== 'idle') return;
+    if (!settings) await loadSettings();
+    if (await startNativeRecording()) return;
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      window.AgixtChat.setComposerStatus('Microphone API unavailable in this webview', 'error');
+      return;
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      window.AgixtChat.setComposerStatus(micErrorMessage(err), 'error');
+      return;
+    }
+    const mime = pickRecorderMime();
+    const recorder = mime
+      ? new MediaRecorder(stream, { mimeType: mime })
+      : new MediaRecorder(stream);
+    micState.stream = stream;
+    micState.recorder = recorder;
+    micState.chunks = [];
+    micState.native = false;
+    micState.cancelled = false;
+    recorder.addEventListener('dataavailable', (e) => {
+      if (e.data && e.data.size > 0) micState.chunks.push(e.data);
+    });
+    recorder.addEventListener('stop', handleRecordingStopped);
+    recorder.start(250);
+    setMicState('recording');
+    window.AgixtChat.setComposerStatus('Listening — tap mic again to send, Esc to cancel');
+  }
+
+  function teardownRecorderStream() {
+    if (micState.stream) {
+      micState.stream.getTracks().forEach((t) => t.stop());
+      micState.stream = null;
+    }
+  }
+
+  async function stopRecording() {
+    if (micState.state !== 'recording') return;
+    setMicState('busy');
+    if (micState.native) {
+      try {
+        window.AgixtChat.setComposerStatus('Transcribing…');
+        const result = await invoke('voice_stop_recording');
+        micState.native = false;
+        const blob = blobFromBase64(result.audio_base64, result.mime_type);
+        await transcribeAndSendBlob(blob, result.mime_type);
+      } catch (err) {
+        micState.native = false;
+        setMicState('idle');
+        window.AgixtChat.setComposerStatus(micErrorMessage(err), 'error');
+        frontendLog('error', 'native voice stop failed', err && (err.error || err.message || String(err)));
+      }
+      return;
+    }
+
+    const r = micState.recorder;
+    if (!r) {
+      setMicState('idle');
+      return;
+    }
+    try {
+      if (r.state !== 'inactive') {
+        if (typeof r.requestData === 'function') {
+          try { r.requestData(); } catch (_) { /* optional */ }
+        }
+        r.stop();
+      }
+    } catch (e) {
+      console.warn(e);
+      setMicState('idle');
+    }
+  }
+
+  async function cancelRecording() {
+    if (micState.state !== 'recording') return;
+    micState.cancelled = true;
+    if (micState.native) {
+      try { await invoke('voice_cancel_recording'); } catch (_) { /* ignore */ }
+      micState.native = false;
+      setMicState('idle');
+      window.AgixtChat.setComposerStatus('');
+      return;
+    }
+    const r = micState.recorder;
+    try { if (r && r.state !== 'inactive') r.stop(); } catch (_) { /* ignore */ }
+    teardownRecorderStream();
+    micState.recorder = null;
+    micState.chunks = [];
+    setMicState('idle');
     window.AgixtChat.setComposerStatus('');
-    sendCurrent();
+  }
+
+  async function handleRecordingStopped() {
+    teardownRecorderStream();
+    const r = micState.recorder;
+    micState.recorder = null;
+    if (micState.cancelled) {
+      micState.chunks = [];
+      setMicState('idle');
+      return;
+    }
+    const mime = (r && r.mimeType) || 'audio/webm';
+    const blob = new Blob(micState.chunks, { type: mime });
+    micState.chunks = [];
+    await transcribeAndSendBlob(blob, mime);
   }
 
   if (micBtn) {
-    micBtn.addEventListener('click', () => {
-      if (micState.state === 'recording') stopRecording();
-      else if (micState.state === 'idle') startRecording();
+    micBtn.addEventListener('click', async () => {
+      if (micState.state === 'recording') await stopRecording();
+      else if (micState.state === 'idle') await startRecording();
     });
   }
 
@@ -854,7 +946,7 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && micState.state === 'recording') {
       e.preventDefault();
-      cancelRecording();
+      void cancelRecording();
     }
   });
 

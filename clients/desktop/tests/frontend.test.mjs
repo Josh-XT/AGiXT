@@ -247,6 +247,49 @@ test('app: sudo auth button primes privileged command session', async () => {
   window.AgixtChat.disconnect();
 });
 
+test('app: mic uses native recorder before browser MediaRecorder fallback', async () => {
+  const { window, calls } = loadFullApp({
+    ipc: {
+      voice_start_recording: async () => ({
+        device_name: 'Test Mic',
+        sample_rate: 48000,
+        channels: 1,
+      }),
+      voice_stop_recording: async () => ({
+        audio_base64: Buffer.from('fake wav bytes').toString('base64'),
+        mime_type: 'audio/wav',
+        size_bytes: 14,
+        duration_ms: 750,
+        sample_count: 36000,
+        sample_rate: 48000,
+        channels: 1,
+      }),
+    },
+  });
+  window.fetch = async (url, opts) => {
+    assert.match(url, /\/v1\/audio\/transcriptions$/);
+    assert.equal(opts.method, 'POST');
+    return { ok: true, json: async () => ({ text: 'Can you click the spotify icon?' }) };
+  };
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const mic = window.document.getElementById('btn-mic');
+  mic.click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(mic.getAttribute('data-state'), 'recording');
+  assert.match(window.document.getElementById('composer-status').textContent, /Test Mic/);
+
+  mic.click();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  assert.equal(calls.filter((c) => c.cmd === 'voice_start_recording').length, 1);
+  assert.equal(calls.filter((c) => c.cmd === 'voice_stop_recording').length, 1);
+  const sends = calls.filter((c) => c.cmd === 'chat_send');
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0].args.args.messages[0].content, 'Can you click the spotify icon?');
+  window.AgixtChat.disconnect();
+});
+
 test('client-actions: desktop_screenshot routes to terminal IPC', async () => {
   const { window, calls } = loadFrontend({
     ipc: {

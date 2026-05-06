@@ -20,6 +20,7 @@ pub mod filesystem;
 pub mod hardware;
 pub mod local_install;
 pub mod terminal;
+pub mod voice;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -49,6 +50,7 @@ pub struct AppState {
     pub store: Arc<ConfigStore>,
     pub settings: Mutex<DesktopSettings>,
     pub terminals: Arc<terminal::TerminalManager>,
+    pub voice: Arc<voice::VoiceRecorder>,
     pub sudo_keepalive: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// Set to `true` for ~400ms after a programmatic show to keep the
     /// blur handler from immediately re-hiding the popover when the
@@ -130,6 +132,27 @@ async fn logout(state: State<'_, AppState>) -> ToolResult<()> {
     current.conversation_name = None;
     state.store.save(&current).await.map_err(ToolError::from)?;
     Ok(())
+}
+
+// --------------------------------------------------------------------------
+// Native voice recording
+// --------------------------------------------------------------------------
+
+#[tauri::command]
+async fn voice_start_recording(
+    state: State<'_, AppState>,
+) -> ToolResult<voice::VoiceStartResponse> {
+    state.voice.start().map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn voice_stop_recording(state: State<'_, AppState>) -> ToolResult<voice::VoiceStopResponse> {
+    state.voice.stop().map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn voice_cancel_recording(state: State<'_, AppState>) -> ToolResult<()> {
+    state.voice.cancel().map_err(ToolError::from)
 }
 
 // --------------------------------------------------------------------------
@@ -2065,6 +2088,7 @@ pub fn run() {
                 store: Arc::new(store),
                 settings: Mutex::new(settings),
                 terminals: Arc::new(terminal::TerminalManager::new()),
+                voice: Arc::new(voice::VoiceRecorder::new()),
                 sudo_keepalive: Mutex::new(None),
                 suppress_blur_hide: Arc::new(AtomicBool::new(false)),
             });
@@ -2264,6 +2288,9 @@ pub fn run() {
             get_settings,
             save_settings,
             logout,
+            voice_start_recording,
+            voice_stop_recording,
+            voice_cancel_recording,
             list_service_brands,
             check_local_agixt,
             detect_hardware,
