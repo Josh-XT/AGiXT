@@ -582,17 +582,17 @@
     }
 
     // On Linux, AGiXT/ezLocalai may need to install Docker or the
-    // NVIDIA Container Toolkit, which means sudo. Cache creds first
-    // via the existing sudo_auth helper if the user provided a
-    // password. If they leave it blank, proceed anyway — the install
-    // will surface the missing-sudo failure in the log.
+    // NVIDIA Container Toolkit, which means sudo. Remember validated sudo
+    // credentials first via the existing sudo_auth helper if the user provided
+    // a password. If they leave it blank, proceed anyway — the install will
+    // surface the missing-sudo failure in the log.
     if (hardwareCache && hardwareCache.os === 'linux') {
       const pwField = $('local-sudo-password');
       const pw = pwField ? pwField.value : '';
       if (pw) {
         try {
           await invoke('sudo_auth', { password: pw });
-          appendLocalLog('▶ Sudo session authenticated (Docker / toolkit installs covered).', 'phase');
+          appendLocalLog('▶ Sudo password remembered (Docker / toolkit installs covered).', 'phase');
         } catch (e) {
           appendLocalLog(`✗ sudo authentication failed: ${prettyError(e)}`, 'err');
         }

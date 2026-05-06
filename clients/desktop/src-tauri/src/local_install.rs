@@ -22,11 +22,11 @@
 //!
 //! Sudo on Linux: AGiXT's Docker install and ezLocalai's NVIDIA
 //! Container Toolkit install both shell out to `sudo apt-get install`.
-//! When the caller has authenticated via `sudo_auth` first, sudo's
-//! cached credentials carry into the child processes — no TTY prompt
-//! needed. Without that cache, the install will still proceed up to
-//! the point sudo is required and then fail with a useful error in
-//! the install log.
+//! When the caller has authenticated via `sudo_auth` first, AGiXT Desktop
+//! stores the validated sudo password in the OS credential store and refreshes
+//! sudo before privileged child processes — no TTY prompt needed. Without
+//! that password, the install will still proceed up to the point sudo is
+//! required and then fail with a useful error in the install log.
 
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};

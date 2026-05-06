@@ -192,7 +192,12 @@
     try {
       const result = await invoke('sudo_status');
       if (result && result.authenticated) {
-        setSudoSessionStatus('Authenticated.', 'success');
+        setSudoSessionStatus(
+          result.remembered ? 'Authenticated and remembered.' : 'Authenticated for this session.',
+          'success',
+        );
+      } else if (result && result.remembered) {
+        setSudoSessionStatus('Remembered password needs re-authentication.', 'error');
       } else {
         setSudoSessionStatus('Needs authentication.');
       }
@@ -298,7 +303,7 @@
     try {
       await invoke('sudo_auth', { password });
       sudoPasswordInput.value = '';
-      setSudoSessionStatus('Authenticated.', 'success');
+      setSudoSessionStatus('Authenticated and remembered.', 'success');
       if (pendingDesktopUpdateInstall) {
         pendingDesktopUpdateInstall = false;
         await installDesktopUpdate(true);

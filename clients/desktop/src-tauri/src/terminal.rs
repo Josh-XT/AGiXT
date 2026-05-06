@@ -33,6 +33,8 @@ use tokio::io::AsyncWriteExt;
 
 const MAX_BUFFER_BYTES: usize = 1_048_576; // 1 MiB per session
 const READ_CHUNK: usize = 4096;
+#[cfg(not(target_os = "windows"))]
+const SUDO_KEYRING_SERVICE: &str = "AGiXT Desktop Privileged Commands";
 
 /// One PTY-backed shell session.
 struct Session {
@@ -293,6 +295,78 @@ pub async fn sudo_validate(password: String) -> Result<ShellRunResult> {
     .await
 }
 
+#[cfg(not(target_os = "windows"))]
+fn sudo_keyring_user() -> String {
+    env::var("USER")
+        .or_else(|_| env::var("LOGNAME"))
+        .unwrap_or_else(|_| "local-user".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn sudo_keyring_entry() -> Result<keyring::Entry> {
+    keyring::Entry::new(SUDO_KEYRING_SERVICE, &sudo_keyring_user())
+        .context("open sudo password credential")
+}
+
+#[cfg(not(target_os = "windows"))]
+pub async fn sudo_stored_password() -> Result<Option<String>> {
+    tokio::task::spawn_blocking(|| {
+        let entry = sudo_keyring_entry()?;
+        match entry.get_password() {
+            Ok(password) => Ok(Some(password)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(anyhow!(e).context("read stored sudo password")),
+        }
+    })
+    .await
+    .context("join sudo credential read")?
+}
+
+#[cfg(target_os = "windows")]
+pub async fn sudo_stored_password() -> Result<Option<String>> {
+    Ok(None)
+}
+
+pub async fn sudo_password_is_stored() -> Result<bool> {
+    Ok(sudo_stored_password().await?.is_some())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub async fn sudo_store_password(password: String) -> Result<()> {
+    tokio::task::spawn_blocking(move || {
+        let entry = sudo_keyring_entry()?;
+        entry
+            .set_password(&password)
+            .map_err(|e| anyhow!(e))
+            .context("store sudo password")
+    })
+    .await
+    .context("join sudo credential write")?
+}
+
+#[cfg(target_os = "windows")]
+pub async fn sudo_store_password(_password: String) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub async fn sudo_delete_stored_password() -> Result<()> {
+    tokio::task::spawn_blocking(|| {
+        let entry = sudo_keyring_entry()?;
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(anyhow!(e).context("delete stored sudo password")),
+        }
+    })
+    .await
+    .context("join sudo credential delete")?
+}
+
+#[cfg(target_os = "windows")]
+pub async fn sudo_delete_stored_password() -> Result<()> {
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 pub async fn sudo_validate(_password: String) -> Result<ShellRunResult> {
     Ok(ShellRunResult {
@@ -322,6 +396,23 @@ pub async fn sudo_refresh() -> Result<ShellRunResult> {
     })
 }
 
+pub async fn sudo_refresh_or_restore() -> Result<ShellRunResult> {
+    let result = sudo_refresh().await?;
+    if result.exit_code == 0 {
+        return Ok(result);
+    }
+
+    let Some(password) = sudo_stored_password().await? else {
+        return Ok(result);
+    };
+    let restored = sudo_validate(password).await?;
+    if restored.exit_code == 0 {
+        Ok(restored)
+    } else {
+        Ok(result)
+    }
+}
+
 #[cfg(not(target_os = "windows"))]
 pub async fn sudo_clear() -> Result<ShellRunResult> {
     let mut cmd = tokio::process::Command::new("sudo");
@@ -341,10 +432,9 @@ pub async fn sudo_clear() -> Result<ShellRunResult> {
 }
 
 pub async fn sudo_run(command: String, timeout_ms: u64) -> Result<ShellRunResult> {
-    let timeout_ms = timeout_ms.clamp(100, 1_800_000);
-
     #[cfg(not(target_os = "windows"))]
     {
+        let timeout_ms = timeout_ms.clamp(100, 1_800_000);
         let mut cmd = tokio::process::Command::new("sudo");
         cmd.arg("-n").arg("sh").arg("-c").arg(&command);
         run_process(format!("sudo {command}"), cmd, timeout_ms, None).await
@@ -352,6 +442,7 @@ pub async fn sudo_run(command: String, timeout_ms: u64) -> Result<ShellRunResult
 
     #[cfg(target_os = "windows")]
     {
+        let _ = timeout_ms;
         Ok(ShellRunResult {
             command: format!("sudo {command}"),
             stdout: String::new(),
@@ -360,6 +451,26 @@ pub async fn sudo_run(command: String, timeout_ms: u64) -> Result<ShellRunResult
             timed_out: false,
         })
     }
+}
+
+pub async fn sudo_run_with_stored_password(
+    command: String,
+    timeout_ms: u64,
+) -> Result<ShellRunResult> {
+    let result = sudo_run(command.clone(), timeout_ms).await?;
+    if !sudo_auth_required(&result) {
+        return Ok(result);
+    }
+
+    let Some(password) = sudo_stored_password().await? else {
+        return Ok(result);
+    };
+    let refreshed = sudo_validate(password).await?;
+    if refreshed.exit_code != 0 {
+        return Ok(result);
+    }
+
+    sudo_run(command, timeout_ms).await
 }
 
 pub fn sudo_auth_required(result: &ShellRunResult) -> bool {

@@ -276,8 +276,8 @@ test('app: composer enter and send button call chat_send', async () => {
 test('app: sudo auth button primes privileged command session', async () => {
   const { window, calls } = loadFullApp({
     ipc: {
-      sudo_status: async () => ({ authenticated: false }),
-      sudo_auth: async () => ({ authenticated: true }),
+      sudo_status: async () => ({ authenticated: false, remembered: false }),
+      sudo_auth: async () => ({ authenticated: true, remembered: true }),
     },
   });
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -293,7 +293,7 @@ test('app: sudo auth button primes privileged command session', async () => {
   const authCall = calls.find((c) => c.cmd === 'sudo_auth');
   assert.equal(authCall.args.password, 'secret');
   assert.equal(input.value, '');
-  assert.equal(window.document.getElementById('sudo-session-status').textContent, 'Authenticated.');
+  assert.equal(window.document.getElementById('sudo-session-status').textContent, 'Authenticated and remembered.');
   window.AgixtChat.disconnect();
 });
 

@@ -303,7 +303,7 @@
               <button class="btn btn-primary" id="btn-install-desktop-update" type="button" hidden>Install update</button>
               <span class="sudo-session-status" id="desktop-update-status">Not checked.</span>
             </div>
-            <span class="field-hint">Linux updates use the Privileged Commands sudo session to install the downloaded .deb.</span>
+            <span class="field-hint">Linux updates use the remembered Privileged Commands sudo password to install the downloaded .deb.</span>
           </div>
           <div class="field sudo-session">
             <span class="field-label">Privileged commands</span>
@@ -312,10 +312,10 @@
               <button class="btn btn-primary" id="btn-sudo-auth" type="button">Authenticate</button>
             </div>
             <div class="sudo-session-row sudo-session-actions">
-              <button class="btn btn-secondary" id="btn-sudo-clear" type="button">Forget sudo session</button>
+              <button class="btn btn-secondary" id="btn-sudo-clear" type="button">Forget sudo password</button>
               <span class="sudo-session-status" id="sudo-session-status">Not checked.</span>
             </div>
-            <span class="field-hint">Used only to refresh sudo for this app session. The password is not saved.</span>
+            <span class="field-hint">Saved in your operating system credential store and used only for AGiXT Desktop sudo commands.</span>
           </div>
           <div class="field-actions">
             <button class="btn btn-danger" id="btn-logout">Log out</button>

@@ -71,11 +71,11 @@ pub fn all() -> Vec<Value> {
              through sudo and return stdout/stderr/exit_code. Use this for \
              installs, package-manager operations, writing protected system \
              paths, service management, and other admin tasks. The desktop app \
-             keeps an in-memory sudo session after the user authenticates once \
-             in Settings. Do not include `sudo` inside the command string; this \
-             tool adds it. If it returns SUDO_AUTH_REQUIRED, ask the user to \
-             authenticate Privileged Commands in AGiXT Desktop settings, then \
-             retry.",
+             stores the validated sudo password in the operating system \
+             credential store after the user authenticates once in Settings. \
+             Do not include `sudo` inside the command string; this tool adds \
+             it. If it returns SUDO_AUTH_REQUIRED, ask the user to authenticate \
+             Privileged Commands in AGiXT Desktop settings, then retry.",
             json!({
                 "type": "object",
                 "properties": {

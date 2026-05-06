@@ -189,14 +189,14 @@ async fn ensure_linux_update_sudo_ready() -> anyhow::Result<()> {
     if !cfg!(target_os = "linux") {
         return Ok(());
     }
-    let result = terminal::sudo_refresh()
+    let result = terminal::sudo_refresh_or_restore()
         .await
         .context("check desktop update sudo session")?;
     if result.exit_code == 0 {
         return Ok(());
     }
     return Err(anyhow!(
-        "SUDO_AUTH_REQUIRED: Authenticate the Privileged Commands sudo session once, then retry installing the desktop update."
+        "SUDO_AUTH_REQUIRED: Authenticate Privileged Commands once so AGiXT Desktop can remember the sudo password, then retry installing the desktop update."
     ));
 }
 
@@ -373,12 +373,12 @@ async fn install_linux_update(path: PathBuf) -> anyhow::Result<DesktopUpdateInst
         "DEBIAN_FRONTEND=noninteractive apt-get install -y {}",
         shell_quote(&path.display().to_string())
     );
-    let result = terminal::sudo_run(command.clone(), 1_800_000)
+    let result = terminal::sudo_run_with_stored_password(command.clone(), 1_800_000)
         .await
         .context("run desktop update installer")?;
     if terminal::sudo_auth_required(&result) {
         return Err(anyhow!(
-            "SUDO_AUTH_REQUIRED: Authenticate the Privileged Commands sudo session once, then retry installing the desktop update."
+            "SUDO_AUTH_REQUIRED: Authenticate Privileged Commands once so AGiXT Desktop can remember the sudo password, then retry installing the desktop update."
         ));
     }
     if result.exit_code != 0 {

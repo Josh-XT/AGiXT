@@ -50,6 +50,7 @@ once_cell = "1"
 url = "2"
 cpal = "0.15"
 hound = "3.5"
+keyring = { version = "3.6.3", default-features = false, features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
 
 # Desktop input automation (mouse, keyboard) — feature-gated to allow building
 # headless on machines without X11/Wayland display libs.

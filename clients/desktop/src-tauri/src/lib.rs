@@ -1588,6 +1588,7 @@ async fn shell_run(
 #[derive(Debug, Serialize)]
 pub struct SudoStatus {
     pub authenticated: bool,
+    pub remembered: bool,
 }
 
 fn sudo_error_from_result(result: &terminal::ShellRunResult) -> String {
@@ -1601,36 +1602,7 @@ fn sudo_error_from_result(result: &terminal::ShellRunResult) -> String {
     format!("{detail}")
 }
 
-#[tauri::command]
-async fn sudo_status(state: State<'_, AppState>) -> ToolResult<SudoStatus> {
-    require_client_commands(&state).await?;
-    let result = terminal::sudo_refresh().await.map_err(ToolError::from)?;
-    Ok(SudoStatus {
-        authenticated: result.exit_code == 0,
-    })
-}
-
-#[tauri::command]
-async fn sudo_auth(state: State<'_, AppState>, password: String) -> ToolResult<SudoStatus> {
-    require_client_commands(&state).await?;
-    if password.is_empty() {
-        return Err(ToolError {
-            error: "sudo password is required".into(),
-        });
-    }
-
-    let result = terminal::sudo_validate(password)
-        .await
-        .map_err(ToolError::from)?;
-    if result.exit_code != 0 {
-        return Err(ToolError {
-            error: format!(
-                "sudo authentication failed: {}",
-                sudo_error_from_result(&result)
-            ),
-        });
-    }
-
+async fn restart_sudo_keepalive(state: &State<'_, AppState>) {
     let mut keepalive = state.sudo_keepalive.lock().await;
     if let Some(handle) = keepalive.take() {
         handle.abort();
@@ -1638,7 +1610,7 @@ async fn sudo_auth(state: State<'_, AppState>, password: String) -> ToolResult<S
     *keepalive = Some(tokio::spawn(async {
         loop {
             tokio::time::sleep(Duration::from_secs(60)).await;
-            match terminal::sudo_refresh().await {
+            match terminal::sudo_refresh_or_restore().await {
                 Ok(result) if result.exit_code == 0 => {}
                 Ok(result) => {
                     tracing::warn!(
@@ -1655,9 +1627,55 @@ async fn sudo_auth(state: State<'_, AppState>, password: String) -> ToolResult<S
             }
         }
     }));
+}
+
+#[tauri::command]
+async fn sudo_status(state: State<'_, AppState>) -> ToolResult<SudoStatus> {
+    require_client_commands(&state).await?;
+    let result = terminal::sudo_refresh_or_restore()
+        .await
+        .map_err(ToolError::from)?;
+    let remembered = terminal::sudo_password_is_stored()
+        .await
+        .map_err(ToolError::from)?;
+    if result.exit_code == 0 {
+        restart_sudo_keepalive(&state).await;
+    }
+    Ok(SudoStatus {
+        authenticated: result.exit_code == 0,
+        remembered,
+    })
+}
+
+#[tauri::command]
+async fn sudo_auth(state: State<'_, AppState>, password: String) -> ToolResult<SudoStatus> {
+    require_client_commands(&state).await?;
+    if password.is_empty() {
+        return Err(ToolError {
+            error: "sudo password is required".into(),
+        });
+    }
+
+    let result = terminal::sudo_validate(password.clone())
+        .await
+        .map_err(ToolError::from)?;
+    if result.exit_code != 0 {
+        return Err(ToolError {
+            error: format!(
+                "sudo authentication failed: {}",
+                sudo_error_from_result(&result)
+            ),
+        });
+    }
+
+    terminal::sudo_store_password(password)
+        .await
+        .map_err(ToolError::from)?;
+    restart_sudo_keepalive(&state).await;
 
     Ok(SudoStatus {
         authenticated: true,
+        remembered: true,
     })
 }
 
@@ -1669,9 +1687,13 @@ async fn sudo_clear(state: State<'_, AppState>) -> ToolResult<SudoStatus> {
         handle.abort();
     }
     drop(keepalive);
+    terminal::sudo_delete_stored_password()
+        .await
+        .map_err(ToolError::from)?;
     terminal::sudo_clear().await.map_err(ToolError::from)?;
     Ok(SudoStatus {
         authenticated: false,
+        remembered: false,
     })
 }
 
@@ -1682,12 +1704,12 @@ async fn sudo_run(
     timeout_ms: Option<u64>,
 ) -> ToolResult<terminal::ShellRunResult> {
     require_client_commands(&state).await?;
-    let result = terminal::sudo_run(command, timeout_ms.unwrap_or(600_000))
+    let result = terminal::sudo_run_with_stored_password(command, timeout_ms.unwrap_or(600_000))
         .await
         .map_err(ToolError::from)?;
     if terminal::sudo_auth_required(&result) {
         return Err(ToolError {
-            error: "SUDO_AUTH_REQUIRED: Open AGiXT Desktop settings, authenticate the Privileged Commands sudo session once, then retry the sudo_run tool."
+            error: "SUDO_AUTH_REQUIRED: Open AGiXT Desktop settings, authenticate Privileged Commands once so AGiXT Desktop can remember the sudo password, then retry the sudo_run tool."
                 .into(),
         });
     }
@@ -1898,10 +1920,12 @@ fn linux_show(win: &WebviewWindow) -> bool {
 }
 
 #[cfg(not(target_os = "linux"))]
+#[allow(dead_code)]
 fn linux_hide(_: &WebviewWindow) -> bool {
     false
 }
 #[cfg(not(target_os = "linux"))]
+#[allow(dead_code)]
 fn linux_show(_: &WebviewWindow) -> bool {
     false
 }

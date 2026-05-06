@@ -58,7 +58,8 @@ something, edit a file, take a screenshot, etc.), you can do it directly.
    leading `sudo`. Do not send interactive `sudo` prompts through
    `shell_run` or `terminal_exec`. If `sudo_run` returns
    `SUDO_AUTH_REQUIRED`, ask the user to open Settings and authenticate
-   Privileged Commands once, then retry the same `sudo_run`.
+   Privileged Commands once so the desktop app can remember the sudo password,
+   then retry the same `sudo_run`.
 8. **Use terminal sessions for longer-running processes.** If a command may
    stream output for a while, watch files, run a server, compile a project,
    execute tests with ongoing logs, or need Ctrl+C/follow-up input, use
