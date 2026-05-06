@@ -63,6 +63,7 @@ portable-pty = "0.8"
 # popover as a Utility window (i.e., never tile-snap it).
 gtk = "0.18"
 gdk = "0.18"
+webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
 
 [features]
 default = ["automation"]

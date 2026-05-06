@@ -1580,6 +1580,52 @@ fn promote_to_utility(win: &WebviewWindow) {
 #[cfg(not(target_os = "linux"))]
 fn promote_to_utility(_: &WebviewWindow) {}
 
+/// WebKitGTK does not show a browser-style permission prompt for
+/// getUserMedia in this app shell, so approve microphone/camera capture
+/// requests from our bundled UI explicitly.
+#[cfg(target_os = "linux")]
+fn configure_media_capture(win: &WebviewWindow) {
+    let label = win.label().to_string();
+    if let Err(e) = win.with_webview(move |webview| {
+        use webkit2gtk::glib::prelude::*;
+        use webkit2gtk::{
+            PermissionRequestExt, SettingsExt, UserMediaPermissionRequestExt, WebViewExt,
+        };
+
+        let inner = webview.inner();
+        if let Some(settings) = inner.settings() {
+            settings.set_enable_media(true);
+            settings.set_enable_media_stream(true);
+            settings.set_enable_webrtc(true);
+        }
+
+        inner.connect_permission_request(move |_webview, request| {
+            let Some(media_request) =
+                request.dynamic_cast_ref::<webkit2gtk::UserMediaPermissionRequest>()
+            else {
+                return false;
+            };
+
+            let wants_audio = media_request.is_for_audio_device();
+            let wants_video = media_request.is_for_video_device();
+            if wants_audio || wants_video {
+                tracing::info!(
+                    "allowing WebKit user-media request for {label}: audio={wants_audio}, video={wants_video}"
+                );
+                request.allow();
+                true
+            } else {
+                false
+            }
+        });
+    }) {
+        tracing::warn!("configure_media_capture with_webview err: {e}");
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn configure_media_capture(_: &WebviewWindow) {}
+
 /// Linux-specific hide via gtk_widget_hide on the underlying GtkWindow.
 /// Tauri 2's `WebviewWindow::hide` and `minimize` have both proven
 /// unreliable on this Ubuntu+mutter+AppIndicator stack — the former no-ops
@@ -2037,6 +2083,7 @@ pub fn run() {
             let _ = initial_visible;
             let handle = app.handle().clone();
             if let Some(win) = app.get_webview_window(MAIN_LABEL) {
+                configure_media_capture(&win);
                 promote_to_utility(&win);
                 let _ = position_popover(&handle, &win, None);
                 let _ = win.show();

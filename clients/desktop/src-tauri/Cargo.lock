@@ -44,6 +44,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "webkit2gtk",
  "wiremock",
 ]
 
