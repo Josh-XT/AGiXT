@@ -20,6 +20,7 @@ pub mod filesystem;
 pub mod hardware;
 pub mod local_install;
 pub mod terminal;
+pub mod updater;
 pub mod voice;
 
 use std::sync::atomic::AtomicBool;
@@ -132,6 +133,20 @@ async fn logout(state: State<'_, AppState>) -> ToolResult<()> {
     current.conversation_name = None;
     state.store.save(&current).await.map_err(ToolError::from)?;
     Ok(())
+}
+
+// --------------------------------------------------------------------------
+// Desktop app updates
+// --------------------------------------------------------------------------
+
+#[tauri::command]
+async fn desktop_update_check() -> ToolResult<updater::DesktopUpdateStatus> {
+    updater::check().await.map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn desktop_update_install() -> ToolResult<updater::DesktopUpdateInstallResult> {
+    updater::install().await.map_err(ToolError::from)
 }
 
 // --------------------------------------------------------------------------
@@ -526,11 +541,7 @@ async fn handle_deep_link_oauth_connect(
     };
     let slug = api::redirect_slug_for(&provider);
     let referrer = format!("{}/user/close/{}", web_url.trim_end_matches('/'), slug);
-    let url = format!(
-        "{}/v1/oauth2/{}",
-        server_url.trim_end_matches('/'),
-        slug,
-    );
+    let url = format!("{}/v1/oauth2/{}", server_url.trim_end_matches('/'), slug,);
     let client = match api::build_client() {
         Ok(c) => c,
         Err(e) => {
@@ -543,12 +554,7 @@ async fn handle_deep_link_oauth_connect(
         }
     };
     let body = serde_json::json!({ "code": code, "referrer": referrer });
-    let resp = client
-        .post(&url)
-        .bearer_auth(&jwt)
-        .json(&body)
-        .send()
-        .await;
+    let resp = client.post(&url).bearer_auth(&jwt).json(&body).send().await;
     let resp = match resp {
         Ok(r) => r,
         Err(e) => {
@@ -2361,10 +2367,18 @@ pub fn run() {
                         }
                     });
                     let provider = url.query_pairs().find_map(|(k, v)| {
-                        if k == "provider" { Some(v.into_owned()) } else { None }
+                        if k == "provider" {
+                            Some(v.into_owned())
+                        } else {
+                            None
+                        }
                     });
                     let code = url.query_pairs().find_map(|(k, v)| {
-                        if k == "code" { Some(v.into_owned()) } else { None }
+                        if k == "code" {
+                            Some(v.into_owned())
+                        } else {
+                            None
+                        }
                     });
                     let app = dl_handle.clone();
                     tauri::async_runtime::spawn(async move {
@@ -2511,6 +2525,8 @@ pub fn run() {
             get_settings,
             save_settings,
             logout,
+            desktop_update_check,
+            desktop_update_install,
             voice_start_recording,
             voice_stop_recording,
             voice_cancel_recording,

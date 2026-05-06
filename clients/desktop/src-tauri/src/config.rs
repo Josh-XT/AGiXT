@@ -104,6 +104,7 @@ pub struct DesktopSettings {
     pub conversation_id: Option<String>,
     pub conversation_name: Option<String>,
     pub voice_enabled: bool,
+    pub desktop_auto_update: bool,
     pub sidebar_open: bool,
     pub allow_client_commands: bool,
     /// Last user-positioned coordinates of the dock window (physical px).
@@ -128,6 +129,7 @@ impl DesktopSettings {
             conversation_id: None,
             conversation_name: None,
             voice_enabled: false,
+            desktop_auto_update: true,
             sidebar_open: false,
             allow_client_commands: true,
             dock_pos_x: None,
@@ -222,6 +224,9 @@ impl ConfigStore {
         if let Some(v) = self.get_raw("voice_enabled").await? {
             s.voice_enabled = v == "1";
         }
+        if let Some(v) = self.get_raw("desktop_auto_update").await? {
+            s.desktop_auto_update = v == "1";
+        }
         if let Some(v) = self.get_raw("sidebar_open").await? {
             s.sidebar_open = v == "1";
         }
@@ -271,6 +276,11 @@ impl ConfigStore {
         }
         self.put_raw("voice_enabled", if s.voice_enabled { "1" } else { "0" })
             .await?;
+        self.put_raw(
+            "desktop_auto_update",
+            if s.desktop_auto_update { "1" } else { "0" },
+        )
+        .await?;
         self.put_raw("sidebar_open", if s.sidebar_open { "1" } else { "0" })
             .await?;
         self.put_raw(
@@ -353,6 +363,7 @@ mod tests {
         // floating chat icon, not a maximized panel.
         assert!(!s.sidebar_open);
         assert!(!s.voice_enabled);
+        assert!(s.desktop_auto_update);
     }
 
     #[tokio::test]
@@ -369,6 +380,7 @@ mod tests {
         s.conversation_id = Some("convo-uuid".into());
         s.conversation_name = Some("Conversation Title".into());
         s.voice_enabled = true;
+        s.desktop_auto_update = false;
         s.sidebar_open = false;
         s.allow_client_commands = false;
         store.save(&s).await.unwrap();
@@ -386,6 +398,7 @@ mod tests {
             Some("Conversation Title")
         );
         assert!(loaded.voice_enabled);
+        assert!(!loaded.desktop_auto_update);
         assert!(!loaded.sidebar_open);
         assert!(!loaded.allow_client_commands);
     }

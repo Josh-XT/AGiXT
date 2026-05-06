@@ -292,6 +292,19 @@
             <input type="checkbox" id="setting-voice" />
             <span>Auto-play voice replies when available</span>
           </label>
+          <label class="field check">
+            <input type="checkbox" id="setting-auto-update" />
+            <span>Automatically install AGiXT Desktop updates when available</span>
+          </label>
+          <div class="field sudo-session">
+            <span class="field-label">Desktop app updates</span>
+            <div class="sudo-session-row sudo-session-actions">
+              <button class="btn btn-secondary" id="btn-check-desktop-update" type="button">Check now</button>
+              <button class="btn btn-primary" id="btn-install-desktop-update" type="button">Install update</button>
+              <span class="sudo-session-status" id="desktop-update-status">Not checked.</span>
+            </div>
+            <span class="field-hint">Linux updates use the Privileged Commands sudo session to install the downloaded .deb.</span>
+          </div>
           <div class="field sudo-session">
             <span class="field-label">Privileged commands</span>
             <div class="sudo-session-row">

@@ -43,6 +43,10 @@
   const sudoAuthBtn = $('btn-sudo-auth');
   const sudoClearBtn = $('btn-sudo-clear');
   const sudoSessionStatus = $('sudo-session-status');
+  const desktopAutoUpdateInput = $('setting-auto-update');
+  const desktopUpdateStatus = $('desktop-update-status');
+  const desktopUpdateCheckBtn = $('btn-check-desktop-update');
+  const desktopUpdateInstallBtn = $('btn-install-desktop-update');
   const agentBtn = $('agent-switcher-btn');
   const agentLabel = $('agent-switcher-label');
   const agentMenu = $('agent-menu');
@@ -64,6 +68,12 @@
     sudoSessionStatus.className = 'sudo-session-status' + (cls ? ' ' + cls : '');
   }
 
+  function setDesktopUpdateStatus(text, cls) {
+    if (!desktopUpdateStatus) return;
+    desktopUpdateStatus.textContent = text || '';
+    desktopUpdateStatus.className = 'sudo-session-status' + (cls ? ' ' + cls : '');
+  }
+
   // ----- Screen switching --------------------------------------------------
 
   function showScreen(which) {
@@ -81,6 +91,7 @@
     settings = await invoke('get_settings');
     $('setting-allow-commands').checked = !!settings.allow_client_commands;
     $('setting-voice').checked = !!settings.voice_enabled;
+    if (desktopAutoUpdateInput) desktopAutoUpdateInput.checked = !!settings.desktop_auto_update;
     settingsUser.textContent = settings.user_email
       ? `${settings.user_email} @ ${settings.server_url}`
       : `not signed in`;
@@ -103,6 +114,7 @@
       await persistSettings({
         allow_client_commands: $('setting-allow-commands').checked,
         voice_enabled: $('setting-voice').checked,
+        desktop_auto_update: desktopAutoUpdateInput ? desktopAutoUpdateInput.checked : !!settings.desktop_auto_update,
       });
       setSettingsStatus('Saved.', 'success');
       await refreshSudoStatus();
@@ -135,6 +147,50 @@
     }
   }
 
+  async function refreshDesktopUpdateStatus(opts = {}) {
+    if (!desktopUpdateStatus) return null;
+    const autoInstall = !!opts.autoInstall;
+    setDesktopUpdateStatus('Checking…');
+    try {
+      const status = await invoke('desktop_update_check');
+      const current = status.current_build_id || status.app_version || 'current';
+      const latest = status.latest_build_id || 'unknown';
+      if (!status.update_available) {
+        setDesktopUpdateStatus(`Up to date (${current}).`, 'success');
+      } else if (status.ready) {
+        setDesktopUpdateStatus(`Update ready: ${current} → ${latest}.`);
+        if (autoInstall && settings && settings.desktop_auto_update) {
+          await installDesktopUpdate(true);
+        }
+      } else {
+        setDesktopUpdateStatus(`Update ${latest} is still building.`);
+      }
+      return status;
+    } catch (err) {
+      setDesktopUpdateStatus(err && err.error ? err.error : String(err), 'error');
+      return null;
+    }
+  }
+
+  async function installDesktopUpdate(auto) {
+    if (!desktopUpdateStatus) return;
+    setDesktopUpdateStatus(auto ? 'Installing update…' : 'Downloading update…');
+    try {
+      const result = await invoke('desktop_update_install');
+      setDesktopUpdateStatus(result.message || 'Update installed.', result.installed ? 'success' : '');
+    } catch (err) {
+      const message = err && err.error ? err.error : String(err);
+      setDesktopUpdateStatus(message, 'error');
+    }
+  }
+
+  function scheduleDesktopAutoUpdateCheck() {
+    if (!settings || !settings.desktop_auto_update) return;
+    setTimeout(() => {
+      refreshDesktopUpdateStatus({ autoInstall: true });
+    }, 2500);
+  }
+
   async function onSudoAuth() {
     if (!sudoPasswordInput) return;
     const password = sudoPasswordInput.value;
@@ -148,6 +204,9 @@
       await invoke('sudo_auth', { password });
       sudoPasswordInput.value = '';
       setSudoSessionStatus('Authenticated.', 'success');
+      if (settings && settings.desktop_auto_update) {
+        await refreshDesktopUpdateStatus({ autoInstall: true });
+      }
     } catch (err) {
       setSudoSessionStatus(err && err.error ? err.error : String(err), 'error');
     }
@@ -998,6 +1057,7 @@
       ? `${settings.user_email} @ ${settings.server_url}`
       : 'not signed in';
     refreshSudoStatus();
+    refreshDesktopUpdateStatus();
   }
   function closeSettings() { settingsModal.classList.remove('open'); settingsModal.setAttribute('aria-hidden', 'true'); setSettingsStatus(''); }
 
@@ -1017,6 +1077,12 @@
   }
   if (sudoAuthBtn) sudoAuthBtn.addEventListener('click', onSudoAuth);
   if (sudoClearBtn) sudoClearBtn.addEventListener('click', onSudoClear);
+  if (desktopUpdateCheckBtn) {
+    desktopUpdateCheckBtn.addEventListener('click', () => refreshDesktopUpdateStatus());
+  }
+  if (desktopUpdateInstallBtn) {
+    desktopUpdateInstallBtn.addEventListener('click', () => installDesktopUpdate(false));
+  }
   if (sudoPasswordInput) {
     sudoPasswordInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -1044,6 +1110,7 @@
     if (settings.conversation_id) {
       await window.AgixtChat.loadHistory(settings.conversation_id);
     }
+    scheduleDesktopAutoUpdateCheck();
   }
 
   (async () => {
@@ -1061,6 +1128,7 @@
       if (settings.conversation_id) {
         await window.AgixtChat.loadHistory(settings.conversation_id);
       }
+      scheduleDesktopAutoUpdateCheck();
     } else {
       showScreen('auth');
       if (window.AgixtAuth) {
