@@ -9,8 +9,13 @@ on:
       - "book.json"
       - "SECURITY.md"
       - "CODE_OF_CONDUCT.md"
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Deploy to production after tests pass"
+        required: false
+        default: false
+        type: boolean
 jobs:
   build:
     uses: ./.github/workflows/docker.yml
@@ -57,12 +62,12 @@ jobs:
       packages: read
     name: Deploy to Production
     needs: test-agixt-postgres
-    if: github.event_name == 'release'
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy
     steps:
       - name: Deploy Application
         id: deploy
         env:
-          RAW_COMMIT_MSG: ${{ github.event.head_commit.message }}
+          RAW_COMMIT_MSG: ${{ github.event.head_commit.message || 'Manual AGiXT deploy' }}
         run: |
           # Build JSON payload safely using jq to handle special characters in commit messages
           COMMIT_MSG=$(printf '%.100s' "$RAW_COMMIT_MSG" | tr '\n' ' ')
