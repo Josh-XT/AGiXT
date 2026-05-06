@@ -5,10 +5,15 @@ description = "AGiXT Desktop client - persistent always-on-top sidebar chat with
 authors = ["XT Systems"]
 edition = "2021"
 rust-version = "1.77"
+default-run = "agixt-desktop"
 
 [lib]
 name = "agixt_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "agixt-desktop"
+path = "src/main.rs"
 
 [[bin]]
 name = "agixt-desktop-cli"
