@@ -16,7 +16,8 @@
   let agentId = null;
   let agentName = null;
   let extensions = [];
-  let providers = [];   // GET /v1/oauth — server-configured OAuth providers
+  let providers = [];           // GET /v1/oauth — server-configured providers
+  let userConnections = null;   // GET /v1/oauth2 — per-user state
   let searchText = '';
   let onlyEnabled = false;
   let bodyEl = null;
@@ -90,28 +91,62 @@
     return (ext.commands || []).filter((c) => c.enabled).length;
   }
 
+  /** Does the user have an active OAuth connection for this provider?
+   *  Empirically /v1/oauth2 returns either a bare list of provider names,
+   *  a list of `{name, connected}` objects, or an object with a
+   *  `connected: [...]` field. Cover all three. */
+  function isProviderConnected(provider) {
+    if (!provider || !userConnections) return false;
+    const targetName = (provider.name || '').toLowerCase();
+    const targetSlug = api.redirectSlug(provider.name);
+    if (Array.isArray(userConnections)) {
+      return userConnections.some((entry) => {
+        if (typeof entry === 'string') {
+          const e = entry.toLowerCase();
+          return e === targetName || e === targetSlug;
+        }
+        if (entry && typeof entry === 'object') {
+          const n = (entry.name || entry.provider || '').toLowerCase();
+          if (n !== targetName && n !== targetSlug) return false;
+          return !('connected' in entry) || !!entry.connected;
+        }
+        return false;
+      });
+    }
+    if (Array.isArray(userConnections.connected)) {
+      return userConnections.connected.includes(provider.name) ||
+             userConnections.connected.includes(targetSlug);
+    }
+    if (Array.isArray(userConnections.providers)) {
+      const match = userConnections.providers.find((p) => (p.name || '').toLowerCase() === targetName);
+      return !!(match && match.connected);
+    }
+    return !!userConnections[provider.name];
+  }
+
   function extensionConnected(ext) {
-    // Heuristic mirrors what the web uses for non-OAuth extensions: any
-    // sensitive setting having a non-empty value implies "connected".
-    // OAuth extensions are handled separately through the connections tab.
+    // OAuth extensions: connection follows the user's OAuth state.
     if (isOAuthExtension(ext)) {
-      const p = findProviderForExtension(ext);
-      if (!p) return false;
-      // We can't tell connection state from the providers list alone; treat
-      // as "configured" if client_id is set. The Connections tab shows true
-      // per-user connection status with disconnect.
-      return false;
+      return isProviderConnected(findProviderForExtension(ext));
     }
+    // Non-OAuth extensions with settings (API keys etc.): "connected"
+    // means at least one setting is filled in.
     const settings = ext.settings || [];
-    if (settings.length === 0) {
-      // No settings at all — treat as "ambiently connected" if any commands
-      // are enabled.
-      return commandsEnabled(ext) > 0;
+    if (settings.length > 0) {
+      return settings.some((s) => {
+        const v = typeof s === 'string' ? '' : (s.setting_value || '');
+        return typeof v === 'string' && v.length > 0;
+      });
     }
-    return settings.some((s) => {
-      const v = typeof s === 'string' ? '' : (s.setting_value || '');
-      return typeof v === 'string' && v.length > 0;
-    });
+    // Plain extensions with no settings need no configuration; they're
+    // always usable.
+    return true;
+  }
+
+  /** Some extensions don't really have a "connection" concept. Hide the
+   *  status dot for those so it doesn't read as "this is broken". */
+  function extensionHasConnectionState(ext) {
+    return isOAuthExtension(ext) || (ext.settings || []).length > 0;
   }
 
   function groupByCategory(list) {
@@ -199,34 +234,63 @@
     const providerSlug = provider ? api.redirectSlug(provider.name) : null;
     const allOn = total > 0 && enabled === total;
     const dataAttrs = `data-ext-name="${escape(ext.extension_name || '')}" data-oauth="${isOAuth ? '1' : '0'}" ${providerSlug ? `data-provider-slug="${escape(providerSlug)}" data-provider-name="${escape(provider.name)}"` : ''}`;
-    const desc = ext.description ? (md ? md.render(ext.description) : `<p>${escape(ext.description)}</p>`) : '';
+    let desc = '';
+    if (ext.description) {
+      if (md) {
+        try { desc = md.render(ext.description); }
+        catch (e) {
+          console.warn('markdown render failed for', ext.extension_name, e);
+          desc = `<p>${escape(ext.description)}</p>`;
+        }
+      } else {
+        desc = `<p>${escape(ext.description)}</p>`;
+      }
+    }
 
     let actions = '';
     if (isOAuth && provider) {
-      actions = `<button class="btn btn-secondary ext-oauth-connect" type="button">Connect ${escape(formatExtensionName(provider.name))}</button>`;
-    } else if (total > 0) {
-      actions = `
-        <label class="ext-bulk-toggle">
-          ${renderSwitch(allOn)}
-          <span>Enable all commands</span>
-        </label>
-      `;
+      if (connected) {
+        actions = `<button class="btn btn-secondary ext-oauth-disconnect" type="button">Disconnect</button>`;
+      } else {
+        actions = `<button class="btn btn-primary ext-oauth-connect" type="button">Connect ${escape(prettyProviderName(provider.name))}</button>`;
+      }
+    }
+    if (total > 0) {
+      // For OAuth extensions only show the bulk toggle once connected — no
+      // point in toggling commands for a provider you can't reach yet.
+      if (!isOAuth || connected) {
+        actions += `
+          <label class="ext-bulk-toggle">
+            ${renderSwitch(allOn)}
+            <span>Enable all commands</span>
+          </label>
+        `;
+      }
     }
 
+    const showDot = extensionHasConnectionState(ext);
+    const dotTitle = !showDot ? 'Always available'
+      : isOAuth
+        ? (connected ? 'Connected' : 'Not connected')
+        : (connected ? 'Configured' : 'Not configured');
+    // For OAuth extensions, hide the commands list until the user has
+    // connected the provider — toggling abilities you can't reach is
+    // confusing.
+    const showCommands = !isOAuth || connected;
     return `
       <details class="ext-card" ${dataAttrs}>
         <summary class="ext-card-summary">
           <svg class="ext-card-chevron" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          <span class="ext-card-conn-dot ${connected ? 'connected' : ''}" title="${connected ? 'Configured' : 'Not configured'}"></span>
+          ${showDot ? `<span class="ext-card-conn-dot ${connected ? 'connected' : ''}" title="${dotTitle}"></span>` : ''}
           <span class="ext-card-name">${escape(name)}</span>
           ${total > 0 ? `<span class="ext-card-counts">${enabled}/${total}</span>` : ''}
         </summary>
         <div class="ext-card-body">
           ${desc ? `<div class="ext-card-desc">${desc}</div>` : ''}
           ${actions ? `<div class="ext-card-actions">${actions}</div>` : ''}
-          ${renderExtensionCommands(ext)}
+          ${showCommands ? renderExtensionCommands(ext) : ''}
           ${renderExtensionSettingsForm(ext)}
         </div>
       </details>
@@ -237,8 +301,11 @@
     const description = (exts.find((e) => e.category_description) || {}).category_description || '';
     const totalCmds = exts.reduce((n, e) => n + (e.commands || []).length, 0);
     const enabledCmds = exts.reduce((n, e) => n + commandsEnabled(e), 0);
-    const totalExts = exts.length;
-    const connectedExts = exts.filter(extensionConnected).length;
+    // Connection ratio counts only extensions whose connection has any
+    // meaning (OAuth-backed or with sensitive settings). Plain-always-on
+    // extensions inflate the ratio and confuse the at-a-glance read.
+    const connExts = exts.filter(extensionHasConnectionState);
+    const connectedCount = connExts.filter(extensionConnected).length;
     const cmdBadgeClass = totalCmds === 0 ? '' : enabledCmds === totalCmds ? 'ok' : enabledCmds > 0 ? 'partial' : '';
     return `
       <div class="ext-category" data-cat="${escape(catName)}">
@@ -248,7 +315,7 @@
             ${description ? `<p class="ext-category-blurb">${escape(description)}</p>` : ''}
           </div>
           <div class="ext-category-badges">
-            <span class="ext-badge connected">${connectedExts}/${totalExts}</span>
+            ${connExts.length > 0 ? `<span class="ext-badge connected">${connectedCount}/${connExts.length} connected</span>` : ''}
             ${totalCmds > 0 ? `<span class="ext-badge ${cmdBadgeClass}">${enabledCmds}/${totalCmds} abilities</span>` : ''}
           </div>
         </div>
@@ -266,6 +333,14 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  function prettyProviderName(name) {
+    if (!name) return '';
+    let s = String(name).replace(/_(sso|oauth)$/i, '');
+    return s.split(/[_\s]+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
   }
 
   function refreshStats() {
@@ -386,13 +461,35 @@
         });
       }
 
-      // OAuth connect — delegate to the connections module.
+      // OAuth connect — delegate to the connections helper.
       const connectBtn = card.querySelector('.ext-oauth-connect');
       if (connectBtn) {
         connectBtn.addEventListener('click', async () => {
           const providerName = card.getAttribute('data-provider-name');
-          if (!providerName || !window.AgentSettingsConnections) return;
-          await window.AgentSettingsConnections.startConnect(providerName);
+          const provider = providers.find((p) => p.name === providerName);
+          if (!provider || !window.AgentSettingsConnections) return;
+          connectBtn.disabled = true;
+          connectBtn.textContent = 'Opening browser…';
+          try { await window.AgentSettingsConnections.startConnect(provider); }
+          finally {
+            connectBtn.disabled = false;
+            connectBtn.textContent = `Connect ${prettyProviderName(provider.name)}`;
+          }
+        });
+      }
+
+      const disconnectBtn = card.querySelector('.ext-oauth-disconnect');
+      if (disconnectBtn) {
+        disconnectBtn.addEventListener('click', async () => {
+          const providerName = card.getAttribute('data-provider-name');
+          const provider = providers.find((p) => p.name === providerName);
+          if (!provider || !window.AgentSettingsConnections) return;
+          disconnectBtn.disabled = true;
+          disconnectBtn.textContent = 'Disconnecting…';
+          try { await window.AgentSettingsConnections.startDisconnect(provider); }
+          finally { disconnectBtn.disabled = false; }
+          // The connections helper already calls refreshConnectionState
+          // which will rerender; no need to do anything else here.
         });
       }
     });
@@ -403,12 +500,14 @@
     bodyEl = document.getElementById('ext-body');
     if (bodyEl) bodyEl.innerHTML = '<div class="as-empty" id="ext-loading">Loading extensions…</div>';
     try {
-      const [exts, provs] = await Promise.all([
+      const [exts, provs, conns] = await Promise.all([
         api.getAgentExtensions(agentId),
         api.getOAuthProviders().catch(() => []),
+        api.getUserOAuthConnections().catch(() => null),
       ]);
       extensions = exts;
       providers = provs.filter((p) => p && p.client_id);   // only configured
+      userConnections = conns;
       render();
     } catch (e) {
       if (bodyEl) bodyEl.innerHTML = `<div class="as-empty">Failed to load: ${escape(e.message || e)}</div>`;

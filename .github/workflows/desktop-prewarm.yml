@@ -8,6 +8,8 @@ on:
       - "clients/desktop/**"
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   prewarm:
     runs-on: ubuntu-latest

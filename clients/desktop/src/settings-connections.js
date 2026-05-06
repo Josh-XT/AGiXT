@@ -1,4 +1,4 @@
-/* Connections tab — OAuth provider list + per-provider connect/disconnect.
+/* OAuth connect/disconnect helper used by the Extensions tab.
  *
  * Connect flow extends the existing login-OAuth pattern:
  *   1. JS calls invoke('build_oauth_connect_url', ...) — sibling to the
@@ -9,7 +9,12 @@
  *      back to the desktop via `agixt://oauth-connect?provider=...&code=...`.
  *   5. Rust deep-link handler does the POST /v1/oauth2/{provider} server-side
  *      (the desktop has the JWT, the browser doesn't) and emits the event
- *      `agixt-extension-connected` so this page can refresh.
+ *      `agixt-extension-connected` so the Extensions tab can refresh.
+ *
+ * Connections used to live in their own tab; the user feedback was that
+ * OAuth providers should be sorted into their proper extension categories
+ * instead. This module now exposes start/stop helpers + the deep-link
+ * event listeners — the rendering is handled by settings-extensions.js.
  */
 (function () {
   const tauri = window.__TAURI__;
@@ -20,20 +25,7 @@
   }
   const invoke = tauri.core.invoke;
   const event = tauri.event;
-
-  let providers = [];          // GET /v1/oauth — server config (with client_id)
-  let userConnections = null;  // GET /v1/oauth2 — per-user state, may be null
-  let bodyEl = null;
-  let initialized = false;
-
-  function escape(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
+  let listenersWired = false;
 
   function prettyName(name) {
     if (!name) return '';
@@ -41,95 +33,14 @@
     return s.split(/[_\s]+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
   }
 
-  function providerIconUrl(name) {
-    const k = (name || '').toLowerCase();
-    const map = {
-      google: 'assets/oauth/google.svg',
-      microsoft: 'assets/oauth/microsoft.svg',
-      github: 'assets/oauth/github.svg',
-      discord: 'assets/oauth/discord.svg',
-      apple: 'assets/oauth/apple.svg',
-      spotify: 'assets/oauth/spotify.svg',
-    };
-    for (const key of Object.keys(map)) {
-      if (k.includes(key)) return map[key];
-    }
-    return null;
-  }
-
-  function isConnected(provider) {
-    if (!userConnections) return false;
-    // The /v1/oauth2 response shape varies. Try a few likely fields.
-    if (Array.isArray(userConnections.connected)) {
-      return userConnections.connected.includes(provider.name) ||
-             userConnections.connected.includes(api.redirectSlug(provider.name));
-    }
-    if (Array.isArray(userConnections.providers)) {
-      // Each entry may have `connected: bool`
-      const match = userConnections.providers.find((p) => (p.name || '').toLowerCase() === (provider.name || '').toLowerCase());
-      return !!(match && match.connected);
-    }
-    if (userConnections[provider.name]) return true;
-    return false;
-  }
-
-  function renderProvider(p) {
-    const slug = api.redirectSlug(p.name);
-    const connected = isConnected(p);
-    const iconUrl = providerIconUrl(p.name);
-    const iconHtml = iconUrl
-      ? `<img src="${iconUrl}" alt="" />`
-      : `<span class="conn-icon-letter">${escape((p.name || '?').charAt(0).toUpperCase())}</span>`;
-    const action = connected
-      ? `<button class="btn btn-secondary conn-disconnect" data-provider="${escape(p.name)}" type="button">Disconnect</button>`
-      : `<button class="btn btn-primary conn-connect" data-provider="${escape(p.name)}" type="button">Connect</button>`;
-    return `
-      <div class="conn-card" data-slug="${escape(slug)}">
-        <div class="conn-icon">${iconHtml}</div>
-        <div class="conn-meta">
-          <div class="conn-name">${escape(prettyName(p.name))}</div>
-          <div class="conn-status ${connected ? 'connected' : ''}">${connected ? 'Connected' : 'Not connected'}</div>
-        </div>
-        <div class="conn-actions">${action}</div>
-      </div>
-    `;
-  }
-
-  function render() {
-    if (!bodyEl) return;
-    // Show only providers with a configured client_id (server has creds).
-    // Drop SSO-only providers — they're for login, not extension connections.
-    const list = providers.filter((p) => p && p.client_id && !p.sso_only);
-    if (list.length === 0) {
-      bodyEl.innerHTML = '<div class="as-empty">No OAuth providers configured on this server.</div>';
+  /** Open the provider's authorize URL in the system browser. The actual
+   *  code-for-token exchange happens in the Rust deep-link handler after
+   *  the user authorizes. */
+  async function startConnect(provider) {
+    if (!provider || !provider.name) {
+      window.AgentSettings.toast('No provider supplied to connect.', 'error');
       return;
     }
-    bodyEl.innerHTML = `<div class="conn-grid">${list.map(renderProvider).join('')}</div>`;
-    bind();
-  }
-
-  function bind() {
-    bodyEl.querySelectorAll('.conn-connect').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const name = btn.getAttribute('data-provider');
-        await startConnect(name, btn);
-      });
-    });
-    bodyEl.querySelectorAll('.conn-disconnect').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const name = btn.getAttribute('data-provider');
-        await startDisconnect(name, btn);
-      });
-    });
-  }
-
-  async function startConnect(providerName, btn) {
-    const provider = providers.find((p) => p.name === providerName);
-    if (!provider) {
-      window.AgentSettings.toast(`Provider "${providerName}" not found.`, 'error');
-      return;
-    }
-    if (btn) { btn.disabled = true; btn.textContent = 'Opening browser…'; }
     try {
       const settings = await api.getSettings();
       const result = await invoke('build_oauth_connect_url', {
@@ -144,73 +55,52 @@
       } else {
         window.open(result.url, '_blank', 'noopener');
       }
-      window.AgentSettings.toast(`Opened ${prettyName(providerName)} sign-in. Authorize in your browser, then return to this window.`, 'success');
+      window.AgentSettings.toast(
+        `Opened ${prettyName(provider.name)} sign-in. Authorize in your browser, then return here.`,
+        'success',
+      );
     } catch (e) {
       window.AgentSettings.toast('Connect failed: ' + (e.error || e.message || e), 'error');
-    } finally {
-      if (btn) { btn.disabled = false; btn.textContent = 'Connect'; }
     }
   }
 
-  async function startDisconnect(providerName, btn) {
-    if (btn) { btn.disabled = true; btn.textContent = 'Disconnecting…'; }
+  /** DELETE /v1/oauth2/{slug} */
+  async function startDisconnect(provider) {
     try {
-      const slug = api.redirectSlug(providerName);
+      const slug = api.redirectSlug(provider.name);
       await api.disconnectOAuth(slug);
-      window.AgentSettings.toast(`${prettyName(providerName)} disconnected.`, 'success');
-      await load();
-      // Also refresh extensions so dots/labels update.
+      window.AgentSettings.toast(`${prettyName(provider.name)} disconnected.`, 'success');
       if (window.AgentSettingsExtensions) {
-        window.AgentSettingsExtensions.refreshConnectionState();
+        await window.AgentSettingsExtensions.refreshConnectionState();
       }
     } catch (e) {
       window.AgentSettings.toast('Disconnect failed: ' + (e.message || e), 'error');
-      if (btn) { btn.disabled = false; btn.textContent = 'Disconnect'; }
     }
   }
 
-  async function load() {
-    bodyEl = document.getElementById('conn-body');
-    if (bodyEl) bodyEl.innerHTML = '<div class="as-empty">Loading providers…</div>';
-    try {
-      const [provs, conns] = await Promise.all([
-        api.getOAuthProviders(),
-        api.getUserOAuthConnections(),
-      ]);
-      providers = provs || [];
-      userConnections = conns;
-      render();
-    } catch (e) {
-      if (bodyEl) bodyEl.innerHTML = `<div class="as-empty">Failed to load: ${escape(e.message || e)}</div>`;
-    }
-  }
-
-  function init() {
-    if (!initialized && event && event.listen) {
-      initialized = true;
-      // Fired by the Rust deep-link handler after a successful POST to
-      // /v1/oauth2/{provider} completes the connect.
-      event.listen('agixt-extension-connected', async (ev) => {
-        const provider = (ev && ev.payload && ev.payload.provider) || '';
-        if (provider) {
-          window.AgentSettings.toast(`${prettyName(provider)} connected.`, 'success');
-        }
-        await load();
-        if (window.AgentSettingsExtensions) {
-          window.AgentSettingsExtensions.refreshConnectionState();
-        }
-      });
-      event.listen('agixt-extension-connect-failed', (ev) => {
-        const detail = (ev && ev.payload && ev.payload.detail) || 'unknown error';
-        window.AgentSettings.toast('OAuth callback failed: ' + detail, 'error');
-      });
-    }
-    return load();
+  /** Wire up the deep-link event listeners. Called once at boot. */
+  function initListeners() {
+    if (listenersWired || !event || !event.listen) return;
+    listenersWired = true;
+    event.listen('agixt-extension-connected', async (ev) => {
+      const provider = (ev && ev.payload && ev.payload.provider) || '';
+      if (provider) {
+        window.AgentSettings.toast(`${prettyName(provider)} connected.`, 'success');
+      }
+      if (window.AgentSettingsExtensions) {
+        await window.AgentSettingsExtensions.refreshConnectionState();
+      }
+    });
+    event.listen('agixt-extension-connect-failed', (ev) => {
+      const detail = (ev && ev.payload && ev.payload.detail) || 'unknown error';
+      window.AgentSettings.toast('OAuth callback failed: ' + detail, 'error');
+    });
   }
 
   window.AgentSettingsConnections = {
-    init,
-    reload: load,
+    initListeners,
     startConnect,
+    startDisconnect,
+    prettyName,
   };
 })();

@@ -15,8 +15,12 @@
   const event = tauri.event;
   const frontendLog = window.AgixtFrontendLog || function () {};
 
-  const tabs = ['extensions', 'connections', 'training'];
-  const initialized = { extensions: false, connections: false, training: false };
+  // Connections aren't a separate tab anymore — OAuth providers are
+  // surfaced as cards inside their proper Extension category. We still
+  // init the connections helper at boot so its deep-link event listeners
+  // are wired up to refresh the extensions tab after an OAuth round-trip.
+  const tabs = ['extensions', 'training'];
+  const initialized = { extensions: false, training: false };
   let agentId = null;
   let agentName = null;
 
@@ -49,7 +53,6 @@
       initialized[name] = true;
       try {
         if (name === 'extensions') window.AgentSettingsExtensions.init({ agentId, agentName });
-        if (name === 'connections') window.AgentSettingsConnections.init();
         if (name === 'training') window.AgentSettingsTraining.init({ agentId, agentName });
       } catch (e) {
         toast('Failed to load ' + name + ': ' + (e.message || e), 'error');
@@ -120,6 +123,13 @@
       }
       // Default to the Extensions tab (already aria-selected in the HTML).
       setActive('extensions');
+      // Wire up cross-window OAuth callback listeners regardless of tab so
+      // the Extensions tab can refresh after `agixt://oauth-connect`
+      // round-trips, even if the user is on the Training tab when it
+      // returns.
+      if (window.AgentSettingsConnections && window.AgentSettingsConnections.initListeners) {
+        window.AgentSettingsConnections.initListeners();
+      }
     } catch (e) {
       toast('Failed to load settings: ' + (e.message || e), 'error');
     }

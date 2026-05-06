@@ -61,6 +61,7 @@
     }
     let parsed;
     try { parsed = new URL(abs); } catch (_) { return url; }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return url;
     if (!AGIXT_WORKSPACE_PATH.test(parsed.pathname)) return url;
     if (!jwt) return abs;
     if (!parsed.searchParams.has('auth')) {
@@ -69,32 +70,44 @@
     return parsed.toString();
   }
 
-  function authMediaUrls(html) {
-    if (!html || (!serverUrl && !jwt)) return html;
-    if (typeof DOMParser === 'undefined') return html;
-    const tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    tmp.querySelectorAll('img[src], video[src], audio[src], source[src]').forEach((node) => {
+  function authMediaNodes(root) {
+    if (!root || (!serverUrl && !jwt)) return;
+    root.querySelectorAll('img[src], video[src], audio[src], source[src]').forEach((node) => {
       const next = rewriteAuthForUrl(node.getAttribute('src'));
       if (next) node.setAttribute('src', next);
     });
     // Anchors stay clickable but if they look like media, rewrite too
     // so right-click "open" works.
-    tmp.querySelectorAll('a[href]').forEach((node) => {
+    root.querySelectorAll('a[href]').forEach((node) => {
       const href = node.getAttribute('href') || '';
       if (/\.(png|jpe?g|gif|webp|avif|svg|mp4|webm|mov|m4v|mp3|wav|ogg)(\?.*)?$/i.test(href)) {
         const next = rewriteAuthForUrl(href);
         if (next) node.setAttribute('href', next);
       }
     });
-    return tmp.innerHTML;
   }
 
-  // Always go through this helper so every render gets the same media
-  // URL rewriting applied, including history replays.
-  function renderMd(text) {
-    const html = md ? md.render(text == null ? '' : text) : (text || '');
-    return authMediaUrls(html);
+  function replaceChildren(target, fragment) {
+    if (typeof target.replaceChildren === 'function') {
+      target.replaceChildren(fragment);
+      return;
+    }
+    while (target.firstChild) target.removeChild(target.firstChild);
+    target.appendChild(fragment);
+  }
+
+  // Always go through this helper so every render gets the same media URL
+  // rewriting applied, including history replays.
+  function renderMdInto(target, text) {
+    if (!target) return;
+    const value = text == null ? '' : String(text);
+    if (md && typeof md.renderFragment === 'function') {
+      const fragment = md.renderFragment(value);
+      authMediaNodes(fragment);
+      replaceChildren(target, fragment);
+      return;
+    }
+    target.textContent = value;
   }
   let messages = new Map(); // id -> { id, role, text, ts, kind, parentId, el }
   let order = [];
@@ -280,10 +293,9 @@
 
   // ----- DOM rendering -----
 
-  function el(tag, cls, html) {
+  function el(tag, cls) {
     const e = document.createElement(tag);
     if (cls) e.className = cls;
-    if (html != null) e.innerHTML = html;
     return e;
   }
 
@@ -318,7 +330,7 @@
     const row = el('div', 'message-row');
     const bubble = el('div', 'bubble');
     const content = el('div', 'md');
-    content.innerHTML = renderMd(body);
+    renderMdInto(content, body);
     bubble.appendChild(content);
     row.appendChild(bubble);
     // Inline timestamp next to the bubble. Hidden by default; CSS reveals
@@ -479,7 +491,7 @@
     }
     if (!stdout && !stderr && !data.exit_code && data.message) {
       const p = el('div', 'md');
-      p.innerHTML = renderMd(String(data.message));
+      renderMdInto(p, String(data.message));
       wrap.appendChild(p);
     }
     return wrap;
@@ -506,7 +518,7 @@
       const inner = el('div', 'md');
       // For tagged plain bodies markdown-render so fenced code, lists, etc
       // come out properly instead of as a single inline string.
-      inner.innerHTML = renderMd(text);
+      renderMdInto(inner, text);
       content.appendChild(inner);
     }
     sub.appendChild(content);
@@ -718,13 +730,13 @@
     const parsed = parseMessageEnvelope(msg.message);
     if (existing.kind === 'plain' && existing.content) {
       existing.text = parsed.body;
-      existing.content.innerHTML = renderMd(parsed.body);
+      renderMdInto(existing.content, parsed.body);
     } else if (existing.kind === 'activity') {
       const titleEl = existing.el.querySelector('.activity-title');
       if (titleEl) titleEl.textContent = parsed.label || parsed.body || existing.text;
     } else if (existing.kind === 'subactivity') {
       const inner = existing.el.querySelector('.md');
-      if (inner) inner.innerHTML = renderMd(parsed.body);
+      if (inner) renderMdInto(inner, parsed.body);
     }
     scrollToBottom();
   }
@@ -1176,7 +1188,7 @@
             ensurePlaceholder();
             assistantText += inc;
             asstEntry.text = assistantText;
-            placeholder.content.innerHTML = renderMd(assistantText);
+            renderMdInto(placeholder.content, assistantText);
             scrollToBottom();
             break;
           }
@@ -1234,7 +1246,7 @@
               // the rolling reasoning instead of just the latest word.
               streamingActivityText += chunk;
               if (streamingActivity.subContent) {
-                streamingActivity.subContent.innerHTML = renderMd(streamingActivityText);
+                renderMdInto(streamingActivity.subContent, streamingActivityText);
               }
               const activityEntry = messages.get(`local-activity-${streamId}`);
               if (activityEntry) {
@@ -1254,7 +1266,7 @@
               ensurePlaceholder();
               placeholder.content.classList.remove('cursor-blink');
               asstEntry.text = finalText;
-              placeholder.content.innerHTML = renderMd(finalText);
+              renderMdInto(placeholder.content, finalText);
             } else if (placeholder) {
               placeholder.content.classList.remove('cursor-blink');
             }

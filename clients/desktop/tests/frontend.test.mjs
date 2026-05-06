@@ -169,6 +169,20 @@ test('markdown: audio URL becomes <audio controls>', () => {
   assert.match(html, /<audio[^>]+controls[^>]+src="https:\/\/example\.com\/voice\.mp3"/);
 });
 
+test('markdown: untrusted html and unsafe URLs stay inert', () => {
+  const { window } = loadFrontend();
+  const target = window.document.createElement('div');
+  window.AgixtMarkdown.renderInto(
+    target,
+    '<img src=x onerror=alert(1)> [bad](javascript:alert(1)) ![x](javascript:alert(1))',
+  );
+  assert.equal(target.querySelector('script'), null);
+  assert.equal(target.querySelector('[onerror]'), null);
+  assert.equal(target.querySelector('a[href^="javascript:"]'), null);
+  assert.equal(target.querySelector('img[src^="javascript:"]'), null);
+  assert.match(target.textContent, /<img src=x onerror=alert\(1\)>/);
+});
+
 test('markdown: lists render correctly', () => {
   const { window } = loadFrontend();
   const html = window.AgixtMarkdown.render('- one\n- two\n- three');

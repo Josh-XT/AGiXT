@@ -1182,17 +1182,26 @@
     if (chatScreen) chatScreen.hidden = true;
     // The default popover window is 400×800 — too small for an editor.
     // Bump the window to a more workable size and remember the previous
-    // size so close() can restore it.
+    // size + position so close() can restore both. (Restoring just the
+    // size leaves the window wherever the OS shifted it during the
+    // grow, which is why the chat appeared to "jump" on close.)
     try {
       const tw = window.__TAURI__ && window.__TAURI__.window;
       if (tw && typeof tw.getCurrentWindow === 'function') {
         const win = tw.getCurrentWindow();
+        // Capture current physical geometry first, then resize. Both
+        // outerSize/outerPosition return PhysicalSize/PhysicalPosition.
         Promise.all([win.outerSize(), win.outerPosition()]).then(([sz, pos]) => {
           state._prevWindow = { width: sz.width, height: sz.height, x: pos.x, y: pos.y };
-        }).catch(() => {});
-        if (window.__TAURI__.window.LogicalSize) {
-          win.setSize(new window.__TAURI__.window.LogicalSize(1100, 760)).catch(() => {});
-        }
+          if (tw.LogicalSize) {
+            win.setSize(new tw.LogicalSize(1100, 760)).catch(() => {});
+          }
+        }).catch(() => {
+          // Fallback: resize without remembering geometry.
+          if (tw.LogicalSize) {
+            win.setSize(new tw.LogicalSize(1100, 760)).catch(() => {});
+          }
+        });
       }
     } catch {}
     renderSidebarVisibility();
@@ -1208,12 +1217,30 @@
     document.body.classList.remove('workspace-open');
     const chatScreen = document.getElementById('chat-screen');
     if (chatScreen) chatScreen.hidden = chatScreen.dataset.prevHidden === '1';
-    // Restore window size we shrank from on open().
+    // Restore window geometry (size *and* position) we captured on
+    // open(). Resize first, then move — moving last avoids the OS
+    // adjusting the position again to keep the larger frame on-screen.
     try {
       const tw = window.__TAURI__ && window.__TAURI__.window;
-      if (tw && typeof tw.getCurrentWindow === 'function' && state._prevWindow && tw.LogicalSize) {
+      if (tw && typeof tw.getCurrentWindow === 'function' && state._prevWindow) {
         const win = tw.getCurrentWindow();
-        win.setSize(new tw.LogicalSize(state._prevWindow.width, state._prevWindow.height)).catch(() => {});
+        const geom = state._prevWindow;
+        const restore = async () => {
+          try {
+            if (tw.PhysicalSize) {
+              await win.setSize(new tw.PhysicalSize(geom.width, geom.height));
+            } else if (tw.LogicalSize) {
+              await win.setSize(new tw.LogicalSize(geom.width, geom.height));
+            }
+            if (tw.PhysicalPosition) {
+              await win.setPosition(new tw.PhysicalPosition(geom.x, geom.y));
+            } else if (tw.LogicalPosition) {
+              await win.setPosition(new tw.LogicalPosition(geom.x, geom.y));
+            }
+          } catch {}
+        };
+        restore();
+        state._prevWindow = null;
       }
     } catch {}
     closeActiveFile();

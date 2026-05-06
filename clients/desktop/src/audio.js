@@ -8,6 +8,23 @@
   const audio = document.getElementById('tts-audio');
   const queue = [];
   let speaking = false;
+  const SAFE_AUDIO_DATA_URL = /^data:audio\/(?:mpeg|mp3|wav|ogg|mp4|m4a|flac|aac);base64,[a-z0-9+/=\s]+$/i;
+
+  function normalizeAudioUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw || /[\u0000-\u001f\u007f]/.test(raw)) return '';
+    if (SAFE_AUDIO_DATA_URL.test(raw)) return raw;
+    try {
+      const base = document.baseURI || (window.location && window.location.href) || 'http://localhost/';
+      const parsed = new URL(raw, base);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'blob:') {
+        return parsed.href;
+      }
+    } catch (_) {
+      return '';
+    }
+    return '';
+  }
 
   function setSpeaking(v) {
     speaking = v;
@@ -25,8 +42,9 @@
   function next() {
     if (!audio) return;
     if (queue.length === 0) { setSpeaking(false); return; }
-    const url = queue.shift();
-    audio.src = url;
+    const url = normalizeAudioUrl(queue.shift());
+    if (!url) { next(); return; }
+    audio.setAttribute('src', url);
     setSpeaking(true);
     const p = audio.play();
     if (p && typeof p.catch === 'function') {
@@ -45,8 +63,9 @@
   }
 
   function enqueue(url) {
-    if (!url) return;
-    queue.push(url);
+    const safe = normalizeAudioUrl(url);
+    if (!safe) return;
+    queue.push(safe);
     if (!speaking) next();
   }
 
