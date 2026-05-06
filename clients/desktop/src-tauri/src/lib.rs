@@ -2236,6 +2236,50 @@ async fn save_dock_position(app: AppHandle, state: State<'_, AppState>) -> ToolR
 // Tauri setup
 // --------------------------------------------------------------------------
 
+#[cfg(target_os = "linux")]
+fn cleanup_legacy_linux_launchers() {
+    let home = match std::env::var_os("HOME") {
+        Some(home) => std::path::PathBuf::from(home),
+        None => return,
+    };
+    let current_exe = std::env::current_exe().ok();
+    let legacy_bin = home.join(".local/bin/agixt-desktop");
+    let current_is_legacy_bin = current_exe.as_ref().is_some_and(|path| path == &legacy_bin);
+
+    let apps_dir = home.join(".local/share/applications");
+    for name in ["agixt-desktop.desktop", "agixt-desktop-handler.desktop"] {
+        let path = apps_dir.join(name);
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if contents.contains(".local/bin/agixt-desktop") {
+            match std::fs::remove_file(&path) {
+                Ok(_) => tracing::info!("removed legacy desktop launcher {}", path.display()),
+                Err(e) => {
+                    tracing::warn!("failed to remove legacy launcher {}: {e}", path.display())
+                }
+            }
+        }
+    }
+
+    if !current_is_legacy_bin && legacy_bin.exists() {
+        match std::fs::remove_file(&legacy_bin) {
+            Ok(_) => tracing::info!("removed legacy desktop binary {}", legacy_bin.display()),
+            Err(e) => tracing::warn!(
+                "failed to remove legacy desktop binary {}: {e}",
+                legacy_bin.display()
+            ),
+        }
+    }
+
+    let _ = std::process::Command::new("update-desktop-database")
+        .arg(apps_dir)
+        .status();
+}
+
+#[cfg(not(target_os = "linux"))]
+fn cleanup_legacy_linux_launchers() {}
+
 pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -2287,6 +2331,8 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            cleanup_legacy_linux_launchers();
+
             // Load settings synchronously up-front so the front-end can render
             // immediately with the cached state.
             let store = tauri::async_runtime::block_on(async {
@@ -2408,6 +2454,7 @@ pub fn run() {
             // On Linux we may be invoked via xdg-open before the runtime
             // is ready; the plugin queues those URLs and replays them
             // once we've subscribed.
+            #[cfg(any(not(target_os = "linux"), debug_assertions))]
             if let Err(e) = handle.deep_link().register("agixt") {
                 tracing::warn!("could not register agixt:// scheme: {e}");
             }
