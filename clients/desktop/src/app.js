@@ -1189,6 +1189,44 @@
     try { await invoke('set_sidebar_visible', { visible: false }); } catch (_) { /* ignore */ }
   });
 
+  // ----- Sidenav (VSCode-style activity bar) ------------------------------
+  // Each `.sidenav-btn[data-view=…]` toggles the matching
+  // `.view-pane[data-view=…]`. The currently active button gets the
+  // `.is-active` class. To add a new section, drop in a button + pane
+  // pair sharing the same data-view value — no JS changes needed.
+  function setActiveView(viewId) {
+    if (!viewId) return;
+    document.querySelectorAll('.sidenav-btn[data-view]').forEach((btn) => {
+      const on = btn.dataset.view === viewId;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    document.querySelectorAll('.chat-screen-main .view-pane[data-view]').forEach((pane) => {
+      pane.hidden = pane.dataset.view !== viewId;
+    });
+  }
+  document.querySelectorAll('.sidenav-btn[data-view]').forEach((btn) => {
+    btn.addEventListener('click', () => setActiveView(btn.dataset.view));
+  });
+  // Surface a tiny extension point so future modules can register their
+  // own sections without touching this file directly.
+  window.AgixtSidenav = { setActiveView };
+
+  // The gear next to the agent selector now opens the dedicated Agent
+  // Settings window directly (extensions / connections / training),
+  // skipping the app-settings modal hop. App settings live on the
+  // pinned gear at the bottom of the sidenav.
+  const agentSettingsBtn = $('btn-agent-settings');
+  if (agentSettingsBtn) {
+    agentSettingsBtn.addEventListener('click', async () => {
+      try {
+        await invoke('open_agent_settings');
+      } catch (err) {
+        console.warn('open_agent_settings', err);
+      }
+    });
+  }
+
   function openSettings(opts = {}) {
     settingsModal.classList.add('open');
     settingsModal.setAttribute('aria-hidden', 'false');

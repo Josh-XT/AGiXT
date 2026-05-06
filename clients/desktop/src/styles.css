@@ -890,10 +890,107 @@ details.sub-tool > summary.sub-tool-summary:hover {
 .chat-screen {
   flex: 1;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   min-height: 0;
 }
 .chat-screen[hidden] { display: none; }
+
+/* Right-hand pane that hosts the active view's content. The sidenav
+   sits to its left and we want this column to shrink/grow to fill the
+   remaining width. min-width:0 lets the inner chat scroller behave
+   correctly inside the flex row. */
+.chat-screen-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+
+/* One pane per registered section. Active pane fills the column; all
+   others are display:none via [hidden]. Each pane manages its own
+   internal layout (chat: scroller + composer; future sections can
+   render whatever fits). */
+.view-pane {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.view-pane[hidden] { display: none; }
+
+/* VSCode-style activity bar. Top group lists sections (Chat, …); bottom
+   group is reserved for pinned actions (currently just app settings).
+   New sections are added by dropping a `.sidenav-btn[data-view=…]` into
+   `.sidenav-top` and a matching `.view-pane[data-view=…]` into
+   `.chat-screen-main`. */
+.sidenav {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 40px;
+  padding: 6px 0;
+  gap: 4px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+.sidenav-top,
+.sidenav-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  align-items: center;
+}
+.sidenav-top { flex: 1 1 auto; }
+.sidenav-bottom {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.sidenav-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.sidenav-btn:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.sidenav-btn:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+.sidenav-btn.is-active {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+/* Accent rail on the active button (mimics VSCode's left-edge marker). */
+.sidenav-btn.is-active::before {
+  content: "";
+  position: absolute;
+  left: -7px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
 
 .auth-card {
   width: 100%;
