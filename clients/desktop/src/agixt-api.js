@@ -57,13 +57,43 @@
     return trimSlashes(s.server_url);
   }
 
+  function detailToString(raw) {
+    if (raw == null) return '';
+    if (typeof raw === 'string') return raw;
+    // FastAPI validation errors arrive as `[{loc, msg, type}, ...]`. Render
+    // them human-readably instead of letting them stringify to
+    // `[object Object]`.
+    if (Array.isArray(raw)) {
+      return raw.map((item) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') {
+          if (typeof item.msg === 'string') {
+            const loc = Array.isArray(item.loc) ? item.loc.join('.') : '';
+            return loc ? `${loc}: ${item.msg}` : item.msg;
+          }
+          try { return JSON.stringify(item); } catch (_) { return String(item); }
+        }
+        return String(item);
+      }).join('; ');
+    }
+    if (typeof raw === 'object') {
+      if (typeof raw.msg === 'string') return raw.msg;
+      try { return JSON.stringify(raw); } catch (_) { return String(raw); }
+    }
+    return String(raw);
+  }
+
   async function parseError(resp) {
     let detail = '';
     try {
       const body = await resp.text();
       try {
         const j = JSON.parse(body);
-        detail = j.detail || j.error || j.message || body;
+        const raw = j.detail != null ? j.detail
+          : j.error != null ? j.error
+          : j.message != null ? j.message
+          : body;
+        detail = detailToString(raw);
       } catch (_) {
         detail = body;
       }
@@ -125,10 +155,17 @@
     );
   }
 
-  /** PUT /v1/agent/{id} — update agent settings (key/value map). */
+  /** PUT /v1/agent/{id} — update agent settings (key/value map).
+   *  AGiXT's PUT validator requires `agent_name` alongside `settings` (see
+   *  web/app/settings/page.tsx handleSaveSettings); without it the server
+   *  returns a 422 with a FastAPI validation array. */
   async function updateAgentSettings(agentId, settingsMap) {
+    const s = await getSettings();
     return request('PUT', '/v1/agent/' + encodeURIComponent(agentId), {
-      body: { settings: settingsMap },
+      body: {
+        agent_name: s.agent_name || '',
+        settings: settingsMap,
+      },
     });
   }
 
