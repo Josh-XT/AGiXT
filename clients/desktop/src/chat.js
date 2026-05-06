@@ -38,24 +38,49 @@
   // under JWT authentication. The webview can't attach an Authorization
   // header to a plain <img src>, but AGiXT's serve_file endpoint accepts
   // `?auth=<jwt>` as a query-param fallback (see AGiXT/agixt/app.py:597).
-  // The web client takes the same approach via its
-  // `/api/workspace/[...path]` proxy.
-  //
-  // We attach the JWT for any URL whose **path** is the workspace pattern,
-  // regardless of host. AGiXT often emits URLs to its public domain (e.g.
-  // `https://apijosh.devxt.com/outputs/...`) even when the desktop is
-  // configured against `http://localhost:7437`, because messages can come
-  // from any of the user's machines. Origin-equality matching against
-  // `serverUrl` would skip those — the visible bug. Path-only matching is
-  // the same trust boundary the web client uses (`transformWorkspaceUrl`
-  // in lib/workspace-url-transformer.ts).
+  // Only add that query token to URLs on the configured AGiXT origin; a
+  // malicious markdown image on some other host can also have `/outputs/` in
+  // its path, and must not receive the user's JWT.
   const AGIXT_WORKSPACE_PATH = /(^|\/)(outputs|api\/workspace|workspace)\//;
+  const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '[::1]', '::1']);
+
+  function originFor(url) {
+    try { return new URL(url).origin; }
+    catch (_) { return null; }
+  }
+
+  function addLoopbackOriginVariants(origins, origin) {
+    let parsed;
+    try { parsed = new URL(origin); } catch (_) { return; }
+    if (!LOOPBACK_HOSTS.has(parsed.hostname)) return;
+    const port = parsed.port ? `:${parsed.port}` : '';
+    origins.add(`${parsed.protocol}//localhost${port}`);
+    origins.add(`${parsed.protocol}//127.0.0.1${port}`);
+    origins.add(`${parsed.protocol}//0.0.0.0${port}`);
+    origins.add(`${parsed.protocol}//[::1]${port}`);
+  }
+
+  function trustedWorkspaceOrigins() {
+    const origins = new Set();
+    const configured = originFor(serverUrl);
+    if (configured) {
+      origins.add(configured);
+      addLoopbackOriginVariants(origins, configured);
+    }
+    return origins;
+  }
+
+  function isTrustedWorkspaceUrl(parsed, wasRelative) {
+    if (wasRelative) return true;
+    return trustedWorkspaceOrigins().has(parsed.origin);
+  }
 
   function rewriteAuthForUrl(url) {
     if (!url || typeof url !== 'string') return url;
     if (url.startsWith('data:') || url.startsWith('blob:')) return url;
     let abs = url;
-    if (url.startsWith('/')) {
+    const wasRelative = url.startsWith('/');
+    if (wasRelative) {
       if (!serverUrl) return url;
       abs = serverUrl.replace(/\/+$/, '') + url;
     }
@@ -63,6 +88,7 @@
     try { parsed = new URL(abs); } catch (_) { return url; }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return url;
     if (!AGIXT_WORKSPACE_PATH.test(parsed.pathname)) return url;
+    if (!isTrustedWorkspaceUrl(parsed, wasRelative)) return url;
     if (!jwt) return abs;
     if (!parsed.searchParams.has('auth')) {
       parsed.searchParams.set('auth', jwt);

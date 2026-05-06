@@ -212,6 +212,41 @@ test('chat: classifyActivity tags activities by content', () => {
   assert.equal(typeof window.AgixtChat.disconnect, 'function');
 });
 
+test('chat: workspace media auth only attaches to configured AGiXT origins', async () => {
+  const { window } = loadFrontend({
+    ipc: {
+      get_conversation_history: async () => [{
+        id: 'm1',
+        role: 'assistant',
+        message: [
+          '![evil](https://evil.example/outputs/leak.png)',
+          '![relative](/outputs/local.png)',
+          '![same](http://localhost:7437/outputs/same.png)',
+          '![loopback](http://127.0.0.1:7437/outputs/loop.png)',
+        ].join('\n'),
+      }],
+    },
+  });
+  window.AgixtChat.configure({
+    serverUrl: 'http://localhost:7437',
+    jwt: 'secret.jwt',
+    conversationId: 'c',
+    reconnect: false,
+  });
+
+  await window.AgixtChat.loadHistory('c');
+
+  const byAlt = Object.fromEntries(
+    [...window.document.querySelectorAll('#messages img')]
+      .map((img) => [img.getAttribute('alt'), img.getAttribute('src')]),
+  );
+  assert.equal(byAlt.evil, 'https://evil.example/outputs/leak.png');
+  assert.equal(byAlt.relative, 'http://localhost:7437/outputs/local.png?auth=secret.jwt');
+  assert.equal(byAlt.same, 'http://localhost:7437/outputs/same.png?auth=secret.jwt');
+  assert.equal(byAlt.loopback, 'http://127.0.0.1:7437/outputs/loop.png?auth=secret.jwt');
+  window.AgixtChat.disconnect();
+});
+
 test('app: composer enter and send button call chat_send', async () => {
   const { window, calls } = loadFullApp();
   await new Promise((resolve) => setTimeout(resolve, 20));
