@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "clients/desktop/**"
+      - "!clients/desktop/**/*.md"
   workflow_dispatch:
 
 permissions: {}
