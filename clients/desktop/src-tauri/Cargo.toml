@@ -9,7 +9,7 @@ default-run = "agixt-desktop"
 
 [lib]
 name = "agixt_desktop_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [[bin]]
 name = "agixt-desktop"
