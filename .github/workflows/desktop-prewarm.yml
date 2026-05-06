@@ -1,0 +1,24 @@
+name: Prewarm Desktop Client Downloads
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "clients/desktop/**"
+  workflow_dispatch:
+
+jobs:
+  prewarm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Queue desktop client builds
+        env:
+          PREWARM_TOKEN: ${{ secrets.DESKTOP_PREWARM_TOKEN }}
+        run: |
+          set -euo pipefail
+          headers=(-H "Accept: application/json")
+          if [ -n "${PREWARM_TOKEN}" ]; then
+            headers+=(-H "X-Prewarm-Token: ${PREWARM_TOKEN}")
+          fi
+          curl -fsS -X POST "${headers[@]}" "https://download.xt.systems/desktop/prewarm"
