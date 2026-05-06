@@ -122,11 +122,14 @@ cargo tauri build       # if tauri-cli is installed (recommended)
 cargo build --release   # produces target/release/agixt-desktop
 ```
 
-When AGiXT is started from this repository with `agixt start` or
-`agixt restart`, the CLI will also build and install this desktop app
-on machines with a graphical desktop session. It skips CI/headless
-terminal-only environments and can be disabled with
-`AGIXT_DESKTOP_INSTALL=false`.
+When AGiXT is started with `agixt start` or `agixt restart`, the CLI
+checks for an installed AGiXT Desktop app on machines with a graphical
+desktop session. If it is missing, the CLI downloads the prebuilt app
+for the current OS from `https://d.devxt.com/desktop/{os}` and launches
+it instead of building locally. It skips CI/headless terminal-only
+environments and can be disabled with `AGIXT_DESKTOP_INSTALL=false`.
+Set `AGIXT_DESKTOP_DOWNLOAD_BASE_URL` to point at a different download
+server.
 
 Set `RUST_LOG=info,agixt_desktop_lib=debug` for verbose logging.
 Frontend `console.log` is forwarded to the same Rust tracing log via

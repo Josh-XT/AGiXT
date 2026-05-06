@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import base64
-import hashlib
 import json
 import os
 import re
@@ -33,6 +32,9 @@ import getpass
 import platform
 import random
 import socket
+import tarfile
+import tempfile
+import zipfile
 from dotenv import load_dotenv
 
 
@@ -51,6 +53,7 @@ CREDENTIALS_FILE = STATE_DIR / "credentials.json"
 DESKTOP_CLIENT_DIR = REPO_ROOT / "clients" / "desktop"
 DESKTOP_TAURI_DIR = DESKTOP_CLIENT_DIR / "src-tauri"
 DESKTOP_INSTALL_STATE_FILE = STATE_DIR / "desktop-install.json"
+DESKTOP_DOWNLOAD_TIMEOUT_SECONDS = 60
 
 
 class CLIError(RuntimeError):
@@ -2770,71 +2773,22 @@ def _has_desktop_session() -> bool:
     return False
 
 
-def _desktop_source_build_id() -> str:
-    git_commit = "unknown"
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode == 0:
-            git_commit = result.stdout.strip()
-    except (subprocess.SubprocessError, OSError):
-        pass
+def _desktop_download_base_url() -> str:
+    return os.getenv("AGIXT_DESKTOP_DOWNLOAD_BASE_URL", "https://d.devxt.com").rstrip(
+        "/"
+    )
 
-    git_status = ""
-    try:
-        result = subprocess.run(
-            ["git", "status", "--porcelain", "--", "clients/desktop"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode == 0:
-            git_status = result.stdout
-    except (subprocess.SubprocessError, OSError):
-        pass
 
-    newest_source_mtime = 0
-    source_roots = [
-        DESKTOP_CLIENT_DIR / "src",
-        DESKTOP_TAURI_DIR / "src",
-        DESKTOP_TAURI_DIR / "capabilities",
-        DESKTOP_TAURI_DIR / "icons",
-    ]
-    source_files = [
-        DESKTOP_CLIENT_DIR / "package.json",
-        DESKTOP_CLIENT_DIR / "package-lock.json",
-        DESKTOP_TAURI_DIR / "Cargo.toml",
-        DESKTOP_TAURI_DIR / "Cargo.lock",
-        DESKTOP_TAURI_DIR / "tauri.conf.json",
-        DESKTOP_TAURI_DIR / "build.rs",
-    ]
-    for root in source_roots:
-        if not root.exists():
-            continue
-        for path in root.rglob("*"):
-            if path.is_file():
-                try:
-                    newest_source_mtime = max(
-                        newest_source_mtime, int(path.stat().st_mtime)
-                    )
-                except OSError:
-                    pass
-    for path in source_files:
-        if not path.exists():
-            continue
-        try:
-            newest_source_mtime = max(newest_source_mtime, int(path.stat().st_mtime))
-        except OSError:
-            pass
-
-    dirty_hash = hashlib.sha256(git_status.encode("utf-8")).hexdigest()[:12]
-    return f"{git_commit}:{dirty_hash}:{newest_source_mtime}"
+def _desktop_os_type() -> str:
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if system == "linux":
+        return "linux-arm64" if machine in {"aarch64", "arm64"} else "linux"
+    if system == "darwin":
+        return "macos-x86" if machine in {"x86_64", "amd64"} else "macos"
+    if system == "windows":
+        return "windows"
+    raise CLIError(f"AGiXT Desktop downloads are not available for {system}.")
 
 
 def _desktop_binary_name() -> str:
@@ -2863,26 +2817,92 @@ def _desktop_installed_binary_path() -> Path:
     return Path.home() / ".local" / "bin" / binary_name
 
 
-def _install_desktop_linux_launcher(binary_path: Path) -> None:
+def _desktop_candidate_binary_paths() -> list[Path]:
+    system = platform.system().lower()
+    binary_name = _desktop_binary_name()
+    if system == "linux":
+        return [
+            Path("/usr/bin") / binary_name,
+            Path("/usr/local/bin") / binary_name,
+            _desktop_installed_binary_path(),
+        ]
+    if system == "darwin":
+        return [
+            _desktop_installed_binary_path(),
+            Path("/Applications")
+            / "AGiXT Desktop.app"
+            / "Contents"
+            / "MacOS"
+            / binary_name,
+        ]
+    return [_desktop_installed_binary_path()]
+
+
+def _find_desktop_installed_binary() -> Optional[Path]:
+    seen: set[str] = set()
+    for path in _desktop_candidate_binary_paths():
+        path_key = str(path)
+        if path_key in seen:
+            continue
+        seen.add(path_key)
+        if path.exists() and path.is_file():
+            return path
+
+    found = shutil.which(_desktop_binary_name())
+    return Path(found) if found else None
+
+
+def _read_desktop_install_state() -> dict:
+    if not DESKTOP_INSTALL_STATE_FILE.exists():
+        return {}
+    try:
+        return json.loads(DESKTOP_INSTALL_STATE_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _desktop_local_build_should_be_replaced(installed_binary: Path) -> bool:
+    if _env_truthy("AGIXT_DESKTOP_FORCE_DOWNLOAD", default=False):
+        return True
+    if platform.system().lower() != "linux":
+        return False
+    try:
+        if installed_binary.resolve() != _desktop_installed_binary_path().resolve():
+            return False
+    except OSError:
+        return False
+    install_state = _read_desktop_install_state()
+    return bool(install_state and install_state.get("source") != "download")
+
+
+def _install_desktop_linux_launcher(
+    binary_path: Path, icon_path: Optional[Path] = None
+) -> None:
     applications_dir = Path.home() / ".local" / "share" / "applications"
     applications_dir.mkdir(parents=True, exist_ok=True)
-    icon_path = DESKTOP_TAURI_DIR / "icons" / "icon.png"
+    if icon_path is None:
+        repo_icon_path = DESKTOP_TAURI_DIR / "icons" / "icon.png"
+        icon_path = repo_icon_path if repo_icon_path.exists() else None
+    entries = [
+        "[Desktop Entry]",
+        "Type=Application",
+        "Name=AGiXT Desktop",
+        "Comment=Native AGiXT desktop client",
+        f"Exec={binary_path}",
+    ]
+    if icon_path is not None and icon_path.exists():
+        entries.append(f"Icon={icon_path}")
+    entries.extend(
+        [
+            "Terminal=false",
+            "Categories=Utility;Network;",
+            "StartupNotify=true",
+            "",
+        ]
+    )
     desktop_file = applications_dir / "agixt-desktop.desktop"
     desktop_file.write_text(
-        "\n".join(
-            [
-                "[Desktop Entry]",
-                "Type=Application",
-                "Name=AGiXT Desktop",
-                "Comment=Native AGiXT desktop client",
-                f"Exec={binary_path}",
-                f"Icon={icon_path}",
-                "Terminal=false",
-                "Categories=Utility;Network;",
-                "StartupNotify=true",
-                "",
-            ]
-        ),
+        "\n".join(entries),
         encoding="utf-8",
     )
     desktop_file.chmod(0o755)
@@ -2931,41 +2951,316 @@ def _install_desktop_macos_launcher(binary_path: Path) -> None:
     )
 
 
-def _build_and_install_desktop_app(build_id: str) -> None:
-    cargo_toml = DESKTOP_TAURI_DIR / "Cargo.toml"
-    if not cargo_toml.exists():
-        print("AGiXT Desktop app is not present in this checkout; skipping install.")
-        return
-    if shutil.which("cargo") is None:
-        print("Rust cargo was not found; skipping AGiXT Desktop app install.")
-        return
+def _desktop_artifact_suffix(path: Path) -> str:
+    name = path.name.lower()
+    for suffix in (
+        ".app.tar.gz",
+        ".tar.gz",
+        ".appimage",
+        ".deb",
+        ".dmg",
+        ".msi",
+        ".exe",
+        ".rpm",
+        ".zip",
+    ):
+        if name.endswith(suffix):
+            return suffix
+    return path.suffix.lower()
 
-    binary_name = _desktop_binary_name()
-    built_binary = DESKTOP_TAURI_DIR / "target" / "release" / binary_name
-    installed_binary = _desktop_installed_binary_path()
+
+def _install_raw_desktop_binary(
+    source: Path, destination: Optional[Path] = None
+) -> Path:
+    installed_binary = destination or _desktop_installed_binary_path()
     installed_binary.parent.mkdir(parents=True, exist_ok=True)
-
-    print("Building AGiXT Desktop app...")
-    subprocess.run(["cargo", "build", "--release"], cwd=DESKTOP_TAURI_DIR, check=True)
-    if not built_binary.exists():
-        raise CLIError(f"AGiXT Desktop build did not create {built_binary}.")
-
-    shutil.copy2(built_binary, installed_binary)
+    shutil.copy2(source, installed_binary)
     try:
         installed_binary.chmod(installed_binary.stat().st_mode | 0o755)
     except OSError:
         pass
+    return installed_binary
 
+
+def _find_extracted_desktop_binary(root: Path) -> Path:
+    binary_name = _desktop_binary_name()
+    for candidate in root.rglob(binary_name):
+        if candidate.is_file():
+            return candidate
+    for candidate in root.rglob("agixt-desktop*"):
+        if candidate.is_file() and candidate.name.lower().endswith((".exe", "desktop")):
+            return candidate
+    raise CLIError(
+        "Downloaded AGiXT Desktop artifact did not contain a runnable binary."
+    )
+
+
+def _copy_extracted_linux_icon(root: Path) -> Optional[Path]:
+    icon_candidates = [path for path in root.rglob("*.png") if path.is_file()]
+    if not icon_candidates:
+        return None
+
+    def icon_score(path: Path) -> tuple[int, int]:
+        text = str(path).lower()
+        name_score = 0 if "agixt" in text or "systems.xt.agixt.desktop" in text else 1
+        try:
+            size_score = -path.stat().st_size
+        except OSError:
+            size_score = 0
+        return (name_score, size_score)
+
+    icon_source = sorted(icon_candidates, key=icon_score)[0]
+    icon_dest = Path.home() / ".local" / "share" / "icons" / "agixt-desktop.png"
+    icon_dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(icon_source, icon_dest)
+    return icon_dest
+
+
+def _install_desktop_deb_artifact(artifact_path: Path) -> Path:
+    if shutil.which("dpkg-deb") is None:
+        raise CLIError(
+            "Downloaded a Debian package, but dpkg-deb is not available to install it without sudo."
+        )
+
+    with tempfile.TemporaryDirectory(prefix="agixt-desktop-deb-") as temp_dir:
+        extract_dir = Path(temp_dir) / "extract"
+        result = subprocess.run(
+            ["dpkg-deb", "-x", str(artifact_path), str(extract_dir)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise CLIError(
+                "Failed to extract AGiXT Desktop Debian package: "
+                f"{result.stderr.strip() or result.stdout.strip()}"
+            )
+        binary = _find_extracted_desktop_binary(extract_dir)
+        installed_binary = _install_raw_desktop_binary(binary)
+        icon_path = _copy_extracted_linux_icon(extract_dir)
+        _install_desktop_linux_launcher(installed_binary, icon_path=icon_path)
+        return installed_binary
+
+
+def _safe_extract_tar(archive_path: Path, extract_dir: Path) -> None:
+    extract_root = extract_dir.resolve()
+    with tarfile.open(archive_path) as archive:
+        for member in archive.getmembers():
+            member_path = (extract_dir / member.name).resolve()
+            try:
+                member_path.relative_to(extract_root)
+            except ValueError as exc:
+                raise CLIError(
+                    "Refusing to extract unsafe AGiXT Desktop archive."
+                ) from exc
+        archive.extractall(extract_dir)
+
+
+def _safe_extract_zip(archive_path: Path, extract_dir: Path) -> None:
+    extract_root = extract_dir.resolve()
+    with zipfile.ZipFile(archive_path) as archive:
+        for member in archive.namelist():
+            member_path = (extract_dir / member).resolve()
+            try:
+                member_path.relative_to(extract_root)
+            except ValueError as exc:
+                raise CLIError(
+                    "Refusing to extract unsafe AGiXT Desktop archive."
+                ) from exc
+        archive.extractall(extract_dir)
+
+
+def _install_desktop_archive_artifact(artifact_path: Path) -> Path:
+    with tempfile.TemporaryDirectory(prefix="agixt-desktop-archive-") as temp_dir:
+        extract_dir = Path(temp_dir) / "extract"
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        suffix = _desktop_artifact_suffix(artifact_path)
+        if suffix in {".tar.gz", ".app.tar.gz"}:
+            _safe_extract_tar(artifact_path, extract_dir)
+        elif suffix == ".zip":
+            _safe_extract_zip(artifact_path, extract_dir)
+        else:
+            raise CLIError(f"Unsupported AGiXT Desktop archive format: {suffix}")
+
+        system = platform.system().lower()
+        if system == "darwin":
+            mac_apps = [path for path in extract_dir.rglob("*.app") if path.is_dir()]
+            if mac_apps:
+                app_dir = _desktop_installed_binary_path().parents[2]
+                if app_dir.exists():
+                    shutil.rmtree(app_dir)
+                shutil.copytree(mac_apps[0], app_dir)
+                return _desktop_installed_binary_path()
+
+        binary = _find_extracted_desktop_binary(extract_dir)
+        installed_binary = _install_raw_desktop_binary(binary)
+        if system == "linux":
+            icon_path = _copy_extracted_linux_icon(extract_dir)
+            _install_desktop_linux_launcher(installed_binary, icon_path=icon_path)
+        elif system == "darwin":
+            _install_desktop_macos_launcher(installed_binary)
+        return installed_binary
+
+
+def _install_desktop_artifact(artifact_path: Path, os_type: str) -> Path:
+    suffix = _desktop_artifact_suffix(artifact_path)
     system = platform.system().lower()
-    if system == "linux":
+    needs_launcher = False
+
+    if suffix == ".deb":
+        installed_binary = _install_desktop_deb_artifact(artifact_path)
+    elif suffix in {".zip", ".tar.gz", ".app.tar.gz"}:
+        installed_binary = _install_desktop_archive_artifact(artifact_path)
+    elif suffix == ".dmg":
+        subprocess.Popen(
+            ["open", str(artifact_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+        )
+        raise CLIError(
+            "Downloaded the AGiXT Desktop disk image and opened it. Finish the installer, then run AGiXT again."
+        )
+    elif suffix == ".msi":
+        subprocess.run(
+            ["msiexec", "/i", str(artifact_path), "/qn", "/norestart"],
+            check=True,
+        )
+        installed_binary = _find_desktop_installed_binary()
+        if installed_binary is None:
+            raise CLIError(
+                "AGiXT Desktop MSI completed, but no installed binary was found."
+            )
+    else:
+        installed_binary = _install_raw_desktop_binary(artifact_path)
+        needs_launcher = True
+
+    if needs_launcher and system == "linux":
         _install_desktop_linux_launcher(installed_binary)
-    elif system == "darwin":
+    elif needs_launcher and system == "darwin":
         _install_desktop_macos_launcher(installed_binary)
 
+    return installed_binary
+
+
+def _desktop_response_filename(response, os_type: str) -> str:
+    content_disposition = response.headers.get("Content-Disposition", "")
+    filename_match = re.search(
+        r"filename\*?=(?:UTF-8''|\"?)([^\";]+)", content_disposition
+    )
+    if filename_match:
+        filename = urllib.parse.unquote(filename_match.group(1).strip().strip('"'))
+    else:
+        filename = Path(urllib.parse.urlparse(response.geturl()).path).name
+    filename = Path(filename).name.lstrip(".")
+    if filename and re.fullmatch(r"[A-Za-z0-9._+-]+", filename):
+        return filename
+
+    fallback_extension = ".exe" if os_type == "windows" else ""
+    return f"agixt-desktop-{os_type}{fallback_extension}"
+
+
+def _download_desktop_artifact(os_type: str) -> tuple[Path, str, str]:
+    url = f"{_desktop_download_base_url()}/desktop/{urllib.parse.quote(os_type)}"
+    downloads_dir = STATE_DIR / "desktop-downloads"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/octet-stream",
+            "User-Agent": "agixt-cli",
+        },
+    )
+    print(f"Downloading AGiXT Desktop from {url}...")
+    try:
+        with urllib.request.urlopen(
+            request, timeout=DESKTOP_DOWNLOAD_TIMEOUT_SECONDS
+        ) as response:
+            filename = _desktop_response_filename(response, os_type)
+            destination = downloads_dir / filename
+            temp_destination = destination.with_name(f".{destination.name}.tmp")
+            with temp_destination.open("wb") as output:
+                shutil.copyfileobj(response, output)
+            temp_destination.replace(destination)
+            build_id = response.headers.get("X-Desktop-Build-ID", "unknown")
+            artifact_name = response.headers.get("X-Artifact-Name", filename)
+            return destination, build_id, artifact_name
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", errors="replace").strip()
+        except Exception:
+            body = ""
+        detail = body or getattr(exc, "reason", "")
+        raise CLIError(f"AGiXT Desktop download failed ({exc.code}): {detail}") from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise CLIError(f"AGiXT Desktop download failed: {exc}") from exc
+
+
+def _desktop_process_is_running() -> bool:
+    system = platform.system().lower()
+    try:
+        if system in {"linux", "darwin"} and shutil.which("pgrep"):
+            result = subprocess.run(
+                ["pgrep", "-x", "agixt-desktop"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            return result.returncode == 0
+        if system == "windows":
+            result = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq agixt-desktop.exe", "/NH"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return "agixt-desktop.exe" in result.stdout.lower()
+    except (subprocess.SubprocessError, OSError):
+        return False
+    return False
+
+
+def _launch_desktop_app(binary_path: Path) -> None:
+    if _desktop_process_is_running():
+        print("AGiXT Desktop app is already running.")
+        return
+
+    system = platform.system().lower()
+    if system == "windows":
+        os.startfile(str(binary_path))  # type: ignore[attr-defined]
+        print("AGiXT Desktop app launched.")
+        return
+
+    launch_target = binary_path
+    command = [str(binary_path)]
+    if system == "darwin":
+        for parent in binary_path.parents:
+            if parent.suffix == ".app":
+                launch_target = parent
+                command = ["open", str(parent)]
+                break
+
+    popen_kwargs = {
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "stdin": subprocess.DEVNULL,
+    }
+    if system != "windows":
+        popen_kwargs["start_new_session"] = True
+    subprocess.Popen(command, **popen_kwargs)
+    print(f"AGiXT Desktop app launched from {launch_target}.")
+
+
+def _write_desktop_install_state(
+    build_id: str, artifact_name: str, installed_binary: Path, os_type: str
+) -> None:
     DESKTOP_INSTALL_STATE_FILE.write_text(
         json.dumps(
             {
-                "build_id": build_id,
+                "source": "download",
+                "version": build_id,
+                "artifact": artifact_name,
+                "os_type": os_type,
                 "installed_binary": str(installed_binary),
                 "installed_at": int(time.time()),
             },
@@ -2973,7 +3268,6 @@ def _build_and_install_desktop_app(build_id: str) -> None:
         ),
         encoding="utf-8",
     )
-    print(f"AGiXT Desktop app installed at {installed_binary}")
 
 
 def _maybe_install_desktop_app() -> None:
@@ -2981,22 +3275,32 @@ def _maybe_install_desktop_app() -> None:
         return
 
     try:
-        build_id = _desktop_source_build_id()
-        installed_binary = _desktop_installed_binary_path()
-        if DESKTOP_INSTALL_STATE_FILE.exists() and installed_binary.exists():
-            try:
-                install_state = json.loads(
-                    DESKTOP_INSTALL_STATE_FILE.read_text(encoding="utf-8")
-                )
-                if install_state.get("build_id") == build_id:
-                    return
-            except (json.JSONDecodeError, OSError):
-                pass
-        _build_and_install_desktop_app(build_id=build_id)
+        installed_binary = _find_desktop_installed_binary()
+        if (
+            installed_binary is not None
+            and not _desktop_local_build_should_be_replaced(installed_binary)
+        ):
+            _launch_desktop_app(installed_binary)
+            return
+
+        if installed_binary is not None:
+            print("Replacing local AGiXT Desktop build with the prebuilt download.")
+
+        os_type = _desktop_os_type()
+        artifact_path, build_id, artifact_name = _download_desktop_artifact(os_type)
+        installed_binary = _install_desktop_artifact(artifact_path, os_type=os_type)
+        _write_desktop_install_state(
+            build_id=build_id,
+            artifact_name=artifact_name,
+            installed_binary=installed_binary,
+            os_type=os_type,
+        )
+        print(f"AGiXT Desktop app installed at {installed_binary}")
+        _launch_desktop_app(installed_binary)
     except CLIError as exc:
         print(f"Warning: {exc}")
     except Exception as exc:
-        print(f"Warning: Failed to install AGiXT Desktop app: {exc}")
+        print(f"Warning: Failed to prepare AGiXT Desktop app: {exc}")
 
 
 # Redis container management for local mode
