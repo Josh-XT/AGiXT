@@ -3756,8 +3756,15 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
+            let settings_db = app
+                .path()
+                .app_config_dir()
+                .expect("resolve app config dir")
+                .join("settings.db");
             let store = tauri::async_runtime::block_on(async {
-                ConfigStore::open().await.expect("open settings db")
+                ConfigStore::open_at(settings_db)
+                    .await
+                    .expect("open settings db")
             });
             let settings =
                 tauri::async_runtime::block_on(async { store.load().await.unwrap_or_default() });
@@ -3770,6 +3777,11 @@ pub fn run() {
                 sudo_keepalive: Mutex::new(None),
                 suppress_blur_hide: Arc::new(AtomicBool::new(false)),
             });
+
+            if let Some(win) = app.get_webview_window(MAIN_LABEL) {
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
 
             Ok(())
         })

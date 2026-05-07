@@ -145,6 +145,13 @@ pub struct ConfigStore {
 impl ConfigStore {
     pub async fn open() -> Result<Self> {
         let path = config_path()?;
+        Self::open_at(path).await
+    }
+
+    /// Open the settings database at an explicit file path. Tauri mobile
+    /// passes its app-config directory here because `dirs` can return
+    /// `None` when Android/iOS do not expose a normal `$HOME`.
+    pub async fn open_at(path: PathBuf) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).context("create config dir")?;
         }
@@ -313,31 +320,6 @@ fn config_path() -> Result<PathBuf> {
     }
     .context("resolve config dir")?;
     Ok(base.join("agixt-desktop").join("settings.db"))
-}
-
-#[cfg(test)]
-impl ConfigStore {
-    /// Open a config DB at an explicit path. Used by tests so they don't
-    /// touch the user's real settings file.
-    pub async fn open_at(path: PathBuf) -> Result<Self> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).context("create config dir")?;
-        }
-        let url = format!("sqlite://{}?mode=rwc", path.display());
-        let pool = SqlitePoolOptions::new()
-            .max_connections(2)
-            .connect(&url)
-            .await?;
-        sqlx::query(
-            r#"CREATE TABLE IF NOT EXISTS settings (
-                key   TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            )"#,
-        )
-        .execute(&pool)
-        .await?;
-        Ok(Self { pool })
-    }
 }
 
 #[cfg(test)]
