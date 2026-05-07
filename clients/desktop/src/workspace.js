@@ -352,8 +352,6 @@
     undo:     '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a4 4 0 0 1 0 8h-1"/>',
     sparkles: '<path d="M12 3v18"/><path d="M3 12h18"/><path d="M5 5l14 14"/><path d="M19 5L5 19"/>',
     send:     '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
-    panelL:   '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>',
-    backToChat:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
     spinner:  '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-dasharray="40" stroke-linecap="round"/>',
   };
   function icon(name, size) {
@@ -404,8 +402,7 @@
 
   // Roots + cached element references built on first open.
   let root = null;
-  let toolbarTitleEl, toolbarBackEl;
-  let sidebarEl, sidebarTreeEl, sidebarHeaderEl, newFolderRow, newFolderInput;
+  let sidebarEl, sidebarCollapsedEl, sidebarTreeEl, sidebarHeaderEl, newFolderRow, newFolderInput;
   let editorAreaEl, editorMountEl, previewEl, aiBarEl, aiInputEl, aiSendBtn;
   let modeToggleEl, dirtyEl, fileNameEl, splitContainer, splitHandle;
   let splitLeft, splitRight;
@@ -419,7 +416,11 @@
     root = document.getElementById('workspace-screen');
     if (!root) {
       root = el('section', { id: 'workspace-screen', class: 'workspace-screen', hidden: '' });
-      document.body.appendChild(root);
+      // Mount inside the chat-screen's main pane so the sidenav and
+      // chat both stay visible alongside the workspace. Falls back to
+      // <body> for tests / older shells that don't render that layout.
+      const main = document.querySelector('.chat-screen-main') || document.body;
+      main.appendChild(root);
     }
     buildScaffold();
     return root;
@@ -428,27 +429,25 @@
   function buildScaffold() {
     root.innerHTML = '';
 
-    // Top bar
-    const topbar = el('div', { class: 'wk-topbar' });
-    const backBtn = el('button', { class: 'wk-icon-btn', type: 'button', title: 'Back to chat',
-      onclick: () => close() }, [icon('backToChat', 14)]);
-    const sidebarToggle = el('button', { class: 'wk-icon-btn', type: 'button', title: 'Toggle sidebar',
-      onclick: () => { state.sidebarOpen = !state.sidebarOpen; renderSidebarVisibility(); } },
-      [icon('panelL', 14)]);
-    const wsLabel = el('span', { class: 'wk-topbar-label' }, 'Workspace');
-    const sep = el('span', { class: 'wk-topbar-sep' });
-    const fileLabel = el('span', { class: 'wk-topbar-file' });
-    toolbarTitleEl = fileLabel;
-    toolbarBackEl = backBtn;
-    topbar.appendChild(backBtn);
-    topbar.appendChild(sidebarToggle);
-    topbar.appendChild(wsLabel);
-    topbar.appendChild(sep);
-    topbar.appendChild(fileLabel);
-    root.appendChild(topbar);
+    // No top bar — chat persists alongside the workspace (so a back-to-chat
+    // affordance is unnecessary; the composer's folder icon toggles the
+    // workspace), and the active filename already lives in the editor
+    // toolbar. The Files panel sits on the right and can be collapsed
+    // down to a thin re-expand strip.
 
-    // Body: sidebar + editor area
     const body = el('div', { class: 'wk-body' });
+
+    // Editor area (left) — primary work surface.
+    editorAreaEl = el('div', { class: 'wk-editor-area' });
+    welcomePane = el('div', { class: 'wk-welcome' }, [
+      (function () { const s = icon('file', 48); s.classList.add('wk-welcome-icon'); return s; })(),
+      el('p', { class: 'wk-welcome-text' }, 'Select a file from the Files panel to view or edit it'),
+    ]);
+    editorAreaEl.appendChild(welcomePane);
+    body.appendChild(editorAreaEl);
+
+    // Files panel (right). Header gets a chevron that collapses the panel
+    // down to `.wk-sidebar-collapsed`; clicking the strip restores it.
     sidebarEl = el('aside', { class: 'wk-sidebar' });
     sidebarHeaderEl = el('div', { class: 'wk-sidebar-header' });
     const headerLabel = el('span', { class: 'wk-sidebar-title' }, 'Files');
@@ -461,10 +460,15 @@
       onclick: () => { state.isCreatingFolder = true; renderNewFolderRow(); } }, [icon('plus', 13)]);
     const refreshBtn = el('button', { class: 'wk-icon-btn small', type: 'button', title: 'Refresh',
       onclick: () => refresh() }, [icon('refresh', 13)]);
+    const collapseBtn = el('button', { class: 'wk-icon-btn small wk-sidebar-collapse-btn',
+      type: 'button', title: 'Collapse Files',
+      onclick: () => { state.sidebarOpen = false; renderSidebarVisibility(); } },
+      [icon('chevron', 13)]);
     headerActions.appendChild(uploadBtn);
     headerActions.appendChild(fileInputEl);
     headerActions.appendChild(newFolderBtn);
     headerActions.appendChild(refreshBtn);
+    headerActions.appendChild(collapseBtn);
     sidebarHeaderEl.appendChild(headerLabel);
     sidebarHeaderEl.appendChild(headerActions);
     sidebarEl.appendChild(sidebarHeaderEl);
@@ -489,16 +493,18 @@
     sidebarEl.appendChild(sidebarTreeEl);
     body.appendChild(sidebarEl);
 
-    editorAreaEl = el('div', { class: 'wk-editor-area' });
+    // Collapsed strip — replaces the Files panel when the user collapses
+    // it. Click anywhere on the strip to bring the Files panel back.
+    sidebarCollapsedEl = el('button', { class: 'wk-sidebar-collapsed', type: 'button',
+      title: 'Show Files', 'aria-label': 'Show Files',
+      onclick: () => { state.sidebarOpen = true; renderSidebarVisibility(); } });
+    const stripIcon = icon('chevron', 14);
+    stripIcon.classList.add('wk-sidebar-collapsed-icon');
+    const stripLabel = el('span', { class: 'wk-sidebar-collapsed-label' }, 'Files');
+    sidebarCollapsedEl.appendChild(stripIcon);
+    sidebarCollapsedEl.appendChild(stripLabel);
+    body.appendChild(sidebarCollapsedEl);
 
-    // Welcome pane (shown when no file selected)
-    welcomePane = el('div', { class: 'wk-welcome' }, [
-      (function () { const s = icon('file', 48); s.classList.add('wk-welcome-icon'); return s; })(),
-      el('p', { class: 'wk-welcome-text' }, 'Select a file from the sidebar to view or edit it'),
-    ]);
-    editorAreaEl.appendChild(welcomePane);
-
-    body.appendChild(editorAreaEl);
     root.appendChild(body);
   }
 
@@ -581,7 +587,8 @@
   // ===================================================================
 
   function renderSidebarVisibility() {
-    sidebarEl.style.display = state.sidebarOpen ? '' : 'none';
+    if (sidebarEl) sidebarEl.style.display = state.sidebarOpen ? '' : 'none';
+    if (sidebarCollapsedEl) sidebarCollapsedEl.style.display = state.sidebarOpen ? 'none' : '';
   }
 
   function renderNewFolderRow() {
@@ -1176,30 +1183,26 @@
     state.open = true;
     root.hidden = false;
     document.body.classList.add('workspace-open');
-    // Hide chat-screen while workspace is open so they don't double-render.
-    const chatScreen = document.getElementById('chat-screen');
-    if (chatScreen) chatScreen.dataset.prevHidden = chatScreen.hidden ? '1' : '0';
-    if (chatScreen) chatScreen.hidden = true;
-    // The default popover window is 400×800 — too small for an editor.
-    // Bump the window to a more workable size and remember the previous
-    // size + position so close() can restore both. (Restoring just the
-    // size leaves the window wherever the OS shifted it during the
-    // grow, which is why the chat appeared to "jump" on close.)
+    // Chat stays visible alongside the workspace — `body.workspace-open`
+    // flips `.chat-screen-main` to a row layout so the chat pane and
+    // workspace pane sit side-by-side.
+    // The default popover window is 400×800 — too small for chat +
+    // editor. Bump to a workable size and remember the previous
+    // geometry so close() can restore both. (Restoring just the size
+    // leaves the window wherever the OS shifted it during the grow,
+    // which is why the chat appeared to "jump" on close.)
     try {
       const tw = window.__TAURI__ && window.__TAURI__.window;
       if (tw && typeof tw.getCurrentWindow === 'function') {
         const win = tw.getCurrentWindow();
-        // Capture current physical geometry first, then resize. Both
-        // outerSize/outerPosition return PhysicalSize/PhysicalPosition.
         Promise.all([win.outerSize(), win.outerPosition()]).then(([sz, pos]) => {
           state._prevWindow = { width: sz.width, height: sz.height, x: pos.x, y: pos.y };
           if (tw.LogicalSize) {
-            win.setSize(new tw.LogicalSize(1100, 760)).catch(() => {});
+            win.setSize(new tw.LogicalSize(1300, 800)).catch(() => {});
           }
         }).catch(() => {
-          // Fallback: resize without remembering geometry.
           if (tw.LogicalSize) {
-            win.setSize(new tw.LogicalSize(1100, 760)).catch(() => {});
+            win.setSize(new tw.LogicalSize(1300, 800)).catch(() => {});
           }
         });
       }
@@ -1215,8 +1218,6 @@
     state.open = false;
     if (root) root.hidden = true;
     document.body.classList.remove('workspace-open');
-    const chatScreen = document.getElementById('chat-screen');
-    if (chatScreen) chatScreen.hidden = chatScreen.dataset.prevHidden === '1';
     // Restore window geometry (size *and* position) we captured on
     // open(). Resize first, then move — moving last avoids the OS
     // adjusting the position again to keep the larger frame on-screen.

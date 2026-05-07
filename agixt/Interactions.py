@@ -77,6 +77,9 @@ _RE_MULTI_NEWLINE = re.compile(r"\n\s*\n\s*\n")
 _RE_TRIPLE_NEWLINE = re.compile(r"\n{3,}")
 _RE_CUSTOM_FORMAT = re.compile(r"(?<!{){([^{}\n]+)}(?!})")
 _RE_MARKDOWN_FENCE_LINE = re.compile(r"(?m)^[ \t]*(`{3,}|~{3,})")
+_RE_PROTOCOL_CONTAINER_TAG = re.compile(
+    r"</?(think(?:ing)?|reflection)>", re.IGNORECASE
+)
 
 
 def _get_unclosed_markdown_fence_marker(text: str) -> str:
@@ -93,9 +96,37 @@ def _get_unclosed_markdown_fence_marker(text: str) -> str:
     return open_marker
 
 
+def _get_unclosed_protocol_container_closers(text: str) -> list[str]:
+    """
+    Return closing tags needed to leave dangling thinking/reflection containers.
+
+    Recovery can happen after the stream parser has shown answer text to the UI
+    while the raw provider text still contains an unclosed <think>/<thinking> or
+    <reflection> block. A recovered <answer> must be appended outside those
+    containers or has_complete_answer() will keep treating it as hidden work.
+    """
+    stack = []
+    for match in _RE_PROTOCOL_CONTAINER_TAG.finditer(text or ""):
+        raw_tag = match.group(0).lower()
+        tag_name = match.group(1).lower()
+        canonical_name = "thinking" if tag_name in ("think", "thinking") else tag_name
+
+        if raw_tag.startswith("</"):
+            for idx in range(len(stack) - 1, -1, -1):
+                if stack[idx][0] == canonical_name:
+                    del stack[idx:]
+                    break
+            continue
+
+        close_tag = "</think>" if tag_name == "think" else f"</{canonical_name}>"
+        stack.append((canonical_name, close_tag))
+
+    return [close_tag for _, close_tag in reversed(stack)]
+
+
 def _append_recovered_answer_block(response: str, answer_text: str) -> str:
     """
-    Append a synthetic protocol answer outside markdown/code boundaries.
+    Append a synthetic protocol answer outside markdown/code/protocol boundaries.
     """
     response = response or ""
     answer_text = (answer_text or "").strip()
@@ -108,7 +139,28 @@ def _append_recovered_answer_block(response: str, answer_text: str) -> str:
     open_fence = _get_unclosed_markdown_fence_marker(response)
     if open_fence:
         additions.append(f"\n{open_fence}\n")
+
+    for close_tag in _get_unclosed_protocol_container_closers(
+        response + "".join(additions)
+    ):
+        additions.append(f"{close_tag}\n")
+
     additions.append(f"<answer>{answer_text}</answer>")
+    return response + "".join(additions)
+
+
+def _close_recovered_answer_block(response: str) -> str:
+    """
+    Close an already-open top-level answer after streamed content was emitted.
+    """
+    response = response or ""
+    additions = []
+    open_fence = _get_unclosed_markdown_fence_marker(response)
+    if open_fence:
+        if response and not response.endswith(("\n", "\r")):
+            additions.append("\n")
+        additions.append(f"{open_fence}\n")
+    additions.append("</answer>")
     return response + "".join(additions)
 
 
@@ -3744,7 +3796,9 @@ Example: Open Remote Terminal, Execute in Terminal, Get Terminal Output, Vision 
             tts_enabled = tts_provider and tts_provider not in ("None", "", None)
 
         if tts_enabled:
-            kwargs["tts_filler_instructions"] = """
+            kwargs[
+                "tts_filler_instructions"
+            ] = """
 **VOICE MODE - IMMEDIATE RESPONSE REQUIRED**
 
 The user is speaking to you and will hear your response aloud. You MUST begin with TWO `<speak>` tags IMMEDIATELY - before ANY thinking, commands, or processing:
@@ -5209,6 +5263,63 @@ or
                         "<answer> block after no-answer boundary detection."
                     )
                 continue
+
+            # If answer text has already streamed to the user but the raw transcript
+            # still has an incomplete answer boundary, recover the transcript instead
+            # of asking the model to keep "completing" visible text forever.
+            if (
+                has_incomplete_answer
+                and not has_new_execution
+                and answer_content.strip()
+            ):
+                _recovered_answer_text = answer_content.strip()
+                _before_recovery = self.response
+
+                if is_inside_top_level_answer(self.response):
+                    self.response = _close_recovered_answer_block(self.response)
+                    logging.info(
+                        "[run_stream] Closed streamed top-level <answer> after "
+                        "incomplete-answer boundary detection."
+                    )
+                else:
+                    self.response = _append_recovered_answer_block(
+                        self.response, _recovered_answer_text
+                    )
+                    logging.info(
+                        "[run_stream] Recovered streamed answer content into a "
+                        "top-level <answer> block after incomplete-answer boundary "
+                        "detection."
+                    )
+
+                processed_length = len(self.response)
+                if has_complete_answer(self.response):
+                    has_incomplete_answer = False
+                    continue
+
+                # Recovery did not produce a parser-visible final answer. Avoid
+                # appending the same recovered text repeatedly; let the next
+                # continuation receive explicit repair instructions instead.
+                if self.response == _before_recovery:
+                    logging.warning(
+                        "[run_stream] Incomplete-answer recovery made no transcript "
+                        "change; injecting self-healing feedback."
+                    )
+                else:
+                    logging.warning(
+                        "[run_stream] Incomplete-answer recovery did not produce a "
+                        "complete parser-visible answer; injecting self-healing "
+                        "feedback."
+                    )
+                _continuation_recovery_count += 1
+                _continuation_recovery_feedback = (
+                    "A user-visible answer was already streamed, but the raw "
+                    "transcript still has invalid or nested answer boundaries. "
+                    "Do not repeat the same answer text. Produce one fresh, "
+                    "complete top-level <answer></answer> block on its own line, "
+                    "outside any thinking, reflection, markdown code fence, or "
+                    "other protocol block."
+                )
+                answer_content = ""
 
             # After many consecutive non-exec no-answer iterations, self-heal
             # by steering the next continuation instead of forcing a final

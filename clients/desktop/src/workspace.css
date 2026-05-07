@@ -4,10 +4,14 @@
  * palette automatically.
  */
 
+/* Workspace mounts inline inside `.chat-screen-main` (next to the chat
+   pane) instead of as a fullscreen overlay. `body.workspace-open`
+   triggers the chat-screen-main row layout in styles.css so the chat
+   pane and workspace render side-by-side. */
 #workspace-screen.workspace-screen {
-  position: absolute;
-  inset: 0;
-  z-index: 70;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
   background: var(--bg, #0a0a0a);
   color: var(--text, #e6edf3);
   display: flex;
@@ -16,22 +20,9 @@
 }
 #workspace-screen[hidden] { display: none !important; }
 
-body.workspace-open .topbar { z-index: 1; }
-
-/* Top bar -----------------------------------------------------------*/
-.wk-topbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border, #1a1f24);
-  background: var(--panel, #0d1117);
-  min-height: 36px;
-}
-.wk-topbar-label { font-size: 12px; opacity: 0.7; letter-spacing: 0.04em; text-transform: uppercase; }
-.wk-topbar-sep { opacity: 0.4; padding: 0 4px; }
-.wk-topbar-sep::before { content: '/'; opacity: 0.6; }
-.wk-topbar-file { font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; opacity: 0.9; }
+/* (No top bar — removed. Chat persists alongside the workspace, the
+   active filename is in the editor toolbar, and the composer's folder
+   icon toggles the workspace open/closed.) */
 
 .wk-icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
@@ -69,14 +60,51 @@ body.workspace-open .topbar { z-index: 1; }
   display: flex;
 }
 
-/* Sidebar -----------------------------------------------------------*/
+/* Files panel — sits on the right of the editor. Collapses to a thin
+   re-expand strip (`.wk-sidebar-collapsed`) when the user clicks the
+   header chevron. */
 .wk-sidebar {
   width: 260px; flex-shrink: 0;
   display: flex; flex-direction: column;
-  border-right: 1px solid var(--border, #1a1f24);
+  border-left: 1px solid var(--border, #1a1f24);
   background: var(--panel, #0d1117);
   min-height: 0;
 }
+
+.wk-sidebar-collapsed {
+  flex: 0 0 auto;
+  width: 28px;
+  display: flex; flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  background: var(--panel, #0d1117);
+  border: 0;
+  border-left: 1px solid var(--border, #1a1f24);
+  color: var(--text, #e6edf3);
+  cursor: pointer;
+  font-family: inherit;
+}
+.wk-sidebar-collapsed:hover { background: var(--panel-hover, #161b22); }
+.wk-sidebar-collapsed-icon {
+  /* Chevron points right by default; flip it left to read as
+     "expand toward me" from the collapsed strip on the right edge. */
+  transform: rotate(180deg);
+  opacity: 0.85;
+}
+.wk-sidebar-collapsed-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+/* Header collapse chevron points right (toward the panel's outer edge),
+   reading as "tuck the panel away that direction." */
+.wk-sidebar-collapse-btn { opacity: 0.7; }
+.wk-sidebar-collapse-btn:hover { opacity: 1; }
 .wk-sidebar-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 6px 8px; gap: 4px;
@@ -265,6 +293,3 @@ body.workspace-open .topbar { z-index: 1; }
 .wkfp-tab.active { background: var(--panel-hover, #161b22); opacity: 1; border: 1px solid var(--border, #1a1f24); border-bottom-color: transparent; }
 
 .wkfp-docx { padding: 18px 22px; max-width: 880px; line-height: 1.55; font-size: 13px; }
-
-/* Hide chat overlap when workspace open */
-body.workspace-open .composer { display: none; }

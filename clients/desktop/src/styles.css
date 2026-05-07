@@ -921,6 +921,19 @@ details.sub-tool > summary.sub-tool-summary:hover {
 }
 .view-pane[hidden] { display: none; }
 
+/* Workspace-open layout — chat pane stays visible alongside the
+   workspace editor. `.chat-screen-main` flips to a row, the chat pane
+   takes a fixed slim column, and `#workspace-screen` (mounted as a
+   sibling by workspace.js) fills the rest. */
+body.workspace-open .chat-screen-main {
+  flex-direction: row;
+}
+body.workspace-open .view-pane[data-view="chat"] {
+  flex: 0 0 340px;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+}
+
 /* VSCode-style activity bar. Top group lists sections (Chat, …); bottom
    group is reserved for pinned actions (currently just app settings).
    New sections are added by dropping a `.sidenav-btn[data-view=…]` into
@@ -946,17 +959,13 @@ details.sub-tool > summary.sub-tool-summary:hover {
   align-items: center;
 }
 .sidenav-top { flex: 1 1 auto; }
-.sidenav-bottom {
-  flex: 0 0 auto;
-  border-top: 1px solid var(--border);
-  padding-top: 6px;
-}
+.sidenav-bottom { flex: 0 0 auto; }
 
 .sidenav-btn {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  border: 1px solid transparent;
+  border: none;
   background: transparent;
   color: var(--text-dim);
   display: flex;
@@ -965,7 +974,7 @@ details.sub-tool > summary.sub-tool-summary:hover {
   cursor: pointer;
   padding: 0;
   position: relative;
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 .sidenav-btn:hover {
   background: var(--panel-2);
@@ -978,18 +987,6 @@ details.sub-tool > summary.sub-tool-summary:hover {
 .sidenav-btn.is-active {
   background: var(--panel-2);
   color: var(--text);
-  border-color: var(--border-strong);
-}
-/* Accent rail on the active button (mimics VSCode's left-edge marker). */
-.sidenav-btn.is-active::before {
-  content: "";
-  position: absolute;
-  left: -7px;
-  top: 4px;
-  bottom: 4px;
-  width: 2px;
-  border-radius: 2px;
-  background: var(--accent);
 }
 
 .auth-card {
