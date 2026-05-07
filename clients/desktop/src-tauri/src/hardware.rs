@@ -321,6 +321,11 @@ async fn ram_mib() -> (u64, u64) {
     (total, avail)
 }
 
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+async fn ram_mib() -> (u64, u64) {
+    (0, 0)
+}
+
 #[cfg(target_os = "linux")]
 fn parse_kib(s: &str) -> u64 {
     s.trim()

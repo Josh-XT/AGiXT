@@ -8,10 +8,10 @@
 //! contract.
 //!
 //! Examples:
-//!   agixt-desktop-cli screenshot --target-width 1920 --output /tmp/shot.b64
-//!   agixt-desktop-cli click --x 500 --y 500 --normalized --target-width 1920 --screen-width 2560
-//!   agixt-desktop-cli type --text "hello world"
-//!   agixt-desktop-cli key --keys ctrl,c
+//!   agixt-cli screenshot --target-width 1920 --output /tmp/shot.b64
+//!   agixt-cli click --x 500 --y 500 --normalized --target-width 1920 --screen-width 2560
+//!   agixt-cli type --text "hello world"
+//!   agixt-cli key --keys ctrl,c
 
 use agixt_desktop_lib::automation::{self, VisionContext};
 use serde_json::{json, Value};

@@ -19,6 +19,10 @@ pub mod config;
 pub mod filesystem;
 pub mod hardware;
 pub mod local_install;
+#[cfg(not(mobile))]
+pub mod terminal;
+#[cfg(mobile)]
+#[path = "terminal_mobile.rs"]
 pub mod terminal;
 pub mod updater;
 pub mod voice;
@@ -28,12 +32,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+#[cfg(not(mobile))]
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewWindow,
+    LogicalSize, PhysicalPosition,
 };
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tokio::sync::Mutex;
 
 use config::{ConfigStore, DesktopSettings};
@@ -64,6 +70,7 @@ pub struct AppState {
 /// Without this, the icon has been observed to disappear after the
 /// first interaction on Ubuntu's AppIndicator extension.
 #[allow(dead_code)]
+#[cfg(not(mobile))]
 struct TrayHolder(pub std::sync::Mutex<Option<tauri::tray::TrayIcon>>);
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -472,6 +479,7 @@ fn urlencode_state(s: &str) -> String {
 async fn open_agent_settings(app: AppHandle) -> ToolResult<()> {
     if let Some(win) = app.get_webview_window("agent-settings") {
         let _ = win.show();
+        #[cfg(not(mobile))]
         let _ = win.unminimize();
         let _ = win.set_focus();
         Ok(())
@@ -1846,6 +1854,47 @@ async fn terminal_signal(
 // Window management — sidebar dock + floating toggle
 // --------------------------------------------------------------------------
 
+/// Stamp `_GTK_APPLICATION_ID` on the X11 window. GNOME Shell's window
+/// tracker uses this property as the most reliable signal for window-to-
+/// `.desktop`-file association — when present, mutter looks up
+/// `<id>.desktop` directly instead of falling back to the much fuzzier
+/// `WM_CLASS` / `Exec=` heuristics. Without it (Tauri's GTK backend never
+/// sets one), Ubuntu Dock cannot reliably attach the running window to
+/// the dash entry, so the app appears to be missing from the taskbar.
+///
+/// Match value `agixt` to the `agixt.desktop` filename installed by
+/// `install_linux_launcher()`.
+#[cfg(target_os = "linux")]
+fn set_gtk_application_id(win: &WebviewWindow) {
+    use gtk::prelude::*;
+    let Ok(gw) = win.gtk_window() else {
+        tracing::warn!("set_gtk_application_id: gtk_window() failed");
+        return;
+    };
+    // Force realization so the underlying X11 window exists, then we
+    // can stamp `_GTK_APPLICATION_ID` on it.
+    gw.realize();
+    let Some(gdk_win) = gw.window() else {
+        tracing::warn!("set_gtk_application_id: gtk_window has no gdk::Window after realize()");
+        return;
+    };
+    let prop = gdk::Atom::intern("_GTK_APPLICATION_ID");
+    let utf8 = gdk::Atom::intern("UTF8_STRING");
+    let id = b"agixt";
+    gdk::property_change(
+        &gdk_win,
+        &prop,
+        &utf8,
+        8,
+        gdk::PropMode::Replace,
+        gdk::ChangeData::UChars(id),
+    );
+    tracing::info!("set_gtk_application_id: stamped _GTK_APPLICATION_ID=agixt");
+}
+
+#[cfg(all(not(mobile), not(target_os = "linux")))]
+fn set_gtk_application_id(_: &WebviewWindow) {}
+
 /// On Linux/X11 with mutter (GNOME), normal `_NET_WM_WINDOW_TYPE_NORMAL`
 /// windows still participate in tile-snap and edge-tiling. We need to
 /// promote our popover to a non-tilable window type. `Utility` is the
@@ -1863,7 +1912,7 @@ fn promote_to_utility(win: &WebviewWindow) {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(mobile), not(target_os = "linux")))]
 fn promote_to_utility(_: &WebviewWindow) {}
 
 /// Inverse of `promote_to_utility`: turn the popover back into a normal
@@ -1888,6 +1937,13 @@ fn demote_to_normal(win: &WebviewWindow) {
             gw.set_icon(Some(&pixbuf));
         }
     }
+    // We deliberately *don't* re-stamp `_GTK_APPLICATION_ID` here:
+    // `demote_to_normal` is invoked from `set_workspace_window_mode`,
+    // which runs on a tokio worker thread, and GDK panics if touched
+    // off the main thread. The property is set once at startup (in the
+    // Tauri `.setup` callback, which is on the main thread) and X11
+    // preserves it across hide → show cycles since the underlying
+    // X11 window isn't re-created.
     // Tauri's own icon hook also writes _NET_WM_ICON via the wry
     // backend; call it too so any non-GTK consumers (eg. Window
     // List in some panels) pick it up.
@@ -1896,7 +1952,7 @@ fn demote_to_normal(win: &WebviewWindow) {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(mobile), not(target_os = "linux")))]
 fn demote_to_normal(win: &WebviewWindow) {
     if let Ok(image) = Image::from_bytes(APP_ICON_BYTES) {
         let _ = win.set_icon(image);
@@ -1905,6 +1961,7 @@ fn demote_to_normal(win: &WebviewWindow) {
 
 /// 128px AGiXT logo, embedded at compile time so we don't need a
 /// runtime file lookup. Used as the window icon in decorated mode.
+#[cfg(not(mobile))]
 const APP_ICON_BYTES: &[u8] = include_bytes!("../icons/128x128.png");
 
 #[cfg(target_os = "linux")]
@@ -1960,7 +2017,7 @@ fn configure_media_capture(win: &WebviewWindow) {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(mobile), not(target_os = "linux")))]
 fn configure_media_capture(_: &WebviewWindow) {}
 
 /// Linux-specific hide via gtk_widget_hide on the underlying GtkWindow.
@@ -2049,6 +2106,7 @@ fn is_actually_visible(win: &WebviewWindow) -> bool {
 /// icon itself. If the tray rect is unavailable (some Linux DEs don't
 /// report it) we fall back to the right edge of the primary monitor —
 /// the same place a top-right tray would put us.
+#[cfg(not(mobile))]
 fn position_popover(
     app: &AppHandle,
     win: &WebviewWindow,
@@ -2171,6 +2229,7 @@ fn position_popover(
 /// already-mapped windows are coalesced with the WM's auto-placement.
 /// Mitigation: hide the window first (if it's visible), set position, then
 /// show — unmapped windows accept geometry hints reliably.
+#[cfg(not(mobile))]
 fn show_popover(
     app: &AppHandle,
     win: &WebviewWindow,
@@ -2216,6 +2275,7 @@ fn show_popover(
     Ok(())
 }
 
+#[cfg(not(mobile))]
 fn hide_popover(app: &AppHandle, win: &WebviewWindow) {
     tracing::info!("hide_popover called");
     // Hide first via gtk directly on Linux — Tauri's wrapper has proven
@@ -2248,6 +2308,7 @@ fn hide_popover(app: &AppHandle, win: &WebviewWindow) {
 /// or a settings/menu action. Tray clicks bypass IPC and call
 /// `show_popover` directly so they can pass the tray rect through.
 #[tauri::command]
+#[cfg(not(mobile))]
 async fn show_chat(app: AppHandle, state: State<'_, AppState>) -> ToolResult<()> {
     let win = app
         .get_webview_window(MAIN_LABEL)
@@ -2262,6 +2323,7 @@ async fn show_chat(app: AppHandle, state: State<'_, AppState>) -> ToolResult<()>
 }
 
 #[tauri::command]
+#[cfg(not(mobile))]
 async fn hide_chat(app: AppHandle, state: State<'_, AppState>) -> ToolResult<()> {
     if let Some(win) = app.get_webview_window(MAIN_LABEL) {
         hide_popover(&app, &win);
@@ -2273,6 +2335,7 @@ async fn hide_chat(app: AppHandle, state: State<'_, AppState>) -> ToolResult<()>
 }
 
 #[tauri::command]
+#[cfg(not(mobile))]
 async fn toggle_chat(app: AppHandle, state: State<'_, AppState>) -> ToolResult<bool> {
     let win = app
         .get_webview_window(MAIN_LABEL)
@@ -2291,11 +2354,13 @@ async fn toggle_chat(app: AppHandle, state: State<'_, AppState>) -> ToolResult<b
 
 // Legacy aliases — older IPC callers still reference these names.
 #[tauri::command]
+#[cfg(not(mobile))]
 async fn toggle_sidebar(app: AppHandle, state: State<'_, AppState>) -> ToolResult<bool> {
     toggle_chat(app, state).await
 }
 
 #[tauri::command]
+#[cfg(not(mobile))]
 async fn set_sidebar_visible(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -2314,6 +2379,7 @@ async fn set_sidebar_visible(
 /// editor calls this on open/close so the popover doesn't feel cramped
 /// when the editor is up but stays out of the way for chat-only use.
 #[tauri::command]
+#[cfg(not(mobile))]
 async fn set_workspace_window_mode(app: AppHandle, enabled: bool) -> ToolResult<()> {
     let win = app
         .get_webview_window(MAIN_LABEL)
@@ -2381,6 +2447,7 @@ async fn set_workspace_window_mode(app: AppHandle, enabled: bool) -> ToolResult<
 }
 
 #[tauri::command]
+#[cfg(not(mobile))]
 async fn set_dock_mode(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -2402,6 +2469,7 @@ async fn set_dock_mode(
 }
 
 #[tauri::command]
+#[cfg(not(mobile))]
 async fn toggle_dock_mode(app: AppHandle, state: State<'_, AppState>) -> ToolResult<String> {
     let opened = toggle_chat(app, state).await?;
     Ok(if opened {
@@ -2412,10 +2480,102 @@ async fn toggle_dock_mode(app: AppHandle, state: State<'_, AppState>) -> ToolRes
 }
 
 #[tauri::command]
+#[cfg(not(mobile))]
 async fn save_dock_position(app: AppHandle, state: State<'_, AppState>) -> ToolResult<()> {
     // Kept for back-compat with the older drag-the-bubble flow; the
     // tray-anchored popover doesn't need to remember position.
     let _ = (app, state);
+    Ok(())
+}
+
+#[tauri::command]
+#[cfg(mobile)]
+async fn show_chat(_app: AppHandle, state: State<'_, AppState>) -> ToolResult<()> {
+    let mut s = state.settings.lock().await;
+    s.sidebar_open = true;
+    state.store.save(&s).await.map_err(ToolError::from)
+}
+
+#[tauri::command]
+#[cfg(mobile)]
+async fn hide_chat(_app: AppHandle, state: State<'_, AppState>) -> ToolResult<()> {
+    let mut s = state.settings.lock().await;
+    s.sidebar_open = false;
+    state.store.save(&s).await.map_err(ToolError::from)
+}
+
+#[tauri::command]
+#[cfg(mobile)]
+async fn toggle_chat(_app: AppHandle, state: State<'_, AppState>) -> ToolResult<bool> {
+    let mut s = state.settings.lock().await;
+    s.sidebar_open = !s.sidebar_open;
+    let visible = s.sidebar_open;
+    state.store.save(&s).await.map_err(ToolError::from)?;
+    Ok(visible)
+}
+
+#[tauri::command]
+#[cfg(mobile)]
+async fn toggle_sidebar(app: AppHandle, state: State<'_, AppState>) -> ToolResult<bool> {
+    toggle_chat(app, state).await
+}
+
+#[tauri::command]
+#[cfg(mobile)]
+async fn set_sidebar_visible(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    visible: bool,
+) -> ToolResult<()> {
+    if visible {
+        show_chat(app, state).await
+    } else {
+        hide_chat(app, state).await
+    }
+}
+
+#[tauri::command]
+#[cfg(mobile)]
+async fn set_workspace_window_mode(_app: AppHandle, _enabled: bool) -> ToolResult<()> {
+    Ok(())
+}
+
+#[tauri::command]
+#[cfg(mobile)]
+async fn set_dock_mode(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    mode: String,
+) -> ToolResult<String> {
+    match mode.as_str() {
+        "panel" | "expanded" | "open" => {
+            show_chat(app, state).await?;
+            Ok("panel".into())
+        }
+        "bubble" | "collapsed" | "closed" => {
+            hide_chat(app, state).await?;
+            Ok("bubble".into())
+        }
+        other => Err(ToolError {
+            error: format!("unknown dock mode: {other}"),
+        }),
+    }
+}
+
+#[tauri::command]
+#[cfg(mobile)]
+async fn toggle_dock_mode(app: AppHandle, state: State<'_, AppState>) -> ToolResult<String> {
+    let opened = toggle_chat(app, state).await?;
+    Ok(if opened {
+        "panel".into()
+    } else {
+        "bubble".into()
+    })
+}
+
+#[tauri::command]
+#[cfg(mobile)]
+async fn save_dock_position(_app: AppHandle, _state: State<'_, AppState>) -> ToolResult<()> {
     Ok(())
 }
 
@@ -2434,12 +2594,16 @@ fn cleanup_legacy_linux_launchers() {
     let current_is_legacy_bin = current_exe.as_ref().is_some_and(|path| path == &legacy_bin);
 
     let apps_dir = home.join(".local/share/applications");
-    for name in ["agixt-desktop.desktop", "agixt-desktop-handler.desktop"] {
+    // Old launcher and URL-scheme handler from when the binary was named
+    // `agixt-desktop` and the deb package was `a-gi-xt-desktop`. The
+    // unified `agixt.desktop` we ship now supersedes both.
+    for name in [
+        "agixt-desktop.desktop",
+        "agixt-desktop-handler.desktop",
+        "agixt-handler.desktop",
+    ] {
         let path = apps_dir.join(name);
-        let Ok(contents) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        if contents.contains(".local/bin/agixt-desktop") {
+        if path.exists() {
             match std::fs::remove_file(&path) {
                 Ok(_) => tracing::info!("removed legacy desktop launcher {}", path.display()),
                 Err(e) => {
@@ -2449,24 +2613,10 @@ fn cleanup_legacy_linux_launchers() {
         }
     }
 
-    // The old per-purpose URL-scheme handler is now redundant: the unified
-    // `agixt-desktop.desktop` written by `install_linux_launcher()` declares
-    // `MimeType=x-scheme-handler/agixt;` itself. Worse, the handler's
-    // `Name=AGiXT Desktop` matches the new launcher's name so GNOME Shell
-    // sees two .desktop entries claiming the same app and cannot reliably
-    // associate the running window with the dash entry.
-    let handler_path = apps_dir.join("agixt-desktop-handler.desktop");
-    if handler_path.exists() {
-        match std::fs::remove_file(&handler_path) {
-            Ok(_) => tracing::info!(
-                "removed redundant URL-handler launcher {}",
-                handler_path.display()
-            ),
-            Err(e) => tracing::warn!(
-                "failed to remove URL-handler launcher {}: {e}",
-                handler_path.display()
-            ),
-        }
+    // Legacy hicolor icon written under the old name.
+    let legacy_icon = home.join(".local/share/icons/hicolor/128x128/apps/agixt-desktop.png");
+    if legacy_icon.exists() {
+        let _ = std::fs::remove_file(&legacy_icon);
     }
 
     if !current_is_legacy_bin && legacy_bin.exists() {
@@ -2490,10 +2640,10 @@ fn cleanup_legacy_linux_launchers() {}
 /// Install a freedesktop `.desktop` launcher and hicolor icon so GNOME Shell
 /// (and other taskbars) can associate the running window with a dash entry.
 ///
-/// Why: the running window's `WM_CLASS` is `"agixt-desktop"`, but without a
-/// `.desktop` file containing a matching `StartupWMClass=agixt-desktop`,
-/// GNOME treats it as "Window not associated with a window list" and the
-/// app is easy to lose behind other windows.
+/// Why: the running window's `WM_CLASS` is `"agixt"`, but without a
+/// `.desktop` file containing a matching `StartupWMClass=agixt`, GNOME
+/// treats it as "Window not associated with a window list" and the app
+/// is easy to lose behind other windows.
 #[cfg(target_os = "linux")]
 fn install_linux_launcher() {
     let home = match std::env::var_os("HOME") {
@@ -2509,7 +2659,7 @@ fn install_linux_launcher() {
     };
     let exe_str = current_exe.display().to_string();
 
-    // Install icon under the user's hicolor theme so `Icon=agixt-desktop`
+    // Install icon under the user's hicolor theme so `Icon=agixt`
     // resolves to a real PNG.
     let icons_dir = home.join(".local/share/icons/hicolor/128x128/apps");
     if let Err(e) = std::fs::create_dir_all(&icons_dir) {
@@ -2519,7 +2669,7 @@ fn install_linux_launcher() {
         );
         return;
     }
-    let icon_path = icons_dir.join("agixt-desktop.png");
+    let icon_path = icons_dir.join("agixt.png");
     if let Err(e) = std::fs::write(&icon_path, APP_ICON_BYTES) {
         tracing::warn!(
             "install_linux_launcher: write icon {} failed: {e}",
@@ -2535,17 +2685,17 @@ fn install_linux_launcher() {
         );
         return;
     }
-    let desktop_path = apps_dir.join("agixt-desktop.desktop");
+    let desktop_path = apps_dir.join("agixt.desktop");
     let contents = format!(
         "[Desktop Entry]\n\
         Type=Application\n\
         Name=AGiXT Desktop\n\
         Comment=AGiXT chat, workspace, and machine console\n\
         Exec=\"{exe}\" %u\n\
-        Icon=agixt-desktop\n\
+        Icon=agixt\n\
         Terminal=false\n\
         StartupNotify=true\n\
-        StartupWMClass=agixt-desktop\n\
+        StartupWMClass=agixt\n\
         Categories=Network;\n\
         MimeType=x-scheme-handler/agixt;\n",
         exe = exe_str
@@ -2572,27 +2722,59 @@ fn install_linux_launcher() {
             .status();
     }
 
-    // Re-point the agixt:// URL scheme to the unified launcher. The old
-    // handler.desktop has been removed, but xdg-mime caches the previous
-    // default in `~/.config/mimeapps.list` and would otherwise still
-    // reference the missing file.
+    // Mask any leftover deb-installed system launcher
+    // (`/usr/share/applications/AGiXT Desktop.desktop` from older
+    // `a-gi-xt-desktop` package installs). Per the freedesktop spec, a
+    // user-local `.desktop` with the same basename and `Hidden=true`
+    // causes GIO to skip the system file entirely.
+    let mask_path = apps_dir.join("AGiXT Desktop.desktop");
+    let system_target = std::path::Path::new("/usr/share/applications/AGiXT Desktop.desktop");
+    if system_target.exists() {
+        let mask = "[Desktop Entry]\n\
+            Type=Application\n\
+            Name=AGiXT Desktop (legacy)\n\
+            NoDisplay=true\n\
+            Hidden=true\n\
+            Exec=true\n";
+        let needs_mask_write = match std::fs::read_to_string(&mask_path) {
+            Ok(existing) => existing != mask,
+            Err(_) => true,
+        };
+        if needs_mask_write {
+            if let Err(e) = std::fs::write(&mask_path, mask) {
+                tracing::warn!(
+                    "install_linux_launcher: write mask {} failed: {e}",
+                    mask_path.display()
+                );
+            } else {
+                tracing::info!("masked legacy system launcher via {}", mask_path.display());
+                let _ = std::process::Command::new("update-desktop-database")
+                    .arg(&apps_dir)
+                    .status();
+            }
+        }
+    } else if mask_path.exists() {
+        // System file is gone; the mask is no longer needed and would
+        // just clutter the user's app dir.
+        let _ = std::fs::remove_file(&mask_path);
+    }
+
+    // Re-point the agixt:// URL scheme to the unified launcher. xdg-mime
+    // caches the previous default in `~/.config/mimeapps.list` and might
+    // still reference an old/removed file.
     let mime_default = std::process::Command::new("xdg-mime")
         .args(["query", "default", "x-scheme-handler/agixt"])
         .output();
     let needs_mime_update = match mime_default {
         Ok(out) => {
             let s = String::from_utf8_lossy(&out.stdout);
-            s.trim() != "agixt-desktop.desktop"
+            s.trim() != "agixt.desktop"
         }
         Err(_) => true,
     };
     if needs_mime_update {
         let _ = std::process::Command::new("xdg-mime")
-            .args([
-                "default",
-                "agixt-desktop.desktop",
-                "x-scheme-handler/agixt",
-            ])
+            .args(["default", "agixt.desktop", "x-scheme-handler/agixt"])
             .status();
     }
 }
@@ -2600,6 +2782,7 @@ fn install_linux_launcher() {
 #[cfg(not(target_os = "linux"))]
 fn install_linux_launcher() {}
 
+#[cfg(not(mobile))]
 pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -2691,6 +2874,9 @@ pub fn run() {
                 let _ = position_popover(&handle, &win, None);
                 let _ = win.show();
                 let _ = win.set_focus();
+                // After show() the X11 window is realized, so we can
+                // stamp `_GTK_APPLICATION_ID` for GNOME's window tracker.
+                set_gtk_application_id(&win);
                 // Re-apply position once after the WM has placed it —
                 // mutter sometimes coalesces the first set_position
                 // through the show transition.
@@ -2814,7 +3000,7 @@ pub fn run() {
 
             let icon_bytes = include_bytes!("../icons/32x32.png");
             let tray_icon = Image::from_bytes(icon_bytes).ok();
-            let mut builder = TrayIconBuilder::with_id("agixt-desktop")
+            let mut builder = TrayIconBuilder::with_id("agixt")
                 .tooltip("AGiXT")
                 .menu(&menu)
                 .on_menu_event(move |app, event| {
@@ -2996,4 +3182,114 @@ pub fn run() {
             },
             _ => {}
         });
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[cfg(mobile)]
+pub fn run() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,agixt_desktop_lib=debug".into()),
+        )
+        .init();
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .setup(|app| {
+            let store = tauri::async_runtime::block_on(async {
+                ConfigStore::open().await.expect("open settings db")
+            });
+            let settings =
+                tauri::async_runtime::block_on(async { store.load().await.unwrap_or_default() });
+
+            app.manage(AppState {
+                store: Arc::new(store),
+                settings: Mutex::new(settings),
+                terminals: Arc::new(terminal::TerminalManager::new()),
+                voice: Arc::new(voice::VoiceRecorder::new()),
+                sudo_keepalive: Mutex::new(None),
+                suppress_blur_hide: Arc::new(AtomicBool::new(false)),
+            });
+
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            frontend_log,
+            get_settings,
+            save_settings,
+            logout,
+            desktop_update_check,
+            desktop_update_install,
+            voice_start_recording,
+            voice_stop_recording,
+            voice_cancel_recording,
+            list_service_brands,
+            check_local_agixt,
+            detect_hardware,
+            default_install_path,
+            install_agixt_local,
+            list_oauth_providers,
+            login_password,
+            request_magic_link,
+            register_account,
+            login_with_jwt,
+            build_oauth_login_url,
+            build_oauth_connect_url,
+            open_agent_settings,
+            list_companies,
+            list_agents,
+            list_conversations,
+            select_conversation,
+            get_conversation_history,
+            new_conversation,
+            chat_send,
+            agent_vision,
+            desktop_screenshot,
+            desktop_click,
+            desktop_move,
+            desktop_drag,
+            desktop_scroll,
+            desktop_type,
+            shell_run,
+            sudo_status,
+            sudo_auth,
+            sudo_clear,
+            sudo_run,
+            terminal_open,
+            terminal_list,
+            terminal_close,
+            terminal_exec,
+            terminal_send_input,
+            terminal_read,
+            terminal_resize,
+            terminal_signal,
+            fs_read,
+            fs_write,
+            fs_append,
+            fs_edit,
+            fs_list,
+            fs_stat,
+            fs_mkdir,
+            fs_delete,
+            fs_rename,
+            workspace_upload_local,
+            workspace_download_to_local,
+            workspace_list,
+            show_chat,
+            hide_chat,
+            toggle_chat,
+            set_dock_mode,
+            toggle_dock_mode,
+            save_dock_position,
+            toggle_sidebar,
+            set_sidebar_visible,
+            set_workspace_window_mode,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 }

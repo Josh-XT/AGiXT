@@ -113,14 +113,14 @@ pub fn resolve_coords(x: i32, y: i32, ctx: &VisionContext) -> (i32, i32) {
     (actual_x, actual_y)
 }
 
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", not(mobile)))]
 use base64::engine::general_purpose::STANDARD as BASE64;
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", not(mobile)))]
 use base64::Engine as _;
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", not(mobile)))]
 use std::time::Duration;
 
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", not(mobile)))]
 use enigo::{Button, Direction, Enigo, Key, Keyboard as _, Mouse as _, Settings};
 
 #[derive(Debug, Serialize)]
@@ -144,7 +144,7 @@ pub struct ScreenshotResult {
     pub format: &'static str,
 }
 
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", not(mobile)))]
 pub fn click(
     x: i32,
     y: i32,
@@ -185,7 +185,7 @@ pub fn click(
     Ok((px, py))
 }
 
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", not(mobile)))]
 pub fn move_mouse(x: i32, y: i32, vision: &VisionContext) -> Result<(i32, i32)> {
     let (px, py) = resolve_coords(x, y, vision);
     let mut enigo = Enigo::new(&Settings::default()).map_err(|e| anyhow!("init enigo: {e}"))?;
@@ -195,7 +195,7 @@ pub fn move_mouse(x: i32, y: i32, vision: &VisionContext) -> Result<(i32, i32)> 
     Ok((px, py))
 }
 
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", not(mobile)))]
 pub fn drag(
     from_x: i32,
     from_y: i32,
@@ -231,7 +231,7 @@ pub fn drag(
     Ok(((fx, fy), (tx, ty)))
 }
 
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", not(mobile)))]
 pub fn scroll(amount: i32, axis: &str) -> Result<()> {
     let mut enigo = Enigo::new(&Settings::default()).map_err(|e| anyhow!("init enigo: {e}"))?;
     let ax = match axis {
@@ -243,7 +243,7 @@ pub fn scroll(amount: i32, axis: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", not(mobile)))]
 pub fn keyboard(text: Option<String>, keys: Option<Vec<String>>) -> Result<()> {
     let mut enigo = Enigo::new(&Settings::default()).map_err(|e| anyhow!("init enigo: {e}"))?;
     if let Some(t) = text {
@@ -281,7 +281,7 @@ pub fn keyboard(text: Option<String>, keys: Option<Vec<String>>) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", not(mobile)))]
 fn is_modifier(key_name: &str) -> bool {
     matches!(
         key_name.to_lowercase().as_str(),
@@ -289,7 +289,7 @@ fn is_modifier(key_name: &str) -> bool {
     )
 }
 
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", not(mobile)))]
 fn parse_key(key_name: &str) -> Result<Key> {
     Ok(match key_name.to_lowercase().as_str() {
         "enter" | "return" => Key::Return,
@@ -327,7 +327,7 @@ fn parse_key(key_name: &str) -> Result<Key> {
     })
 }
 
-#[cfg(feature = "automation")]
+#[cfg(all(feature = "automation", not(mobile)))]
 pub fn screenshot(
     monitor_index: Option<usize>,
     target_width: Option<u32>,
@@ -398,14 +398,14 @@ pub fn screenshot(
     })
 }
 
-#[cfg(not(feature = "automation"))]
+#[cfg(any(not(feature = "automation"), mobile))]
 mod stubs {
     use super::*;
     pub fn click(_: i32, _: i32, _: &str, _: &str, _: &VisionContext) -> Result<(i32, i32)> {
-        Err(anyhow!("automation feature not enabled"))
+        Err(anyhow!("desktop automation is not available in this build"))
     }
     pub fn move_mouse(_: i32, _: i32, _: &VisionContext) -> Result<(i32, i32)> {
-        Err(anyhow!("automation feature not enabled"))
+        Err(anyhow!("desktop automation is not available in this build"))
     }
     pub fn drag(
         _: i32,
@@ -415,24 +415,24 @@ mod stubs {
         _: &str,
         _: &VisionContext,
     ) -> Result<((i32, i32), (i32, i32))> {
-        Err(anyhow!("automation feature not enabled"))
+        Err(anyhow!("desktop automation is not available in this build"))
     }
     pub fn scroll(_: i32, _: &str) -> Result<()> {
-        Err(anyhow!("automation feature not enabled"))
+        Err(anyhow!("desktop automation is not available in this build"))
     }
     pub fn keyboard(_: Option<String>, _: Option<Vec<String>>) -> Result<()> {
-        Err(anyhow!("automation feature not enabled"))
+        Err(anyhow!("desktop automation is not available in this build"))
     }
     pub fn screenshot(
         _: Option<usize>,
         _: Option<u32>,
         _: Option<u32>,
     ) -> Result<ScreenshotResult> {
-        Err(anyhow!("automation feature not enabled"))
+        Err(anyhow!("desktop automation is not available in this build"))
     }
 }
 
-#[cfg(not(feature = "automation"))]
+#[cfg(any(not(feature = "automation"), mobile))]
 pub use stubs::*;
 
 #[cfg(test)]

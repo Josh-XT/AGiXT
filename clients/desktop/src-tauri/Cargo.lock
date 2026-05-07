@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "agixt-desktop"
+name = "agixt"
 version = "0.1.0"
 dependencies = [
  "anyhow",
