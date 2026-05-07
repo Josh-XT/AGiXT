@@ -69,6 +69,10 @@
   border-left: 1px solid var(--border, #1a1f24);
   background: var(--panel, #0d1117);
   min-height: 0;
+  /* Stack above the editor area so any visual mishap (e.g. an oversized
+     code block) can't bleed onto Files. */
+  position: relative;
+  z-index: 1;
 }
 
 .wk-sidebar-collapsed {
@@ -150,11 +154,19 @@
 .wk-tree-children { /* no left padding — child rows include depth via inline style */ }
 
 /* Editor area -------------------------------------------------------*/
+/* `overflow: hidden` is load-bearing: Monaco renders its layers with
+   absolute positioning, and they fall back to the nearest positioned
+   ancestor (`.wk-editor-body`). Without an outer clip, those layers
+   leak past the editor area and overdraw the Files panel in split
+   mode. Same reason `.wk-monaco-mount`, `.wk-split-left`, and
+   `.wk-split-right` are explicitly positioned + clipped below. */
 .wk-editor-area {
   flex: 1; min-width: 0; display: flex; flex-direction: column;
+  overflow: hidden;
 }
 .wk-editor-wrap {
   flex: 1; display: flex; flex-direction: column; min-height: 0;
+  min-width: 0; overflow: hidden;
 }
 
 .wk-welcome {
@@ -196,7 +208,10 @@
   display: flex;
 }
 
-.wk-monaco-mount { flex: 1; min-width: 0; min-height: 0; height: 100%; }
+.wk-monaco-mount {
+  flex: 1; min-width: 0; min-height: 0; height: 100%;
+  position: relative; overflow: hidden;
+}
 
 .wk-loading {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -226,30 +241,17 @@
 }
 
 /* Split view --------------------------------------------------------*/
-.wk-split { flex: 1; min-height: 0; display: flex; }
-.wk-split-left, .wk-split-right { min-width: 0; min-height: 0; display: flex; }
+.wk-split { flex: 1; min-height: 0; display: flex; min-width: 0; }
+.wk-split-left, .wk-split-right {
+  min-width: 0; min-height: 0; display: flex;
+  position: relative; overflow: hidden;
+}
 .wk-split-left { border-right: 1px solid var(--border, #1a1f24); }
 .wk-split-handle {
   width: 6px; cursor: col-resize; flex-shrink: 0;
   background: transparent; transition: background 0.1s;
 }
 .wk-split-handle:hover { background: var(--accent, #2563eb); opacity: 0.4; }
-
-/* AI edit bar -------------------------------------------------------*/
-.wk-ai-bar {
-  display: flex; align-items: flex-end; gap: 8px;
-  padding: 8px 10px; border-top: 1px solid var(--border, #1a1f24);
-  background: var(--panel, #0d1117);
-}
-.wk-ai-input {
-  flex: 1; resize: none; min-height: 28px; max-height: 120px;
-  padding: 6px 10px; font-size: 13px; line-height: 1.4;
-  background: var(--bg, #0a0a0a); color: var(--text, #e6edf3);
-  border: 1px solid var(--border, #1a1f24); border-radius: 6px;
-  font-family: inherit;
-}
-.wk-ai-input:focus { outline: 1px solid var(--accent, #2563eb); outline-offset: -1px; }
-.wk-ai-input:disabled { opacity: 0.5; }
 
 /* File preview helpers (consumed by workspace-preview.js) ----------*/
 .wkfp-loading { display: flex; align-items: center; justify-content: center; padding: 30px; }

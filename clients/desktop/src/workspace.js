@@ -395,15 +395,13 @@
     mode: 'edit',         // 'edit' | 'preview' | 'split'
     splitFraction: 0.5,
     monaco: null,
-    aiInstructions: '',
-    isAiEditing: false,
     pollIntervalId: null,
   };
 
   // Roots + cached element references built on first open.
   let root = null;
   let sidebarEl, sidebarCollapsedEl, sidebarTreeEl, sidebarHeaderEl, newFolderRow, newFolderInput;
-  let editorAreaEl, editorMountEl, previewEl, aiBarEl, aiInputEl, aiSendBtn;
+  let editorAreaEl, editorMountEl, previewEl;
   let modeToggleEl, dirtyEl, fileNameEl, splitContainer, splitHandle;
   let splitLeft, splitRight;
   let actionsEl;            // toolbar action buttons row
@@ -554,32 +552,15 @@
     toolbar.appendChild(actionsEl);
     wrap.appendChild(toolbar);
 
-    // Body — created based on mode/media type after content loads
+    // Body — created based on mode/media type after content loads.
+    // No in-editor AI bar: the chat composer that sits next to the
+    // workspace handles "ask AI to edit this file" already, and it
+    // automatically receives context about the active file (and any
+    // editor selection) via `getContext()`.
     editorMountEl = el('div', { class: 'wk-editor-body' });
     wrap.appendChild(editorMountEl);
 
-    // AI Edit bar
-    aiBarEl = el('form', { class: 'wk-ai-bar', onsubmit: (e) => { e.preventDefault(); doAiEdit(); } });
-    const sparkles = icon('sparkles', 14);
-    aiInputEl = el('textarea', { rows: '1', class: 'wk-ai-input', placeholder: 'Ask AI to edit this file…',
-      oninput: (e) => { state.aiInstructions = e.target.value; autoGrow(e.target); },
-      onkeydown: (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doAiEdit(); }
-      },
-    });
-    aiSendBtn = el('button', { class: 'wk-btn ghost small', type: 'submit', disabled: '' },
-      [icon('send', 14)]);
-    aiBarEl.appendChild(sparkles);
-    aiBarEl.appendChild(aiInputEl);
-    aiBarEl.appendChild(aiSendBtn);
-    wrap.appendChild(aiBarEl);
-
     editorAreaEl.appendChild(wrap);
-  }
-
-  function autoGrow(t) {
-    t.style.height = 'auto';
-    t.style.height = Math.min(120, t.scrollHeight) + 'px';
   }
 
   // ===================================================================
@@ -881,14 +862,8 @@
       const previewWrap = el('div', { class: 'wk-preview' });
       editorMountEl.appendChild(previewWrap);
       window.AgixtWorkspacePreview.render(previewWrap, state.editorBlob, f.name, () => downloadActiveFile());
-      // Disable AI bar if no text extraction available.
-      aiInputEl.disabled = !state.mediaTextContent;
-      aiInputEl.placeholder = state.mediaTextContent ? 'Ask AI to edit this file…' : 'AI editing not available for this file type';
       return;
     }
-
-    aiInputEl.disabled = false;
-    aiInputEl.placeholder = 'Ask AI to edit this file…';
 
     if (state.mode === 'edit') {
       const mount = el('div', { class: 'wk-monaco-mount' });
@@ -1114,59 +1089,6 @@
     }
   }
 
-  async function doAiEdit() {
-    const instructions = (state.aiInstructions || '').trim();
-    if (!instructions || state.isAiEditing) return;
-    const f = state.activeFile; if (!f) return;
-    const isMedia = window.AgixtWorkspacePreview.isPreviewableMedia(f.name);
-    const textForAi = isMedia ? state.mediaTextContent : state.editorContent;
-    if (isMedia && !textForAi) { toast('Cannot extract text from this file type for AI editing', 'error'); return; }
-    state.isAiEditing = true;
-    aiSendBtn.disabled = true;
-    try {
-      const fileDescription = isMedia
-        ? `Edit the following data from the file "${f.name}". The data is in CSV format extracted from the original file. Return ONLY the complete updated CSV content with no explanation, no markdown code fences, and no additional text. Preserve the same CSV structure (headers, delimiters, sheet markers if present).`
-        : `Edit the following file named "${f.name}" according to these instructions. Return ONLY the complete updated file content with no explanation, no markdown code fences, and no additional text.`;
-      const prompt = `${fileDescription}\n\nInstructions: ${instructions}\n\nCurrent file content:\n\`\`\`\n${textForAi}\n\`\`\``;
-      const aiContent = await window.AgixtWorkspaceApi.aiEditCompletion(state.cfg, {
-        prompt,
-        model: state.cfg.agentName || 'XT',
-        conversationId: state.conversationId,
-      });
-      if (typeof aiContent !== 'string' || !aiContent) { toast('AI returned an unexpected response', 'error'); return; }
-      let cleaned = aiContent.trim();
-      const fence = cleaned.match(/^```[\w]*\n([\s\S]*?)```$/);
-      if (fence) cleaned = fence[1];
-      if (isMedia) {
-        const newBlob = await window.AgixtWorkspacePreview.rebuildBlobFromText(cleaned, f.name);
-        if (newBlob) {
-          state.editorBlob = newBlob; state.mediaTextContent = cleaned; state.mediaDirty = true;
-          toast('AI edit applied — click Save to keep changes', 'success');
-          renderEditorBody();
-          syncDirtyButtons();
-        } else {
-          toast('Failed to rebuild file from AI response', 'error');
-        }
-      } else {
-        state.editorContent = cleaned;
-        if (state.editor) state.editor.setValue(cleaned);
-        state.mode = 'edit';
-        syncModeButtons();
-        renderEditorBody();
-        toast('AI edit applied', 'success');
-      }
-    } catch (err) {
-      console.error(err);
-      toast('AI edit failed', 'error');
-    } finally {
-      state.isAiEditing = false;
-      state.aiInstructions = '';
-      aiInputEl.value = '';
-      aiSendBtn.disabled = true;
-      autoGrow(aiInputEl);
-    }
-  }
-
   // ===================================================================
   // Public API
   // ===================================================================
@@ -1275,12 +1197,41 @@
     }
   }
 
-  // Update the AI Send button enabled state on every input.
-  document.addEventListener('input', (e) => {
-    if (aiInputEl && e.target === aiInputEl) {
-      aiSendBtn.disabled = !aiInputEl.value.trim() || state.isAiEditing;
+  // Reload the workspace for a different conversation. The user expects
+  // switching threads (via the chat's convo switcher) to refresh the
+  // file list rather than show stale files from the previous thread.
+  function reload(opts) {
+    if (!state.open) return;
+    if (opts && opts.conversationId && opts.conversationId !== state.conversationId) {
+      state.conversationId = opts.conversationId;
+      closeActiveFile();
+      state.expandedFolders.clear();
     }
-  });
+    refresh();
+  }
 
-  window.AgixtWorkspace = { open, close, toggle, isOpen };
+  // Snapshot the workspace context the chat composer should send along
+  // with the next user message: the active file's path/name and any
+  // editor selection. Returns null when there's nothing meaningful to
+  // surface (workspace closed, or no file open).
+  function getContext() {
+    if (!state.open || !state.activeFile) return null;
+    const ctx = {
+      name: state.activeFile.name,
+      path: state.activeFile.path,
+      selection: null,
+    };
+    try {
+      if (state.editor && typeof state.editor.getSelection === 'function') {
+        const sel = state.editor.getSelection();
+        if (sel && !sel.isEmpty()) {
+          const model = state.editor.getModel();
+          if (model) ctx.selection = model.getValueInRange(sel);
+        }
+      }
+    } catch (_) { /* monaco may not be ready yet — ignore */ }
+    return ctx;
+  }
+
+  window.AgixtWorkspace = { open, close, toggle, isOpen, reload, getContext };
 })();

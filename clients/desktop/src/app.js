@@ -112,16 +112,27 @@
     return /SUDO_AUTH_REQUIRED|sudo.*password.*required|authenticate.*Privileged Commands/i.test(message || '');
   }
 
-  function requestSudoForDesktopUpdate() {
+  function requestSudoForDesktopUpdate(auto) {
     pendingDesktopUpdateInstall = true;
     setDesktopUpdateBusy('');
-    openSettings({ skipUpdateRefresh: true });
     setDesktopUpdateStatus('Authenticate Privileged Commands to install this update.', 'error');
-    setSudoSessionStatus('Enter your sudo password to continue the desktop update.', 'error');
     setDesktopUpdateControls(true);
+    markSettingsBtnPending(true);
+    if (auto) {
+      // Auto-update path: don't yank the user into settings on every
+      // boot. Mark the gear so they can authenticate when ready.
+      return;
+    }
+    openSettings({ skipUpdateRefresh: true });
+    setSudoSessionStatus('Enter your sudo password to continue the desktop update.', 'error');
     if (sudoPasswordInput) {
       window.setTimeout(() => sudoPasswordInput.focus(), 50);
     }
+  }
+
+  function markSettingsBtnPending(pending) {
+    if (!settingsBtn) return;
+    settingsBtn.classList.toggle('has-pending', !!pending);
   }
 
   // ----- Screen switching --------------------------------------------------
@@ -264,13 +275,14 @@
       if (desktopUpdateBusyMode === 'installing') setDesktopUpdateBusy('');
       if (result.installed) {
         setDesktopUpdateControls(false);
+        markSettingsBtnPending(false);
       } else {
         setDesktopUpdateControls(desktopUpdateIsReady());
       }
     } catch (err) {
       const message = desktopUpdateErrorText(err);
       if (isSudoAuthRequired(message)) {
-        requestSudoForDesktopUpdate();
+        requestSudoForDesktopUpdate(auto);
         return;
       }
       setDesktopUpdateStatus(message, 'error');
@@ -615,6 +627,15 @@
       // chat panel's previous content was for a different conversation.
       reconnectChat();
       await window.AgixtChat.loadHistory(conv.id);
+      // If the workspace is open, point it at the new conversation
+      // so the file list refreshes instead of showing stale entries
+      // from the previous thread.
+      if (window.AgixtWorkspace
+          && typeof window.AgixtWorkspace.isOpen === 'function'
+          && window.AgixtWorkspace.isOpen()
+          && typeof window.AgixtWorkspace.reload === 'function') {
+        window.AgixtWorkspace.reload({ conversationId: conv.id });
+      }
     } catch (e) {
       console.warn('select_conversation failed', e);
     }
@@ -848,6 +869,35 @@
     ].join('\n');
   }
 
+  // When the workspace editor is open with a file selected, prepend a
+  // small context block so the agent knows what the user is looking at
+  // (and which selection, if any, they want help with). Mirrors the
+  // attachments prefix in tone — primes the agent to use its workspace
+  // tools (workspace_read / workspace_write) for the active conversation
+  // rather than guessing.
+  function buildWorkspaceContextPrefix(ctx) {
+    if (!ctx) return '';
+    const lines = [
+      `The user has \`${ctx.path}\` open in the workspace editor for this conversation.`,
+      `Use the workspace tools (workspace_read, workspace_write, etc.) to inspect or modify the file when relevant.`,
+    ];
+    if (ctx.selection) {
+      const MAX = 4000;
+      const trimmed = ctx.selection.length > MAX
+        ? ctx.selection.slice(0, MAX) + '\n…(selection truncated)'
+        : ctx.selection;
+      lines.push('');
+      lines.push('Selected text in the editor:');
+      lines.push('```');
+      lines.push(trimmed);
+      lines.push('```');
+    }
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+    return lines.join('\n');
+  }
+
   async function sendCurrent() {
     frontendLog('info', 'sendCurrent invoked');
     try {
@@ -864,9 +914,12 @@
       }
       if (!settings.conversation_id) await ensureConversation();
       const filesForTurn = attachedFiles.slice();
-      const prefixed = filesForTurn.length
-        ? buildAttachmentsPrefix(filesForTurn) + text
-        : text;
+      const wsCtx = (window.AgixtWorkspace && typeof window.AgixtWorkspace.getContext === 'function')
+        ? window.AgixtWorkspace.getContext()
+        : null;
+      const wsPrefix = buildWorkspaceContextPrefix(wsCtx);
+      const filesPrefix = filesForTurn.length ? buildAttachmentsPrefix(filesForTurn) : '';
+      const prefixed = wsPrefix + filesPrefix + text;
       composerInput.value = '';
       autoResize();
       // Clear chips before the await so a follow-up keystroke can't

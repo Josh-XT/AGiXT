@@ -988,6 +988,20 @@ body.workspace-open .view-pane[data-view="chat"] {
   background: var(--panel-2);
   color: var(--text);
 }
+/* Notification dot — used by the bottom gear when an action (e.g. a
+   downloaded desktop update) is waiting for the user. Subtle so it
+   doesn't compete with other UI. */
+.sidenav-btn.has-pending::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--panel);
+}
 
 .auth-card {
   width: 100%;
