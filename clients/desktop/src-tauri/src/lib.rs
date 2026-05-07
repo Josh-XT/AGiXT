@@ -40,6 +40,7 @@ use tauri::{
     LogicalSize, PhysicalPosition,
 };
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri_plugin_opener::OpenerExt;
 use tokio::sync::Mutex;
 
 use config::{ConfigStore, DesktopSettings};
@@ -923,7 +924,7 @@ async fn chat_send(
         args.messages.len()
     );
     let tools = if s.allow_client_commands {
-        client_tool_specs::all()
+        client_tool_specs::for_current_platform()
     } else {
         Vec::new()
     };
@@ -1011,6 +1012,556 @@ async fn agent_vision(
     )
     .await
     .map_err(ToolError::from)
+}
+
+#[derive(Debug, Serialize)]
+pub struct ClientPlatformInfo {
+    pub os: String,
+    pub family: String,
+    pub mobile: bool,
+    pub desktop: bool,
+    pub tools: Vec<String>,
+}
+
+#[tauri::command]
+fn client_platform() -> ClientPlatformInfo {
+    let platform = client_tool_specs::current_platform();
+    let tools = client_tool_specs::for_platform(platform)
+        .iter()
+        .filter_map(|tool| tool["function"]["name"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    let mobile = client_tool_specs::is_mobile_platform(platform);
+    ClientPlatformInfo {
+        os: client_tool_specs::platform_id(platform).to_string(),
+        family: if mobile { "mobile" } else { "desktop" }.to_string(),
+        mobile,
+        desktop: !mobile,
+        tools,
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeviceOpenUrlArgs {
+    pub url: String,
+    #[serde(default)]
+    pub with: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct DeviceOpenAppArgs {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default, alias = "packageName", alias = "app_package")]
+    pub package: Option<String>,
+    #[serde(default)]
+    pub package_name: Option<String>,
+    #[serde(default, alias = "bundleId")]
+    pub bundle_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct DeviceOpenSettingsArgs {
+    #[serde(default)]
+    pub section: Option<String>,
+    #[serde(default, alias = "package")]
+    pub app_package: Option<String>,
+    #[serde(default, alias = "bundleId")]
+    pub bundle_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DeviceActionResult {
+    pub success: bool,
+    pub action: String,
+    pub platform: String,
+    pub url: Option<String>,
+    pub message: String,
+}
+
+fn trimmed_arg(value: &Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn clean_device_url(raw: &str) -> ToolResult<String> {
+    let url = raw.trim();
+    if url.is_empty() {
+        return Err(ToolError {
+            error: "device URL is required".into(),
+        });
+    }
+    if url.contains(['\n', '\r', '\0']) {
+        return Err(ToolError {
+            error: "device URL must be a single line".into(),
+        });
+    }
+    if !url.contains(':') {
+        return Err(ToolError {
+            error: "device URL must include a scheme such as https:, spotify:, maps:, geo:, tel:, sms:, or mailto:".into(),
+        });
+    }
+    Ok(url.to_string())
+}
+
+fn current_platform_name() -> String {
+    client_tool_specs::platform_id(client_tool_specs::current_platform()).to_string()
+}
+
+fn open_device_url_with(
+    app: &AppHandle,
+    url: String,
+    with: Option<String>,
+    action: &str,
+    detail: &str,
+) -> ToolResult<DeviceActionResult> {
+    app.opener()
+        .open_url(url.clone(), with.filter(|value| !value.trim().is_empty()))
+        .map_err(|e| ToolError {
+            error: format!("open device URL {url}: {e}"),
+        })?;
+    Ok(DeviceActionResult {
+        success: true,
+        action: action.to_string(),
+        platform: current_platform_name(),
+        url: Some(url),
+        message: detail.to_string(),
+    })
+}
+
+fn compact_app_name(name: &str) -> String {
+    name.trim()
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .collect::<String>()
+}
+
+fn known_mobile_app_url(
+    name: &str,
+    platform: client_tool_specs::ClientPlatform,
+) -> Option<&'static str> {
+    let normalized = compact_app_name(name);
+    match normalized.as_str() {
+        "spotify" => Some("spotify://"),
+        "youtube" => Some("youtube://"),
+        "maps" | "map" | "googlemaps" => {
+            if platform == client_tool_specs::ClientPlatform::Ios {
+                Some("maps://")
+            } else {
+                Some("geo:0,0")
+            }
+        }
+        "mail" | "email" | "gmail" => Some("mailto:"),
+        "phone" | "dialer" | "call" => Some("tel:"),
+        "messages" | "message" | "sms" | "text" => Some("sms:"),
+        "browser" | "web" | "chrome" | "safari" => Some("https://www.google.com"),
+        "settings" | "preferences" => {
+            if platform == client_tool_specs::ClientPlatform::Ios {
+                Some("app-settings:")
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn known_android_package(name: &str) -> Option<&'static str> {
+    match compact_app_name(name).as_str() {
+        "spotify" => Some("com.spotify.music"),
+        "youtube" => Some("com.google.android.youtube"),
+        "maps" | "map" | "googlemaps" => Some("com.google.android.apps.maps"),
+        "gmail" | "mail" | "email" => Some("com.google.android.gm"),
+        "chrome" | "browser" | "web" => Some("com.android.chrome"),
+        "messages" | "message" | "sms" | "text" => Some("com.google.android.apps.messaging"),
+        "phone" | "dialer" | "call" => Some("com.google.android.dialer"),
+        _ => None,
+    }
+}
+
+fn explicit_android_package(args: &DeviceOpenAppArgs) -> Option<String> {
+    trimmed_arg(&args.package).or_else(|| trimmed_arg(&args.package_name))
+}
+
+fn named_android_package(args: &DeviceOpenAppArgs) -> Option<String> {
+    trimmed_arg(&args.name).and_then(|name| known_android_package(&name).map(str::to_string))
+}
+
+#[cfg(target_os = "android")]
+fn recv_android_intent_result(
+    rx: std::sync::mpsc::Receiver<Result<(), String>>,
+    action: &str,
+) -> ToolResult<()> {
+    match rx.recv_timeout(Duration::from_secs(5)) {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(ToolError { error }),
+        Err(error) => Err(ToolError {
+            error: format!("{action}: Android intent did not complete: {error}"),
+        }),
+    }
+}
+
+#[cfg(target_os = "android")]
+fn android_launch_package(app: &AppHandle, package: &str) -> ToolResult<()> {
+    use jni::objects::{JObject, JValue};
+
+    let window = app
+        .get_webview_window(MAIN_LABEL)
+        .ok_or_else(|| ToolError {
+            error: "main Android webview is not available".into(),
+        })?;
+    let package = package.to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+    window
+        .with_webview(move |webview| {
+            webview.jni_handle().exec(
+                move |env: &mut jni::JNIEnv,
+                      activity: &jni::objects::JObject,
+                      _webview: &jni::objects::JObject| {
+                    let result = (|| -> Result<(), String> {
+                        let package_name = env
+                            .new_string(&package)
+                            .map_err(|e| format!("create Android package string: {e}"))?;
+                        let package_obj = JObject::from(package_name);
+                        let package_manager = env
+                            .call_method(
+                                activity,
+                                "getPackageManager",
+                                "()Landroid/content/pm/PackageManager;",
+                                &[],
+                            )
+                            .map_err(|e| format!("getPackageManager: {e}"))?
+                            .l()
+                            .map_err(|e| format!("getPackageManager object: {e}"))?;
+                        let intent = env
+                            .call_method(
+                                &package_manager,
+                                "getLaunchIntentForPackage",
+                                "(Ljava/lang/String;)Landroid/content/Intent;",
+                                &[JValue::Object(&package_obj)],
+                            )
+                            .map_err(|e| format!("getLaunchIntentForPackage({package}): {e}"))?
+                            .l()
+                            .map_err(|e| format!("launch intent object: {e}"))?;
+                        if intent.is_null() {
+                            return Err(format!(
+                                "Android package '{package}' is not installed or has no launch intent"
+                            ));
+                        }
+                        env.call_method(
+                            activity,
+                            "startActivity",
+                            "(Landroid/content/Intent;)V",
+                            &[JValue::Object(&intent)],
+                        )
+                        .map_err(|e| format!("startActivity for package '{package}': {e}"))?;
+                        Ok(())
+                    })();
+                    let _ = tx.send(result);
+                },
+            );
+        })
+        .map_err(|e| ToolError {
+            error: format!("access Android webview for package launch: {e}"),
+        })?;
+    recv_android_intent_result(rx, "android_launch_package")
+}
+
+#[cfg(target_os = "android")]
+fn android_start_intent(app: &AppHandle, action: &str, data_uri: Option<String>) -> ToolResult<()> {
+    use jni::objects::{JObject, JValue};
+
+    let window = app
+        .get_webview_window(MAIN_LABEL)
+        .ok_or_else(|| ToolError {
+            error: "main Android webview is not available".into(),
+        })?;
+    let action = action.to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+    window
+        .with_webview(move |webview| {
+            webview.jni_handle().exec(
+                move |env: &mut jni::JNIEnv,
+                      activity: &jni::objects::JObject,
+                      _webview: &jni::objects::JObject| {
+                    let result = (|| -> Result<(), String> {
+                        let action_string = env
+                            .new_string(&action)
+                            .map_err(|e| format!("create Android intent action string: {e}"))?;
+                        let action_obj = JObject::from(action_string);
+                        let intent = env
+                            .new_object(
+                                "android/content/Intent",
+                                "(Ljava/lang/String;)V",
+                                &[JValue::Object(&action_obj)],
+                            )
+                            .map_err(|e| format!("create Android intent '{action}': {e}"))?;
+                        env.call_method(
+                            &intent,
+                            "addFlags",
+                            "(I)Landroid/content/Intent;",
+                            &[JValue::Int(0x10000000)],
+                        )
+                        .map_err(|e| format!("add Android intent flags: {e}"))?;
+
+                        if let Some(data_uri) = data_uri {
+                            let data_string = env
+                                .new_string(&data_uri)
+                                .map_err(|e| format!("create Android data URI string: {e}"))?;
+                            let data_obj = JObject::from(data_string);
+                            let uri_class = env
+                                .find_class("android/net/Uri")
+                                .map_err(|e| format!("find android.net.Uri: {e}"))?;
+                            let uri = env
+                                .call_static_method(
+                                    uri_class,
+                                    "parse",
+                                    "(Ljava/lang/String;)Landroid/net/Uri;",
+                                    &[JValue::Object(&data_obj)],
+                                )
+                                .map_err(|e| format!("parse Android data URI '{data_uri}': {e}"))?
+                                .l()
+                                .map_err(|e| format!("Android URI object: {e}"))?;
+                            env.call_method(
+                                &intent,
+                                "setData",
+                                "(Landroid/net/Uri;)Landroid/content/Intent;",
+                                &[JValue::Object(&uri)],
+                            )
+                            .map_err(|e| format!("set Android intent data '{data_uri}': {e}"))?;
+                        }
+
+                        env.call_method(
+                            activity,
+                            "startActivity",
+                            "(Landroid/content/Intent;)V",
+                            &[JValue::Object(&intent)],
+                        )
+                        .map_err(|e| format!("start Android settings intent '{action}': {e}"))?;
+                        Ok(())
+                    })();
+                    let _ = tx.send(result);
+                },
+            );
+        })
+        .map_err(|e| ToolError {
+            error: format!("access Android webview for settings intent: {e}"),
+        })?;
+    recv_android_intent_result(rx, "android_start_intent")
+}
+
+#[cfg(target_os = "android")]
+fn android_settings_action(section: Option<&str>) -> &'static str {
+    match section.map(compact_app_name).as_deref() {
+        Some("wifi") | Some("wireless") => "android.settings.WIFI_SETTINGS",
+        Some("bluetooth") => "android.settings.BLUETOOTH_SETTINGS",
+        Some("notifications") | Some("notification") => "android.settings.NOTIFICATION_SETTINGS",
+        Some("privacy") => "android.settings.PRIVACY_SETTINGS",
+        Some("location") | Some("gps") => "android.settings.LOCATION_SOURCE_SETTINGS",
+        Some("accessibility") => "android.settings.ACCESSIBILITY_SETTINGS",
+        Some("network") | Some("internet") => "android.settings.WIRELESS_SETTINGS",
+        Some("battery") => "android.settings.BATTERY_SAVER_SETTINGS",
+        Some("apps") | Some("applications") => "android.settings.APPLICATION_SETTINGS",
+        _ => "android.settings.SETTINGS",
+    }
+}
+
+fn resolve_device_app_url(args: &DeviceOpenAppArgs) -> ToolResult<String> {
+    if let Some(url) = trimmed_arg(&args.url) {
+        return clean_device_url(&url);
+    }
+
+    let platform = client_tool_specs::current_platform();
+    if let Some(name) = trimmed_arg(&args.name) {
+        if let Some(url) = known_mobile_app_url(&name, platform) {
+            return clean_device_url(url);
+        }
+    }
+
+    let package = trimmed_arg(&args.package).or_else(|| trimmed_arg(&args.package_name));
+    if platform == client_tool_specs::ClientPlatform::Android {
+        if let Some(package) = package {
+            return Err(ToolError {
+                error: format!(
+                    "No deep link fallback is available for Android package '{package}'. Pass a deep link URL/app link to device_open_url, or use a known app name with device_open_app."
+                ),
+            });
+        }
+    }
+
+    if platform == client_tool_specs::ClientPlatform::Ios {
+        if let Some(bundle_id) = trimmed_arg(&args.bundle_id) {
+            return Err(ToolError {
+                error: format!(
+                    "Opening iOS bundle id '{bundle_id}' directly is not allowed by iOS. Pass that app's URL scheme or universal link to device_open_url."
+                ),
+            });
+        }
+    }
+
+    Err(ToolError {
+        error: "device_open_app needs either a URL/deep link or a known app name such as Spotify, YouTube, Maps, Mail, Phone, Messages, Settings, or Browser.".into(),
+    })
+}
+
+#[tauri::command]
+async fn device_open_url(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: DeviceOpenUrlArgs,
+) -> ToolResult<DeviceActionResult> {
+    require_client_commands(&state).await?;
+    let url = clean_device_url(&args.url)?;
+    open_device_url_with(
+        &app,
+        url,
+        args.with,
+        "device_open_url",
+        "Opened the URL on the user's device.",
+    )
+}
+
+#[tauri::command]
+async fn device_open_app(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: DeviceOpenAppArgs,
+) -> ToolResult<DeviceActionResult> {
+    require_client_commands(&state).await?;
+    if client_tool_specs::current_platform() == client_tool_specs::ClientPlatform::Android {
+        let package = explicit_android_package(&args).or_else(|| named_android_package(&args));
+        if let Some(package) = package {
+            #[cfg(not(target_os = "android"))]
+            let _ = &package;
+            #[cfg(target_os = "android")]
+            match android_launch_package(&app, &package) {
+                Ok(()) => {
+                    let detail = trimmed_arg(&args.name)
+                        .map(|name| {
+                            format!("Requested the {name} app through Android package '{package}'.")
+                        })
+                        .unwrap_or_else(|| {
+                            format!("Requested Android package '{package}' on the user's device.")
+                        });
+                    return Ok(DeviceActionResult {
+                        success: true,
+                        action: "device_open_app".to_string(),
+                        platform: current_platform_name(),
+                        url: None,
+                        message: detail,
+                    });
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        "device_open_app: Android package launch failed for {package}: {}",
+                        error.error
+                    );
+                }
+            }
+        }
+
+        if matches!(
+            trimmed_arg(&args.name)
+                .as_deref()
+                .map(compact_app_name)
+                .as_deref(),
+            Some("settings") | Some("preferences")
+        ) {
+            #[cfg(target_os = "android")]
+            {
+                android_start_intent(&app, android_settings_action(None), None)?;
+                return Ok(DeviceActionResult {
+                    success: true,
+                    action: "device_open_app".to_string(),
+                    platform: current_platform_name(),
+                    url: None,
+                    message: "Requested Android system settings on the user's device.".into(),
+                });
+            }
+        }
+    }
+
+    let url = resolve_device_app_url(&args)?;
+    let detail = trimmed_arg(&args.name)
+        .map(|name| format!("Requested the {name} app on the user's device."))
+        .unwrap_or_else(|| "Opened the requested app link on the user's device.".to_string());
+    open_device_url_with(&app, url, None, "device_open_app", &detail)
+}
+
+fn resolve_device_settings_url(
+    _app: &AppHandle,
+    args: &DeviceOpenSettingsArgs,
+) -> ToolResult<String> {
+    let platform = client_tool_specs::current_platform();
+    match platform {
+        client_tool_specs::ClientPlatform::Ios => clean_device_url("app-settings:"),
+        client_tool_specs::ClientPlatform::Android => {
+            if let Some(package) = trimmed_arg(&args.app_package) {
+                #[cfg(target_os = "android")]
+                {
+                    android_start_intent(
+                        _app,
+                        "android.settings.APPLICATION_DETAILS_SETTINGS",
+                        Some(format!("package:{package}")),
+                    )?;
+                    return Ok(String::new());
+                }
+                #[cfg(not(target_os = "android"))]
+                {
+                    return clean_device_url(&format!("package:{package}"));
+                }
+            }
+            #[cfg(target_os = "android")]
+            {
+                android_start_intent(_app, android_settings_action(args.section.as_deref()), None)?;
+                Ok(String::new())
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                let section = trimmed_arg(&args.section).unwrap_or_else(|| "system".to_string());
+                Err(ToolError {
+                    error: format!(
+                        "Opening Android settings section '{section}' needs native intent support on this build. Pass app_package for app-specific settings, or pass a device-supported settings deep link to device_open_url."
+                    ),
+                })
+            }
+        }
+        client_tool_specs::ClientPlatform::Desktop => Err(ToolError {
+            error: "device_open_settings is for mobile builds; use desktop_vision_control or shell_run on desktop.".into(),
+        }),
+    }
+}
+
+#[tauri::command]
+async fn device_open_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: DeviceOpenSettingsArgs,
+) -> ToolResult<DeviceActionResult> {
+    require_client_commands(&state).await?;
+    let url = resolve_device_settings_url(&app, &args)?;
+    if url.is_empty() {
+        Ok(DeviceActionResult {
+            success: true,
+            action: "device_open_settings".to_string(),
+            platform: current_platform_name(),
+            url: None,
+            message: "Requested device settings on the user's device.".into(),
+        })
+    } else {
+        open_device_url_with(
+            &app,
+            url,
+            None,
+            "device_open_settings",
+            "Requested device settings on the user's device.",
+        )
+    }
 }
 
 #[cfg(test)]
@@ -3105,6 +3656,10 @@ pub fn run() {
             new_conversation,
             chat_send,
             agent_vision,
+            client_platform,
+            device_open_url,
+            device_open_app,
+            device_open_settings,
             desktop_screenshot,
             desktop_click,
             desktop_move,
@@ -3249,6 +3804,10 @@ pub fn run() {
             new_conversation,
             chat_send,
             agent_vision,
+            client_platform,
+            device_open_url,
+            device_open_app,
+            device_open_settings,
             desktop_screenshot,
             desktop_click,
             desktop_move,

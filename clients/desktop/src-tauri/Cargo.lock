@@ -34,6 +34,7 @@ dependencies = [
  "gtk",
  "hound",
  "image 0.25.10",
+ "jni",
  "keyring",
  "once_cell",
  "portable-pty",

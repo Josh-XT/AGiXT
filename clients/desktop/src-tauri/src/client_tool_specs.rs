@@ -1,4 +1,4 @@
-//! OpenAI-format function definitions for the desktop client's tools.
+//! OpenAI-format function definitions for this client's tools.
 //!
 //! When passed as `prompt_args.command_overrides`, AGiXT registers each
 //! one as a pseudo-command the agent can call via
@@ -17,7 +17,53 @@
 
 use serde_json::{json, Value};
 
-/// Build the full set of client-tool function definitions for AGiXT
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientPlatform {
+    Desktop,
+    Android,
+    Ios,
+}
+
+pub fn current_platform() -> ClientPlatform {
+    if cfg!(target_os = "android") {
+        ClientPlatform::Android
+    } else if cfg!(target_os = "ios") {
+        ClientPlatform::Ios
+    } else {
+        ClientPlatform::Desktop
+    }
+}
+
+pub fn platform_id(platform: ClientPlatform) -> &'static str {
+    match platform {
+        ClientPlatform::Desktop => "desktop",
+        ClientPlatform::Android => "android",
+        ClientPlatform::Ios => "ios",
+    }
+}
+
+pub fn is_mobile_platform(platform: ClientPlatform) -> bool {
+    matches!(platform, ClientPlatform::Android | ClientPlatform::Ios)
+}
+
+/// Build the platform-appropriate set of client-tool function definitions
+/// for AGiXT `command_overrides`.
+pub fn all() -> Vec<Value> {
+    for_current_platform()
+}
+
+pub fn for_current_platform() -> Vec<Value> {
+    for_platform(current_platform())
+}
+
+pub fn for_platform(platform: ClientPlatform) -> Vec<Value> {
+    match platform {
+        ClientPlatform::Desktop => desktop_tools(),
+        ClientPlatform::Android | ClientPlatform::Ios => mobile_tools(platform),
+    }
+}
+
+/// Build the full desktop set of client-tool function definitions for AGiXT
 /// `command_overrides`. Each entry is shaped like:
 ///
 /// ```text
@@ -30,7 +76,7 @@ use serde_json::{json, Value};
 ///   }
 /// }
 /// ```
-pub fn all() -> Vec<Value> {
+fn desktop_tools() -> Vec<Value> {
     vec![
         // ----- Shell / app launch -----
         function(
@@ -385,6 +431,142 @@ pub fn all() -> Vec<Value> {
     ]
 }
 
+fn mobile_tools(platform: ClientPlatform) -> Vec<Value> {
+    let os_name = platform_id(platform);
+    let open_app_description = if platform == ClientPlatform::Android {
+        format!(
+            "Open an app on the user's {os_name} device. Prefer passing an Android package \
+             name in `package`/`package_name` when you know it, or pass a URL/deep link in \
+             `url`. If the user names a common app, pass `name`; AGiXT Desktop Mobile knows \
+             common Android packages and schemes for Spotify, YouTube, Maps, Mail, Phone, \
+             Messages, Settings, and Browser."
+        )
+    } else {
+        format!(
+            "Open an app on the user's {os_name} device. Prefer passing a URL scheme or \
+             universal link in `url` when you know it. If the user names a common app, pass \
+             `name`; AGiXT Desktop Mobile knows common schemes such as Spotify, YouTube, Maps, \
+             Mail, Phone, Messages, Settings, and Browser. iOS does not allow launching arbitrary \
+             apps by bundle id, so bundle IDs are accepted only as metadata."
+        )
+    };
+    let open_settings_description = if platform == ClientPlatform::Android {
+        format!(
+            "Open settings on the user's {os_name} device. Pass `app_package` for an \
+             app-specific settings page, or pass `section` for common Android sections such as \
+             system, wifi, bluetooth, notifications, privacy, location, accessibility, network, \
+             battery, or apps."
+        )
+    } else {
+        format!(
+            "Open settings on the user's {os_name} device. iOS reliably allows opening this \
+             app's settings page; broader system settings are controlled by iOS."
+        )
+    };
+    vec![
+        function(
+            "device_open_url",
+            "Open a URL, universal link, app link, or deep link on the user's mobile device. \
+             Use this as the primitive for launching mobile apps when you know a scheme such \
+             as spotify://, maps://, geo:, tel:, sms:, mailto:, or an https universal/app link. \
+             This runs on the client device, not the AGiXT server.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "URL or deep link to open on the user's device."
+                    },
+                    "with": {
+                        "type": "string",
+                        "description": "Optional OS opener/application hint when supported by the platform."
+                    }
+                },
+                "required": ["url"]
+            }),
+        ),
+        function(
+            "device_open_app",
+            &open_app_description,
+            json!({
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Human app name, e.g. Spotify, YouTube, Maps, Settings."
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "Preferred deep link, universal link, or app link to open."
+                    },
+                    "package": {
+                        "type": "string",
+                        "description": "Android package name when known, e.g. com.spotify.music."
+                    },
+                    "package_name": {
+                        "type": "string",
+                        "description": "Alias for Android package name."
+                    },
+                    "bundle_id": {
+                        "type": "string",
+                        "description": "iOS bundle id when known. iOS still generally requires a URL scheme to open another app."
+                    }
+                }
+            }),
+        ),
+        function(
+            "device_open_settings",
+            &open_settings_description,
+            json!({
+                "type": "object",
+                "properties": {
+                    "section": {
+                        "type": "string",
+                        "description": "Optional settings section such as app, wifi, bluetooth, notifications, privacy, or system."
+                    },
+                    "app_package": {
+                        "type": "string",
+                        "description": "Android package name for app-specific settings."
+                    },
+                    "package": {
+                        "type": "string",
+                        "description": "Alias for app_package."
+                    },
+                    "bundle_id": {
+                        "type": "string",
+                        "description": "iOS bundle id metadata for app settings."
+                    }
+                }
+            }),
+        ),
+        function(
+            "workspace_upload",
+            "Upload a file from the user's device sandbox to the AGiXT conversation workspace when the app can access that path.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "local_path": {"type": "string"},
+                    "workspace_path": {"type": "string", "description": "Optional sub-path within the workspace."}
+                },
+                "required": ["local_path"]
+            }),
+        ),
+        function(
+            "workspace_download",
+            "Download a file from the AGiXT conversation workspace into the mobile app's accessible storage.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "workspace_path": {"type": "string"},
+                    "local_path": {"type": "string"},
+                    "overwrite": {"type": "boolean", "default": false}
+                },
+                "required": ["workspace_path", "local_path"]
+            }),
+        ),
+    ]
+}
+
 fn function(name: &str, description: &str, parameters: Value) -> Value {
     json!({
         "type": "function",
@@ -403,7 +585,7 @@ mod tests {
 
     #[test]
     fn all_returns_canonical_set() {
-        let tools = all();
+        let tools = for_platform(ClientPlatform::Desktop);
         let names: Vec<&str> = tools
             .iter()
             .filter_map(|t| t["function"]["name"].as_str())
@@ -423,13 +605,39 @@ mod tests {
     }
 
     #[test]
+    fn mobile_tools_are_device_oriented() {
+        for platform in [ClientPlatform::Android, ClientPlatform::Ios] {
+            let tools = for_platform(platform);
+            let names: Vec<&str> = tools
+                .iter()
+                .filter_map(|t| t["function"]["name"].as_str())
+                .collect();
+            assert!(names.contains(&"device_open_url"));
+            assert!(names.contains(&"device_open_app"));
+            assert!(names.contains(&"device_open_settings"));
+            assert!(names.contains(&"workspace_upload"));
+            assert!(!names.contains(&"shell_run"));
+            assert!(!names.contains(&"sudo_run"));
+            assert!(!names.contains(&"terminal_open"));
+            assert!(!names.contains(&"desktop_vision_control"));
+            assert!(!names.contains(&"desktop_click"));
+        }
+    }
+
+    #[test]
     fn each_tool_is_openai_format() {
-        for t in all() {
-            assert_eq!(t["type"].as_str(), Some("function"));
-            assert_eq!(t["exclusive"].as_bool(), Some(true));
-            assert!(t["function"]["name"].as_str().is_some());
-            assert!(t["function"]["description"].as_str().is_some());
-            assert_eq!(t["function"]["parameters"]["type"].as_str(), Some("object"));
+        for platform in [
+            ClientPlatform::Desktop,
+            ClientPlatform::Android,
+            ClientPlatform::Ios,
+        ] {
+            for t in for_platform(platform) {
+                assert_eq!(t["type"].as_str(), Some("function"));
+                assert_eq!(t["exclusive"].as_bool(), Some(true));
+                assert!(t["function"]["name"].as_str().is_some());
+                assert!(t["function"]["description"].as_str().is_some());
+                assert_eq!(t["function"]["parameters"]["type"].as_str(), Some("object"));
+            }
         }
     }
 }

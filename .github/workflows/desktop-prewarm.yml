@@ -1,4 +1,4 @@
-name: Prewarm Desktop Client Downloads
+name: Build Desktop Client Downloads
 
 on:
   push:
@@ -8,20 +8,253 @@ on:
       - "clients/desktop/**"
       - "!clients/desktop/**/*.md"
   workflow_dispatch:
+    inputs:
+      targets:
+        description: "Comma-separated desktop targets to build or queue"
+        required: false
+        default: "linux,linux-arm64,windows,android,macos,macos-x86,ios"
 
-permissions: {}
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-client-downloads-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOWNLOAD_SERVER_URL: ${{ vars.DESKTOP_DOWNLOAD_SERVER_URL || 'https://download.xt.systems' }}
+  TAURI_CLI_VERSION: "2.11.1"
 
 jobs:
-  prewarm:
+  queue-server-builds:
+    name: Queue Server-Built Desktop Targets
     runs-on: ubuntu-latest
     steps:
-      - name: Queue desktop client builds
+      - name: Select server-built targets
+        id: targets
+        env:
+          REQUESTED_TARGETS: ${{ github.event.inputs.targets || 'linux,linux-arm64,windows,android,macos,macos-x86,ios' }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os
+
+          requested = {
+              target.strip().lower()
+              for target in os.environ["REQUESTED_TARGETS"].split(",")
+              if target.strip()
+          }
+          server_targets = ["linux", "linux-arm64", "windows", "android"]
+          selected = [target for target in server_targets if target in requested]
+          print(f"targets={','.join(selected)}")
+          PY
+
+      - name: Queue download server builds
+        if: steps.targets.outputs.targets != ''
         env:
           PREWARM_TOKEN: ${{ secrets.DESKTOP_PREWARM_TOKEN }}
+          TARGETS: ${{ steps.targets.outputs.targets }}
         run: |
           set -euo pipefail
           headers=(-H "Accept: application/json")
           if [ -n "${PREWARM_TOKEN}" ]; then
             headers+=(-H "X-Prewarm-Token: ${PREWARM_TOKEN}")
           fi
-          curl -fsS -X POST "${headers[@]}" "https://download.xt.systems/desktop/prewarm"
+          curl -fsS -X POST "${headers[@]}" \
+            "${DOWNLOAD_SERVER_URL}/desktop/prewarm?targets=${TARGETS}"
+
+  build-apple:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.optional }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple Silicon
+            os_type: macos
+            runner: macos-15
+            target: aarch64-apple-darwin
+            kind: macos
+            optional: false
+          - name: macOS Intel
+            os_type: macos-x86
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            kind: macos
+            optional: false
+          - name: iOS
+            os_type: ios
+            runner: macos-15
+            target: aarch64-apple-ios
+            kind: ios
+            optional: true
+    steps:
+      - name: Check requested target
+        id: requested
+        env:
+          REQUESTED_TARGETS: ${{ github.event.inputs.targets || 'linux,linux-arm64,windows,android,macos,macos-x86,ios' }}
+          OS_TYPE: ${{ matrix.os_type }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os
+
+          requested = {
+              target.strip().lower()
+              for target in os.environ["REQUESTED_TARGETS"].split(",")
+              if target.strip()
+          }
+          print(f"enabled={str(os.environ['OS_TYPE'] in requested).lower()}")
+          PY
+
+      - name: Checkout AGiXT
+        if: steps.requested.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        if: steps.requested.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: clients/desktop/package-lock.json
+
+      - name: Ensure Rust target
+        if: steps.requested.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup target add "${{ matrix.target }}"
+
+      - name: Install desktop dependencies
+        if: steps.requested.outputs.enabled == 'true'
+        working-directory: clients/desktop
+        run: npm ci
+
+      - name: Resolve desktop build ID
+        if: steps.requested.outputs.enabled == 'true'
+        id: build_id
+        env:
+          DESKTOP_UPLOAD_TOKEN: ${{ secrets.DESKTOP_UPLOAD_TOKEN || secrets.DESKTOP_PREWARM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DESKTOP_UPLOAD_TOKEN}" ]; then
+            echo "DESKTOP_UPLOAD_TOKEN or DESKTOP_PREWARM_TOKEN is required" >&2
+            exit 1
+          fi
+          response="$(curl -fsS \
+            -H "Accept: application/json" \
+            -H "X-Desktop-Upload-Token: ${DESKTOP_UPLOAD_TOKEN}" \
+            "${DOWNLOAD_SERVER_URL}/desktop/build-id/${GITHUB_SHA}")"
+          version="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])' <<< "${response}")"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build macOS artifact
+        if: steps.requested.outputs.enabled == 'true' && matrix.kind == 'macos'
+        working-directory: clients/desktop/src-tauri
+        env:
+          AGIXT_DESKTOP_BUILD_ID: ${{ steps.build_id.outputs.version }}
+        run: |
+          set -euo pipefail
+          npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" build --target "${{ matrix.target }}"
+
+      - name: Build iOS artifact
+        if: steps.requested.outputs.enabled == 'true' && matrix.kind == 'ios'
+        working-directory: clients/desktop/src-tauri
+        env:
+          AGIXT_DESKTOP_BUILD_ID: ${{ steps.build_id.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ ! -d gen/apple ]; then
+            npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" ios init --ci
+          fi
+          npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" ios build \
+            --target "${{ matrix.target }}" \
+            --ci
+
+      - name: Find artifact
+        if: steps.requested.outputs.enabled == 'true'
+        id: artifact
+        env:
+          OS_TYPE: ${{ matrix.os_type }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os
+          from pathlib import Path
+
+          os_type = os.environ["OS_TYPE"]
+          target = os.environ["TARGET"]
+          priorities = {
+              ".dmg": 0,
+              ".ipa": 0,
+              ".app.tar.gz": 1,
+              ".tar.gz": 2,
+              ".zip": 3,
+          }
+          patterns = {
+              "macos": ["**/*.dmg", "**/*.app.tar.gz", "**/*.tar.gz", "**/*.zip"],
+              "macos-x86": ["**/*.dmg", "**/*.app.tar.gz", "**/*.tar.gz", "**/*.zip"],
+              "ios": ["**/*.ipa"],
+          }[os_type]
+          roots = []
+          if os_type == "ios":
+              roots.append(Path("clients/desktop/src-tauri/gen/apple"))
+          else:
+              release = Path("clients/desktop/src-tauri/target") / target / "release"
+              roots.extend([release / "bundle", release])
+
+          candidates = []
+          for root in roots:
+              if not root.exists():
+                  continue
+              for pattern in patterns:
+                  candidates.extend(path for path in root.glob(pattern) if path.is_file())
+
+          def suffix(path: Path) -> str:
+              lower = path.name.lower()
+              for value in [".app.tar.gz", ".tar.gz", ".dmg", ".ipa", ".zip"]:
+                  if lower.endswith(value):
+                      return value
+              return ""
+
+          candidates.sort(
+              key=lambda path: (priorities.get(suffix(path), 50), -path.stat().st_mtime)
+          )
+          if not candidates:
+              raise SystemExit(f"No artifact found for {os_type}")
+          artifact = candidates[0]
+          print(f"path={artifact}")
+          print(f"name={artifact.name}")
+          PY
+
+      - name: Upload artifact to download server
+        if: steps.requested.outputs.enabled == 'true'
+        env:
+          DESKTOP_UPLOAD_TOKEN: ${{ secrets.DESKTOP_UPLOAD_TOKEN || secrets.DESKTOP_PREWARM_TOKEN }}
+          OS_TYPE: ${{ matrix.os_type }}
+          ARTIFACT_PATH: ${{ steps.artifact.outputs.path }}
+          ARTIFACT_NAME: ${{ steps.artifact.outputs.name }}
+          DESKTOP_BUILD_ID: ${{ steps.build_id.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DESKTOP_UPLOAD_TOKEN}" ]; then
+            echo "DESKTOP_UPLOAD_TOKEN or DESKTOP_PREWARM_TOKEN is required" >&2
+            exit 1
+          fi
+          curl -fsS -X POST \
+            -H "Accept: application/json" \
+            -H "X-Desktop-Upload-Token: ${DESKTOP_UPLOAD_TOKEN}" \
+            -H "X-Desktop-Commit: ${GITHUB_SHA}" \
+            -H "X-Desktop-Build-ID: ${DESKTOP_BUILD_ID}" \
+            -H "X-Artifact-Name: ${ARTIFACT_NAME}" \
+            --data-binary "@${ARTIFACT_PATH}" \
+            "${DOWNLOAD_SERVER_URL}/desktop/upload/${OS_TYPE}"

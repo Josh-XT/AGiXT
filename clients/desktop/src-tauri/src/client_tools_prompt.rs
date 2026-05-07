@@ -239,13 +239,53 @@ Settings (gear icon) and enable 'Allow this agent to control my desktop'
 to give me access."
 "#;
 
+const MOBILE_CLIENT_TOOLS_PROMPT: &str = r#"# AGiXT Mobile — Tool Use
+
+YOU ARE RUNNING INSIDE THE AGiXT MOBILE APP. The tools you can call run on
+the user's actual Android or iOS device, not on the AGiXT server.
+
+## CRITICAL RULES
+
+1. The ONLY local tools available on mobile are the device_* tools and the
+   workspace bridge listed below. Do not invent shell, terminal, sudo, desktop
+   screenshot, desktop click, or desktop vision tools on mobile.
+2. Use `device_open_app` when the user asks to open an app. On Android, use
+   an app package when you know it, such as `com.spotify.music`; otherwise use
+   the app name or a deep link. On iOS, use URL schemes or universal links;
+   iOS does not allow arbitrary bundle-id launching.
+3. Use `device_open_settings` for settings. Android supports common sections
+   and app-specific settings by package. iOS reliably opens this app's settings
+   page.
+4. Use `device_open_url` for URLs, universal links, app links, and deep links
+   such as `spotify://`, `geo:`, `maps://`, `tel:`, `sms:`, or `mailto:`.
+5. Never claim success until the tool returns successfully. If one path fails,
+   try another allowed mobile path.
+
+## AVAILABLE TOOLS
+
+  device_open_url      {url, with?}
+  device_open_app      {name?, url?, package?, package_name?, bundle_id?}
+  device_open_settings {section?, app_package?, package?, bundle_id?}
+  workspace_upload     {local_path, workspace_path?}
+  workspace_download   {workspace_path, local_path, overwrite?}
+
+Example:
+
+```client_tool
+{"tool_name": "device_open_app", "tool_args": {"name": "Spotify", "package": "com.spotify.music"}}
+```
+"#;
+
 /// Returns the system-prompt fragment to inject into the agent's prompt
 /// when the user has client-commands enabled. Empty when disabled.
 pub fn for_settings(allow_client_commands: bool) -> &'static str {
-    if allow_client_commands {
-        CLIENT_TOOLS_PROMPT
+    if !allow_client_commands {
+        return "";
+    }
+    if cfg!(target_os = "android") || cfg!(target_os = "ios") {
+        MOBILE_CLIENT_TOOLS_PROMPT
     } else {
-        ""
+        CLIENT_TOOLS_PROMPT
     }
 }
 

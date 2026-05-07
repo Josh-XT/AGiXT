@@ -756,6 +756,44 @@ Other valid actions:
       }
 
       switch (name) {
+        case 'client_platform':
+        case 'device_platform':
+          return await inv('client_platform');
+
+        case 'device_open_url':
+        case 'open_url':
+        case 'open_deep_link':
+          return await inv('device_open_url', {
+            args: {
+              url: a.url || a.uri || a.href || '',
+              with: a.with || a.app || null,
+            },
+          });
+
+        case 'device_open_app':
+        case 'open_app':
+        case 'launch_app':
+          return await inv('device_open_app', {
+            args: {
+              name: a.name || a.app || a.application || null,
+              url: a.url || a.uri || a.href || null,
+              package: a.package || a.app_package || a.package_name || null,
+              package_name: a.package_name || a.packageName || null,
+              bundle_id: a.bundle_id || a.bundleId || null,
+            },
+          });
+
+        case 'device_open_settings':
+        case 'open_settings':
+        case 'open_device_settings':
+          return await inv('device_open_settings', {
+            args: {
+              section: a.section || a.panel || null,
+              app_package: a.app_package || a.package || a.package_name || null,
+              bundle_id: a.bundle_id || a.bundleId || null,
+            },
+          });
+
         case 'desktop_vision_control':
         case 'vision_desktop_control':
         case 'desktop_control':
