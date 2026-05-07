@@ -112,14 +112,57 @@ jobs:
           print(f"enabled={str(os.environ['OS_TYPE'] in requested).lower()}")
           PY
 
-      - name: Checkout AGiXT
+      - name: Check iOS signing setup
+        if: steps.requested.outputs.enabled == 'true' && matrix.kind == 'ios'
+        id: ios_signing
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            APPLE_DEVELOPMENT_TEAM \
+            APPLE_CERTIFICATE_P12_BASE64 \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_PROVISIONING_PROFILE_BASE64
+          do
+            if [ -z "${!name}" ]; then
+              missing+=("${name}")
+            fi
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            joined="$(IFS=, ; echo "${missing[*]}")"
+            echo "::notice title=iOS build skipped::Missing iOS signing secrets: ${joined}. Add these secrets to build and upload the iOS artifact."
+          fi
+
+      - name: Decide build gate
         if: steps.requested.outputs.enabled == 'true'
+        id: build_gate
+        env:
+          KIND: ${{ matrix.kind }}
+          IOS_SIGNING_ENABLED: ${{ steps.ios_signing.outputs.enabled }}
+        run: |
+          set -euo pipefail
+          if [ "${KIND}" != "ios" ] || [ "${IOS_SIGNING_ENABLED}" = "true" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout AGiXT
+        if: steps.build_gate.outputs.enabled == 'true'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Setup Node
-        if: steps.requested.outputs.enabled == 'true'
+        if: steps.build_gate.outputs.enabled == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -127,7 +170,7 @@ jobs:
           cache-dependency-path: clients/desktop/package-lock.json
 
       - name: Ensure Rust target
-        if: steps.requested.outputs.enabled == 'true'
+        if: steps.build_gate.outputs.enabled == 'true'
         run: |
           set -euo pipefail
           if ! command -v rustup >/dev/null 2>&1; then
@@ -138,12 +181,12 @@ jobs:
           rustup target add "${{ matrix.rust_target }}"
 
       - name: Install desktop dependencies
-        if: steps.requested.outputs.enabled == 'true'
+        if: steps.build_gate.outputs.enabled == 'true'
         working-directory: clients/desktop
         run: npm ci
 
       - name: Resolve desktop build ID
-        if: steps.requested.outputs.enabled == 'true'
+        if: steps.build_gate.outputs.enabled == 'true'
         id: build_id
         run: |
           set -euo pipefail
@@ -165,7 +208,7 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Check upload token
-        if: steps.requested.outputs.enabled == 'true'
+        if: steps.build_gate.outputs.enabled == 'true'
         env:
           DESKTOP_UPLOAD_TOKEN: ${{ secrets.DESKTOP_UPLOAD_TOKEN || secrets.DESKTOP_PREWARM_TOKEN }}
         run: |
@@ -175,8 +218,55 @@ jobs:
             exit 1
           fi
 
+      - name: Install Apple signing assets
+        if: steps.build_gate.outputs.enabled == 'true' && matrix.kind == 'ios'
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          cert_path="${RUNNER_TEMP}/apple_certificate.p12"
+          profile_path="${RUNNER_TEMP}/apple_profile.mobileprovision"
+          profile_plist="${RUNNER_TEMP}/apple_profile.plist"
+          keychain_path="${RUNNER_TEMP}/app-signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          CERT_PATH="${cert_path}" PROFILE_PATH="${profile_path}" python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          Path(os.environ["CERT_PATH"]).write_bytes(
+              base64.b64decode(os.environ["APPLE_CERTIFICATE_P12_BASE64"])
+          )
+          Path(os.environ["PROFILE_PATH"]).write_bytes(
+              base64.b64decode(os.environ["APPLE_PROVISIONING_PROFILE_BASE64"])
+          )
+          PY
+          security create-keychain -p "${keychain_password}" "${keychain_path}"
+          security set-keychain-settings -lut 21600 "${keychain_path}"
+          security unlock-keychain -p "${keychain_password}" "${keychain_path}"
+          security import "${cert_path}" \
+            -P "${APPLE_CERTIFICATE_PASSWORD}" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "${keychain_path}"
+          existing_keychains="$(security list-keychains -d user | tr -d '"' || true)"
+          security list-keychains -d user -s "${keychain_path}" ${existing_keychains}
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "${keychain_password}" \
+            "${keychain_path}"
+          mkdir -p "${HOME}/Library/MobileDevice/Provisioning Profiles"
+          security cms -D -i "${profile_path}" > "${profile_plist}"
+          profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print UUID' "${profile_plist}")"
+          cp "${profile_path}" \
+            "${HOME}/Library/MobileDevice/Provisioning Profiles/${profile_uuid}.mobileprovision"
+
       - name: Build macOS artifact
-        if: steps.requested.outputs.enabled == 'true' && matrix.kind == 'macos'
+        if: steps.build_gate.outputs.enabled == 'true' && matrix.kind == 'macos'
         working-directory: clients/desktop/src-tauri
         env:
           AGIXT_DESKTOP_BUILD_ID: ${{ steps.build_id.outputs.version }}
@@ -185,10 +275,11 @@ jobs:
           npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" build --target "${{ matrix.tauri_target }}"
 
       - name: Build iOS artifact
-        if: steps.requested.outputs.enabled == 'true' && matrix.kind == 'ios'
+        if: steps.build_gate.outputs.enabled == 'true' && matrix.kind == 'ios'
         working-directory: clients/desktop/src-tauri
         env:
           AGIXT_DESKTOP_BUILD_ID: ${{ steps.build_id.outputs.version }}
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
         run: |
           set -euo pipefail
           if [ ! -d gen/apple ]; then
@@ -199,7 +290,7 @@ jobs:
             --ci
 
       - name: Find artifact
-        if: steps.requested.outputs.enabled == 'true'
+        if: steps.build_gate.outputs.enabled == 'true'
         id: artifact
         env:
           OS_TYPE: ${{ matrix.os_type }}
@@ -256,7 +347,7 @@ jobs:
           PY
 
       - name: Upload artifact to download server
-        if: steps.requested.outputs.enabled == 'true'
+        if: steps.build_gate.outputs.enabled == 'true'
         env:
           DESKTOP_UPLOAD_TOKEN: ${{ secrets.DESKTOP_UPLOAD_TOKEN || secrets.DESKTOP_PREWARM_TOKEN }}
           OS_TYPE: ${{ matrix.os_type }}
