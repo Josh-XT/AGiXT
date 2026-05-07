@@ -23,6 +23,7 @@ concurrency:
 
 env:
   DOWNLOAD_SERVER_URL: ${{ vars.DESKTOP_DOWNLOAD_SERVER_URL || 'https://download.xt.systems' }}
+  DESKTOP_BUILD_TIMEZONE: ${{ vars.DESKTOP_BUILD_TIMEZONE || 'America/New_York' }}
   TAURI_CLI_VERSION: "2.11.1"
 
 jobs:
@@ -141,20 +142,35 @@ jobs:
       - name: Resolve desktop build ID
         if: steps.requested.outputs.enabled == 'true'
         id: build_id
+        run: |
+          set -euo pipefail
+          commit_time="$(git log -1 --format=%ct -- \
+            clients/desktop/src \
+            clients/desktop/src-tauri \
+            clients/desktop/package.json \
+            clients/desktop/package-lock.json)"
+          if [ -z "${commit_time}" ]; then
+            commit_time="$(git log -1 --format=%ct)"
+          fi
+          version="$(TZ="${DESKTOP_BUILD_TIMEZONE}" COMMIT_TIME="${commit_time}" python3 - <<'PY'
+          import os
+          from datetime import datetime
+
+          print(datetime.fromtimestamp(int(os.environ["COMMIT_TIME"])).strftime("%Y%m%d_%H%M%S"))
+          PY
+          )"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Check upload token
+        if: steps.requested.outputs.enabled == 'true'
         env:
           DESKTOP_UPLOAD_TOKEN: ${{ secrets.DESKTOP_UPLOAD_TOKEN || secrets.DESKTOP_PREWARM_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${DESKTOP_UPLOAD_TOKEN}" ]; then
-            echo "DESKTOP_UPLOAD_TOKEN or DESKTOP_PREWARM_TOKEN is required" >&2
+            echo "DESKTOP_UPLOAD_TOKEN or DESKTOP_PREWARM_TOKEN is required to upload Apple desktop artifacts to the download server." >&2
             exit 1
           fi
-          response="$(curl -fsS \
-            -H "Accept: application/json" \
-            -H "X-Desktop-Upload-Token: ${DESKTOP_UPLOAD_TOKEN}" \
-            "${DOWNLOAD_SERVER_URL}/desktop/build-id/${GITHUB_SHA}")"
-          version="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])' <<< "${response}")"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Build macOS artifact
         if: steps.requested.outputs.enabled == 'true' && matrix.kind == 'macos'
@@ -253,7 +269,6 @@ jobs:
           curl -fsS -X POST \
             -H "Accept: application/json" \
             -H "X-Desktop-Upload-Token: ${DESKTOP_UPLOAD_TOKEN}" \
-            -H "X-Desktop-Commit: ${GITHUB_SHA}" \
             -H "X-Desktop-Build-ID: ${DESKTOP_BUILD_ID}" \
             -H "X-Artifact-Name: ${ARTIFACT_NAME}" \
             --data-binary "@${ARTIFACT_PATH}" \
