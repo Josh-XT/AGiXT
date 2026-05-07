@@ -177,13 +177,39 @@ html, body {
 /* Two stacked rows on the right side of the topbar. The agent chip and
    icon buttons share the top row; the conversation chip + new-conv
    button share the bottom row. The stack flexes against the logo so
-   long agent or conversation names get the available width. */
+   long agent or conversation names get the available width.
+
+   `position: relative` is the anchor for the agent / convo popover
+   menus inside; their `top: calc(100% + 4px)` lands at the bottom of
+   the stack regardless of whether the stack lives in `.topbar` (popover
+   mode) or has been relocated into the chat pane (window mode). */
 .topbar-stack {
   display: flex;
   flex-direction: column;
   gap: 4px;
   flex: 1 1 auto;
   min-width: 0;
+  position: relative;
+}
+
+/* Window mode: hide the global topbar (the OS title bar provides the
+   drag region + close, and the brand identity), and slot the agent /
+   conversation chips into the top of the chat pane via the
+   `topbar-stack--in-chat` class added by app.js. Saves the ~76px of
+   vertical chrome the topbar used to claim. */
+body.window-mode .topbar {
+  display: none;
+}
+.topbar-stack--in-chat {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex: 0 0 auto;
+}
+/* Popovers anchored to the in-chat stack drop down INTO the chat
+   surface — make sure they layer above the messages list. */
+.topbar-stack--in-chat .popover-menu {
+  z-index: 60;
 }
 .topbar-row {
   display: flex;
@@ -369,7 +395,15 @@ html, body {
   flex: 1;
   overflow-y: auto;
   padding: 14px 12px;
-  scroll-behavior: smooth;
+  /* `scroll-behavior: smooth` was here but it animates *user* scroll
+     wheel events too, which makes the scrollbar feel sluggish when
+     the user is just trying to skim the conversation. Programmatic
+     scrolls (auto-scroll-to-bottom in chat.js) set scrollTop directly
+     and don't need a CSS smooth — they're already instant. */
+  /* CSS scroll anchoring keeps the visible content pinned when chat
+     content reflows (e.g. when the chat pane width changes from a
+     resize-handle drag or a layout transition into window mode). */
+  overflow-anchor: auto;
 }
 
 .empty-state {
@@ -934,10 +968,108 @@ details.sub-tool > summary.sub-tool-summary:hover {
   overflow: auto;
 }
 
-/* Server-registered sidenav buttons render a single icon span — an
-   emoji from the manifest in the first cut. Match the existing SVG
-   buttons' visual weight so they don't look like a different class
-   of control. */
+/* Host-side polish overlay — improves the default look-and-feel of
+   server-delivered extensions without touching their own scoped CSS.
+   Hover lift on action buttons, accent focus ring on inputs/selects,
+   slightly heavier card presence with subtle inner highlight on the
+   top edge. Each rule targets the common class shapes the extensions
+   use (`*-table`, `*-card`, `*-primary`, `*-secondary`, `*-search`,
+   `*-tab`, etc.) so they pick the polish up without per-page edits. */
+.view-pane-extension button {
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease, transform 0.08s ease, box-shadow 0.14s ease;
+}
+.view-pane-extension button:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+.view-pane-extension button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.view-pane-extension input:focus,
+.view-pane-extension select:focus,
+.view-pane-extension textarea:focus {
+  outline: none;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(107, 123, 255, 0.18) !important;
+}
+.view-pane-extension input[type="search"],
+.view-pane-extension input[type="text"],
+.view-pane-extension input[type="email"],
+.view-pane-extension input[type="password"],
+.view-pane-extension select,
+.view-pane-extension textarea {
+  font-family: var(--font);
+}
+/* Bump card presence — extensions use varied class prefixes
+   (mx-card, co-card, ct-card, …); target every `*-card` class. */
+.view-pane-extension [class*="-card"] {
+  position: relative;
+}
+.view-pane-extension [class*="-card"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+/* Table wrapper polish — soft shadow on the rounded box. */
+.view-pane-extension [class*="-table-wrap"] {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 4px 18px rgba(0, 0, 0, 0.22);
+}
+/* Active filter pill gets a subtle accent glow. */
+.view-pane-extension [class*="-tab"].is-active {
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px var(--accent) inset;
+}
+/* Primary action buttons — accent glow on hover so the call-to-action
+   reads stronger than the secondary buttons next to it. */
+.view-pane-extension [class*="-primary"] {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 0 rgba(255, 255, 255, 0.1) inset;
+}
+.view-pane-extension [class*="-primary"]:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: 0 2px 6px rgba(107, 123, 255, 0.32), 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+}
+/* Page title spacing tweak — more breathing room above the table. */
+.view-pane-extension h2[class*="-title"] {
+  font-feature-settings: "ss01", "ss02", "cv11";
+}
+/* Make code/mono cells slightly more visible against the bg. */
+.view-pane-extension code {
+  letter-spacing: 0.005em;
+}
+
+/* Slicker page-header structure — push search inputs to the right
+   edge so the title + action buttons cluster on the left, and give
+   each header more breathing room. Targets the common class shapes
+   (`*-title-row`, `*-search`, `*-tabs`) so every extension picks the
+   spacing up without per-page edits. */
+.view-pane-extension [class*="-title-row"] {
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  row-gap: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  margin-bottom: 4px;
+}
+.view-pane-extension [class*="-title-row"] > [class*="-search"] {
+  margin-left: auto;
+}
+.view-pane-extension [class*="-title-row"] > h2[class*="-title"] {
+  margin-right: 8px;  /* small visual gap between title text and the
+                         action buttons that follow */
+}
+/* Filter-tab row — extra top space so it isn't visually fused to the
+   action buttons above it. */
+.view-pane-extension [class*="-tabs"] {
+  padding-top: 4px;
+}
+
+/* Server-registered sidenav buttons either render a built-in
+   monochrome SVG (resolved from the icon registry by name) or fall
+   back to text/emoji. Sized to match the static chat + settings SVG
+   icons so the rail reads as one coherent control surface. */
 .sidenav-btn-icon {
   font-size: 18px;
   line-height: 1;
@@ -945,22 +1077,34 @@ details.sub-tool > summary.sub-tool-summary:hover {
   align-items: center;
   justify-content: center;
 }
+.sidenav-btn-icon svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
 
 /* Workspace-open layout — chat pane stays visible alongside the
    workspace editor. `.chat-screen-main` flips to a row, the chat pane
    takes a fixed slim column, and `#workspace-screen` (mounted as a
    sibling by workspace.js) fills the rest. */
-/* Window-mode: any time the popover has been promoted to a regular
-   decorated OS window (workspace open OR a non-chat sidenav view).
-   The chat pane stays fixed at 340px so the page-of-the-day (workspace
-   editor, machines, etc.) gets the rest of the width. */
+/* Window-mode: the popover has been promoted to a real OS window.
+   The chat pane stays alongside any extension/workspace content via
+   `body.with-content-pane`; when chat is the only thing showing, it
+   fills the whole width. */
 body.window-mode .chat-screen-main {
   flex-direction: row;
 }
 body.window-mode .view-pane[data-view="chat"] {
-  flex: 0 0 340px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+body.window-mode.with-content-pane .view-pane[data-view="chat"] {
+  flex: 0 0 var(--chat-pane-width, 340px);
   min-width: 0;
   border-right: 1px solid var(--border);
+}
+body.window-mode.chat-collapsed .view-pane[data-view="chat"] {
+  display: none;
 }
 body.window-mode .dock-panel {
   border-radius: 0;
@@ -969,6 +1113,93 @@ body.window-mode .dock-panel {
 }
 body.window-mode .resize-handle {
   display: none;
+}
+
+/* Drag handle between chat pane and content area. Hidden in popover
+   mode and in chat-only window mode (no content next to chat).
+   Doubles as the collapse-chat affordance via a chevron button. */
+.chat-resize-handle {
+  display: none;
+  flex: 0 0 4px;
+  background: transparent;
+  cursor: col-resize;
+  position: relative;
+  user-select: none;
+  margin-left: -1px;
+  z-index: 2;
+}
+body.window-mode.with-content-pane .chat-resize-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.chat-resize-handle:hover,
+.chat-resize-handle.is-dragging {
+  background: rgba(107, 123, 255, 0.35);
+}
+.chat-collapse-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 18px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text-dim);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.chat-resize-handle:hover .chat-collapse-btn,
+.chat-collapse-btn:focus-visible {
+  opacity: 1;
+}
+.chat-collapse-btn:hover {
+  color: var(--text);
+  background: var(--panel);
+}
+
+/* Collapsed re-expand strip — replaces the chat pane when collapsed. */
+.chat-collapsed-strip {
+  display: none;
+  flex: 0 0 28px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 10px 0;
+  gap: 8px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  color: var(--text-dim);
+  font-family: inherit;
+  border-top: 0;
+  border-bottom: 0;
+  border-left: 0;
+}
+.chat-collapsed-strip:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+body.window-mode.chat-collapsed .chat-collapsed-strip {
+  display: flex;
+}
+body.window-mode.chat-collapsed .chat-resize-handle {
+  display: none;
+}
+.chat-collapsed-strip-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.7;
 }
 
 /* VSCode-style activity bar. Top group lists sections (Chat, …); bottom
@@ -981,9 +1212,9 @@ body.window-mode .resize-handle {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 40px;
-  padding: 6px 0;
-  gap: 4px;
+  width: 44px;
+  padding: 8px 0;
+  gap: 2px;
   background: var(--panel);
   /* No right border — the panel/bg colour difference is enough of a
      seam, and the lack of a line lets the sidenav read as part of the
@@ -1006,27 +1237,73 @@ body.window-mode .resize-handle {
   border-radius: 8px;
   border: none;
   background: transparent;
-  color: var(--text-dim);
+  /* VSCode activity-bar treatment: muted gray by default, white on
+     hover/active. Icons inherit `currentColor` from the SVG. */
+  color: rgba(255, 255, 255, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   padding: 0;
   position: relative;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: color 0.14s ease, background 0.14s ease;
 }
 .sidenav-btn:hover {
-  background: var(--panel-2);
-  color: var(--text);
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.04);
 }
 .sidenav-btn:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: 1px;
 }
 .sidenav-btn.is-active {
-  background: var(--panel-2);
-  color: var(--text);
+  color: #fff;
+  background: transparent;
 }
+/* VSCode-style accent rail running along the left edge of the active
+   button. -4px from the button left = flush with the sidenav's left
+   edge (button is 32px in 40px sidenav, centered, so 4px each side). */
+.sidenav-btn.is-active::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+}
+/* Instant CSS tooltip — replaces the 1.5s browser-default `title`
+   delay with VSCode's "appears immediately on hover" feel. */
+.sidenav-btn[data-tooltip] { /* anchor for ::after */ }
+.sidenav-btn[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: left center;
+  transition: opacity 0.08s ease;
+  z-index: 50;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+}
+.sidenav-btn:hover[data-tooltip]::after,
+.sidenav-btn:focus-visible[data-tooltip]::after {
+  opacity: 1;
+}
+/* Hide the native browser tooltip on these buttons so we don't get
+   the double-flash of CSS tooltip + system tooltip after the delay. */
+.sidenav .sidenav-btn[title] { /* keep the attribute for a11y */ }
 /* Notification dot — used by the bottom gear when an action (e.g. a
    downloaded desktop update) is waiting for the user. Subtle so it
    doesn't compete with other UI. */

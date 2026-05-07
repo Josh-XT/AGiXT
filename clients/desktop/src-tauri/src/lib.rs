@@ -1880,11 +1880,42 @@ fn demote_to_normal(win: &WebviewWindow) {
         gw.set_skip_pager_hint(false);
         gw.set_keep_above(false);
         gw.set_decorated(true);
+        // Without an explicit icon list, GNOME's overview / dash-to-dock
+        // / taskbar shows a generic placeholder for the window. Load the
+        // bundled 128px PNG and attach it so the window picks up the
+        // AGiXT logo in switcher / alt-tab / taskbar.
+        if let Some(pixbuf) = load_app_pixbuf() {
+            gw.set_icon(Some(&pixbuf));
+        }
+    }
+    // Tauri's own icon hook also writes _NET_WM_ICON via the wry
+    // backend; call it too so any non-GTK consumers (eg. Window
+    // List in some panels) pick it up.
+    if let Ok(image) = Image::from_bytes(APP_ICON_BYTES) {
+        let _ = win.set_icon(image);
     }
 }
 
 #[cfg(not(target_os = "linux"))]
-fn demote_to_normal(_: &WebviewWindow) {}
+fn demote_to_normal(win: &WebviewWindow) {
+    if let Ok(image) = Image::from_bytes(APP_ICON_BYTES) {
+        let _ = win.set_icon(image);
+    }
+}
+
+/// 128px AGiXT logo, embedded at compile time so we don't need a
+/// runtime file lookup. Used as the window icon in decorated mode.
+const APP_ICON_BYTES: &[u8] = include_bytes!("../icons/128x128.png");
+
+#[cfg(target_os = "linux")]
+fn load_app_pixbuf() -> Option<gtk::gdk_pixbuf::Pixbuf> {
+    use gtk::gdk_pixbuf::PixbufLoader;
+    use gtk::prelude::*;
+    let loader = PixbufLoader::new();
+    loader.write(APP_ICON_BYTES).ok()?;
+    loader.close().ok()?;
+    loader.pixbuf()
+}
 
 /// WebKitGTK does not show a browser-style permission prompt for
 /// getUserMedia in this app shell, so approve microphone/camera capture

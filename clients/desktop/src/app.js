@@ -1402,6 +1402,13 @@
   // `.view-pane[data-view=…]`. The currently active button gets the
   // `.is-active` class. To add a new section, drop in a button + pane
   // pair sharing the same data-view value — no JS changes needed.
+  //
+  // Layout invariant: in window-mode, the chat pane is always visible
+  // alongside whatever extension pane is active. The active view's
+  // pane is the only *other* one shown; chat is special-cased to
+  // never be hidden so the conversation stays accessible from any
+  // page. `body.with-content-pane` flips the chat pane to its
+  // 340px-wide side layout when something else is on the right.
   let activeView = 'chat';
   function setActiveView(viewId) {
     if (!viewId) return;
@@ -1412,8 +1419,23 @@
       btn.setAttribute('aria-selected', on ? 'true' : 'false');
     });
     document.querySelectorAll('.chat-screen-main .view-pane[data-view]').forEach((pane) => {
-      pane.hidden = pane.dataset.view !== viewId;
+      if (pane.dataset.view === 'chat') {
+        // Chat is always visible. Layout swaps via body.with-content-pane.
+        pane.hidden = false;
+      } else {
+        pane.hidden = pane.dataset.view !== viewId;
+      }
     });
+    // Switching to a non-chat extension closes any open workspace —
+    // they share the right-side content slot, so showing both at once
+    // would jam two panes into the same space.
+    if (viewId !== 'chat'
+        && window.AgixtWorkspace
+        && typeof window.AgixtWorkspace.isOpen === 'function'
+        && window.AgixtWorkspace.isOpen()) {
+      window.AgixtWorkspace.close();
+    }
+    syncContentPaneClass();
     refreshWindowMode();
   }
   document.querySelectorAll('.sidenav-btn[data-view]').forEach((btn) => {
@@ -1422,6 +1444,166 @@
   // Surface a tiny extension point so future modules can register their
   // own sections without touching this file directly.
   window.AgixtSidenav = { setActiveView };
+
+  // True when something other than chat is occupying the right side
+  // of the chat-screen-main row layout (an active extension OR the
+  // workspace editor). Drives the chat pane's split-vs-fill CSS.
+  function syncContentPaneClass() {
+    const wsOpen = !!(window.AgixtWorkspace
+      && typeof window.AgixtWorkspace.isOpen === 'function'
+      && window.AgixtWorkspace.isOpen());
+    const hasContent = wsOpen || (activeView && activeView !== 'chat');
+    // Preserve the chat scroll position across layout transitions —
+    // the chat pane's width changes when this class toggles, which
+    // causes messages to reflow. Without this snapshot/restore, the
+    // user feels the chat "jump" when they navigate between pages.
+    preserveChatScroll(() => {
+      document.body.classList.toggle('with-content-pane', hasContent);
+      relocateTopbarStack();
+    });
+  }
+  window.AgixtSidenav.syncContentPaneClass = syncContentPaneClass;
+
+  // In window mode, physically move the agent / conversation chip
+  // controls from the global topbar into the top of the chat pane so
+  // they don't claim full window-width chrome. The OS title bar
+  // already provides drag + min/max/close + app identity in that
+  // mode, so the global topbar adds nothing useful and just steals
+  // ~76px of vertical space from the content area.
+  //
+  // The topbar-stack element carries its own popover-menu children
+  // (agent, conversation), so moving the wrapper relocates those too;
+  // we set `position: relative` on `.topbar-stack` in CSS so the
+  // popovers stay anchored regardless of which parent they're under.
+  function relocateTopbarStack() {
+    const stack = document.querySelector('.topbar-stack');
+    const chatPane = document.querySelector('.view-pane[data-view="chat"]');
+    const topbar = document.querySelector('.topbar');
+    if (!stack || !chatPane || !topbar) return;
+    const inWindow = document.body.classList.contains('window-mode');
+    if (inWindow && stack.parentElement !== chatPane) {
+      chatPane.insertBefore(stack, chatPane.firstChild);
+      stack.classList.add('topbar-stack--in-chat');
+    } else if (!inWindow && stack.parentElement !== topbar) {
+      topbar.appendChild(stack);
+      stack.classList.remove('topbar-stack--in-chat');
+    }
+  }
+
+  // Run `mutate` while preserving the chat scroller's vertical
+  // position. If the user was within ~30px of the bottom we keep them
+  // pinned there (so live messages still auto-scroll into view);
+  // otherwise we maintain the same scrollTop/scrollHeight ratio so
+  // the message they were reading stays under their cursor.
+  function preserveChatScroll(mutate) {
+    const scroll = document.getElementById('chat-scroll');
+    if (!scroll) { try { mutate(); } catch (_) {} return; }
+    const wasAtBottom = (scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight) < 30;
+    const ratio = scroll.scrollHeight > 0 ? scroll.scrollTop / scroll.scrollHeight : 0;
+    try { mutate(); } catch (_) {}
+    // After the layout change settles (one frame later) put the
+    // viewport back where it was.
+    requestAnimationFrame(() => {
+      if (!scroll.isConnected) return;
+      if (wasAtBottom) {
+        scroll.scrollTop = scroll.scrollHeight;
+      } else {
+        scroll.scrollTop = ratio * scroll.scrollHeight;
+      }
+    });
+  }
+
+  // ----- Chat pane: resizable + collapsible -------------------------------
+  // Drag the seam between chat and content to set chat width. Persists
+  // to localStorage so the user's choice sticks across sessions.
+  const CHAT_WIDTH_KEY = 'agixt.desktop.chatPaneWidth.v1';
+  const CHAT_COLLAPSED_KEY = 'agixt.desktop.chatPaneCollapsed.v1';
+  const MIN_CHAT_WIDTH = 240;
+  const MAX_CHAT_WIDTH = 720;
+  const DEFAULT_CHAT_WIDTH = 340;
+
+  function applyChatPaneWidth(w) {
+    const n = Math.max(MIN_CHAT_WIDTH, Math.min(MAX_CHAT_WIDTH, Math.round(w || DEFAULT_CHAT_WIDTH)));
+    document.documentElement.style.setProperty('--chat-pane-width', n + 'px');
+    return n;
+  }
+
+  // Restore on boot.
+  try {
+    const stored = window.localStorage.getItem(CHAT_WIDTH_KEY);
+    if (stored != null) applyChatPaneWidth(Number(stored));
+    if (window.localStorage.getItem(CHAT_COLLAPSED_KEY) === '1') {
+      // Defer until first content-pane appears — collapsing a hidden
+      // pane is a no-op and we don't want to flash an empty state.
+      _restoreCollapsedOnFirstContent = true;
+    }
+  } catch (_) {}
+  let _restoreCollapsedOnFirstContent = false;
+
+  const handleEl = document.querySelector('.chat-resize-handle');
+  const collapseBtnEl = handleEl && handleEl.querySelector('.chat-collapse-btn');
+  const collapsedStripEl = document.querySelector('.chat-collapsed-strip');
+
+  if (handleEl) {
+    let dragging = false;
+    let startX = 0;
+    let startWidth = 0;
+    handleEl.addEventListener('pointerdown', (e) => {
+      // Don't start a resize when the user clicks the collapse button.
+      if (e.target.closest('.chat-collapse-btn')) return;
+      const chatPane = document.querySelector('.chat-screen-main .view-pane[data-view="chat"]');
+      if (!chatPane) return;
+      dragging = true;
+      handleEl.classList.add('is-dragging');
+      startX = e.clientX;
+      startWidth = chatPane.getBoundingClientRect().width;
+      handleEl.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    handleEl.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const next = applyChatPaneWidth(startWidth + (e.clientX - startX));
+      try { window.localStorage.setItem(CHAT_WIDTH_KEY, String(next)); } catch (_) {}
+    });
+    const stop = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      handleEl.classList.remove('is-dragging');
+      try { handleEl.releasePointerCapture(e.pointerId); } catch (_) {}
+    };
+    handleEl.addEventListener('pointerup', stop);
+    handleEl.addEventListener('pointercancel', stop);
+    // Double-click to reset to default.
+    handleEl.addEventListener('dblclick', (e) => {
+      if (e.target.closest('.chat-collapse-btn')) return;
+      applyChatPaneWidth(DEFAULT_CHAT_WIDTH);
+      try { window.localStorage.setItem(CHAT_WIDTH_KEY, String(DEFAULT_CHAT_WIDTH)); } catch (_) {}
+    });
+  }
+
+  function setChatCollapsed(collapsed) {
+    preserveChatScroll(() => {
+      document.body.classList.toggle('chat-collapsed', !!collapsed);
+    });
+    try { window.localStorage.setItem(CHAT_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch (_) {}
+  }
+  if (collapseBtnEl) {
+    collapseBtnEl.addEventListener('click', (e) => { e.stopPropagation(); setChatCollapsed(true); });
+  }
+  if (collapsedStripEl) {
+    collapsedStripEl.addEventListener('click', () => setChatCollapsed(false));
+  }
+  // Re-apply collapsed state after layout transitions so a returning
+  // user with a content pane open lands on the saved chat state.
+  const _origSync = syncContentPaneClass;
+  syncContentPaneClass = function () {
+    _origSync();
+    if (_restoreCollapsedOnFirstContent && document.body.classList.contains('with-content-pane')) {
+      _restoreCollapsedOnFirstContent = false;
+      setChatCollapsed(true);
+    }
+  };
+  window.AgixtSidenav.syncContentPaneClass = syncContentPaneClass;
 
   // ----- Window mode reconciler ------------------------------------------
   // The popover (borderless, tray-anchored, always-on-top, hidden from
@@ -1438,7 +1620,13 @@
     const wsOpen = !!(window.AgixtWorkspace
       && typeof window.AgixtWorkspace.isOpen === 'function'
       && window.AgixtWorkspace.isOpen());
-    const shouldDecorate = wsOpen || (activeView && activeView !== 'chat');
+    // Sticky: once the user has entered window mode, keep it for the
+    // whole show-cycle. The popover only returns when the user
+    // explicitly hides the window (tray X / Esc / hide_chat) — at
+    // which point `popover-visible:false` resets `_windowDecorated`
+    // so the next show comes back as a clean popover.
+    const wantsWindow = wsOpen || (activeView && activeView !== 'chat');
+    const shouldDecorate = _windowDecorated || wantsWindow;
     if (shouldDecorate === _windowDecorated) return;
 
     if (shouldDecorate && !_windowDecorated) {
@@ -1456,6 +1644,8 @@
 
     _windowDecorated = shouldDecorate;
     document.body.classList.toggle('window-mode', shouldDecorate);
+    syncContentPaneClass();
+    relocateTopbarStack();
     try { await invoke('set_workspace_window_mode', { enabled: shouldDecorate }); }
     catch (_) { /* best-effort — Rust falls back to current chrome */ }
 
@@ -1690,8 +1880,13 @@
           pane.hidden = pane.dataset.view !== 'chat';
         });
         document.body.classList.remove('window-mode');
+        document.body.classList.remove('with-content-pane');
+        document.body.classList.remove('chat-collapsed');
         _windowDecorated = false;
         _preDecoratedGeom = null;
+        // Send the topbar-stack back to the global topbar so the next
+        // popover show has the chips up top.
+        relocateTopbarStack();
       }
     });
   }

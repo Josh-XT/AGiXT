@@ -1105,12 +1105,23 @@
     state.open = true;
     root.hidden = false;
     document.body.classList.add('workspace-open');
+    // Workspace shares the right-side content slot with extension
+    // pages, so opening it forces the active sidenav view back to
+    // chat. Without this, an extension would still be rendered
+    // alongside the workspace inside `.chat-screen-main` (two content
+    // panes fighting for the same space).
+    if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
+      window.AgixtSidenav.setActiveView('chat');
+    }
     // Chat stays alongside the workspace pane — `body.workspace-open`
     // marks the workspace pane visible inside `.chat-screen-main`,
     // while `body.window-mode` (managed by app.js's refreshWindowMode)
     // owns the chrome flip + geometry capture/restore. Reconciling
     // through one path means the workspace folder icon and any non-chat
     // sidenav view both produce the same window state.
+    if (window.AgixtSidenav && typeof window.AgixtSidenav.syncContentPaneClass === 'function') {
+      window.AgixtSidenav.syncContentPaneClass();
+    }
     if (window.AgixtWindowMode && typeof window.AgixtWindowMode.refresh === 'function') {
       await window.AgixtWindowMode.refresh();
     }
@@ -1126,9 +1137,12 @@
     state.open = false;
     if (root) root.hidden = true;
     document.body.classList.remove('workspace-open');
-    // app.js owns chrome + geometry now. It'll drop `window-mode` and
-    // restore the previous popover geometry iff no other view still
-    // wants the decorated frame.
+    if (window.AgixtSidenav && typeof window.AgixtSidenav.syncContentPaneClass === 'function') {
+      window.AgixtSidenav.syncContentPaneClass();
+    }
+    // app.js owns chrome + geometry now. With sticky decoration, the
+    // window stays decorated even after workspace closes — `body.with-content-pane`
+    // toggles off so the chat pane can fill the whole width.
     if (window.AgixtWindowMode && typeof window.AgixtWindowMode.refresh === 'function') {
       await window.AgixtWindowMode.refresh();
     }
