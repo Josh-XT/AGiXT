@@ -4965,7 +4965,18 @@ def verify_company_admin(authorization: str, company_id: str) -> MagicalAuth:
 
     # Check if user is admin of the company
     user_role = auth.get_user_role(company_id)
-    if user_role not in ["admin", "Admin"]:
+    if isinstance(user_role, int):
+        is_company_admin = user_role <= 2
+    else:
+        is_company_admin = user_role in [
+            "admin",
+            "Admin",
+            "tenant_admin",
+            "Tenant Admin",
+            "company_admin",
+            "Company Admin",
+        ]
+    if not is_company_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Company admin role required.",

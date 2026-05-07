@@ -285,8 +285,12 @@ def invalidate_user_company_cache(user_id: str = None):
     """Invalidate user company cache. If user_id is None, clear all (uses SharedCache)."""
     if user_id is None:
         shared_cache.delete_pattern("user_company:*")
+        shared_cache.delete_pattern("user_companies_list:*")
+        shared_cache.delete_pattern("accessible_companies:*")
     else:
         shared_cache.delete(f"user_company:{user_id}")
+        shared_cache.delete(f"user_companies_list:{user_id}")
+        shared_cache.delete_pattern(f"accessible_companies:{user_id}:*")
 
 
 # User scopes cache TTL - 60 seconds (short enough to catch role changes quickly)

@@ -238,6 +238,60 @@ async def list_desktop_extensions(
     )
 
 
+# Common file extensions we'll serve from extensions. Anything outside
+# this list returns 415 — we don't want extensions to accidentally turn
+# into a generic file-server for the user's machine.
+_ALLOWED_ASSET_EXTS = {
+    ".js": "application/javascript",
+    ".mjs": "application/javascript",
+    ".css": "text/css",
+    ".json": "application/json",
+    ".html": "text/html",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+    ".otf": "font/otf",
+    ".map": "application/json",
+    ".wasm": "application/wasm",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+}
+
+
+def _resolve_asset(ext_id: str, rel_path: str):
+    """Return `(target_path, media_type, manifest_dir)` for a file under
+    the extension's directory, or raise an HTTPException."""
+    if not _ID_RE.match(ext_id):
+        raise HTTPException(status_code=400, detail="invalid extension id")
+    rel = (rel_path or "").strip().lstrip("/")
+    if not rel:
+        rel = "main.js"
+    suffix = "." + rel.rsplit(".", 1)[-1].lower() if "." in rel else ""
+    media_type = _ALLOWED_ASSET_EXTS.get(suffix)
+    if media_type is None:
+        raise HTTPException(status_code=415, detail="extension type not allowed")
+
+    for found_id, manifest_dir in _list_extension_dirs():
+        if found_id != ext_id:
+            continue
+        target = (manifest_dir / rel).resolve()
+        try:
+            target.relative_to(manifest_dir.resolve())
+        except ValueError:
+            raise HTTPException(status_code=400, detail="path escapes extension dir")
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="asset not found")
+        return target, media_type, manifest_dir
+    raise HTTPException(status_code=404, detail="extension not found")
+
+
 @app.get(
     "/v1/desktop/extensions/{ext_id}/main.js",
     tags=["DesktopExtensions"],
@@ -251,39 +305,66 @@ async def serve_desktop_extension_js(
     company_id: Optional[str] = Query(None),
     agent_id: Optional[str] = Query(None),
 ):
-    if not _ID_RE.match(ext_id):
-        raise HTTPException(status_code=400, detail="invalid extension id")
-
     auth = MagicalAuth(token=authorization)
     if auth.user_id is None:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    # Locate the extension and re-check entitlement so the JS URL can't
-    # be used to bypass the manifest's requires block.
-    for found_id, manifest_dir in _list_extension_dirs():
-        if found_id != ext_id:
-            continue
-        manifest = _load_manifest(manifest_dir)
-        if manifest is None:
-            raise HTTPException(status_code=404, detail="manifest unreadable")
-        if not _meets_requires(
-            auth, manifest.get("requires") or {}, company_id, agent_id
-        ):
-            raise HTTPException(status_code=403, detail="not entitled")
-        entry = manifest.get("entry") or "main.js"
-        # Defence-in-depth: the entry is allowed to be a relative path
-        # but must resolve inside the extension's own dir.
-        target = (manifest_dir / entry).resolve()
-        try:
-            target.relative_to(manifest_dir.resolve())
-        except ValueError:
-            raise HTTPException(status_code=400, detail="entry escapes extension dir")
-        if not target.is_file():
-            raise HTTPException(status_code=404, detail="entry missing")
-        return FileResponse(
-            str(target),
-            media_type="application/javascript",
-            headers={"Cache-Control": "public, max-age=300"},
-        )
+    target, media_type, manifest_dir = _resolve_asset(ext_id, "main.js")
 
-    raise HTTPException(status_code=404, detail="extension not found")
+    # Re-check the requires block here so the entry URL alone can't be
+    # used to bypass scope gating (a sibling asset request below shares
+    # the same check).
+    manifest = _load_manifest(manifest_dir)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="manifest unreadable")
+    if not _meets_requires(auth, manifest.get("requires") or {}, company_id, agent_id):
+        raise HTTPException(status_code=403, detail="not entitled")
+
+    # If the manifest specifies a different entry, prefer that path.
+    entry = manifest.get("entry")
+    if entry and entry != "main.js":
+        target, media_type, _ = _resolve_asset(ext_id, entry)
+
+    return FileResponse(
+        str(target),
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=300"},
+    )
+
+
+@app.get(
+    "/v1/desktop/extensions/{ext_id}/assets/{asset_path:path}",
+    tags=["DesktopExtensions"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Serve a sibling asset file (vendor JS/CSS, images, fonts).",
+)
+async def serve_desktop_extension_asset(
+    ext_id: str,
+    asset_path: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+    company_id: Optional[str] = Query(None),
+    agent_id: Optional[str] = Query(None),
+):
+    """Return a file under `<extension>/assets/<path>` so an extension
+    can ship a vendored JS bundle or a CSS file alongside main.js. The
+    `requires` block of the parent extension still gates access — same
+    rationale as the main.js route."""
+    auth = MagicalAuth(token=authorization)
+    if auth.user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    target, media_type, manifest_dir = _resolve_asset(
+        ext_id, "assets/" + asset_path,
+    )
+    manifest = _load_manifest(manifest_dir)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="manifest unreadable")
+    if not _meets_requires(auth, manifest.get("requires") or {}, company_id, agent_id):
+        raise HTTPException(status_code=403, detail="not entitled")
+
+    return FileResponse(
+        str(target),
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )

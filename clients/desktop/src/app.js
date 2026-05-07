@@ -1402,8 +1402,10 @@
   // `.view-pane[data-view=…]`. The currently active button gets the
   // `.is-active` class. To add a new section, drop in a button + pane
   // pair sharing the same data-view value — no JS changes needed.
+  let activeView = 'chat';
   function setActiveView(viewId) {
     if (!viewId) return;
+    activeView = viewId;
     document.querySelectorAll('.sidenav-btn[data-view]').forEach((btn) => {
       const on = btn.dataset.view === viewId;
       btn.classList.toggle('is-active', on);
@@ -1412,6 +1414,7 @@
     document.querySelectorAll('.chat-screen-main .view-pane[data-view]').forEach((pane) => {
       pane.hidden = pane.dataset.view !== viewId;
     });
+    refreshWindowMode();
   }
   document.querySelectorAll('.sidenav-btn[data-view]').forEach((btn) => {
     btn.addEventListener('click', () => setActiveView(btn.dataset.view));
@@ -1419,6 +1422,62 @@
   // Surface a tiny extension point so future modules can register their
   // own sections without touching this file directly.
   window.AgixtSidenav = { setActiveView };
+
+  // ----- Window mode reconciler ------------------------------------------
+  // The popover (borderless, tray-anchored, always-on-top, hidden from
+  // the taskbar) is great for chat-only use, but every other surface —
+  // workspace editor, machines, future extension pages — wants a real
+  // OS window with chrome + tiling. Two things drive that mode flip:
+  //   1. The workspace editor opens/closes (toggle in chat composer).
+  //   2. The active sidenav view becomes anything other than chat.
+  // Both converge through `refreshWindowMode()` so the Rust IPC + body
+  // class + saved geometry stay in lock-step.
+  let _windowDecorated = false;
+  let _preDecoratedGeom = null;
+  async function refreshWindowMode() {
+    const wsOpen = !!(window.AgixtWorkspace
+      && typeof window.AgixtWorkspace.isOpen === 'function'
+      && window.AgixtWorkspace.isOpen());
+    const shouldDecorate = wsOpen || (activeView && activeView !== 'chat');
+    if (shouldDecorate === _windowDecorated) return;
+
+    if (shouldDecorate && !_windowDecorated) {
+      // Capture popover geometry before the Rust side resizes/centers
+      // the window so we can put it back exactly where it was.
+      try {
+        const tw = window.__TAURI__ && window.__TAURI__.window;
+        if (tw && typeof tw.getCurrentWindow === 'function') {
+          const win = tw.getCurrentWindow();
+          const [sz, pos] = await Promise.all([win.outerSize(), win.outerPosition()]);
+          _preDecoratedGeom = { width: sz.width, height: sz.height, x: pos.x, y: pos.y };
+        }
+      } catch (_) { _preDecoratedGeom = null; }
+    }
+
+    _windowDecorated = shouldDecorate;
+    document.body.classList.toggle('window-mode', shouldDecorate);
+    try { await invoke('set_workspace_window_mode', { enabled: shouldDecorate }); }
+    catch (_) { /* best-effort — Rust falls back to current chrome */ }
+
+    if (!shouldDecorate && _preDecoratedGeom) {
+      try {
+        const tw = window.__TAURI__ && window.__TAURI__.window;
+        if (tw && typeof tw.getCurrentWindow === 'function') {
+          const win = tw.getCurrentWindow();
+          const g = _preDecoratedGeom;
+          if (tw.PhysicalSize) await win.setSize(new tw.PhysicalSize(g.width, g.height));
+          else if (tw.LogicalSize) await win.setSize(new tw.LogicalSize(g.width, g.height));
+          if (tw.PhysicalPosition) await win.setPosition(new tw.PhysicalPosition(g.x, g.y));
+          else if (tw.LogicalPosition) await win.setPosition(new tw.LogicalPosition(g.x, g.y));
+        }
+      } catch (_) {}
+      _preDecoratedGeom = null;
+    }
+  }
+  // Public entrypoint other modules call after they change state that
+  // would affect the desired chrome (workspace open/close, OAuth
+  // connections becoming live, etc).
+  window.AgixtWindowMode = { refresh: refreshWindowMode };
 
   // The desktop-extensions loader (and any future module) needs the
   // current SDK handles + selected scopes to fetch and to pass into
@@ -1429,6 +1488,7 @@
     if (!settings || !settings.jwt) return null;
     return {
       serverUrl: settings.server_url,
+      webUrl: settings.web_url || null,
       jwt: settings.jwt,
       agentId: settings.agent_id || null,
       agentName: settings.agent_name || null,
@@ -1436,6 +1496,19 @@
       companyName: settings.company_name || null,
       conversationId: settings.conversation_id || null,
       invoke: window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke,
+      // The Tauri shell plugin's `open()` opens a URL in the user's
+      // default browser. Extensions use it for "open in web app"
+      // affordances while their desktop counterpart is still in
+      // development.
+      openExternal: (url) => {
+        try {
+          const sh = window.__TAURI__ && window.__TAURI__.opener;
+          if (sh && typeof sh.openUrl === 'function') return sh.openUrl(url);
+          const sh2 = window.__TAURI__ && window.__TAURI__.shell;
+          if (sh2 && typeof sh2.open === 'function') return sh2.open(url);
+        } catch (_) {}
+        return null;
+      },
     };
   };
 
@@ -1600,6 +1673,26 @@
     // automatically — no copy-paste needed.
     event.listen('agixt-authenticated', async () => {
       try { await onAuthenticated(); } catch (e) { console.warn('onAuthenticated', e); }
+    });
+    // Whenever Rust hides the popover (tray X, window decorate's close
+    // button, Esc, etc.) it reverts chrome to popover-form before
+    // emitting this event. Reset the active sidenav view to chat and
+    // sync the window-mode flag so the next show is a clean popover.
+    event.listen('popover-visible', (ev) => {
+      if (ev && ev.payload === false) {
+        activeView = 'chat';
+        document.querySelectorAll('.sidenav-btn[data-view]').forEach((btn) => {
+          const on = btn.dataset.view === 'chat';
+          btn.classList.toggle('is-active', on);
+          btn.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        document.querySelectorAll('.chat-screen-main .view-pane[data-view]').forEach((pane) => {
+          pane.hidden = pane.dataset.view !== 'chat';
+        });
+        document.body.classList.remove('window-mode');
+        _windowDecorated = false;
+        _preDecoratedGeom = null;
+      }
     });
   }
 })();

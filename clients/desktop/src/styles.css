@@ -950,24 +950,24 @@ details.sub-tool > summary.sub-tool-summary:hover {
    workspace editor. `.chat-screen-main` flips to a row, the chat pane
    takes a fixed slim column, and `#workspace-screen` (mounted as a
    sibling by workspace.js) fills the rest. */
-body.workspace-open .chat-screen-main {
+/* Window-mode: any time the popover has been promoted to a regular
+   decorated OS window (workspace open OR a non-chat sidenav view).
+   The chat pane stays fixed at 340px so the page-of-the-day (workspace
+   editor, machines, etc.) gets the rest of the width. */
+body.window-mode .chat-screen-main {
   flex-direction: row;
 }
-body.workspace-open .view-pane[data-view="chat"] {
+body.window-mode .view-pane[data-view="chat"] {
   flex: 0 0 340px;
   min-width: 0;
   border-right: 1px solid var(--border);
 }
-/* Popover shell becomes a regular decorated OS window in workspace mode
-   (set_workspace_window_mode). Drop the dock-panel's rounded corners,
-   custom shadow, and faux border so it fills the OS chrome cleanly,
-   and hide our manual resize grips since the OS provides them. */
-body.workspace-open .dock-panel {
+body.window-mode .dock-panel {
   border-radius: 0;
   border: 0;
   box-shadow: none;
 }
-body.workspace-open .resize-handle {
+body.window-mode .resize-handle {
   display: none;
 }
 

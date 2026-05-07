@@ -1105,28 +1105,15 @@
     state.open = true;
     root.hidden = false;
     document.body.classList.add('workspace-open');
-    // Chat stays visible alongside the workspace — `body.workspace-open`
-    // flips `.chat-screen-main` to a row layout so the chat pane and
-    // workspace pane sit side-by-side.
-    //
-    // The popover is the wrong shell for the editor (cramped, anchored
-    // to the tray corner, always-on-top). Capture the previous geometry
-    // for close() to restore, then ask the Rust side to flip the window
-    // into "decorated workspace" mode — it adds a title bar, drops
-    // skipTaskbar/alwaysOnTop, resizes to a workable default, and
-    // centers on the current monitor.
-    try {
-      const tw = window.__TAURI__ && window.__TAURI__.window;
-      if (tw && typeof tw.getCurrentWindow === 'function') {
-        const win = tw.getCurrentWindow();
-        const [sz, pos] = await Promise.all([win.outerSize(), win.outerPosition()]);
-        state._prevWindow = { width: sz.width, height: sz.height, x: pos.x, y: pos.y };
-      }
-    } catch (_) { /* geometry capture is best-effort */ }
-    try {
-      const inv = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
-      if (inv) await inv('set_workspace_window_mode', { enabled: true });
-    } catch (_) { /* command may not be wired yet during reload */ }
+    // Chat stays alongside the workspace pane — `body.workspace-open`
+    // marks the workspace pane visible inside `.chat-screen-main`,
+    // while `body.window-mode` (managed by app.js's refreshWindowMode)
+    // owns the chrome flip + geometry capture/restore. Reconciling
+    // through one path means the workspace folder icon and any non-chat
+    // sidenav view both produce the same window state.
+    if (window.AgixtWindowMode && typeof window.AgixtWindowMode.refresh === 'function') {
+      await window.AgixtWindowMode.refresh();
+    }
 
     renderSidebarVisibility();
     renderTree();
@@ -1139,34 +1126,12 @@
     state.open = false;
     if (root) root.hidden = true;
     document.body.classList.remove('workspace-open');
-    // Step 1: drop decorations / put alwaysOnTop + skipTaskbar back on
-    // so the popover-mode geometry restore below lands on a borderless
-    // window again.
-    try {
-      const inv = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
-      if (inv) await inv('set_workspace_window_mode', { enabled: false });
-    } catch (_) {}
-    // Step 2: restore size + position captured on open(). Resize first,
-    // then move — moving last avoids the OS adjusting position to keep
-    // the larger frame on-screen.
-    try {
-      const tw = window.__TAURI__ && window.__TAURI__.window;
-      if (tw && typeof tw.getCurrentWindow === 'function' && state._prevWindow) {
-        const win = tw.getCurrentWindow();
-        const geom = state._prevWindow;
-        if (tw.PhysicalSize) {
-          await win.setSize(new tw.PhysicalSize(geom.width, geom.height));
-        } else if (tw.LogicalSize) {
-          await win.setSize(new tw.LogicalSize(geom.width, geom.height));
-        }
-        if (tw.PhysicalPosition) {
-          await win.setPosition(new tw.PhysicalPosition(geom.x, geom.y));
-        } else if (tw.LogicalPosition) {
-          await win.setPosition(new tw.LogicalPosition(geom.x, geom.y));
-        }
-        state._prevWindow = null;
-      }
-    } catch {}
+    // app.js owns chrome + geometry now. It'll drop `window-mode` and
+    // restore the previous popover geometry iff no other view still
+    // wants the decorated frame.
+    if (window.AgixtWindowMode && typeof window.AgixtWindowMode.refresh === 'function') {
+      await window.AgixtWindowMode.refresh();
+    }
     closeActiveFile();
     unbindKeyboard();
   }
@@ -1236,10 +1201,9 @@
 
   // The Rust side reverts the window chrome to popover form whenever
   // it hides (`hide_popover`), then emits `popover-visible:false`.
-  // Listen for that and drop our workspace UI state so the next show
-  // comes back as just the chat — without us having to call
-  // `set_workspace_window_mode(false)` again (Rust already did it,
-  // and re-running it would unhide the window).
+  // Drop workspace state so the next show comes back as plain chat.
+  // app.js separately resets the active sidenav view to 'chat' so the
+  // body class + window-mode flag stay consistent with the chrome.
   function cleanupAfterHide() {
     if (!state.open) return;
     state.open = false;
@@ -1247,7 +1211,6 @@
     document.body.classList.remove('workspace-open');
     closeActiveFile();
     unbindKeyboard();
-    state._prevWindow = null;
   }
 
   try {
