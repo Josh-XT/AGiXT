@@ -725,9 +725,11 @@ details.sub-tool > summary.sub-tool-summary:hover {
 /* Composer */
 
 .composer {
-  border-top: 1px solid var(--border);
   background: var(--panel);
   padding: 6px 10px;
+  /* No top border — keeps the composer continuous with the sidenav at
+     the bottom-left corner so they read as one control surface
+     framing the chat content. */
 }
 .composer-row {
   display: flex;
@@ -749,14 +751,19 @@ details.sub-tool > summary.sub-tool-summary:hover {
   max-height: 160px;
 }
 .composer-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
-/* All composer-row buttons share the same square footprint as the
-   textarea's min-height so the row reads as one ruled bar instead of
-   icons floating below the input. */
+/* Composer buttons share a footprint with the sidenav buttons so the
+   "control surface" reads uniformly across the left rail and the
+   bottom bar. Same 32×32, same 8px corners, same border-less hover
+   highlight (already inherited from `.icon-btn:hover`). */
 .composer-row .icon-btn,
 .composer-row .send-btn {
   width: 32px;
   height: 32px;
   flex-shrink: 0;
+}
+.composer-row .icon-btn {
+  border-radius: 8px;
+  border: none;
 }
 .send-btn {
   width: 32px;
@@ -920,6 +927,24 @@ details.sub-tool > summary.sub-tool-summary:hover {
   min-width: 0;
 }
 .view-pane[hidden] { display: none; }
+/* Server-delivered extension pages get a default scroll container so
+   they don't bleed past the dock-panel; extensions can still set their
+   own overflow on their root if they need fixed footers/etc. */
+.view-pane.view-pane-extension {
+  overflow: auto;
+}
+
+/* Server-registered sidenav buttons render a single icon span — an
+   emoji from the manifest in the first cut. Match the existing SVG
+   buttons' visual weight so they don't look like a different class
+   of control. */
+.sidenav-btn-icon {
+  font-size: 18px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 
 /* Workspace-open layout — chat pane stays visible alongside the
    workspace editor. `.chat-screen-main` flips to a row, the chat pane
@@ -932,6 +957,18 @@ body.workspace-open .view-pane[data-view="chat"] {
   flex: 0 0 340px;
   min-width: 0;
   border-right: 1px solid var(--border);
+}
+/* Popover shell becomes a regular decorated OS window in workspace mode
+   (set_workspace_window_mode). Drop the dock-panel's rounded corners,
+   custom shadow, and faux border so it fills the OS chrome cleanly,
+   and hide our manual resize grips since the OS provides them. */
+body.workspace-open .dock-panel {
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+}
+body.workspace-open .resize-handle {
+  display: none;
 }
 
 /* VSCode-style activity bar. Top group lists sections (Chat, …); bottom
@@ -948,7 +985,9 @@ body.workspace-open .view-pane[data-view="chat"] {
   padding: 6px 0;
   gap: 4px;
   background: var(--panel);
-  border-right: 1px solid var(--border);
+  /* No right border — the panel/bg colour difference is enough of a
+     seam, and the lack of a line lets the sidenav read as part of the
+     same "control surface" as the composer below. */
 }
 .sidenav-top,
 .sidenav-bottom {

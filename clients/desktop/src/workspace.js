@@ -1108,61 +1108,62 @@
     // Chat stays visible alongside the workspace — `body.workspace-open`
     // flips `.chat-screen-main` to a row layout so the chat pane and
     // workspace pane sit side-by-side.
-    // The default popover window is 400×800 — too small for chat +
-    // editor. Bump to a workable size and remember the previous
-    // geometry so close() can restore both. (Restoring just the size
-    // leaves the window wherever the OS shifted it during the grow,
-    // which is why the chat appeared to "jump" on close.)
+    //
+    // The popover is the wrong shell for the editor (cramped, anchored
+    // to the tray corner, always-on-top). Capture the previous geometry
+    // for close() to restore, then ask the Rust side to flip the window
+    // into "decorated workspace" mode — it adds a title bar, drops
+    // skipTaskbar/alwaysOnTop, resizes to a workable default, and
+    // centers on the current monitor.
     try {
       const tw = window.__TAURI__ && window.__TAURI__.window;
       if (tw && typeof tw.getCurrentWindow === 'function') {
         const win = tw.getCurrentWindow();
-        Promise.all([win.outerSize(), win.outerPosition()]).then(([sz, pos]) => {
-          state._prevWindow = { width: sz.width, height: sz.height, x: pos.x, y: pos.y };
-          if (tw.LogicalSize) {
-            win.setSize(new tw.LogicalSize(1300, 800)).catch(() => {});
-          }
-        }).catch(() => {
-          if (tw.LogicalSize) {
-            win.setSize(new tw.LogicalSize(1300, 800)).catch(() => {});
-          }
-        });
+        const [sz, pos] = await Promise.all([win.outerSize(), win.outerPosition()]);
+        state._prevWindow = { width: sz.width, height: sz.height, x: pos.x, y: pos.y };
       }
-    } catch {}
+    } catch (_) { /* geometry capture is best-effort */ }
+    try {
+      const inv = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
+      if (inv) await inv('set_workspace_window_mode', { enabled: true });
+    } catch (_) { /* command may not be wired yet during reload */ }
+
     renderSidebarVisibility();
     renderTree();
     refresh();
     bindKeyboard();
   }
 
-  function close() {
+  async function close() {
     if (!state.open) return;
     state.open = false;
     if (root) root.hidden = true;
     document.body.classList.remove('workspace-open');
-    // Restore window geometry (size *and* position) we captured on
-    // open(). Resize first, then move — moving last avoids the OS
-    // adjusting the position again to keep the larger frame on-screen.
+    // Step 1: drop decorations / put alwaysOnTop + skipTaskbar back on
+    // so the popover-mode geometry restore below lands on a borderless
+    // window again.
+    try {
+      const inv = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
+      if (inv) await inv('set_workspace_window_mode', { enabled: false });
+    } catch (_) {}
+    // Step 2: restore size + position captured on open(). Resize first,
+    // then move — moving last avoids the OS adjusting position to keep
+    // the larger frame on-screen.
     try {
       const tw = window.__TAURI__ && window.__TAURI__.window;
       if (tw && typeof tw.getCurrentWindow === 'function' && state._prevWindow) {
         const win = tw.getCurrentWindow();
         const geom = state._prevWindow;
-        const restore = async () => {
-          try {
-            if (tw.PhysicalSize) {
-              await win.setSize(new tw.PhysicalSize(geom.width, geom.height));
-            } else if (tw.LogicalSize) {
-              await win.setSize(new tw.LogicalSize(geom.width, geom.height));
-            }
-            if (tw.PhysicalPosition) {
-              await win.setPosition(new tw.PhysicalPosition(geom.x, geom.y));
-            } else if (tw.LogicalPosition) {
-              await win.setPosition(new tw.LogicalPosition(geom.x, geom.y));
-            }
-          } catch {}
-        };
-        restore();
+        if (tw.PhysicalSize) {
+          await win.setSize(new tw.PhysicalSize(geom.width, geom.height));
+        } else if (tw.LogicalSize) {
+          await win.setSize(new tw.LogicalSize(geom.width, geom.height));
+        }
+        if (tw.PhysicalPosition) {
+          await win.setPosition(new tw.PhysicalPosition(geom.x, geom.y));
+        } else if (tw.LogicalPosition) {
+          await win.setPosition(new tw.LogicalPosition(geom.x, geom.y));
+        }
         state._prevWindow = null;
       }
     } catch {}
@@ -1232,6 +1233,31 @@
     } catch (_) { /* monaco may not be ready yet — ignore */ }
     return ctx;
   }
+
+  // The Rust side reverts the window chrome to popover form whenever
+  // it hides (`hide_popover`), then emits `popover-visible:false`.
+  // Listen for that and drop our workspace UI state so the next show
+  // comes back as just the chat — without us having to call
+  // `set_workspace_window_mode(false)` again (Rust already did it,
+  // and re-running it would unhide the window).
+  function cleanupAfterHide() {
+    if (!state.open) return;
+    state.open = false;
+    if (root) root.hidden = true;
+    document.body.classList.remove('workspace-open');
+    closeActiveFile();
+    unbindKeyboard();
+    state._prevWindow = null;
+  }
+
+  try {
+    const ev = window.__TAURI__ && window.__TAURI__.event;
+    if (ev && typeof ev.listen === 'function') {
+      ev.listen('popover-visible', (msg) => {
+        if (msg && msg.payload === false) cleanupAfterHide();
+      });
+    }
+  } catch (_) { /* event API unavailable — popover lifecycle still works */ }
 
   window.AgixtWorkspace = { open, close, toggle, isOpen, reload, getContext };
 })();

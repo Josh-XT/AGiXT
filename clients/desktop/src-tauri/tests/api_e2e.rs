@@ -160,6 +160,86 @@ async fn new_conversation_posts_expected_body_and_returns_id() {
 }
 
 #[tokio::test]
+async fn new_agent_dm_conversation_posts_group_dm_payload() {
+    use wiremock::matchers::body_partial_json;
+
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/conversation/group"))
+        .and(bearer_token("jwt"))
+        .and(body_partial_json(json!({
+            "conversation_name": "XT - May 6, 8:42 PM",
+            "company_id": "company-uuid",
+            "conversation_type": "dm",
+            "agent_names": ["XT"],
+            "force_new": true
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "dm-uuid",
+            "name": "XT - May 6, 8:42 PM",
+            "conversation_type": "dm"
+        })))
+        .mount(&server)
+        .await;
+
+    let resp = api::new_agent_dm_conversation(
+        &server.uri(),
+        "jwt",
+        "XT",
+        "company-uuid",
+        "XT - May 6, 8:42 PM",
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(resp.id, "dm-uuid");
+    assert_eq!(resp.name.as_deref(), Some("XT - May 6, 8:42 PM"));
+    assert_eq!(resp.agent_name.as_deref(), Some("XT"));
+    assert_eq!(resp.conversation_type.as_deref(), Some("dm"));
+}
+
+#[tokio::test]
+async fn list_conversations_preserves_agent_dm_metadata() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v1/conversations"))
+        .and(bearer_token("jwt"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "conversations": {
+                "conv-xt": {
+                    "name": "XT",
+                    "display_name": "XT",
+                    "agent_name": "XT",
+                    "conversation_type": "dm",
+                    "updated_at": "2026-05-06T20:00:00Z",
+                    "message_count": 2
+                },
+                "conv-helper": {
+                    "name": "Helper chat",
+                    "display_name": "Helper chat",
+                    "agent_name": "Helper",
+                    "conversation_type": "private",
+                    "updated_at": "2026-05-06T21:00:00Z"
+                }
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let conversations = api::list_conversations(&server.uri(), "jwt").await.unwrap();
+    assert_eq!(conversations.len(), 2);
+    assert_eq!(conversations[0].id, "conv-helper");
+    let xt = conversations.iter().find(|c| c.id == "conv-xt").unwrap();
+    assert_eq!(xt.name, "XT");
+    assert_eq!(xt.display_name.as_deref(), Some("XT"));
+    assert_eq!(xt.agent_name.as_deref(), Some("XT"));
+    assert_eq!(xt.conversation_type.as_deref(), Some("dm"));
+    assert_eq!(xt.message_count, Some(2));
+}
+
+#[tokio::test]
 async fn prompt_agent_sends_correct_payload_and_parses_response() {
     use wiremock::matchers::body_partial_json;
 

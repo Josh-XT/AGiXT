@@ -439,6 +439,10 @@
     closeMenus();
     const a = entry.agent;
     const c = entry.company;
+    const priorAgentId = settings.agent_id;
+    if (priorAgentId && priorAgentId !== a.id && settings.conversation_id) {
+      rememberAgentConversation(priorAgentId, settings.conversation_id);
+    }
     await persistSettings({
       agent_id: a.id,
       agent_name: a.name,
@@ -446,7 +450,16 @@
       company_name: c ? c.name : settings.company_name,
     });
     renderSelectors();
-    reconnectChat();
+    await refreshConversations();
+    await ensureConversationForActiveAgent({ loadHistory: true });
+    // Selected agent / company drives the desktop-extensions manifest
+    // (an agent_extension or company_scope gate may now resolve
+    // differently). Refresh so any newly-eligible page appears in the
+    // sidenav and any newly-ineligible one drops out.
+    if (window.AgixtDesktopExtensions
+        && typeof window.AgixtDesktopExtensions.refresh === 'function') {
+      window.AgixtDesktopExtensions.refresh();
+    }
     // Notify peer windows (Agent Settings) so they can re-fetch for the
     // newly active agent without requiring a manual reload.
     if (event && event.emit) {
@@ -545,6 +558,93 @@
   let conversations = [];
   let convoSearchTerm = '';
 
+  function normalizedName(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  function activeAgent() {
+    const id = settings && settings.agent_id;
+    if (id) {
+      const direct = agents.find((a) => a.id === id);
+      if (direct) return direct;
+      const nested = agentEntriesAcrossCompanies().find((entry) => entry.agent.id === id);
+      if (nested) return nested.agent;
+    }
+    if (settings && (settings.agent_id || settings.agent_name)) {
+      return {
+        id: settings.agent_id || '',
+        name: settings.agent_name || '',
+        default: false,
+      };
+    }
+    return null;
+  }
+
+  function isDefaultAgent(agent) {
+    if (!agent) return false;
+    if (agent.default) return true;
+    const eligible = filteredAgents();
+    return !!(eligible.length && eligible[0].id === agent.id);
+  }
+
+  function conversationMap() {
+    return new Map(conversations.map((conv) => [conv.id, conv]));
+  }
+
+  function conversationMatchesAgent(conv, agent = activeAgent(), seen = new Set()) {
+    if (!conv || !agent) return true;
+    if (seen.has(conv.id)) return false;
+    seen.add(conv.id);
+    const type = normalizedName(conv.conversation_type);
+    if (type === 'group') return false;
+    if (type === 'thread') {
+      const parentId = conv.parent_id || conv.parentId;
+      const parent = parentId ? conversationMap().get(parentId) : null;
+      return parent ? conversationMatchesAgent(parent, agent, seen) : false;
+    }
+
+    const agentName = normalizedName(agent.name || settings.agent_name);
+    if (!agentName) return true;
+    const convAgent = normalizedName(conv.agent_name || conv.agentName);
+    if (convAgent) return convAgent === agentName;
+
+    const display = normalizedName(conv.display_name || conv.displayName);
+    const name = normalizedName(conv.name);
+    if (type === 'dm') {
+      return display === agentName || name === agentName;
+    }
+    if (display === agentName || name === agentName) return true;
+
+    // Old private conversations may not have `agent_name` metadata until
+    // their first assistant reply. Keep those visible under the default agent
+    // so legacy desktop history does not disappear.
+    return (!type || type === 'private') && isDefaultAgent(agent);
+  }
+
+  function activeAgentConversations() {
+    return conversations.filter((conv) => conversationMatchesAgent(conv));
+  }
+
+  function agentConversationStorageKey(agentId = settings && settings.agent_id) {
+    if (!agentId) return '';
+    const user = (settings && (settings.user_email || settings.server_url)) || 'default';
+    return `agixt-desktop-last-conversation:${user}:${agentId}`;
+  }
+
+  function rememberAgentConversation(agentId = settings && settings.agent_id, conversationId = settings && settings.conversation_id) {
+    const key = agentConversationStorageKey(agentId);
+    if (!key || !conversationId) return;
+    try { window.localStorage.setItem(key, conversationId); }
+    catch (_) { /* ignore storage failures */ }
+  }
+
+  function rememberedAgentConversation(agentId = settings && settings.agent_id) {
+    const key = agentConversationStorageKey(agentId);
+    if (!key) return '';
+    try { return window.localStorage.getItem(key) || ''; }
+    catch (_) { return ''; }
+  }
+
   async function refreshConversations() {
     if (!settings.jwt) {
       convoMenuList.innerHTML = '<div class="popover-menu-item" style="color:var(--text-faint)">Sign in to see conversations</div>';
@@ -562,14 +662,21 @@
   function renderConversationList() {
     convoMenuList.innerHTML = '';
     const term = convoSearchTerm.trim().toLowerCase();
+    const scoped = activeAgentConversations();
     const filtered = term
-      ? conversations.filter((c) => (c.name || '').toLowerCase().includes(term))
-      : conversations;
+      ? scoped.filter((c) => {
+          const label = [c.display_name, c.displayName, c.name, c.summary]
+            .filter(Boolean)
+            .join(' ');
+          return label.toLowerCase().includes(term);
+        })
+      : scoped;
     if (!filtered.length) {
       const empty = document.createElement('div');
       empty.className = 'popover-menu-item';
       empty.style.color = 'var(--text-faint)';
-      empty.textContent = term ? 'No matching conversations' : 'No conversations yet';
+      const aname = settings.agent_name || 'this agent';
+      empty.textContent = term ? 'No matching conversations' : `No conversations for ${aname}`;
       convoMenuList.appendChild(empty);
       return;
     }
@@ -615,10 +722,16 @@
   async function onPickConversation(conv) {
     closeMenus();
     if (conv.id === settings.conversation_id) return;
+    await activateConversation(conv, { loadHistory: true });
+  }
+
+  async function activateConversation(conv, options = {}) {
+    if (!conv || !conv.id) return;
     try {
-      await invoke('select_conversation', { id: conv.id, name: conv.name });
+      await invoke('select_conversation', { id: conv.id, name: prettyConvoName(conv) });
       settings = await invoke('get_settings');
-      conversationName = conv.name;
+      conversationName = conv.name || conv.display_name || conv.displayName || settings.conversation_name || '-';
+      rememberAgentConversation(settings.agent_id, conv.id);
       updateConvoLabel();
       // Reconnect the WebSocket FIRST (it uses the new conversation_id)
       // so any concurrent live messages funnel into the right thread,
@@ -626,7 +739,9 @@
       // path. The clear() that loadHistory does is safe because the
       // chat panel's previous content was for a different conversation.
       reconnectChat();
-      await window.AgixtChat.loadHistory(conv.id);
+      if (options.loadHistory !== false) {
+        await window.AgixtChat.loadHistory(conv.id);
+      }
       // If the workspace is open, point it at the new conversation
       // so the file list refreshes instead of showing stale entries
       // from the previous thread.
@@ -643,23 +758,25 @@
 
   function prettyConvoName(conv) {
     if (!conv) return 'New conversation';
-    const raw = (conv.name || '').trim();
+    const raw = (conv.display_name || conv.displayName || conv.name || '').trim();
     if (!raw || raw === '-') return 'New conversation';
     return raw;
   }
 
   function updateConvoLabel() {
-    // Prefer the persisted name on settings — it's available immediately
-    // on boot, before refreshConversations() has populated the full
-    // conversation list. Fall back to a match in the list (e.g. when the
-    // server renames a "-" conversation), then to the unnamed default.
+    // Prefer the freshly fetched list when available so agent switches do not
+    // keep showing the previous agent's persisted conversation name.
+    const cur = conversations.find((c) => c.id === settings.conversation_id);
+    if (cur) {
+      convoLabel.textContent = prettyConvoName(cur);
+      return;
+    }
     const persisted = (settings.conversation_name || '').trim();
     if (persisted && persisted !== '-') {
       convoLabel.textContent = persisted;
       return;
     }
-    const cur = conversations.find((c) => c.id === settings.conversation_id);
-    convoLabel.textContent = cur ? prettyConvoName(cur) : 'New conversation';
+    convoLabel.textContent = 'New conversation';
   }
 
   if (convoNewBtn) {
@@ -671,37 +788,75 @@
 
   // ----- Conversation lifecycle -------------------------------------------
 
-  async function ensureConversation() {
+  function newConversationName(forceNew) {
+    const aname = settings.agent_name || 'XT';
+    if (!forceNew) return aname;
+    const day = new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const time = new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    return `${aname} - ${day}, ${time}`;
+  }
+
+  async function ensureConversation(options = {}) {
     if (!settings.jwt) return;
-    if (settings.conversation_id) {
+    if (settings.conversation_id && !options.forceNew) {
       conversationName = settings.conversation_name || '-';
       return;
     }
     try {
-      // Match the web app's new-conversation convention. AGiXT treats
-      // "-" as the unnamed placeholder and runs the normal rename workflow
-      // after the first exchange instead of leaving desktop timestamp names.
-      const name = '-';
-      await invoke('new_conversation', { name });
+      // Match the web app's agent-DM convention. AGiXT auto-renames
+      // conversations whose name is the agent name, or "{agent} - date".
+      const forceNew = !!options.forceNew;
+      const name = newConversationName(forceNew);
+      const resp = await invoke('new_conversation', { name, forceNew });
       settings = await invoke('get_settings');
-      conversationName = name;
+      conversationName = (resp && (resp.display_name || resp.name)) || name;
+      rememberAgentConversation(settings.agent_id, settings.conversation_id);
     } catch (err) {
       console.warn('new_conversation failed', err);
     }
   }
 
-  async function startNewConversation() {
+  async function ensureConversationForActiveAgent(options = {}) {
+    if (!settings.jwt) return;
+    const current = conversations.find((c) => c.id === settings.conversation_id);
+    if (current && conversationMatchesAgent(current)) {
+      rememberAgentConversation(settings.agent_id, current.id);
+      reconnectChat();
+      updateConvoLabel();
+      if (options.loadHistory) await window.AgixtChat.loadHistory(current.id);
+      return;
+    }
+
+    const scoped = activeAgentConversations();
+    const rememberedId = rememberedAgentConversation();
+    const remembered = rememberedId ? scoped.find((c) => c.id === rememberedId) : null;
+    const next = remembered || scoped[0];
+    if (next) {
+      await activateConversation(next, { loadHistory: !!options.loadHistory });
+      return;
+    }
+    await startNewConversation({ forceNew: false, loadHistory: !!options.loadHistory });
+  }
+
+  async function startNewConversation(options = {}) {
     window.AgixtChat.clear();
+    const forceNew = options.forceNew != null
+      ? !!options.forceNew
+      : activeAgentConversations().length > 0;
     settings = { ...settings, conversation_id: null, conversation_name: null };
     await invoke('save_settings', { settings });
-    await ensureConversation();
+    await ensureConversation({ forceNew });
     reconnectChat();
+    await refreshConversations();
     // The toolbar `+` button used to leave the chip showing the previous
     // conversation's name. Refresh from inside startNewConversation so
     // every caller (toolbar `+`, dropdown's "+ New conversation", auth
     // boot) ends up with the chip in sync — and the label snaps to
     // "New conversation" until AGiXT auto-renames the "-" placeholder.
     updateConvoLabel();
+    if (options.loadHistory && settings.conversation_id) {
+      await window.AgixtChat.loadHistory(settings.conversation_id);
+    }
   }
 
   function reconnectChat() {
@@ -1265,6 +1420,25 @@
   // own sections without touching this file directly.
   window.AgixtSidenav = { setActiveView };
 
+  // The desktop-extensions loader (and any future module) needs the
+  // current SDK handles + selected scopes to fetch and to pass into
+  // each extension page's `mount(container, ctx)` call. Centralising
+  // this lookup means we don't have to wire those modules into the
+  // settings cache directly.
+  window.AgixtAppContext = function () {
+    if (!settings || !settings.jwt) return null;
+    return {
+      serverUrl: settings.server_url,
+      jwt: settings.jwt,
+      agentId: settings.agent_id || null,
+      agentName: settings.agent_name || null,
+      companyId: settings.company_id || null,
+      companyName: settings.company_name || null,
+      conversationId: settings.conversation_id || null,
+      invoke: window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke,
+    };
+  };
+
   // The gear next to the agent selector now opens the dedicated Agent
   // Settings window directly (extensions / connections / training),
   // skipping the app-settings modal hop. App settings live on the
@@ -1330,18 +1504,22 @@
     await loadSettings();
     showScreen('chat');
     await refreshAgentsAndCompanies();
-    await ensureConversation();
-    reconnectChat();
     // Pre-populate the conversations list so the chip label can resolve
     // against the latest server-side names (e.g. an auto-rename that
     // happened since the last save), not just the persisted snapshot.
     await refreshConversations();
+    await ensureConversationForActiveAgent();
+    reconnectChat();
     updateConvoLabel();
     if (settings.conversation_id) {
       await window.AgixtChat.loadHistory(settings.conversation_id);
     }
     startNotifications();
     scheduleDesktopAutoUpdateCheck();
+    if (window.AgixtDesktopExtensions
+        && typeof window.AgixtDesktopExtensions.start === 'function') {
+      window.AgixtDesktopExtensions.start();
+    }
   }
 
   (async () => {
@@ -1352,15 +1530,19 @@
       // anything via the settings modal.
       showScreen('chat');
       await refreshAgentsAndCompanies();
-      await ensureConversation();
-      reconnectChat();
       await refreshConversations();
+      await ensureConversationForActiveAgent();
+      reconnectChat();
       updateConvoLabel();
       if (settings.conversation_id) {
         await window.AgixtChat.loadHistory(settings.conversation_id);
       }
       startNotifications();
       scheduleDesktopAutoUpdateCheck();
+      if (window.AgixtDesktopExtensions
+          && typeof window.AgixtDesktopExtensions.start === 'function') {
+        window.AgixtDesktopExtensions.start();
+      }
     } else {
       showScreen('auth');
       if (window.AgixtAuth) {

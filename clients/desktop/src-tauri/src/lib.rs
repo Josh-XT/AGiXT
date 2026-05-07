@@ -827,18 +827,47 @@ async fn get_conversation_history(
 async fn new_conversation(
     state: State<'_, AppState>,
     name: String,
+    force_new: Option<bool>,
 ) -> ToolResult<api::NewConversationResponse> {
     let s = state.settings.lock().await.clone();
     let jwt = s.jwt.clone().ok_or_else(|| ToolError {
         error: "not logged in".into(),
     })?;
     let agent_name = s.agent_name.clone().unwrap_or_else(|| "XT".to_string());
-    let resp = api::new_conversation(&s.server_url, &jwt, &agent_name, &name)
-        .await
-        .map_err(ToolError::from)?;
+    let conversation_name = if name.trim().is_empty() || name.trim() == "-" {
+        agent_name.clone()
+    } else {
+        name.clone()
+    };
+    let force = force_new.unwrap_or(false);
+    let company_id = s.company_id.clone().unwrap_or_default();
+    let resp = match api::new_agent_dm_conversation(
+        &s.server_url,
+        &jwt,
+        &agent_name,
+        &company_id,
+        &conversation_name,
+        force,
+    )
+    .await
+    {
+        Ok(resp) => resp,
+        Err(err) => {
+            tracing::warn!(
+                "new_conversation: agent DM create failed ({err:#}); falling back to legacy private conversation"
+            );
+            api::new_conversation(&s.server_url, &jwt, &agent_name, &conversation_name)
+                .await
+                .map_err(ToolError::from)?
+        }
+    };
     let mut cur = state.settings.lock().await;
     cur.conversation_id = Some(resp.id.clone());
-    cur.conversation_name = Some(name);
+    cur.conversation_name = resp
+        .display_name
+        .clone()
+        .or_else(|| resp.name.clone())
+        .or_else(|| Some(conversation_name));
     state.store.save(&cur).await.map_err(ToolError::from)?;
     Ok(resp)
 }
@@ -1837,6 +1866,26 @@ fn promote_to_utility(win: &WebviewWindow) {
 #[cfg(not(target_os = "linux"))]
 fn promote_to_utility(_: &WebviewWindow) {}
 
+/// Inverse of `promote_to_utility`: turn the popover back into a normal
+/// X11 window so mutter includes it in the taskbar/alt-tab list and lets
+/// the user tile it like any other app. We use this when entering the
+/// workspace editor (set_workspace_window_mode(true)).
+#[cfg(target_os = "linux")]
+fn demote_to_normal(win: &WebviewWindow) {
+    use gdk::WindowTypeHint;
+    use gtk::prelude::*;
+    if let Ok(gw) = win.gtk_window() {
+        gw.set_type_hint(WindowTypeHint::Normal);
+        gw.set_skip_taskbar_hint(false);
+        gw.set_skip_pager_hint(false);
+        gw.set_keep_above(false);
+        gw.set_decorated(true);
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn demote_to_normal(_: &WebviewWindow) {}
+
 /// WebKitGTK does not show a browser-style permission prompt for
 /// getUserMedia in this app shell, so approve microphone/camera capture
 /// requests from our bundled UI explicitly.
@@ -2138,7 +2187,7 @@ fn show_popover(
 
 fn hide_popover(app: &AppHandle, win: &WebviewWindow) {
     tracing::info!("hide_popover called");
-    // Hide via gtk directly on Linux — Tauri's wrapper has proven
+    // Hide first via gtk directly on Linux — Tauri's wrapper has proven
     // unreliable here. Cross-platform fallback uses Tauri's hide.
     #[cfg(target_os = "linux")]
     {
@@ -2150,6 +2199,17 @@ fn hide_popover(app: &AppHandle, win: &WebviewWindow) {
     {
         let _ = win.hide();
     }
+    // The user might have hidden the window while the workspace editor
+    // was open (decorated, in-taskbar). Always revert to popover chrome
+    // before the next show, otherwise the tray click would bring back a
+    // decorated window with the workspace pane still rendered. The
+    // `popover-visible:false` emit below is the JS cue to drop the
+    // workspace state class and close the active file. Doing this
+    // after hide() means the user doesn't see the chrome flicker.
+    let _ = win.set_decorations(false);
+    let _ = win.set_skip_taskbar(true);
+    let _ = win.set_always_on_top(true);
+    promote_to_utility(win);
     let _ = app.emit("popover-visible", false);
 }
 
@@ -2215,6 +2275,78 @@ async fn set_sidebar_visible(
     } else {
         hide_chat(app, state).await
     }
+}
+
+/// Flip the main window between "popover" mode (borderless, always-on-top,
+/// hidden from the taskbar) and "workspace" mode (a regular decorated
+/// window the user can drag/resize like any other app). The workspace
+/// editor calls this on open/close so the popover doesn't feel cramped
+/// when the editor is up but stays out of the way for chat-only use.
+#[tauri::command]
+async fn set_workspace_window_mode(app: AppHandle, enabled: bool) -> ToolResult<()> {
+    let win = app
+        .get_webview_window(MAIN_LABEL)
+        .ok_or_else(|| ToolError {
+            error: "main window missing".into(),
+        })?;
+    if enabled {
+        // Workspace open → regular window. Tauri's `set_decorations` /
+        // `set_skip_taskbar` aren't enough on X11 because the popover's
+        // GTK type hint is `Utility`, which mutter excludes from the
+        // taskbar and from tile-snap. Demote the GTK window to `Normal`
+        // and clear the keep-above / skip-taskbar / skip-pager hints
+        // before flipping the Tauri-level attributes.
+        //
+        // On Linux, mutter only re-reads `_NET_WM_WINDOW_TYPE` when the
+        // window is unmapped, so we hide → demote → show. Brief flicker,
+        // but it's the only way to actually make the window tilable and
+        // taskbar-visible. macOS/Windows pick up the live changes fine.
+        #[cfg(target_os = "linux")]
+        {
+            let _ = win.hide();
+        }
+        demote_to_normal(&win);
+        let _ = win.set_always_on_top(false);
+        let _ = win.set_skip_taskbar(false);
+        let _ = win.set_decorations(true);
+        // The popover anchors to a tray corner; that position is wrong
+        // for a larger decorated window. Resize to a workable default
+        // and center on the current monitor.
+        let _ = win.set_size(LogicalSize::new(1300.0_f64, 800.0_f64));
+        if let Some(monitor) = win.current_monitor().ok().flatten() {
+            let mon_pos = monitor.position();
+            let mon_size = monitor.size();
+            if let Ok(sz) = win.outer_size() {
+                let x = mon_pos.x + ((mon_size.width as i32 - sz.width as i32) / 2);
+                let y = mon_pos.y + ((mon_size.height as i32 - sz.height as i32) / 2);
+                let _ = win.set_position(PhysicalPosition::new(x, y));
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+    } else {
+        // Workspace closed → revert to popover. Same hide → re-promote
+        // → show dance so the type hint flip lands on Linux.
+        #[cfg(target_os = "linux")]
+        {
+            let _ = win.hide();
+        }
+        let _ = win.set_decorations(false);
+        let _ = win.set_skip_taskbar(true);
+        let _ = win.set_always_on_top(true);
+        promote_to_utility(&win);
+        #[cfg(target_os = "linux")]
+        {
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+        // The JS caller restores the previous geometry it captured
+        // before opening so the window snaps back to its tray corner.
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -2661,6 +2793,7 @@ pub fn run() {
             save_dock_position,
             toggle_sidebar,
             set_sidebar_visible,
+            set_workspace_window_mode,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

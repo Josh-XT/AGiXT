@@ -37,6 +37,7 @@ from endpoints.ServerConfig import app as server_config_endpoints
 from endpoints.ApiKey import app as apikey_endpoints
 from endpoints.Voice import app as voice_endpoints
 from endpoints.Bootstrap import app as bootstrap_endpoints
+from endpoints.DesktopExtensions import app as desktop_extensions_endpoints
 from Globals import getenv
 from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
@@ -306,6 +307,7 @@ app.include_router(server_config_endpoints)
 app.include_router(apikey_endpoints)
 app.include_router(voice_endpoints)
 app.include_router(bootstrap_endpoints)
+app.include_router(desktop_extensions_endpoints)
 
 # Bot webhook routers (for inbound email/SMS processing)
 try:

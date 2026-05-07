@@ -273,6 +273,90 @@ test('app: composer enter and send button call chat_send', async () => {
   window.AgixtChat.disconnect();
 });
 
+test('app: switching agents activates that agent conversation and filters the menu', async () => {
+  let savedSettings = {
+    jwt: 'jwt',
+    conversation_id: 'c-xt',
+    conversation_name: 'XT',
+    server_url: 'http://localhost:7437',
+    agent_id: 'agent-xt',
+    agent_name: 'XT',
+    company_id: 'company-id',
+    company_name: 'Home',
+    allow_client_commands: true,
+    voice_enabled: false,
+    desktop_auto_update: false,
+    user_email: 'test@example.com',
+  };
+  const conversations = [
+    {
+      id: 'c-xt',
+      name: 'XT',
+      display_name: 'XT',
+      agent_name: 'XT',
+      conversation_type: 'dm',
+      updated_at: '2026-05-06T20:00:00Z',
+    },
+    {
+      id: 'c-helper',
+      name: 'Helper',
+      display_name: 'Helper',
+      agent_name: 'Helper',
+      conversation_type: 'dm',
+      updated_at: '2026-05-06T21:00:00Z',
+    },
+  ];
+  const { window, calls } = loadFullApp({
+    ipc: {
+      get_settings: async () => savedSettings,
+      save_settings: async ({ settings }) => {
+        savedSettings = { ...settings };
+        return savedSettings;
+      },
+      list_companies: async () => [{
+        id: 'company-id',
+        name: 'Home',
+        primary: true,
+        agents: [
+          { id: 'agent-xt', name: 'XT', default: true, company_id: 'company-id' },
+          { id: 'agent-helper', name: 'Helper', default: false, company_id: 'company-id' },
+        ],
+      }],
+      list_agents: async () => [
+        { id: 'agent-xt', name: 'XT', default: true, company_id: 'company-id' },
+        { id: 'agent-helper', name: 'Helper', default: false, company_id: 'company-id' },
+      ],
+      list_conversations: async () => conversations,
+      select_conversation: async ({ id, name }) => {
+        savedSettings = { ...savedSettings, conversation_id: id, conversation_name: name };
+        return null;
+      },
+      get_conversation_history: async () => [],
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  window.document.getElementById('agent-switcher-btn').click();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const helperButton = [...window.document.querySelectorAll('#agent-menu-list button')]
+    .find((btn) => btn.querySelector('.agent-name')?.textContent === 'Helper');
+  assert.ok(helperButton);
+  helperButton.click();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+
+  assert.equal(savedSettings.agent_id, 'agent-helper');
+  assert.equal(savedSettings.conversation_id, 'c-helper');
+  assert.equal(window.AgixtChat.getConversationId(), 'c-helper');
+  assert.ok(calls.some((c) => c.cmd === 'select_conversation' && c.args.id === 'c-helper'));
+
+  window.document.getElementById('convo-switcher-btn').click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const names = [...window.document.querySelectorAll('#convo-menu-list .convo-name')]
+    .map((node) => node.textContent);
+  assert.deepEqual(names, ['Helper']);
+  window.AgixtChat.disconnect();
+});
+
 test('app: sudo auth button primes privileged command session', async () => {
   const { window, calls } = loadFullApp({
     ipc: {

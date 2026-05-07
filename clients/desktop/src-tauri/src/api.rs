@@ -142,12 +142,28 @@ pub struct NewConversationResponse {
     pub id: String,
     #[serde(default)]
     pub conversation_history: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub agent_name: Option<String>,
+    #[serde(default)]
+    pub conversation_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationSummary {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub agent_name: Option<String>,
+    #[serde(default)]
+    pub conversation_type: Option<String>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
     #[serde(default)]
@@ -192,7 +208,10 @@ pub async fn get_conversation_history(
 
 pub async fn list_conversations(server_url: &str, jwt: &str) -> Result<Vec<ConversationSummary>> {
     let client = build_client()?;
-    let url = format!("{}/v1/conversations", server_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/v1/conversations?limit=500&include_counts=false",
+        server_url.trim_end_matches('/')
+    );
     let resp = client.get(&url).bearer_auth(jwt).send().await?;
     if !resp.status().is_success() {
         return Err(anyhow!(
@@ -224,9 +243,29 @@ pub async fn list_conversations(server_url: &str, jwt: &str) -> Result<Vec<Conve
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
             let message_count = details.get("message_count").and_then(|v| v.as_u64());
+            let display_name = details
+                .get("display_name")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let agent_name = details
+                .get("agent_name")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let conversation_type = details
+                .get("conversation_type")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let parent_id = details
+                .get("parent_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             out.push(ConversationSummary {
                 id: id.clone(),
                 name: raw_name,
+                display_name,
+                agent_name,
+                conversation_type,
+                parent_id,
                 updated_at,
                 message_count,
             });
@@ -241,6 +280,61 @@ pub async fn list_conversations(server_url: &str, jwt: &str) -> Result<Vec<Conve
         (None, None) => a.name.cmp(&b.name),
     });
     Ok(out)
+}
+
+#[derive(Debug, Serialize)]
+struct GroupConversationRequest<'a> {
+    conversation_name: &'a str,
+    company_id: &'a str,
+    conversation_type: &'static str,
+    agent_names: Vec<&'a str>,
+    force_new: bool,
+}
+
+/// Create or reuse the agent DM conversation shape used by the web app.
+///
+/// For `force_new=false`, AGiXT de-duplicates by the agent participant and
+/// returns the existing DM. For `force_new=true`, the backend always creates a
+/// fresh DM, so the desktop `+` button can start another conversation with the
+/// same agent.
+pub async fn new_agent_dm_conversation(
+    server_url: &str,
+    jwt: &str,
+    agent_name: &str,
+    company_id: &str,
+    name: &str,
+    force_new: bool,
+) -> Result<NewConversationResponse> {
+    let client = build_client()?;
+    let url = format!("{}/v1/conversation/group", server_url.trim_end_matches('/'));
+    let body = GroupConversationRequest {
+        conversation_name: name,
+        company_id,
+        conversation_type: "dm",
+        agent_names: vec![agent_name],
+        force_new,
+    };
+    let resp = client
+        .post(&url)
+        .bearer_auth(jwt)
+        .json(&body)
+        .send()
+        .await
+        .context("POST /v1/conversation/group")?;
+    if !resp.status().is_success() {
+        return Err(anyhow!(
+            "new_agent_dm_conversation http {}: {}",
+            resp.status(),
+            resp.text().await.unwrap_or_default()
+        ));
+    }
+    let mut body: NewConversationResponse = resp.json().await?;
+    if body.name.is_none() {
+        body.name = Some(name.to_string());
+    }
+    body.agent_name = body.agent_name.or_else(|| Some(agent_name.to_string()));
+    body.conversation_type = body.conversation_type.or_else(|| Some("dm".to_string()));
+    Ok(body)
 }
 
 /// `"-"` is AGiXT's sentinel for "this conversation hasn't been named
