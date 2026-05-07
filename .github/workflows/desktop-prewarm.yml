@@ -75,19 +75,22 @@ jobs:
           - name: macOS Apple Silicon
             os_type: macos
             runner: macos-15
-            target: aarch64-apple-darwin
+            rust_target: aarch64-apple-darwin
+            tauri_target: aarch64-apple-darwin
             kind: macos
             optional: false
           - name: macOS Intel
             os_type: macos-x86
             runner: macos-15-intel
-            target: x86_64-apple-darwin
+            rust_target: x86_64-apple-darwin
+            tauri_target: x86_64-apple-darwin
             kind: macos
             optional: false
           - name: iOS
             os_type: ios
             runner: macos-15
-            target: aarch64-apple-ios
+            rust_target: aarch64-apple-ios
+            tauri_target: aarch64
             kind: ios
             optional: true
     steps:
@@ -132,7 +135,7 @@ jobs:
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
             export PATH="$HOME/.cargo/bin:$PATH"
           fi
-          rustup target add "${{ matrix.target }}"
+          rustup target add "${{ matrix.rust_target }}"
 
       - name: Install desktop dependencies
         if: steps.requested.outputs.enabled == 'true'
@@ -179,7 +182,7 @@ jobs:
           AGIXT_DESKTOP_BUILD_ID: ${{ steps.build_id.outputs.version }}
         run: |
           set -euo pipefail
-          npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" build --target "${{ matrix.target }}"
+          npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" build --target "${{ matrix.tauri_target }}"
 
       - name: Build iOS artifact
         if: steps.requested.outputs.enabled == 'true' && matrix.kind == 'ios'
@@ -192,7 +195,7 @@ jobs:
             npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" ios init --ci
           fi
           npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" ios build \
-            --target "${{ matrix.target }}" \
+            --target "${{ matrix.tauri_target }}" \
             --ci
 
       - name: Find artifact
@@ -200,7 +203,7 @@ jobs:
         id: artifact
         env:
           OS_TYPE: ${{ matrix.os_type }}
-          TARGET: ${{ matrix.target }}
+          TARGET: ${{ matrix.rust_target }}
         run: |
           set -euo pipefail
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
