@@ -25,6 +25,10 @@ pub mod terminal;
 #[path = "terminal_mobile.rs"]
 pub mod terminal;
 pub mod updater;
+#[cfg(not(mobile))]
+pub mod voice;
+#[cfg(mobile)]
+#[path = "voice_mobile.rs"]
 pub mod voice;
 
 use std::sync::atomic::AtomicBool;
