@@ -176,13 +176,23 @@ def _normalize_entry(item: Dict[str, Any], ext_id: str) -> Dict[str, Any]:
     """Produce the slim object the desktop client consumes. We deliberately
     don't echo `requires` back — the server has already filtered the list."""
     version = str(item.get("version") or "0.0.0")
-    return {
+    out: Dict[str, Any] = {
         "id": ext_id,
         "label": str(item.get("label") or ext_id.title()),
         "icon": item.get("icon") or "",
         "version": version,
         "entry_url": f"/v1/desktop/extensions/{ext_id}/main.js?v={version}",
     }
+    # Optional placement hint — values: "admin" pins the button above
+    # the settings gear in the sidenav. Anything else means the
+    # default middle group, which is user-sortable.
+    if item.get("slot"):
+        out["slot"] = str(item["slot"])
+    # Inline SVG path data — overrides the named icon registry on the
+    # client when an extension wants to ship a bespoke glyph.
+    if item.get("icon_svg"):
+        out["icon_svg"] = str(item["icon_svg"])
+    return out
 
 
 def _manifest_etag(items: List[Dict[str, Any]]) -> str:

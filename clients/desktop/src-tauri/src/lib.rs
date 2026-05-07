@@ -2449,6 +2449,26 @@ fn cleanup_legacy_linux_launchers() {
         }
     }
 
+    // The old per-purpose URL-scheme handler is now redundant: the unified
+    // `agixt-desktop.desktop` written by `install_linux_launcher()` declares
+    // `MimeType=x-scheme-handler/agixt;` itself. Worse, the handler's
+    // `Name=AGiXT Desktop` matches the new launcher's name so GNOME Shell
+    // sees two .desktop entries claiming the same app and cannot reliably
+    // associate the running window with the dash entry.
+    let handler_path = apps_dir.join("agixt-desktop-handler.desktop");
+    if handler_path.exists() {
+        match std::fs::remove_file(&handler_path) {
+            Ok(_) => tracing::info!(
+                "removed redundant URL-handler launcher {}",
+                handler_path.display()
+            ),
+            Err(e) => tracing::warn!(
+                "failed to remove URL-handler launcher {}: {e}",
+                handler_path.display()
+            ),
+        }
+    }
+
     if !current_is_legacy_bin && legacy_bin.exists() {
         match std::fs::remove_file(&legacy_bin) {
             Ok(_) => tracing::info!("removed legacy desktop binary {}", legacy_bin.display()),
@@ -2466,6 +2486,119 @@ fn cleanup_legacy_linux_launchers() {
 
 #[cfg(not(target_os = "linux"))]
 fn cleanup_legacy_linux_launchers() {}
+
+/// Install a freedesktop `.desktop` launcher and hicolor icon so GNOME Shell
+/// (and other taskbars) can associate the running window with a dash entry.
+///
+/// Why: the running window's `WM_CLASS` is `"agixt-desktop"`, but without a
+/// `.desktop` file containing a matching `StartupWMClass=agixt-desktop`,
+/// GNOME treats it as "Window not associated with a window list" and the
+/// app is easy to lose behind other windows.
+#[cfg(target_os = "linux")]
+fn install_linux_launcher() {
+    let home = match std::env::var_os("HOME") {
+        Some(h) => std::path::PathBuf::from(h),
+        None => return,
+    };
+    let current_exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!("install_linux_launcher: current_exe failed: {e}");
+            return;
+        }
+    };
+    let exe_str = current_exe.display().to_string();
+
+    // Install icon under the user's hicolor theme so `Icon=agixt-desktop`
+    // resolves to a real PNG.
+    let icons_dir = home.join(".local/share/icons/hicolor/128x128/apps");
+    if let Err(e) = std::fs::create_dir_all(&icons_dir) {
+        tracing::warn!(
+            "install_linux_launcher: mkdir {} failed: {e}",
+            icons_dir.display()
+        );
+        return;
+    }
+    let icon_path = icons_dir.join("agixt-desktop.png");
+    if let Err(e) = std::fs::write(&icon_path, APP_ICON_BYTES) {
+        tracing::warn!(
+            "install_linux_launcher: write icon {} failed: {e}",
+            icon_path.display()
+        );
+    }
+
+    let apps_dir = home.join(".local/share/applications");
+    if let Err(e) = std::fs::create_dir_all(&apps_dir) {
+        tracing::warn!(
+            "install_linux_launcher: mkdir {} failed: {e}",
+            apps_dir.display()
+        );
+        return;
+    }
+    let desktop_path = apps_dir.join("agixt-desktop.desktop");
+    let contents = format!(
+        "[Desktop Entry]\n\
+        Type=Application\n\
+        Name=AGiXT Desktop\n\
+        Comment=AGiXT chat, workspace, and machine console\n\
+        Exec=\"{exe}\" %u\n\
+        Icon=agixt-desktop\n\
+        Terminal=false\n\
+        StartupNotify=true\n\
+        StartupWMClass=agixt-desktop\n\
+        Categories=Network;\n\
+        MimeType=x-scheme-handler/agixt;\n",
+        exe = exe_str
+    );
+
+    let needs_write = match std::fs::read_to_string(&desktop_path) {
+        Ok(existing) => existing != contents,
+        Err(_) => true,
+    };
+    if needs_write {
+        if let Err(e) = std::fs::write(&desktop_path, &contents) {
+            tracing::warn!(
+                "install_linux_launcher: write {} failed: {e}",
+                desktop_path.display()
+            );
+            return;
+        }
+        tracing::info!("installed desktop launcher {}", desktop_path.display());
+        let _ = std::process::Command::new("update-desktop-database")
+            .arg(&apps_dir)
+            .status();
+        let _ = std::process::Command::new("gtk-update-icon-cache")
+            .arg(home.join(".local/share/icons/hicolor"))
+            .status();
+    }
+
+    // Re-point the agixt:// URL scheme to the unified launcher. The old
+    // handler.desktop has been removed, but xdg-mime caches the previous
+    // default in `~/.config/mimeapps.list` and would otherwise still
+    // reference the missing file.
+    let mime_default = std::process::Command::new("xdg-mime")
+        .args(["query", "default", "x-scheme-handler/agixt"])
+        .output();
+    let needs_mime_update = match mime_default {
+        Ok(out) => {
+            let s = String::from_utf8_lossy(&out.stdout);
+            s.trim() != "agixt-desktop.desktop"
+        }
+        Err(_) => true,
+    };
+    if needs_mime_update {
+        let _ = std::process::Command::new("xdg-mime")
+            .args([
+                "default",
+                "agixt-desktop.desktop",
+                "x-scheme-handler/agixt",
+            ])
+            .status();
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn install_linux_launcher() {}
 
 pub fn run() {
     tracing_subscriber::fmt()
@@ -2519,6 +2652,7 @@ pub fn run() {
         )
         .setup(|app| {
             cleanup_legacy_linux_launchers();
+            install_linux_launcher();
 
             // Load settings synchronously up-front so the front-end can render
             // immediately with the cached state.

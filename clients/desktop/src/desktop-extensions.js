@@ -144,8 +144,105 @@
     span.textContent = entry.icon || (entry.label ? entry.label[0] : '?');
   }
 
-  function ensureSidenavBtn(entry) {
+  // Persisted user order for the middle-group buttons. Chat is pinned
+  // to the top of `.sidenav-top` and ignored in this list; admin-slot
+  // entries (companies) are pinned to `.sidenav-bottom` before
+  // settings and also ignored here.
+  const SIDENAV_ORDER_KEY = 'agixt.desktop.sidenav.order.v1';
+  function loadSidenavOrder() {
+    try {
+      const raw = window.localStorage.getItem(SIDENAV_ORDER_KEY);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr.filter((s) => typeof s === 'string') : [];
+    } catch (_) { return []; }
+  }
+  function saveSidenavOrder(arr) {
+    try { window.localStorage.setItem(SIDENAV_ORDER_KEY, JSON.stringify(arr)); }
+    catch (_) {}
+  }
+
+  // Re-order DOM children of `.sidenav-top` to match the persisted
+  // order. Chat stays first; entries not in the saved list go to the
+  // end (newly registered extensions append after the user's order).
+  function applySidenavOrder() {
     const top = document.querySelector('.sidenav-top');
+    if (!top) return;
+    const order = loadSidenavOrder();
+    const chat = top.querySelector('.sidenav-btn[data-view="chat"]');
+    const all = Array.from(top.querySelectorAll('.sidenav-btn[data-view]'))
+      .filter((b) => b.dataset.view !== 'chat');
+    const orderedKnown = order
+      .map((id) => all.find((b) => b.dataset.view === id))
+      .filter(Boolean);
+    const newcomers = all.filter((b) => order.indexOf(b.dataset.view) === -1);
+    // Re-append in the desired order. appendChild on existing nodes
+    // moves them, doesn't duplicate.
+    if (chat) top.appendChild(chat);
+    for (const b of orderedKnown) top.appendChild(b);
+    for (const b of newcomers)    top.appendChild(b);
+  }
+
+  // Capture the current visual order of middle-group buttons and
+  // persist. Called after a successful drop.
+  function captureSidenavOrder() {
+    const top = document.querySelector('.sidenav-top');
+    if (!top) return;
+    const ids = Array.from(top.querySelectorAll('.sidenav-btn[data-view]'))
+      .map((b) => b.dataset.view)
+      .filter((id) => id && id !== 'chat');
+    saveSidenavOrder(ids);
+  }
+
+  function wireDragSort(btn) {
+    btn.draggable = true;
+    btn.addEventListener('dragstart', (e) => {
+      try { e.dataTransfer.setData('text/plain', btn.dataset.view); } catch (_) {}
+      e.dataTransfer.effectAllowed = 'move';
+      btn.classList.add('is-dragging');
+    });
+    btn.addEventListener('dragend', () => btn.classList.remove('is-dragging'));
+    btn.addEventListener('dragover', (e) => {
+      // Only accept drops from other middle-group buttons.
+      const dragging = document.querySelector('.sidenav-btn.is-dragging');
+      if (!dragging || dragging === btn) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      // Visual indicator: drop above vs below based on cursor position
+      // within the button.
+      const rect = btn.getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      btn.classList.toggle('is-drop-above', e.clientY < mid);
+      btn.classList.toggle('is-drop-below', e.clientY >= mid);
+    });
+    btn.addEventListener('dragleave', () => {
+      btn.classList.remove('is-drop-above');
+      btn.classList.remove('is-drop-below');
+    });
+    btn.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const dragging = document.querySelector('.sidenav-btn.is-dragging');
+      btn.classList.remove('is-drop-above');
+      btn.classList.remove('is-drop-below');
+      if (!dragging || dragging === btn) return;
+      const top = btn.parentElement;
+      if (!top || dragging.parentElement !== top) return;
+      const rect = btn.getBoundingClientRect();
+      const before = e.clientY < rect.top + rect.height / 2;
+      top.insertBefore(dragging, before ? btn : btn.nextSibling);
+      captureSidenavOrder();
+    });
+  }
+
+  function ensureSidenavBtn(entry) {
+    // Slot logic — `manifest.slot === 'admin'` pins the button to
+    // `.sidenav-bottom` (above the settings gear) instead of the
+    // sortable middle group. The companies/teams page uses this so
+    // it's always one click from the bottom.
+    const isAdminSlot = entry.slot === 'admin';
+    const top = isAdminSlot
+      ? document.querySelector('.sidenav-bottom')
+      : document.querySelector('.sidenav-top');
     if (!top) return null;
     let btn = top.querySelector(`.sidenav-btn[data-view="${cssEscape(entry.id)}"]`);
     if (btn) {
@@ -175,7 +272,17 @@
       }
       activate(entry.id);
     });
-    top.appendChild(btn);
+    if (isAdminSlot) {
+      // Insert before the settings gear (last child of sidenav-bottom).
+      const settings = top.querySelector('#btn-settings');
+      if (settings) top.insertBefore(btn, settings);
+      else top.appendChild(btn);
+    } else {
+      top.appendChild(btn);
+      // Only middle-group buttons (non-chat, non-admin) are sortable.
+      wireDragSort(btn);
+      applySidenavOrder();
+    }
     return btn;
   }
 

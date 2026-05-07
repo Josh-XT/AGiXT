@@ -1304,6 +1304,22 @@ body.window-mode.chat-collapsed .chat-resize-handle {
 /* Hide the native browser tooltip on these buttons so we don't get
    the double-flash of CSS tooltip + system tooltip after the delay. */
 .sidenav .sidenav-btn[title] { /* keep the attribute for a11y */ }
+/* Drag-sort affordances — only middle-group buttons (non-chat,
+   non-admin-slot) are draggable, and only `.sidenav-top` listens for
+   reordering. The is-dragging button fades; the drop target shows a
+   thin accent rail above or below it via box-shadow (the ::before
+   pseudo-element is already in use for the active-state rail). */
+.sidenav-btn.is-dragging {
+  opacity: 0.35;
+  cursor: grabbing;
+}
+.sidenav-btn.is-drop-above {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.sidenav-btn.is-drop-below {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
 /* Notification dot — used by the bottom gear when an action (e.g. a
    downloaded desktop update) is waiting for the user. Subtle so it
    doesn't compete with other UI. */
