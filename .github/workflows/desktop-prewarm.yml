@@ -243,10 +243,9 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-            clients/desktop/src-tauri/gen/android/.gradle
-          key: desktop-gradle-v1-${{ runner.os }}-${{ matrix.tauri_target }}-${{ hashFiles('clients/desktop/src-tauri/Cargo.lock', 'clients/desktop/src-tauri/tauri.conf.json', 'clients/desktop/package-lock.json') }}
+          key: desktop-gradle-v2-${{ runner.os }}-${{ matrix.tauri_target }}-${{ hashFiles('clients/desktop/src-tauri/Cargo.lock', 'clients/desktop/src-tauri/tauri.conf.json', 'clients/desktop/package-lock.json') }}
           restore-keys: |
-            desktop-gradle-v1-${{ runner.os }}-${{ matrix.tauri_target }}-
+            desktop-gradle-v2-${{ runner.os }}-${{ matrix.tauri_target }}-
 
       - name: Install desktop npm dependencies
         working-directory: clients/desktop
@@ -311,7 +310,16 @@ jobs:
           CARGO_BUILD_JOBS: "2"
         run: |
           set -euo pipefail
-          if [ ! -d gen/android ]; then
+          expected_package_dir="$(python - <<'PY'
+          import json
+          from pathlib import Path
+
+          config = json.loads(Path("tauri.conf.json").read_text())
+          print(Path("gen/android/app/src/main/java", *config["identifier"].split(".")))
+          PY
+          )"
+          if [ ! -f gen/android/settings.gradle ] || [ ! -d "${expected_package_dir}" ]; then
+            rm -rf gen/android
             npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" android init --ci
           fi
           npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" android build \
