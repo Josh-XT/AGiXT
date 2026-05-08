@@ -727,17 +727,47 @@ def _decrypt_license_voucher(auth, license_response: Dict[str, Any]) -> Dict[str
 
 def _ffmpeg_supports_aaxc(ffmpeg_path: str) -> bool:
     """Probe whether the local ffmpeg has the `audible_key`/`audible_iv`
-    options (needed for `.aaxc`). Older Ubuntu builds don't."""
+    options (needed for `.aaxc`).
+
+    These options live on the mov/mp4 demuxer in modern ffmpeg builds —
+    there is NO standalone "aaxc" demuxer to query. We just dump the
+    full help and grep for the option name. Older Ubuntu/Mint builds
+    will lack it and return False, in which case the caller falls back
+    to the legacy `-activation_bytes` path (which only handles real
+    AAX, not AAXC)."""
     try:
         out = subprocess.run(
-            [ffmpeg_path, "-hide_banner", "-h", "demuxer=aaxc"],
+            [ffmpeg_path, "-hide_banner", "-h", "full"],
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=10,
         )
         return "audible_key" in (out.stdout or "") + (out.stderr or "")
     except Exception:
         return False
+
+
+def _detect_aax_format(path: Path) -> Optional[str]:
+    """Look at the MPEG-4 `ftyp` major brand to tell AAX from AAXC.
+
+    The on-disk filename / URL extension is unreliable — Audible's
+    download URL for an AAXC asset can still end in `.aax`. The brand
+    field at offset 8 of the file is authoritative. Returns "aax",
+    "aaxc", or None if we can't tell.
+    """
+    try:
+        with path.open("rb") as fh:
+            header = fh.read(32)
+    except Exception:
+        return None
+    if len(header) < 16 or header[4:8] != b"ftyp":
+        return None
+    brand = header[8:12]
+    if brand == b"aaxc":
+        return "aaxc"
+    if brand in (b"aax\x00", b"aax "):
+        return "aax"
+    return None
 
 
 def _run_ffmpeg_decrypt(command: List[str], output_path: Path) -> Tuple[int, str]:
@@ -866,14 +896,21 @@ async def _convert_to_playable(
         or _activation_bytes_from_auth(auth)
     )
 
+    # The on-disk filename / URL extension lies — Audible serves AAXC
+    # content through `.aax`-suffixed URLs all the time. Sniff the
+    # MPEG-4 `ftyp` brand instead so we pick the right decryption key
+    # type. Falls back to the URL-derived suffix when the brand is
+    # unreadable, which is how older `.aax` files behave.
+    detected_brand = _detect_aax_format(input_path)
+    if detected_brand is None:
+        detected_brand = "aax" if suffix == ".aax" else "aaxc"
+
     # Stream-copy the existing AAC audio out of the AAX/AAXC container
-    # into a clean MP4 container. The AAX format is already AAC inside
-    # an MPEG-4 wrapper with a DRM scheme; once ffmpeg has the
-    # activation bytes it can read the audio frames directly. Re-
-    # encoding to AAC again was the previous default and made 5-hour
-    # books take 30+ minutes pegged at 100% CPU instead of finishing
-    # in seconds.
-    # `-map 0:a:0` grabs only the first audio stream — Audible AAX files
+    # into a clean MP4 container. Once ffmpeg has the right key
+    # material it can read the audio frames directly without re-
+    # encoding — re-encoding HE-AAC at 96 kbps takes 30+ minutes at
+    # 100% CPU for a 1-hour book vs ~1 second for stream copy.
+    # `-map 0:a:0` grabs only the first audio stream — Audible files
     # also carry a `bin_data` metadata stream (chapter titles) that
     # confuses the mp4 muxer if we try to copy it through.
     base_args = [
@@ -885,20 +922,9 @@ async def _convert_to_playable(
         "+faststart",
     ]
     attempts: List[List[str]] = []
-    if suffix == ".aax" and activation_bytes:
-        attempts.append(
-            [
-                ffmpeg,
-                "-y",
-                "-activation_bytes",
-                activation_bytes,
-                "-i",
-                str(input_path),
-                *base_args,
-                str(output_path),
-            ]
-        )
-    if key and iv and _ffmpeg_supports_aaxc(ffmpeg):
+    if detected_brand == "aaxc" and key and iv and _ffmpeg_supports_aaxc(ffmpeg):
+        # Modern Audible content. Per-asset AES key/iv from the license
+        # voucher, decrypted via the audible package's helper.
         attempts.append(
             [
                 ffmpeg,
@@ -913,9 +939,9 @@ async def _convert_to_playable(
                 str(output_path),
             ]
         )
-    if suffix != ".aax" and activation_bytes:
-        # Some `.aaxc` payloads can still be coerced through
-        # -activation_bytes on ffmpeg builds without -audible_key.
+    if detected_brand == "aax" and activation_bytes:
+        # Legacy AAX. Account-wide activation bytes from the
+        # Authenticator (cached after the first lookup).
         attempts.append(
             [
                 ffmpeg,
@@ -929,6 +955,17 @@ async def _convert_to_playable(
             ]
         )
     if not attempts:
+        if detected_brand == "aaxc":
+            return False, (
+                "This audiobook is in AAXC format, but we couldn't get a "
+                "decryption key from the Audible license. "
+                + (
+                    "Your ffmpeg build also doesn't support -audible_key, "
+                    "which is required for AAXC. Upgrade ffmpeg."
+                    if not _ffmpeg_supports_aaxc(ffmpeg)
+                    else "The license voucher decode returned no key/iv."
+                )
+            )
         return False, (
             "Audible license did not include a usable activation_bytes / "
             "key+iv pair, so the file cannot be decoded."

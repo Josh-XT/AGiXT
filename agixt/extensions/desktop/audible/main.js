@@ -730,6 +730,11 @@ AudibleView.prototype.injectStyles = function () {
   line-height: 1.85;
   color: var(--aud-text-dim);
 }
+.aud-transcript-para {
+  margin: 0 0 1.1rem;
+  text-indent: 1.6rem;
+}
+.aud-transcript-para:last-child { margin-bottom: 0; }
 .aud-transcript-seg {
   cursor: pointer;
   padding: 0.05rem 0.1rem;
@@ -1565,7 +1570,19 @@ AudibleView.prototype.renderTranscript = function () {
 
   const body = el('div', { class: 'aud-transcript-body' });
   const segEls = new Array(segs.length);
+
+  // Group segments into paragraphs the same way the kids reader does:
+  // break on sentence-ending punctuation once we've accumulated ~360
+  // chars, or force a break at 700 chars regardless. Without this the
+  // entire 5-hour book renders as one wall of text.
+  const PARAGRAPH_SOFT_BREAK_CHARS = 360;
+  const PARAGRAPH_HARD_BREAK_CHARS = 700;
+  const SENTENCE_END_RE = /[.!?]["')\]]?$/;
+
+  let para = el('p', { class: 'aud-transcript-para' });
+  let charCount = 0;
   segs.forEach((seg, i) => {
+    const text = (seg.text || '').trim();
     const span = el('span', {
       class: 'aud-transcript-seg',
       'data-idx': i,
@@ -1578,10 +1595,23 @@ AudibleView.prototype.renderTranscript = function () {
           this.renderProgressFromVirtual();
         }
       },
-    }, (seg.text || '') + ' ');
+    }, text + ' ');
     segEls[i] = span;
-    body.appendChild(span);
+    para.appendChild(span);
+    charCount += text.length + 1;
+
+    const endsSentence = SENTENCE_END_RE.test(text);
+    const shouldBreak =
+      (endsSentence && charCount >= PARAGRAPH_SOFT_BREAK_CHARS)
+      || charCount >= PARAGRAPH_HARD_BREAK_CHARS;
+    if (shouldBreak) {
+      body.appendChild(para);
+      para = el('p', { class: 'aud-transcript-para' });
+      charCount = 0;
+    }
   });
+  if (para.childNodes.length) body.appendChild(para);
+
   this.transcriptSegEls = segEls;
   this.transcriptSegmentStarts = segs.map((s) => Number(s.start) || 0);
   wrap.appendChild(body);
@@ -1783,9 +1813,15 @@ AudibleView.prototype.renderAudioStatus = function () {
   this.statusBanner.innerHTML = '';
   this.statusBanner.classList.remove('ok', 'warn', 'err');
   if (s.playable) {
-    this.statusBanner.classList.add('ok');
-    this.statusBanner.appendChild(el('span', null, 'Audio ready — playing from local cache.'));
-  } else if (s.downloading) {
+    // Don't render anything when audio is ready — the player chrome at
+    // the bottom of the page is the primary affordance and a "Audio
+    // ready" banner above it just adds visual chrome the user has to
+    // skim past.
+    this.statusBanner.hidden = true;
+    return;
+  }
+  this.statusBanner.hidden = false;
+  if (s.downloading) {
     this.statusBanner.classList.add('warn');
     this.statusBanner.appendChild(el('span', null, 'Downloading and decoding audio… this can take several minutes for a long book.'));
   } else if (s.encrypted_only) {
