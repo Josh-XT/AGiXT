@@ -641,15 +641,16 @@ def _audio_cache_paths(asin: str) -> Tuple[Path, Path]:
 def _find_playable_audio(asin: str) -> Optional[Path]:
     """Return a browser-playable audio file for `asin`, or None.
 
-    Prefers the canonical MP3 we produce on conversion (universal
-    browser support, no AAC-in-MP4 quirks like chapter-text tracks
-    confusing WebKit) but still picks up legacy `.m4a` files that
-    were validated under earlier versions of this code.
+    Prefers the canonical AAC `.m4a` we produce on conversion. WebKit
+    on Linux mid-stream-jumps on long MP3s (we observed seconds-of-
+    audio skips during sequential playback of a 68-min book); AAC
+    plays through cleanly. Still picks up older `.mp3` / `.m4b` /
+    `.mp4` artifacts validated by previous versions.
     """
     base = _AUDIO_CACHE_ROOT / asin
     if not base.is_dir():
         return None
-    for name in ("audio.mp3", "audio.m4a", "audio.m4b", "audio.mp4"):
+    for name in ("audio.m4a", "audio.mp3", "audio.m4b", "audio.mp4"):
         p = base / name
         if not (p.is_file() and p.stat().st_size > 0):
             continue
@@ -892,13 +893,17 @@ async def _convert_to_playable(
         else:
             detected_brand = "aaxc"
 
-    # We always re-encode to mono MP3 at low bitrate. Stream-copying
-    # AAC out of an AAX/AAXC wrapper is much faster, but the resulting
-    # m4a often carries a chapter-text reference track that WebKit
-    # (the engine inside Tauri's webview on Linux) refuses with
-    # `MEDIA_ERR_SRC_NOT_SUPPORTED`. MP3 has no track-association
-    # quirks, plays in every browser, encodes ~5x realtime on CPU,
-    # and at 48 kbps mono an audiobook still sounds clear.
+    # Re-encode to mono AAC in an `.m4a` container at low bitrate.
+    # Earlier we used MP3 because stream-copying AAC out of the
+    # AAX/AAXC wrapper kept a chapter-text reference track WebKit
+    # refused — but a clean *transcoded* AAC has no such track and
+    # WebKit on Linux plays it more reliably than MP3. Specifically:
+    # WebKit's MP3 decoder mid-stream-jumps on long files (we saw
+    # audio leap 30+ minutes during sequential playback), while AAC
+    # plays through cleanly. Strip chapters/metadata explicitly so we
+    # only get the audio track. `-movflags +faststart` puts the moov
+    # atom up front so the player doesn't need the full file before
+    # playback starts.
     encode_args = [
         "-vn",
         "-map",
@@ -912,9 +917,11 @@ async def _convert_to_playable(
         "-ar",
         "22050",
         "-c:a",
-        "libmp3lame",
+        "aac",
         "-b:a",
-        "48k",
+        "64k",
+        "-movflags",
+        "+faststart",
     ]
     attempts: List[List[str]] = []
     if detected_brand == "aaxc" and key and iv and _ffmpeg_supports_aaxc(ffmpeg):
@@ -1416,7 +1423,7 @@ async def _download_audio(client, asin: str) -> Optional[Path]:
     Try a couple of license-request shapes, fetch the bytes, then hand
     them to ffmpeg with whichever key material the license /
     Authenticator provided. On success, leaves a browser-playable
-    `audio.mp3` in the cache directory and the encrypted source as
+    `audio.m4a` in the cache directory and the encrypted source as
     `audio.<aax|aaxc>` next to it.
     """
     base, _ = _audio_cache_paths(asin)
@@ -1442,7 +1449,7 @@ async def _download_audio(client, asin: str) -> Optional[Path]:
             "num_active_offline_licenses": 1,
         },
     ]
-    out_path = base / "audio.mp3"
+    out_path = base / "audio.m4a"
     err_path = base / "download_error.txt"
     last_err = "no attempts"
 

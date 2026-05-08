@@ -1163,10 +1163,17 @@ AudibleView.prototype.buildPlayer = function () {
   // actually positioned at `lastPositionMs` from the user's saved
   // Audible progress — pressing Play then plays from "later in the
   // book" while the visible time still reads 0:00.
-  this.audio.addEventListener('seeked', () => this.onTimeUpdate());
+  this.audio.addEventListener('seeked', () => {
+    // Seek finished — currentTime is now authoritative again.
+    this.pendingSeekSec = null;
+    this.onTimeUpdate();
+  });
   this.audio.addEventListener('durationchange', () => this.onDurationChange());
   this.audio.addEventListener('loadedmetadata', () => this.onDurationChange());
-  this.audio.addEventListener('play', () => this.setPlayIcon(true));
+  this.audio.addEventListener('play', () => {
+    this.pendingSeekSec = null;
+    this.setPlayIcon(true);
+  });
   this.audio.addEventListener('pause', () => this.setPlayIcon(false));
   this.audio.addEventListener('ended', () => this.setPlayIcon(false));
 
@@ -1275,10 +1282,20 @@ AudibleView.prototype.togglePlay = function () {
   else this.audio.pause();
 };
 
+AudibleView.prototype.seekTo = function (seconds) {
+  if (!this.audio) return;
+  const numericSec = Number(seconds) || 0;
+  const target = isFinite(this.audio.duration)
+    ? Math.max(0, Math.min(this.audio.duration, numericSec))
+    : Math.max(0, numericSec);
+  this.pendingSeekSec = target;
+  try { this.audio.currentTime = target; } catch (_) {}
+  this.onTimeUpdate();
+};
+
 AudibleView.prototype.skip = function (deltaSec) {
   if (!this.audio || !isFinite(this.audio.duration)) return;
-  const next = Math.max(0, Math.min(this.audio.duration, this.audio.currentTime + deltaSec));
-  this.audio.currentTime = next;
+  this.seekTo(this.audio.currentTime + deltaSec);
 };
 
 AudibleView.prototype.onProgressClick = function (e) {
@@ -1286,7 +1303,7 @@ AudibleView.prototype.onProgressClick = function (e) {
   const rect = this.progressBar.getBoundingClientRect();
   const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
   if (this.audio && isFinite(this.audio.duration)) {
-    this.audio.currentTime = ratio * this.audio.duration;
+    this.seekTo(ratio * this.audio.duration);
   } else if (this.totalDurationMs > 0) {
     // No audio loaded but we have chapter info — store as virtual scrub
     this.lastPositionMs = ratio * this.totalDurationMs;
@@ -1296,7 +1313,17 @@ AudibleView.prototype.onProgressClick = function (e) {
 
 AudibleView.prototype.onTimeUpdate = function () {
   if (!this.audio) return;
-  const cur = this.audio.currentTime || 0;
+  let cur = this.audio.currentTime || 0;
+  // If we recently issued a seek and the browser hasn't applied it
+  // to `currentTime` yet (WebKit on Linux is particularly unreliable
+  // about seek-while-paused), trust our pending target so the UI
+  // doesn't snap back to 0:00 while audio is queued to play from
+  // somewhere else. Cleared on `seeked` or once audio starts playing.
+  if (this.pendingSeekSec != null && this.audio.paused) {
+    if (Math.abs(cur - this.pendingSeekSec) > 0.5) {
+      cur = this.pendingSeekSec;
+    }
+  }
   const dur = isFinite(this.audio.duration) ? this.audio.duration : 0;
   this.curTimeEl.textContent = fmtDuration(cur * 1000);
   if (dur > 0) {
@@ -1652,7 +1679,7 @@ AudibleView.prototype.renderTranscript = function () {
       onclick: () => {
         const startSec = (Number(seg.start) || 0) / 1000;
         if (this.audio && this.audio.src && isFinite(this.audio.duration)) {
-          this.audio.currentTime = startSec;
+          this.seekTo(startSec);
         } else {
           this.lastPositionMs = Number(seg.start) || 0;
           this.renderProgressFromVirtual();
@@ -1789,7 +1816,7 @@ AudibleView.prototype.seekToChapter = function (idx) {
   const ch = this.currentChapters[idx];
   if (!ch) return;
   if (this.audio && this.audio.src && isFinite(this.audio.duration)) {
-    this.audio.currentTime = (ch.start_ms || 0) / 1000;
+    this.seekTo((ch.start_ms || 0) / 1000);
   } else {
     this.lastPositionMs = ch.start_ms || 0;
     this.renderProgressFromVirtual();
@@ -2006,28 +2033,20 @@ AudibleView.prototype.attachAudioStream = async function () {
       if (settled) return;
       settled = true;
       cleanup();
-      // Always set currentTime explicitly. If we don't, an audio
-      // element re-used across book switches can carry over the
-      // previous track's position, leaving the UI at 0:00 while audio
-      // plays from the prior track's resume point.
+      // Always issue an explicit seek. Without this, an audio element
+      // re-used across book switches can keep the previous track's
+      // position, so the user presses Play and audio resumes from the
+      // last book's pause point while the UI for *this* book reads 0.
+      // `seekTo` sets `pendingSeekSec` so any timeupdate that fires
+      // before the browser actually applies the seek won't render the
+      // stale `audio.currentTime` (typically 0) and clobber the UI.
       const seekSec = (this.lastPositionMs > 0) ? this.lastPositionMs / 1000 : 0;
-      try { this.audio.currentTime = seekSec; } catch (_) {}
-      // Update the visible time/progress from the seek target
-      // immediately. The browser performs the seek asynchronously, so
-      // the `seeked` listener will sync UI again when it lands, but
-      // this avoids a window where the user sees "0:00" while audio is
-      // actually positioned elsewhere.
+      this.seekTo(seekSec);
       const durMs = (this.audio && isFinite(this.audio.duration))
         ? this.audio.duration * 1000
         : 0;
-      if (this.curTimeEl) this.curTimeEl.textContent = fmtDuration(seekSec * 1000);
       if (this.totalTimeEl && durMs > 0) {
         this.totalTimeEl.textContent = fmtDuration(durMs);
-      }
-      if (this.progressFill && this.progressHandle && durMs > 0) {
-        const pct = Math.max(0, Math.min(100, (seekSec * 1000 / durMs) * 100));
-        this.progressFill.style.width = pct + '%';
-        this.progressHandle.style.left = pct + '%';
       }
       // Hide the transient "Loading audio…" banner now that playback
       // is ready — the player chrome at the bottom is the canonical
