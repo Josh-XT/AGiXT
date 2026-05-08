@@ -6,13 +6,14 @@ on:
       - main
     paths:
       - "clients/desktop/**"
+      - ".github/workflows/desktop-prewarm.yml"
       - "!clients/desktop/**/*.md"
   workflow_dispatch:
     inputs:
       targets:
-        description: "Comma-separated desktop targets to build or queue"
+        description: "Comma-separated desktop targets to build and upload"
         required: false
-        default: "linux,linux-arm64,windows,android,macos,macos-x86,ios"
+        default: "macos,linux,windows,android,linux-arm64"
 
 permissions:
   contents: read
@@ -24,153 +25,189 @@ concurrency:
 env:
   DOWNLOAD_SERVER_URL: ${{ vars.DESKTOP_DOWNLOAD_SERVER_URL || 'https://download.xt.systems' }}
   DESKTOP_BUILD_TIMEZONE: ${{ vars.DESKTOP_BUILD_TIMEZONE || 'America/New_York' }}
+  REQUESTED_TARGETS: ${{ github.event.inputs.targets || 'macos,linux,windows,android,linux-arm64' }}
   TAURI_CLI_VERSION: "2.11.1"
 
 jobs:
-  queue-server-builds:
-    name: Queue Server-Built Desktop Targets
+  select-targets:
+    name: Select Desktop Targets
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      has_targets: ${{ steps.matrix.outputs.has_targets }}
     steps:
-      - name: Select server-built targets
-        id: targets
-        env:
-          REQUESTED_TARGETS: ${{ github.event.inputs.targets || 'linux,linux-arm64,windows,android,macos,macos-x86,ios' }}
+      - name: Build matrix
+        id: matrix
         run: |
           set -euo pipefail
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
           import os
+          import sys
 
+          definitions = {
+              "macos": {
+                  "name": "macOS Apple Silicon",
+                  "os_type": "macos",
+                  "runner": "macos-15",
+                  "rust_target": "aarch64-apple-darwin",
+                  "tauri_target": "aarch64-apple-darwin",
+                  "kind": "macos",
+                  "optional": False,
+              },
+              "linux": {
+                  "name": "Linux x64",
+                  "os_type": "linux",
+                  "runner": "ubuntu-24.04",
+                  "rust_target": "x86_64-unknown-linux-gnu",
+                  "tauri_target": "x86_64-unknown-linux-gnu",
+                  "kind": "linux",
+                  "optional": False,
+              },
+              "windows": {
+                  "name": "Windows x64",
+                  "os_type": "windows",
+                  "runner": "windows-latest",
+                  "rust_target": "x86_64-pc-windows-msvc",
+                  "tauri_target": "x86_64-pc-windows-msvc",
+                  "kind": "windows",
+                  "optional": False,
+              },
+              "android": {
+                  "name": "Android ARM64 Preview",
+                  "os_type": "android",
+                  "runner": "ubuntu-24.04",
+                  "rust_target": "aarch64-linux-android",
+                  "tauri_target": "aarch64",
+                  "kind": "android",
+                  "optional": False,
+              },
+              "linux-arm64": {
+                  "name": "Linux ARM64",
+                  "os_type": "linux-arm64",
+                  "runner": "ubuntu-24.04-arm",
+                  "rust_target": "aarch64-unknown-linux-gnu",
+                  "tauri_target": "aarch64-unknown-linux-gnu",
+                  "kind": "linux",
+                  "optional": False,
+              },
+              # Manual-only for now because the Intel macOS runner is slow and costly.
+              "macos-x86": {
+                  "name": "macOS Intel",
+                  "os_type": "macos-x86",
+                  "runner": "macos-15-intel",
+                  "rust_target": "x86_64-apple-darwin",
+                  "tauri_target": "x86_64-apple-darwin",
+                  "kind": "macos",
+                  "optional": True,
+              },
+          }
+          order = ["macos", "linux", "windows", "android", "linux-arm64", "macos-x86"]
           requested = {
               target.strip().lower()
               for target in os.environ["REQUESTED_TARGETS"].split(",")
               if target.strip()
           }
-          server_targets = ["linux", "linux-arm64", "windows", "android"]
-          selected = [target for target in server_targets if target in requested]
-          print(f"targets={','.join(selected)}")
+          invalid = sorted(requested - definitions.keys())
+          if invalid:
+              print(f"Invalid desktop target(s): {', '.join(invalid)}", file=sys.stderr)
+              sys.exit(1)
+
+          include = [definitions[target] for target in order if target in requested]
+          print(f"matrix={json.dumps({'include': include}, separators=(',', ':'))}")
+          print(f"has_targets={str(bool(include)).lower()}")
           PY
 
-      - name: Queue download server builds
-        if: steps.targets.outputs.targets != ''
-        env:
-          PREWARM_TOKEN: ${{ secrets.DESKTOP_PREWARM_TOKEN }}
-          TARGETS: ${{ steps.targets.outputs.targets }}
-        run: |
-          set -euo pipefail
-          headers=(-H "Accept: application/json")
-          if [ -n "${PREWARM_TOKEN}" ]; then
-            headers+=(-H "X-Prewarm-Token: ${PREWARM_TOKEN}")
-          fi
-          curl -fsS -X POST "${headers[@]}" \
-            "${DOWNLOAD_SERVER_URL}/desktop/prewarm?targets=${TARGETS}"
-
-  build-apple:
+  build-desktop:
     name: Build ${{ matrix.name }}
+    needs: select-targets
+    if: needs.select-targets.outputs.has_targets == 'true'
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.optional }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: macOS Apple Silicon
-            os_type: macos
-            runner: macos-15
-            rust_target: aarch64-apple-darwin
-            tauri_target: aarch64-apple-darwin
-            kind: macos
-            optional: false
-          - name: macOS Intel
-            os_type: macos-x86
-            runner: macos-15-intel
-            rust_target: x86_64-apple-darwin
-            tauri_target: x86_64-apple-darwin
-            kind: macos
-            optional: false
-          - name: iOS
-            os_type: ios
-            runner: macos-15
-            rust_target: aarch64-apple-ios
-            tauri_target: aarch64
-            kind: ios
-            optional: true
+      matrix: ${{ fromJSON(needs.select-targets.outputs.matrix) }}
+
     steps:
-      - name: Check requested target
-        id: requested
-        env:
-          REQUESTED_TARGETS: ${{ github.event.inputs.targets || 'linux,linux-arm64,windows,android,macos,macos-x86,ios' }}
-          OS_TYPE: ${{ matrix.os_type }}
-        run: |
-          set -euo pipefail
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import os
-
-          requested = {
-              target.strip().lower()
-              for target in os.environ["REQUESTED_TARGETS"].split(",")
-              if target.strip()
-          }
-          print(f"enabled={str(os.environ['OS_TYPE'] in requested).lower()}")
-          PY
-
-      - name: Check iOS signing setup
-        if: steps.requested.outputs.enabled == 'true' && matrix.kind == 'ios'
-        id: ios_signing
-        env:
-          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
-          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
-        run: |
-          set -euo pipefail
-          missing=()
-          for name in \
-            APPLE_DEVELOPMENT_TEAM \
-            APPLE_CERTIFICATE_P12_BASE64 \
-            APPLE_CERTIFICATE_PASSWORD \
-            APPLE_PROVISIONING_PROFILE_BASE64
-          do
-            if [ -z "${!name}" ]; then
-              missing+=("${name}")
-            fi
-          done
-          if [ "${#missing[@]}" -eq 0 ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            joined="$(IFS=, ; echo "${missing[*]}")"
-            echo "::notice title=iOS build skipped::Missing iOS signing secrets: ${joined}. Add these secrets to build and upload the iOS artifact."
-          fi
-
-      - name: Decide build gate
-        if: steps.requested.outputs.enabled == 'true'
-        id: build_gate
-        env:
-          KIND: ${{ matrix.kind }}
-          IOS_SIGNING_ENABLED: ${{ steps.ios_signing.outputs.enabled }}
-        run: |
-          set -euo pipefail
-          if [ "${KIND}" != "ios" ] || [ "${IOS_SIGNING_ENABLED}" = "true" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Checkout AGiXT
-        if: steps.build_gate.outputs.enabled == 'true'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Setup Node
-        if: steps.build_gate.outputs.enabled == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: clients/desktop/package-lock.json
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Java for Android
+        if: matrix.kind == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        if: matrix.kind == 'android'
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        if: matrix.kind == 'android'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.0.12077973"
+          {
+            echo "ANDROID_SDK_ROOT=${ANDROID_HOME}"
+            echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/27.0.12077973"
+            echo "NDK_HOME=${ANDROID_HOME}/ndk/27.0.12077973"
+          } >> "$GITHUB_ENV"
+
+      - name: Install Linux desktop dependencies
+        if: matrix.kind == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            clang \
+            libclang-dev \
+            libwebkit2gtk-4.1-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libasound2-dev \
+            libssl-dev \
+            patchelf \
+            pkg-config
+
+      - name: Install Windows desktop dependencies
+        if: matrix.kind == 'windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          choco install llvm -y --no-progress
+          echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+          echo "C:\\Program Files\\LLVM\\bin" >> "$GITHUB_PATH"
+
       - name: Ensure Rust target
-        if: steps.build_gate.outputs.enabled == 'true'
+        shell: bash
+        env:
+          KIND: ${{ matrix.kind }}
+          RUST_TARGET: ${{ matrix.rust_target }}
         run: |
           set -euo pipefail
           if ! command -v rustup >/dev/null 2>&1; then
@@ -178,16 +215,22 @@ jobs:
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
             export PATH="$HOME/.cargo/bin:$PATH"
           fi
-          rustup target add "${{ matrix.rust_target }}"
+          rustup target add "${RUST_TARGET}"
+          if [ "${KIND}" = "android" ]; then
+            rustup target add \
+              armv7-linux-androideabi \
+              i686-linux-android \
+              x86_64-linux-android
+          fi
 
-      - name: Install desktop dependencies
-        if: steps.build_gate.outputs.enabled == 'true'
+      - name: Install desktop npm dependencies
         working-directory: clients/desktop
+        shell: bash
         run: npm ci
 
       - name: Resolve desktop build ID
-        if: steps.build_gate.outputs.enabled == 'true'
         id: build_id
+        shell: bash
         run: |
           set -euo pipefail
           commit_time="$(git log -1 --format=%ct -- \
@@ -198,7 +241,7 @@ jobs:
           if [ -z "${commit_time}" ]; then
             commit_time="$(git log -1 --format=%ct)"
           fi
-          version="$(TZ="${DESKTOP_BUILD_TIMEZONE}" COMMIT_TIME="${commit_time}" python3 - <<'PY'
+          version="$(TZ="${DESKTOP_BUILD_TIMEZONE}" COMMIT_TIME="${commit_time}" python - <<'PY'
           import os
           from datetime import datetime
 
@@ -208,119 +251,86 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Check upload token
-        if: steps.build_gate.outputs.enabled == 'true'
+        shell: bash
         env:
           DESKTOP_UPLOAD_TOKEN: ${{ secrets.DESKTOP_UPLOAD_TOKEN || secrets.DESKTOP_PREWARM_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${DESKTOP_UPLOAD_TOKEN}" ]; then
-            echo "DESKTOP_UPLOAD_TOKEN or DESKTOP_PREWARM_TOKEN is required to upload Apple desktop artifacts to the download server." >&2
+            echo "DESKTOP_UPLOAD_TOKEN or DESKTOP_PREWARM_TOKEN is required to upload desktop artifacts to the download server." >&2
             exit 1
           fi
 
-      - name: Install Apple signing assets
-        if: steps.build_gate.outputs.enabled == 'true' && matrix.kind == 'ios'
-        env:
-          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
-        run: |
-          set -euo pipefail
-          cert_path="${RUNNER_TEMP}/apple_certificate.p12"
-          profile_path="${RUNNER_TEMP}/apple_profile.mobileprovision"
-          profile_plist="${RUNNER_TEMP}/apple_profile.plist"
-          keychain_path="${RUNNER_TEMP}/app-signing.keychain-db"
-          keychain_password="$(uuidgen)"
-          CERT_PATH="${cert_path}" PROFILE_PATH="${profile_path}" python3 - <<'PY'
-          import base64
-          import os
-          from pathlib import Path
-
-          Path(os.environ["CERT_PATH"]).write_bytes(
-              base64.b64decode(os.environ["APPLE_CERTIFICATE_P12_BASE64"])
-          )
-          Path(os.environ["PROFILE_PATH"]).write_bytes(
-              base64.b64decode(os.environ["APPLE_PROVISIONING_PROFILE_BASE64"])
-          )
-          PY
-          security create-keychain -p "${keychain_password}" "${keychain_path}"
-          security set-keychain-settings -lut 21600 "${keychain_path}"
-          security unlock-keychain -p "${keychain_password}" "${keychain_path}"
-          security import "${cert_path}" \
-            -P "${APPLE_CERTIFICATE_PASSWORD}" \
-            -A \
-            -t cert \
-            -f pkcs12 \
-            -k "${keychain_path}"
-          existing_keychains="$(security list-keychains -d user | tr -d '"' || true)"
-          security list-keychains -d user -s "${keychain_path}" ${existing_keychains}
-          security set-key-partition-list \
-            -S apple-tool:,apple:,codesign: \
-            -s \
-            -k "${keychain_password}" \
-            "${keychain_path}"
-          mkdir -p "${HOME}/Library/MobileDevice/Provisioning Profiles"
-          security cms -D -i "${profile_path}" > "${profile_plist}"
-          profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print UUID' "${profile_plist}")"
-          cp "${profile_path}" \
-            "${HOME}/Library/MobileDevice/Provisioning Profiles/${profile_uuid}.mobileprovision"
-
-      - name: Build macOS artifact
-        if: steps.build_gate.outputs.enabled == 'true' && matrix.kind == 'macos'
+      - name: Build desktop artifact
+        if: matrix.kind != 'android'
         working-directory: clients/desktop/src-tauri
+        shell: bash
         env:
           AGIXT_DESKTOP_BUILD_ID: ${{ steps.build_id.outputs.version }}
+          CARGO_BUILD_JOBS: "2"
         run: |
           set -euo pipefail
-          npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" build --target "${{ matrix.tauri_target }}"
+          npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" build \
+            --target "${{ matrix.tauri_target }}"
 
-      - name: Build iOS artifact
-        if: steps.build_gate.outputs.enabled == 'true' && matrix.kind == 'ios'
+      - name: Build Android preview artifact
+        if: matrix.kind == 'android'
         working-directory: clients/desktop/src-tauri
+        shell: bash
         env:
           AGIXT_DESKTOP_BUILD_ID: ${{ steps.build_id.outputs.version }}
-          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+          CARGO_BUILD_JOBS: "2"
         run: |
           set -euo pipefail
-          if [ ! -d gen/apple ]; then
-            npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" ios init --ci
+          if [ ! -d gen/android ]; then
+            npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" android init --ci
           fi
-          npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" ios build \
+          npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" android build \
+            --apk \
             --target "${{ matrix.tauri_target }}" \
             --ci
 
       - name: Find artifact
-        if: steps.build_gate.outputs.enabled == 'true'
         id: artifact
+        shell: bash
         env:
           OS_TYPE: ${{ matrix.os_type }}
           TARGET: ${{ matrix.rust_target }}
         run: |
           set -euo pipefail
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          python - <<'PY' >> "$GITHUB_OUTPUT"
           import os
           from pathlib import Path
 
           os_type = os.environ["OS_TYPE"]
           target = os.environ["TARGET"]
           priorities = {
+              ".deb": 0,
               ".dmg": 0,
-              ".ipa": 0,
-              ".app.tar.gz": 1,
-              ".tar.gz": 2,
-              ".zip": 3,
+              ".msi": 0,
+              ".apk": 0,
+              ".exe": 1,
+              ".AppImage": 1,
+              ".aab": 1,
+              ".rpm": 2,
+              ".app.tar.gz": 2,
+              ".tar.gz": 3,
+              ".zip": 4,
           }
           patterns = {
+              "linux": ["**/*.deb", "**/*.AppImage", "**/*.rpm", "**/*.tar.gz"],
+              "linux-arm64": ["**/*.deb", "**/*.AppImage", "**/*.rpm", "**/*.tar.gz"],
+              "windows": ["**/*.msi", "**/*.exe", "**/*.zip"],
               "macos": ["**/*.dmg", "**/*.app.tar.gz", "**/*.tar.gz", "**/*.zip"],
               "macos-x86": ["**/*.dmg", "**/*.app.tar.gz", "**/*.tar.gz", "**/*.zip"],
-              "ios": ["**/*.ipa"],
+              "android": ["**/*.apk", "**/*.aab"],
           }[os_type]
-          roots = []
-          if os_type == "ios":
-              roots.append(Path("clients/desktop/src-tauri/gen/apple"))
+
+          if os_type == "android":
+              roots = [Path("clients/desktop/src-tauri/gen/android")]
           else:
               release = Path("clients/desktop/src-tauri/target") / target / "release"
-              roots.extend([release / "bundle", release])
+              roots = [release / "bundle", release]
 
           candidates = []
           for root in roots:
@@ -331,23 +341,45 @@ jobs:
 
           def suffix(path: Path) -> str:
               lower = path.name.lower()
-              for value in [".app.tar.gz", ".tar.gz", ".dmg", ".ipa", ".zip"]:
+              for value in [
+                  ".app.tar.gz",
+                  ".tar.gz",
+                  ".appimage",
+                  ".deb",
+                  ".dmg",
+                  ".msi",
+                  ".exe",
+                  ".rpm",
+                  ".apk",
+                  ".aab",
+                  ".zip",
+              ]:
                   if lower.endswith(value):
-                      return value
-              return ""
+                      return ".AppImage" if value == ".appimage" else value
+              return path.suffix
 
           candidates.sort(
-              key=lambda path: (priorities.get(suffix(path), 50), -path.stat().st_mtime)
+              key=lambda path: (
+                  priorities.get(suffix(path), 50),
+                  -path.stat().st_mtime,
+              )
           )
           if not candidates:
               raise SystemExit(f"No artifact found for {os_type}")
           artifact = candidates[0]
-          print(f"path={artifact}")
+          print(f"path={artifact.as_posix()}")
           print(f"name={artifact.name}")
           PY
 
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agixt-desktop-${{ matrix.os_type }}-${{ steps.build_id.outputs.version }}
+          path: ${{ steps.artifact.outputs.path }}
+          if-no-files-found: error
+
       - name: Upload artifact to download server
-        if: steps.build_gate.outputs.enabled == 'true'
+        shell: bash
         env:
           DESKTOP_UPLOAD_TOKEN: ${{ secrets.DESKTOP_UPLOAD_TOKEN || secrets.DESKTOP_PREWARM_TOKEN }}
           OS_TYPE: ${{ matrix.os_type }}
@@ -356,10 +388,6 @@ jobs:
           DESKTOP_BUILD_ID: ${{ steps.build_id.outputs.version }}
         run: |
           set -euo pipefail
-          if [ -z "${DESKTOP_UPLOAD_TOKEN}" ]; then
-            echo "DESKTOP_UPLOAD_TOKEN or DESKTOP_PREWARM_TOKEN is required" >&2
-            exit 1
-          fi
           curl -fsS -X POST \
             -H "Accept: application/json" \
             -H "X-Desktop-Upload-Token: ${DESKTOP_UPLOAD_TOKEN}" \
