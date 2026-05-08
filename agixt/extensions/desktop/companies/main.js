@@ -506,10 +506,10 @@ CompaniesView.prototype.injectStyles = function () {
   if (document.getElementById('co-styles')) return;
   const css = `
     .co-root, .co-detail-root {
-      --co-border: rgba(255,255,255,0.07);
-      --co-divider: rgba(255,255,255,0.05);
-      --co-row-hover: rgba(255,255,255,0.03);
-      --co-card-bg: rgba(20,24,36,0.55);
+      --co-border: var(--border);
+      --co-divider: var(--border-muted);
+      --co-row-hover: var(--panel-hover);
+      --co-card-bg: var(--panel-2);
     }
     .co-root { display: flex; flex-direction: column; gap: 16px; padding: 16px 20px 32px; min-height: 100%; color: var(--text); }
     .co-detail-root { gap: 0; padding: 0; height: 100%; display: flex; flex-direction: column; }
@@ -526,9 +526,9 @@ CompaniesView.prototype.injectStyles = function () {
     .co-table th, .co-table td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--co-divider); vertical-align: middle; }
     .co-table tbody tr:hover { background: var(--co-row-hover); }
     .co-table tbody tr:last-child td { border-bottom: 0; }
-    .co-th { color: var(--text-faint); font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; background: rgba(255,255,255,0.015); border-bottom: 1px solid var(--co-border); white-space: nowrap; user-select: none; }
+    .co-th { color: var(--text-faint); font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; background: var(--border-muted); border-bottom: 1px solid var(--co-border); white-space: nowrap; user-select: none; }
     .co-th.is-sortable { cursor: pointer; }
-    .co-th.is-sortable:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+    .co-th.is-sortable:hover { color: var(--text); background: var(--co-row-hover); }
     .co-name { font-weight: 600; }
     .co-id { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
     .co-pill { display: inline-flex; align-items: center; font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: rgba(107,123,255,0.18); color: #c4ccff; border: 1px solid rgba(107,123,255,0.35); margin-left: 4px; }
@@ -547,7 +547,7 @@ CompaniesView.prototype.injectStyles = function () {
     .co-detail-title { font-weight: 700; font-size: 16px; }
     .co-detail-body { padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow: auto; flex: 1; min-height: 0; background: var(--bg); }
     .co-card { background: var(--co-card-bg); border: 1px solid var(--co-border); border-radius: 10px; overflow: hidden; }
-    .co-card-head { padding: 13px 16px; border-bottom: 1px solid var(--co-border); background: rgba(255,255,255,0.012); }
+    .co-card-head { padding: 13px 16px; border-bottom: 1px solid var(--co-border); background: var(--border-muted); }
     .co-card-title { font-weight: 600; font-size: 13.5px; }
     .co-card-desc { font-size: 12px; color: var(--text-faint); margin-top: 3px; }
     .co-card-body { padding: 16px 18px; }
@@ -558,7 +558,7 @@ CompaniesView.prototype.injectStyles = function () {
     .co-kv dd code { font-family: var(--mono); font-size: 12px; color: var(--text-dim); background: var(--panel-2); padding: 2px 7px; border-radius: 4px; }
     .co-data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
     .co-data-table th, .co-data-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--co-divider); }
-    .co-data-table th { color: var(--text-faint); font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; background: rgba(255,255,255,0.015); border-bottom: 1px solid var(--co-border); }
+    .co-data-table th { color: var(--text-faint); font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; background: var(--border-muted); border-bottom: 1px solid var(--co-border); }
     .co-data-table tr:last-child td { border-bottom: 0; }
     .co-table code { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
   `;
