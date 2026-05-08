@@ -1,4 +1,4 @@
-/* Audible — desktop extension port of the kids app's audiobook player.
+/* Audible — AGiXT desktop audiobook reader.
  *
  * Layout (mirrors /home/josh/repos/xtsys/kids/templates/reader.html with
  * one extra panel on the far left):
@@ -282,26 +282,31 @@ AudibleView.prototype.injectStyles = function () {
   const style = document.createElement('style');
   style.id = 'aud-ext-styles';
   style.textContent = `
+/* Pull all visual tokens off the host palette so the audible page
+   matches the rest of AGiXT (chat, machines, etc.). The --aud-*
+   names stay as a stable contract for the rest of the audible CSS;
+   their values now resolve to the shared design system. NOTE: do
+   NOT set "display" here — .view-pane[hidden] { display: none }
+   from styles.css is what hides this pane when the user switches to
+   a different sidebar tab, and "display: flex" here would silently
+   override it (same specificity, later source order). */
 .view-pane[data-view="audible"] {
-  --aud-bg: #0d1117;
-  --aud-inset: #010409;
-  --aud-surface: rgba(22, 27, 34, 0.85);
-  --aud-surface-strong: rgba(13, 17, 23, 0.94);
-  --aud-surface-solid: #161b22;
-  --aud-text: #e6edf3;
-  --aud-text-dim: #8b949e;
-  --aud-text-muted: #6e7681;
-  --aud-accent: #2f81f7;
-  --aud-accent-hover: #58a6ff;
-  --aud-accent-emphasis: #1f6feb;
-  --aud-accent-soft: rgba(56, 139, 253, 0.15);
-  --aud-border: #30363d;
-  --aud-border-muted: #21262d;
+  --aud-bg: var(--bg);
+  --aud-inset: rgba(0, 0, 0, 0.3);
+  --aud-surface: var(--panel);
+  --aud-surface-strong: var(--panel);
+  --aud-surface-solid: var(--panel-2);
+  --aud-text: var(--text);
+  --aud-text-dim: var(--text-dim);
+  --aud-text-muted: var(--text-faint);
+  --aud-accent: var(--accent);
+  --aud-accent-hover: var(--accent-2);
+  --aud-accent-emphasis: var(--accent);
+  --aud-accent-soft: rgba(107, 123, 255, 0.18);
+  --aud-border: var(--border);
+  --aud-border-muted: rgba(255, 255, 255, 0.04);
   --aud-on-accent: #ffffff;
 
-  display: flex;
-  flex-direction: column;
-  height: 100%;
   background: var(--aud-bg);
   color: var(--aud-text);
   overflow: hidden;
@@ -313,20 +318,58 @@ AudibleView.prototype.injectStyles = function () {
 }
 .aud-sidebar {
   width: 320px;
+  flex-shrink: 0;
   background: var(--aud-surface-solid);
-  border-right: 1px solid var(--aud-border);
+  /* Sidebar lives on the RIGHT side of the shell now — border on the
+     left edge separates it from the player/detail column. */
+  border-left: 1px solid var(--aud-border);
   display: flex;
   flex-direction: column;
-  transition: width 0.2s ease, padding 0.2s ease;
   overflow: hidden;
+  min-height: 0;
 }
-.aud-sidebar.collapsed { width: 0; border-right: 0; }
+/* Collapsed strip — replaces the sidebar entirely (workspace pattern).
+   28px wide button with a vertical "Library" label and a chevron that
+   reads as "expand toward me". */
+.aud-sidebar-collapsed {
+  flex: 0 0 auto;
+  width: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  background: var(--aud-surface-solid);
+  border: 0;
+  border-left: 1px solid var(--aud-border);
+  color: var(--aud-text);
+  cursor: pointer;
+  font-family: inherit;
+}
+.aud-sidebar-collapsed:hover { background: rgba(177, 186, 196, 0.06); }
+.aud-sidebar-collapsed-icon { opacity: 0.85; display: flex; }
+.aud-sidebar-collapsed-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--aud-accent);
+  opacity: 0.85;
+}
 .aud-sidebar-head {
   padding: 14px 14px 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   border-bottom: 1px solid var(--aud-border-muted);
+}
+.aud-sidebar-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 .aud-sidebar-title {
   font-size: 0.72rem;
@@ -335,6 +378,9 @@ AudibleView.prototype.injectStyles = function () {
   letter-spacing: 0.13em;
   color: var(--aud-accent);
 }
+.aud-sidebar-collapse-btn { width: 26px; height: 26px; opacity: 0.75; }
+.aud-sidebar-collapse-btn:hover { opacity: 1; }
+.aud-sidebar-collapse-btn svg { width: 14px; height: 14px; }
 .aud-search {
   display: flex;
   align-items: center;
@@ -639,6 +685,65 @@ AudibleView.prototype.injectStyles = function () {
   font-family: 'Lora', 'Georgia', serif;
 }
 
+/* Read-along transcript */
+.aud-transcript {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--aud-border-muted);
+}
+.aud-transcript-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  color: var(--aud-accent);
+  margin-bottom: 10px;
+}
+.aud-transcript-empty {
+  color: var(--aud-text-muted);
+  font-size: 0.88rem;
+  font-style: italic;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.aud-transcript-empty.err { color: #ffb4b4; font-style: normal; }
+.aud-transcript-help {
+  font-size: 0.78rem;
+  color: var(--aud-text-muted);
+  font-style: italic;
+}
+.aud-transcript-progress {
+  height: 6px;
+  background: var(--aud-border-muted);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.aud-transcript-progress-fill {
+  height: 100%;
+  background: var(--aud-accent);
+  transition: width 0.4s ease;
+}
+.aud-transcript-body {
+  font-family: 'Lora', 'Georgia', serif;
+  font-size: 1.05rem;
+  line-height: 1.85;
+  color: var(--aud-text-dim);
+}
+.aud-transcript-seg {
+  cursor: pointer;
+  padding: 0.05rem 0.1rem;
+  border-radius: 3px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.aud-transcript-seg:hover { background: rgba(177, 186, 196, 0.06); color: var(--aud-text); }
+.aud-transcript-seg.current {
+  background: rgba(56, 139, 253, 0.22);
+  color: #ffffff;
+  font-weight: 500;
+  box-shadow: 0 0 0 1px rgba(56, 139, 253, 0.4);
+}
+
 /* Audio status banner */
 .aud-status-banner {
   margin-top: 16px;
@@ -651,6 +756,11 @@ AudibleView.prototype.injectStyles = function () {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
+}
+.aud-status-banner > span {
+  flex: 1;
+  min-width: 0;
 }
 .aud-status-banner.ok { border-color: rgba(63, 185, 80, 0.4); }
 .aud-status-banner.warn { border-color: rgba(240, 165, 60, 0.4); }
@@ -851,10 +961,24 @@ AudibleView.prototype.renderShell = function () {
   this.container.innerHTML = '';
   this.container.classList.add('aud-skinned');
 
-  // Sidebar
-  this.sidebarEl = el('aside', { class: 'aud-sidebar' + (this.sidebarOpen ? '' : ' collapsed') });
+  // Library sidebar (sits on the RIGHT, mirrors the workspace editor's
+  // Files panel — thin vertical "Library" strip when collapsed, clickable
+  // to re-expand).
+  this.sidebarEl = el('aside', { class: 'aud-sidebar' });
   this.sidebarHead = el('div', { class: 'aud-sidebar-head' });
-  this.sidebarHead.appendChild(el('div', { class: 'aud-sidebar-title' }, 'Library'));
+  const headTitleRow = el('div', { class: 'aud-sidebar-title-row' });
+  headTitleRow.appendChild(el('div', { class: 'aud-sidebar-title' }, 'Library'));
+  const collapseBtn = el('button', {
+    class: 'aud-iconbtn aud-sidebar-collapse-btn',
+    type: 'button',
+    title: 'Collapse library',
+    'aria-label': 'Collapse library',
+    onclick: () => this.setSidebarOpen(false),
+    // Chevron points right → "tuck panel away to the right edge".
+    html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+  });
+  headTitleRow.appendChild(collapseBtn);
+  this.sidebarHead.appendChild(headTitleRow);
 
   this.searchInput = el('input', {
     type: 'search',
@@ -896,23 +1020,29 @@ AudibleView.prototype.renderShell = function () {
   this.listEl = el('div', { class: 'aud-list' });
   this.sidebarEl.appendChild(this.listEl);
 
-  // Main
+  // Collapsed-strip alternative — vertical "Library" pill that sits where
+  // the sidebar used to. Click it to re-expand.
+  this.sidebarStripEl = el('button', {
+    class: 'aud-sidebar-collapsed',
+    type: 'button',
+    title: 'Show library',
+    'aria-label': 'Show library',
+    onclick: () => this.setSidebarOpen(true),
+  });
+  // Chevron points left because the sidebar lives on the right edge —
+  // expanding pulls the panel toward the center.
+  this.sidebarStripEl.appendChild(el('span', {
+    class: 'aud-sidebar-collapsed-icon',
+    html: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
+  }));
+  this.sidebarStripEl.appendChild(el('span', { class: 'aud-sidebar-collapsed-label' }, 'Library'));
+
+  // Main column (toolbar / content / player)
   this.mainEl = el('section', { class: 'aud-main' });
 
-  // Toolbar (with sidebar toggle + chapters toggle)
+  // Toolbar — chapters toggle + book title. Sidebar toggle lives in the
+  // sidebar header now (workspace-style chevron + collapsed strip).
   this.toolbarEl = el('div', { class: 'aud-toolbar' });
-  this.sidebarToggle = el('button', {
-    class: 'aud-iconbtn',
-    type: 'button',
-    title: 'Toggle library',
-    'aria-label': 'Toggle library',
-    onclick: () => {
-      this.sidebarOpen = !this.sidebarOpen;
-      writeBool(SIDEBAR_OPEN_KEY, this.sidebarOpen);
-      this.sidebarEl.classList.toggle('collapsed', !this.sidebarOpen);
-    },
-    html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
-  });
   this.chaptersToggle = el('button', {
     class: 'aud-iconbtn',
     type: 'button',
@@ -930,7 +1060,6 @@ AudibleView.prototype.renderShell = function () {
   this.toolbarSubEl = el('div', { class: 'aud-toolbar-sub' }, '');
   this.toolbarTitleWrap.appendChild(this.toolbarTitleEl);
   this.toolbarTitleWrap.appendChild(this.toolbarSubEl);
-  this.toolbarEl.appendChild(this.sidebarToggle);
   this.toolbarEl.appendChild(this.chaptersToggle);
   this.toolbarEl.appendChild(this.toolbarTitleWrap);
   this.mainEl.appendChild(this.toolbarEl);
@@ -953,11 +1082,40 @@ AudibleView.prototype.renderShell = function () {
   this.playerEl = this.buildPlayer();
   this.mainEl.appendChild(this.playerEl);
 
-  this.shellEl = el('div', { class: 'aud-shell' }, this.sidebarEl, this.mainEl);
+  // Order: main column first, library sidebar (or collapsed strip) on
+  // the right edge — flush with the player.
+  this.shellEl = el('div', { class: 'aud-shell' }, this.mainEl, this.sidebarEl, this.sidebarStripEl);
   this.container.appendChild(this.shellEl);
+
+  // Sync the visibility from persisted preference.
+  this.setSidebarOpen(this.sidebarOpen, { skipPersist: true });
 
   this.renderDetail();
   this.renderChapters();
+};
+
+AudibleView.prototype.setSidebarOpen = function (open, opts) {
+  this.sidebarOpen = !!open;
+  if (!opts || !opts.skipPersist) writeBool(SIDEBAR_OPEN_KEY, this.sidebarOpen);
+  if (this.sidebarEl) this.sidebarEl.style.display = this.sidebarOpen ? '' : 'none';
+  if (this.sidebarStripEl) this.sidebarStripEl.style.display = this.sidebarOpen ? 'none' : '';
+  // Re-expanding should put the user back on the currently-playing book
+  // in the list — same affordance the workspace editor has when re-
+  // opening Files.
+  if (this.sidebarOpen) this.scrollSelectedIntoView();
+};
+
+AudibleView.prototype.scrollSelectedIntoView = function () {
+  if (!this.listEl || !this.currentAsin) return;
+  // Defer to the next frame so the list has rendered + the sidebar is
+  // visible (display: none → '' takes a tick to layout).
+  requestAnimationFrame(() => {
+    if (!this.listEl) return;
+    const card = this.listEl.querySelector('.aud-card.active');
+    if (card && typeof card.scrollIntoView === 'function') {
+      card.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+    }
+  });
 };
 
 AudibleView.prototype.buildPlayer = function () {
@@ -1107,7 +1265,9 @@ AudibleView.prototype.onTimeUpdate = function () {
     this.progressFill.style.width = pct + '%';
     this.progressHandle.style.left = pct + '%';
   }
-  this.maybeMarkChapterFromTime(cur * 1000);
+  const ms = cur * 1000;
+  this.maybeMarkChapterFromTime(ms);
+  this.highlightTranscriptAt(ms);
 };
 
 AudibleView.prototype.onDurationChange = function () {
@@ -1206,6 +1366,10 @@ AudibleView.prototype.renderList = function () {
   for (const b of matches) {
     this.listEl.appendChild(this.buildCard(b));
   }
+  // Whenever the list re-renders we want the active card to be visible
+  // — covers the case where the user reopens the page and the auto-
+  // restored book is well below the fold.
+  this.scrollSelectedIntoView();
 };
 
 AudibleView.prototype.buildCard = function (b) {
@@ -1269,16 +1433,20 @@ AudibleView.prototype.loadBook = async function (asin, opts) {
   }
   this.currentBook = null;
   this.currentChapters = [];
+  this.currentTranscript = null;
+  this.transcriptSegEls = null;
   this.totalDurationMs = 0;
   this.lastPositionMs = 0;
+  this.lastTranscriptIdx = -1;
   if (!wasSilent) this.renderDetail({ loading: true });
   this.renderChapters();
   this.renderList();
 
   try {
-    const [details, chapters] = await Promise.all([
+    const [details, chapters, transcript] = await Promise.all([
       this.fetchJson('/v1/audible/book/' + encodeURIComponent(asin)),
       this.fetchJson('/v1/audible/book/' + encodeURIComponent(asin) + '/chapters').catch(() => null),
+      this.fetchJson('/v1/audible/book/' + encodeURIComponent(asin) + '/transcript').catch(() => null),
     ]);
     this.currentBook = details;
     if (chapters) {
@@ -1288,6 +1456,7 @@ AudibleView.prototype.loadBook = async function (asin, opts) {
     } else {
       this.lastPositionMs = details.last_position_ms || 0;
     }
+    this.currentTranscript = transcript || null;
     this.renderDetail();
     this.renderChapters();
     this.refreshAudioStatus({ kickIfMissing: false });
@@ -1365,6 +1534,132 @@ AudibleView.prototype.renderDetail = function (state) {
 
   this.statusBanner = el('div', { class: 'aud-status-banner' }, 'Checking audio status…');
   this.detailEl.appendChild(this.statusBanner);
+
+  // Read-along transcript — segment-timed text rendered alongside the
+  // player, with the current segment highlighted as audio plays. The
+  // server transcribes the audiobook automatically once the audio
+  // download finishes; this section auto-refreshes from the status
+  // poll until the transcript is ready.
+  this.renderTranscript();
+};
+
+AudibleView.prototype.renderTranscript = function () {
+  if (!this.detailEl) return;
+  // Remove any prior transcript host so re-renders don't stack.
+  const prior = this.detailEl.querySelector('.aud-transcript');
+  if (prior) prior.remove();
+  this.transcriptSegEls = null;
+  this.lastTranscriptIdx = -1;
+
+  const t = this.currentTranscript;
+  const segs = (t && t.segments) || [];
+  const wrap = el('div', { class: 'aud-transcript' });
+  wrap.appendChild(el('div', { class: 'aud-transcript-title' }, 'Read-along'));
+
+  if (!segs.length) {
+    const status = (t && t.status) || (this.audioStatus && this.audioStatus.transcript) || { state: 'idle' };
+    wrap.appendChild(this.buildTranscriptStatusBlock(status));
+    this.detailEl.appendChild(wrap);
+    return;
+  }
+
+  const body = el('div', { class: 'aud-transcript-body' });
+  const segEls = new Array(segs.length);
+  segs.forEach((seg, i) => {
+    const span = el('span', {
+      class: 'aud-transcript-seg',
+      'data-idx': i,
+      onclick: () => {
+        const startSec = (Number(seg.start) || 0) / 1000;
+        if (this.audio && this.audio.src && isFinite(this.audio.duration)) {
+          this.audio.currentTime = startSec;
+        } else {
+          this.lastPositionMs = Number(seg.start) || 0;
+          this.renderProgressFromVirtual();
+        }
+      },
+    }, (seg.text || '') + ' ');
+    segEls[i] = span;
+    body.appendChild(span);
+  });
+  this.transcriptSegEls = segEls;
+  this.transcriptSegmentStarts = segs.map((s) => Number(s.start) || 0);
+  wrap.appendChild(body);
+  this.detailEl.appendChild(wrap);
+
+  // If the audio is already at a known position, show that highlighted
+  // segment immediately rather than waiting for the next time-update.
+  const ms = (this.audio && isFinite(this.audio.currentTime))
+    ? this.audio.currentTime * 1000
+    : this.lastPositionMs;
+  this.highlightTranscriptAt(ms);
+};
+
+AudibleView.prototype.buildTranscriptStatusBlock = function (status) {
+  // Render a friendly empty/progress state for the transcript section
+  // when no segments are available yet. Shape mirrors `_read_transcript_status`.
+  const state = (status && status.state) || 'idle';
+  if (state === 'transcribing') {
+    const total = status.chunk_count || 0;
+    const done = status.chunks_done || 0;
+    const pct = total ? Math.max(0, Math.min(100, Math.round((done / total) * 100))) : 0;
+    const bar = el('div', { class: 'aud-transcript-progress' },
+      el('div', { class: 'aud-transcript-progress-fill', style: `width:${pct}%` }),
+    );
+    const inner = el('div', { class: 'aud-transcript-empty' },
+      el('div', null, status.message || `Transcribing audio… (${done}/${total} chunks)`),
+      bar,
+      el('div', { class: 'aud-transcript-help' },
+        'Read-along will appear here automatically when this finishes.'),
+    );
+    return inner;
+  }
+  if (state === 'error') {
+    return el('div', { class: 'aud-transcript-empty err' },
+      el('div', null, 'Transcription failed.'),
+      el('div', { class: 'aud-transcript-help' }, status.error || 'Try downloading the audio again.'),
+    );
+  }
+  // idle / unknown — no transcript and not currently working on one.
+  // Most often this just means audio isn't downloaded yet.
+  const playable = this.audioStatus && this.audioStatus.playable;
+  return el('div', { class: 'aud-transcript-empty' },
+    playable
+      ? 'Transcription will start automatically the next time the audio is processed.'
+      : 'Transcription will start automatically once the audio finishes downloading.',
+  );
+};
+
+AudibleView.prototype.highlightTranscriptAt = function (ms) {
+  const segEls = this.transcriptSegEls;
+  const starts = this.transcriptSegmentStarts;
+  if (!segEls || !segEls.length || !starts) return;
+  // Binary search for the last segment whose start <= ms.
+  let lo = 0, hi = starts.length - 1, idx = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (starts[mid] <= ms) { idx = mid; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  if (idx === this.lastTranscriptIdx) return;
+  if (this.lastTranscriptIdx >= 0 && segEls[this.lastTranscriptIdx]) {
+    segEls[this.lastTranscriptIdx].classList.remove('current');
+  }
+  this.lastTranscriptIdx = idx;
+  if (idx < 0) return;
+  const cur = segEls[idx];
+  if (!cur) return;
+  cur.classList.add('current');
+  // Auto-scroll the active segment into view, but only if it's not
+  // already visible — otherwise the constant smooth-scroll fights the
+  // user's manual scroll.
+  const rect = cur.getBoundingClientRect();
+  const parent = cur.parentElement && cur.parentElement.parentElement; // .aud-transcript
+  if (!parent) return;
+  const pRect = parent.getBoundingClientRect();
+  if (rect.top < pRect.top + 40 || rect.bottom > pRect.bottom - 40) {
+    cur.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
 };
 
 AudibleView.prototype.renderChapters = function () {
@@ -1375,12 +1670,16 @@ AudibleView.prototype.renderChapters = function () {
     return;
   }
   this.currentChapters.forEach((ch, idx) => {
+    // Don't prefix our own ordinal number — Audible chapter titles
+    // already start with the book's own numbering (e.g. "Chapter 4",
+    // "Part II", "1. Opening Credits"), so adding our index would
+    // produce "5. 4. Chapter 4" / "5. 1. Opening Credits".
     const item = el('div', {
       class: 'aud-chapter-item',
       'data-idx': idx,
       onclick: () => this.seekToChapter(idx),
     },
-      el('div', null, `${idx + 1}. ${ch.title}`),
+      el('div', null, ch.title || `Chapter ${idx + 1}`),
       el('div', { class: 'aud-chapter-time' }, fmtDuration(ch.start_ms) + ' · ' + fmtDuration(ch.length_ms)),
     );
     this.chaptersListEl.appendChild(item);
@@ -1418,20 +1717,50 @@ AudibleView.prototype.refreshAudioStatus = async function (opts) {
     return;
   }
   if (asin !== this.currentAsin) return;
+  const prevTranscriptState = this.audioStatus
+    && this.audioStatus.transcript
+    && this.audioStatus.transcript.state;
   this.audioStatus = status;
   this.renderAudioStatus();
 
+  // If transcription is still in progress, keep the empty/progress
+  // block in sync; if it just finished, fetch the new transcript.
+  const txState = (status.transcript && status.transcript.state) || 'idle';
+  const txJustFinished = prevTranscriptState && prevTranscriptState !== 'ready' && txState === 'ready';
+  if (!this.currentTranscript || !(this.currentTranscript.segments || []).length) {
+    if (txJustFinished) {
+      try {
+        const fresh = await this.fetchJson('/v1/audible/book/' + encodeURIComponent(asin) + '/transcript');
+        if (asin === this.currentAsin && fresh) {
+          this.currentTranscript = fresh;
+          this.renderTranscript();
+        }
+      } catch (_) {}
+    } else if (txState === 'transcribing' || txState === 'error') {
+      // Re-render the transcript empty block with up-to-date progress.
+      this.renderTranscript();
+    }
+  }
+
   if (status.playable) {
-    this.attachAudioStream();
-    this.enablePlayer(true);
+    // Don't enable the player until the blob has actually been fetched
+    // and the audio element can play it. Otherwise the user clicks
+    // Play, audio.src is still empty (the fetchBlob is in flight),
+    // and togglePlay bails silently.
+    this.enablePlayer(false);
+    this.attachAudioStream().then((ok) => {
+      if (asin !== this.currentAsin) return;
+      this.enablePlayer(!!ok);
+    });
   } else {
     this.enablePlayer(false);
     if (this.totalDurationMs > 0) this.renderProgressFromVirtual();
   }
 
-  if (!status.playable && status.downloading) {
-    this.startStatusPoll();
-  } else if (status.downloading) {
+  // Keep polling whenever audio is downloading OR transcription is in
+  // flight — the latter is the longer of the two for a real audiobook.
+  const txInFlight = txState === 'transcribing';
+  if (status.downloading || txInFlight) {
     this.startStatusPoll();
   } else if (this.statusPollTimer) {
     clearInterval(this.statusPollTimer);
@@ -1458,10 +1787,29 @@ AudibleView.prototype.renderAudioStatus = function () {
     this.statusBanner.appendChild(el('span', null, 'Audio ready — playing from local cache.'));
   } else if (s.downloading) {
     this.statusBanner.classList.add('warn');
-    this.statusBanner.appendChild(el('span', null, 'Downloading audio… this can take several minutes.'));
+    this.statusBanner.appendChild(el('span', null, 'Downloading and decoding audio… this can take several minutes for a long book.'));
   } else if (s.encrypted_only) {
-    this.statusBanner.classList.add('warn');
-    this.statusBanner.appendChild(el('span', null, 'Encrypted .aax downloaded but not yet decoded. Decrypt manually with audible-cli to enable in-browser playback.'));
+    // Download succeeded but ffmpeg couldn't decode it — usually a
+    // missing-ffmpeg or activation_bytes issue. The specific reason
+    // is in `last_error`; render it inline + a Retry button.
+    this.statusBanner.classList.add('err');
+    this.statusBanner.appendChild(el('span', null, 'Audio downloaded but could not be decoded for browser playback.'));
+    const retryBtn = el('button', {
+      type: 'button',
+      onclick: async () => {
+        retryBtn.disabled = true;
+        retryBtn.textContent = 'Retrying…';
+        await this.kickDownload();
+        retryBtn.disabled = false;
+        retryBtn.textContent = 'Retry';
+      },
+    }, 'Retry');
+    this.statusBanner.appendChild(retryBtn);
+    if (s.last_error) {
+      this.statusBanner.appendChild(el('div', {
+        style: 'flex-basis:100%;margin-top:6px;font-family:monospace;font-size:0.74rem;opacity:0.85;max-height:140px;overflow:auto;white-space:pre-wrap;word-break:break-word',
+      }, s.last_error));
+    }
   } else {
     this.statusBanner.appendChild(el('span', null,
       s.last_error
@@ -1480,10 +1828,9 @@ AudibleView.prototype.renderAudioStatus = function () {
     this.statusBanner.appendChild(btn);
     if (s.last_error) {
       this.statusBanner.classList.add('err');
-      const det = el('div', {
-        style: 'margin-top:6px;font-family:monospace;font-size:0.74rem;opacity:0.85;max-height:80px;overflow:auto',
-      }, s.last_error);
-      this.statusBanner.appendChild(det);
+      this.statusBanner.appendChild(el('div', {
+        style: 'flex-basis:100%;margin-top:6px;font-family:monospace;font-size:0.74rem;opacity:0.85;max-height:140px;overflow:auto;white-space:pre-wrap;word-break:break-word',
+      }, s.last_error));
     }
   }
 };
@@ -1501,41 +1848,89 @@ AudibleView.prototype.kickDownload = async function () {
 };
 
 AudibleView.prototype.attachAudioStream = async function () {
-  if (!this.audio || !this.currentAsin) return;
-  if (this.audioBlobAsin === this.currentAsin && this.audio.src) return;
+  if (!this.audio || !this.currentAsin) return false;
+  if (this.audioBlobAsin === this.currentAsin && this.audio.src) return true;
   // Browsers won't send Authorization headers on <audio src>, so we
   // pull the file as a blob and hand the player a blob: URL.
-  // (Range/scrubbing inside the blob is handled by the browser; the
-  // server already streamed the whole file.)
+  // Returns true once the audio element has loaded enough metadata to
+  // play; the caller awaits this before flipping the play button on.
   const asin = this.currentAsin;
+  // Show a transient "Loading audio…" status while the blob downloads.
+  // For a 5-hour book that's 100-200MB and several seconds even on a
+  // fast connection — without this the user sees "Audio ready" and a
+  // dead Play button.
+  if (this.statusBanner) {
+    this.statusBanner.className = 'aud-status-banner warn';
+    this.statusBanner.innerHTML = '';
+    this.statusBanner.appendChild(el('span', null, 'Loading audio into memory…'));
+  }
+  let blob;
   try {
-    const blob = await this.fetchBlob('/v1/audible/audio/' + encodeURIComponent(asin));
-    if (asin !== this.currentAsin) return; // user moved on
-    if (this.audioObjectUrl) {
-      try { URL.revokeObjectURL(this.audioObjectUrl); } catch (_) {}
-      this.audioObjectUrl = null;
-    }
-    this.audioObjectUrl = URL.createObjectURL(blob);
-    this.audioBlobAsin = asin;
-    this.audio.src = this.audioObjectUrl;
-    this.audio.load();
-    if (this.lastPositionMs > 0) {
-      const seekTarget = this.lastPositionMs / 1000;
-      const onLoaded = () => {
-        try { this.audio.currentTime = seekTarget; } catch (_) {}
-        this.audio.removeEventListener('loadedmetadata', onLoaded);
-      };
-      this.audio.addEventListener('loadedmetadata', onLoaded);
-    }
+    blob = await this.fetchBlob('/v1/audible/audio/' + encodeURIComponent(asin));
   } catch (err) {
     console.warn('audible: audio fetch failed', err);
-    if (this.statusBanner) {
-      this.statusBanner.classList.add('err');
-      this.statusBanner.classList.remove('ok', 'warn');
+    if (this.statusBanner && asin === this.currentAsin) {
+      this.statusBanner.className = 'aud-status-banner err';
       this.statusBanner.innerHTML = '';
       this.statusBanner.appendChild(el('span', null, 'Failed to load audio: ' + (err.message || err)));
     }
+    return false;
   }
+  if (asin !== this.currentAsin) return false;
+  if (this.audioObjectUrl) {
+    try { URL.revokeObjectURL(this.audioObjectUrl); } catch (_) {}
+    this.audioObjectUrl = null;
+  }
+  this.audioObjectUrl = URL.createObjectURL(blob);
+  this.audioBlobAsin = asin;
+  this.audio.src = this.audioObjectUrl;
+  this.audio.load();
+
+  // Wait for the audio element to either accept the source or fail it.
+  // `loadedmetadata` (or `canplay`) fires once decode is in good shape;
+  // `error` fires when the codec or bytes can't be played by the browser.
+  return await new Promise((resolve) => {
+    let settled = false;
+    const cleanup = () => {
+      this.audio.removeEventListener('loadedmetadata', onLoaded);
+      this.audio.removeEventListener('canplay', onLoaded);
+      this.audio.removeEventListener('error', onError);
+    };
+    const onLoaded = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (this.lastPositionMs > 0) {
+        try { this.audio.currentTime = this.lastPositionMs / 1000; } catch (_) {}
+      }
+      // Banner reverts to the "ready" state once renderAudioStatus is
+      // called again on the next status poll, but flip it now too so
+      // the user isn't stuck staring at "Loading…".
+      if (this.statusBanner) {
+        this.statusBanner.className = 'aud-status-banner ok';
+        this.statusBanner.innerHTML = '';
+        this.statusBanner.appendChild(el('span', null, 'Audio ready — playing from local cache.'));
+      }
+      resolve(true);
+    };
+    const onError = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      const code = (this.audio.error && this.audio.error.code) || 'unknown';
+      const msg = (this.audio.error && this.audio.error.message) || '';
+      if (this.statusBanner) {
+        this.statusBanner.className = 'aud-status-banner err';
+        this.statusBanner.innerHTML = '';
+        this.statusBanner.appendChild(el('span', null,
+          `Audio decode failed in browser (code ${code}). ${msg || 'The cached file may be corrupt or use an unsupported codec.'}`));
+      }
+      resolve(false);
+    };
+    this.audio.addEventListener('loadedmetadata', onLoaded);
+    this.audio.addEventListener('canplay', onLoaded);
+    this.audio.addEventListener('error', onError);
+  });
 };
 
 AudibleView.prototype.enablePlayer = function (enabled) {

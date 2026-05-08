@@ -4,11 +4,13 @@ import json
 import logging
 import os
 import re
+import shutil
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import jwt
@@ -638,26 +640,26 @@ def _audio_cache_paths(asin: str) -> Tuple[Path, Path]:
 def _find_playable_audio(asin: str) -> Optional[Path]:
     """Return a browser-playable audio file for `asin`, or None.
 
-    Falls back to the kids-app cache directory if no AGiXT-side cache
-    has been populated yet — both stores use the same `<asin>/audio.m4a`
-    layout, so prior downloads are reused for free.
+    Looks for a converted audio file in the AGiXT cache only — anything
+    else (the encrypted .aax, the raw download, or a miniature error
+    response saved as .m4a) gets skipped. The companion `decode_ok`
+    marker is what `_convert_to_playable` writes once ffprobe has
+    confirmed the file actually plays.
     """
-    bases = [_AUDIO_CACHE_ROOT / asin]
-    kids_cache = Path("/home/josh/repos/xtsys/kids/data/audiobooks") / asin
-    if kids_cache.is_dir():
-        bases.append(kids_cache)
-    for base in bases:
-        if not base.is_dir():
+    base = _AUDIO_CACHE_ROOT / asin
+    if not base.is_dir():
+        return None
+    for name in ("audio.m4a", "audio.m4b", "audio.mp3", "audio.mp4"):
+        p = base / name
+        if not (p.is_file() and p.stat().st_size > 0):
             continue
-        for name in ("audio.m4a", "audio.m4b", "audio.mp3", "audio.mp4"):
-            p = base / name
-            if not (p.is_file() and p.stat().st_size > 0):
-                continue
-            err_marker = base / f"{name}.decode_error"
-            ok_marker = base / f"{name}.decode_ok"
-            if err_marker.is_file() and not ok_marker.is_file():
-                continue
-            return p
+        ok_marker = base / f"{name}.decode_ok"
+        err_marker = base / f"{name}.decode_error"
+        # Only trust files we've explicitly validated. A bare file with
+        # neither marker means an old/unvalidated artifact — bail.
+        if not ok_marker.is_file() or err_marker.is_file():
+            continue
+        return p
     return None
 
 
@@ -683,9 +685,502 @@ def _extract_download_url(license_response: Any) -> Optional[str]:
     return None
 
 
+def _extension_from_url(url: str) -> str:
+    """Best-effort filename extension for the streamed audio URL.
+
+    Audible's download URLs may end in `.aax`, `.aaxc`, `.m4b`, etc.
+    We default to `.aax` for the legacy ADRM path. Mirrors the kids
+    app's helper of the same name.
+    """
+    path = urlparse(url).path.lower()
+    for ext in ("m4b", "m4a", "mp3", "mp4", "aaxc", "aax"):
+        if path.endswith(f".{ext}") or f".{ext}." in path:
+            return ext
+    return "aax"
+
+
+def _activation_bytes_from_auth(auth) -> Optional[str]:
+    """Read activation_bytes from the Authenticator, asking Amazon for
+    them on first use if needed (matches the kids-app helper)."""
+    try:
+        ab = getattr(auth, "activation_bytes", None)
+        if not ab and hasattr(auth, "get_activation_bytes"):
+            ab = auth.get_activation_bytes()
+        return ab or None
+    except Exception as exc:
+        logging.warning("audible: activation_bytes lookup failed: %s", exc)
+        return None
+
+
+def _decrypt_license_voucher(auth, license_response: Dict[str, Any]) -> Dict[str, Any]:
+    """Decrypt the AAXC voucher from a license response, returning
+    `{ key, iv, activation_bytes }` (any of which may be missing).
+    Returns an empty dict on failure."""
+    try:
+        from audible.aescipher import decrypt_voucher_from_licenserequest
+
+        return decrypt_voucher_from_licenserequest(auth, license_response) or {}
+    except Exception as exc:
+        logging.debug("audible: voucher decrypt skipped (%s)", exc)
+        return {}
+
+
+def _ffmpeg_supports_aaxc(ffmpeg_path: str) -> bool:
+    """Probe whether the local ffmpeg has the `audible_key`/`audible_iv`
+    options (needed for `.aaxc`). Older Ubuntu builds don't."""
+    try:
+        out = subprocess.run(
+            [ffmpeg_path, "-hide_banner", "-h", "demuxer=aaxc"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return "audible_key" in (out.stdout or "") + (out.stderr or "")
+    except Exception:
+        return False
+
+
+def _run_ffmpeg_decrypt(command: List[str], output_path: Path) -> Tuple[int, str]:
+    """Run ffmpeg synchronously with stdout+stderr captured. Returns
+    `(returncode, tail_of_output)`. Caller invokes via asyncio.to_thread."""
+    try:
+        proc = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=3600,
+        )
+        tail = (proc.stderr or proc.stdout or "")[-1000:]
+        return proc.returncode, tail
+    except subprocess.TimeoutExpired:
+        if output_path.exists():
+            output_path.unlink(missing_ok=True)
+        return 1, "ffmpeg timed out after 3600 seconds"
+    except Exception as exc:
+        return 1, f"ffmpeg subprocess failed: {exc}"
+
+
+def _probe_audio_duration_seconds(audio_path: Path) -> Optional[float]:
+    """Return the audio duration in seconds via ffprobe, or None on failure."""
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    try:
+        result = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(audio_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return None
+        return float((result.stdout or "").strip())
+    except Exception:
+        return None
+
+
+def _validate_decoded_audio(audio_path: Path) -> Tuple[bool, str]:
+    """Probe the converted audio file to make sure it actually decodes.
+
+    Catches the "ffmpeg returned 0 but produced a 500-byte stub" case —
+    the file looks superficially fine (valid M4A header) but has no
+    actual decodable audio behind it, which the browser then rejects
+    with `MEDIA_ERR_SRC_NOT_SUPPORTED`. We require:
+    - a non-trivial file size (a real audiobook is at least 1 MB even
+      compressed at the lowest quality the Audible API serves), and
+    - a duration ffprobe can read of at least 5 seconds.
+    """
+    try:
+        size = audio_path.stat().st_size
+    except Exception:
+        return False, "audio file missing"
+    if size < 1024 * 1024:
+        return False, f"audio file is too small to be real ({size} bytes)"
+    duration = _probe_audio_duration_seconds(audio_path)
+    if duration is None:
+        return False, "ffprobe could not read audio duration"
+    if duration < 5:
+        return False, f"audio duration is too short ({duration:.1f}s)"
+    return True, ""
+
+
+async def _convert_to_playable(
+    input_path: Path,
+    output_path: Path,
+    auth,
+    license_response: Dict[str, Any],
+) -> Tuple[bool, str]:
+    """Convert a downloaded `.aax`/`.aaxc` file into a browser-playable
+    `.m4a` next to it. Returns `(ok, last_stderr_tail)`.
+
+    Classic AAX uses `-activation_bytes`; AAXC uses `-audible_key` +
+    `-audible_iv` from the decrypted voucher (requires a recent
+    ffmpeg). After conversion we probe the result with ffprobe to
+    confirm it actually plays — without that, a tiny error response
+    saved as `.m4a` would be treated as success and serve a corrupt
+    file the browser refuses.
+    """
+    suffix = input_path.suffix.lower()
+    # Already playable — copy/rename and validate. The downloader
+    # may hand us an .m4a/.m4b/.mp3 directly when Audible serves the
+    # streaming-quality variant. We still probe the output below so
+    # an error response written under a `.m4a` URL doesn't slip through.
+    if suffix in {".m4a", ".m4b", ".mp3", ".mp4"}:
+        try:
+            if input_path != output_path:
+                shutil.copyfile(input_path, output_path)
+        except Exception as exc:
+            return False, f"copy failed: {exc}"
+        ok, why = _validate_decoded_audio(output_path)
+        if ok:
+            return True, ""
+        try:
+            output_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return False, f"copy validate: {why}"
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return False, (
+            "ffmpeg is not installed on this server. Install it to enable "
+            "in-browser playback of Audible audiobooks."
+        )
+
+    voucher = _decrypt_license_voucher(auth, license_response)
+    key = voucher.get("key") or voucher.get("audible_key")
+    iv = voucher.get("iv") or voucher.get("audible_iv")
+    activation_bytes = (
+        voucher.get("activation_bytes")
+        or voucher.get("activationBytes")
+        or voucher.get("activation_bytes_hex")
+        or _activation_bytes_from_auth(auth)
+    )
+
+    # Stream-copy the existing AAC audio out of the AAX/AAXC container
+    # into a clean MP4 container. The AAX format is already AAC inside
+    # an MPEG-4 wrapper with a DRM scheme; once ffmpeg has the
+    # activation bytes it can read the audio frames directly. Re-
+    # encoding to AAC again was the previous default and made 5-hour
+    # books take 30+ minutes pegged at 100% CPU instead of finishing
+    # in seconds.
+    # `-map 0:a:0` grabs only the first audio stream — Audible AAX files
+    # also carry a `bin_data` metadata stream (chapter titles) that
+    # confuses the mp4 muxer if we try to copy it through.
+    base_args = [
+        "-map",
+        "0:a:0",
+        "-c",
+        "copy",
+        "-movflags",
+        "+faststart",
+    ]
+    attempts: List[List[str]] = []
+    if suffix == ".aax" and activation_bytes:
+        attempts.append(
+            [
+                ffmpeg,
+                "-y",
+                "-activation_bytes",
+                activation_bytes,
+                "-i",
+                str(input_path),
+                *base_args,
+                str(output_path),
+            ]
+        )
+    if key and iv and _ffmpeg_supports_aaxc(ffmpeg):
+        attempts.append(
+            [
+                ffmpeg,
+                "-y",
+                "-audible_key",
+                key,
+                "-audible_iv",
+                iv,
+                "-i",
+                str(input_path),
+                *base_args,
+                str(output_path),
+            ]
+        )
+    if suffix != ".aax" and activation_bytes:
+        # Some `.aaxc` payloads can still be coerced through
+        # -activation_bytes on ffmpeg builds without -audible_key.
+        attempts.append(
+            [
+                ffmpeg,
+                "-y",
+                "-activation_bytes",
+                activation_bytes,
+                "-i",
+                str(input_path),
+                *base_args,
+                str(output_path),
+            ]
+        )
+    if not attempts:
+        return False, (
+            "Audible license did not include a usable activation_bytes / "
+            "key+iv pair, so the file cannot be decoded."
+        )
+
+    last_err = "no attempt succeeded"
+    for cmd in attempts:
+        rc, tail = await asyncio.to_thread(_run_ffmpeg_decrypt, cmd, output_path)
+        if rc == 0 and output_path.exists():
+            ok, why = _validate_decoded_audio(output_path)
+            if ok:
+                return True, ""
+            last_err = f"validate: {why}"
+        else:
+            last_err = tail or f"ffmpeg exited {rc}"
+        try:
+            output_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+    return False, last_err
+
+
+def _read_transcript_status(asin: str) -> Dict[str, Any]:
+    """Snapshot of the audiobook's transcription progress on disk."""
+    p = _AUDIO_CACHE_ROOT / asin / "transcript_status.json"
+    if not p.is_file():
+        return {"state": "idle"}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {"state": "idle"}
+
+
+def _write_transcript_status(asin: str, **fields) -> None:
+    base = _AUDIO_CACHE_ROOT / asin
+    base.mkdir(parents=True, exist_ok=True)
+    p = base / "transcript_status.json"
+    payload = _read_transcript_status(asin)
+    payload.update(fields)
+    payload["updated_at"] = datetime.utcnow().isoformat() + "Z"
+    try:
+        p.write_text(json.dumps(payload), encoding="utf-8")
+    except Exception as exc:
+        logging.warning("audible: could not write transcript status (%s)", exc)
+
+
+def _voice_server_url() -> Optional[str]:
+    """Resolve the OpenAI-compatible /v1/audio/transcriptions backend.
+
+    Mirrors `VoiceConversation._resolve_voice_server`: prefer an explicit
+    `VOICE_SERVER`, fall back to the ezLocalai env vars AGiXT already
+    uses for STT.
+    """
+    for var in ("VOICE_SERVER", "EZLOCALAI_URI", "EZLOCALAI_API_URI"):
+        v = (getenv(var) or "").strip()
+        if v:
+            return v.rstrip("/")
+    return None
+
+
+async def _ffmpeg_extract_chunk(
+    audio_path: Path, start_sec: float, end_sec: float, out_path: Path
+) -> bool:
+    """Pull a [start_sec, end_sec) slice of `audio_path` to `out_path`.
+
+    Stream-copy when possible (much faster + lossless). Re-encodes to
+    16 kHz mono mp3 when stream-copy fails so the chunk is small enough
+    to upload without choking the transcription server.
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return False
+    duration = max(1, int(end_sec - start_sec))
+    cmd = [
+        ffmpeg,
+        "-y",
+        "-ss",
+        f"{start_sec:.3f}",
+        "-t",
+        f"{duration}",
+        "-i",
+        str(audio_path),
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-c:a",
+        "libmp3lame",
+        "-b:a",
+        "48k",
+        str(out_path),
+    ]
+
+    def _run() -> int:
+        try:
+            r = subprocess.run(cmd, capture_output=True, timeout=300)
+            return r.returncode
+        except Exception:
+            return 1
+
+    rc = await asyncio.to_thread(_run)
+    return rc == 0 and out_path.is_file() and out_path.stat().st_size > 0
+
+
+async def _transcribe_chunk(
+    voice_server: str, chunk_path: Path, language: str = "en"
+) -> Optional[Dict[str, Any]]:
+    """Send `chunk_path` to the OpenAI-compatible transcription endpoint
+    and return the parsed JSON. None on failure."""
+    api_url = voice_server + "/v1/audio/transcriptions"
+    api_key = (getenv("EZLOCALAI_API_KEY") or "none") or "none"
+    try:
+        async with httpx.AsyncClient(timeout=1800.0) as hc:
+            with chunk_path.open("rb") as fh:
+                r = await hc.post(
+                    api_url,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    files={"file": (chunk_path.name, fh, "audio/mpeg")},
+                    data={
+                        "model": getenv("AUDIOBOOK_TRANSCRIPT_MODEL", "base"),
+                        "language": language,
+                        "response_format": "verbose_json",
+                        "timestamp_granularities[]": "segment",
+                    },
+                )
+                if r.status_code >= 400:
+                    logging.warning(
+                        "audible: transcribe chunk %s -> %s %s",
+                        chunk_path.name,
+                        r.status_code,
+                        r.text[:200],
+                    )
+                    return None
+                return r.json()
+    except Exception as exc:
+        logging.warning("audible: transcribe chunk %s failed: %s", chunk_path.name, exc)
+        return None
+
+
+async def _transcribe_audiobook(asin: str, audio_path: Path) -> Tuple[bool, str]:
+    """Split `audio_path` into ~10-minute chunks, transcribe each via
+    the voice server, and write `transcript.json` next to the audio.
+
+    Mirrors the kids app's pipeline: each chunk's `segments` are time-
+    shifted by the chunk offset and concatenated. Status is emitted to
+    `transcript_status.json` so the desktop UI can render a progress bar.
+    """
+    voice_server = _voice_server_url()
+    if not voice_server:
+        return False, "no transcription voice server configured"
+
+    duration = _probe_audio_duration_seconds(audio_path)
+    if not duration or duration < 5:
+        return False, "could not probe audio duration"
+
+    base = audio_path.parent
+    tmp_dir = base / "transcribe_tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    chunk_seconds = int(getenv("AUDIOBOOK_TRANSCRIPT_CHUNK_SECONDS", "600") or 600)
+
+    chunks: List[Tuple[float, float]] = []
+    t = 0.0
+    while t < duration:
+        chunks.append((t, min(t + chunk_seconds, duration)))
+        t += chunk_seconds
+    total = len(chunks)
+
+    _write_transcript_status(
+        asin,
+        state="transcribing",
+        chunk_count=total,
+        chunks_done=0,
+        message=f"Preparing {total} audio chunks for transcription.",
+        error=None,
+    )
+
+    all_segments: List[Dict[str, Any]] = []
+    for i, (start, end) in enumerate(chunks):
+        chunk_path = tmp_dir / f"chunk_{i:04d}.mp3"
+        ok = await _ffmpeg_extract_chunk(audio_path, start, end, chunk_path)
+        if not ok:
+            chunk_path.unlink(missing_ok=True)
+            _write_transcript_status(
+                asin, state="error", error=f"chunk extract failed at {i + 1}/{total}"
+            )
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return False, f"chunk extract failed at {i + 1}/{total}"
+
+        _write_transcript_status(
+            asin,
+            state="transcribing",
+            chunk_count=total,
+            chunks_done=i,
+            message=f"Transcribing chunk {i + 1} of {total}.",
+        )
+
+        result = await _transcribe_chunk(voice_server, chunk_path)
+        chunk_path.unlink(missing_ok=True)
+        if not result:
+            _write_transcript_status(
+                asin,
+                state="error",
+                error=f"transcription failed at chunk {i + 1}/{total}",
+            )
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return False, f"transcription failed at chunk {i + 1}/{total}"
+
+        offset_ms = int(start * 1000)
+        for seg in result.get("segments") or []:
+            try:
+                s_ms = int(float(seg.get("start") or 0) * 1000) + offset_ms
+                e_ms = int(float(seg.get("end") or 0) * 1000) + offset_ms
+                text = (seg.get("text") or "").strip()
+                if text:
+                    all_segments.append({"start": s_ms, "end": e_ms, "text": text})
+            except Exception:
+                continue
+
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    transcript = {
+        "language": "en",
+        "source": "agixt",
+        "segments": all_segments,
+    }
+    try:
+        (base / "transcript.json").write_text(json.dumps(transcript), encoding="utf-8")
+    except Exception as exc:
+        _write_transcript_status(asin, state="error", error=f"write failed: {exc}")
+        return False, f"write failed: {exc}"
+
+    _write_transcript_status(
+        asin,
+        state="ready",
+        chunk_count=total,
+        chunks_done=total,
+        message=f"Transcript ready ({len(all_segments)} segments).",
+        error=None,
+    )
+    return True, ""
+
+
 async def _download_audio(client, asin: str) -> Optional[Path]:
-    """Best-effort license-request + download to the AGiXT-side cache."""
-    base, aax_path = _audio_cache_paths(asin)
+    """License-request + download + decrypt-to-m4a pipeline for `asin`.
+
+    Mirrors the kids app: try a couple of license-request shapes, fetch
+    the bytes, then hand them to ffmpeg with whichever key material the
+    license / Authenticator provided. On success, leaves a playable
+    `audio.m4a` in the cache directory and the encrypted source as
+    `audio.<aax|aaxc>` next to it.
+    """
+    base, _ = _audio_cache_paths(asin)
     license_bodies = [
         {
             "drm_type": "Adrm",
@@ -708,7 +1203,10 @@ async def _download_audio(client, asin: str) -> Optional[Path]:
             "num_active_offline_licenses": 1,
         },
     ]
+    out_path = base / "audio.m4a"
+    err_path = base / "download_error.txt"
     last_err = "no attempts"
+
     for body in license_bodies:
         try:
             license_resp = await asyncio.to_thread(
@@ -721,6 +1219,9 @@ async def _download_audio(client, asin: str) -> Optional[Path]:
         if not url:
             last_err = "license response had no download URL"
             continue
+
+        ext = _extension_from_url(url)
+        encrypted_path = base / f"audio.{ext}"
         try:
             async with httpx.AsyncClient(
                 timeout=None,
@@ -738,15 +1239,42 @@ async def _download_audio(client, asin: str) -> Optional[Path]:
                             f"{body_bytes[:200].decode('utf-8', errors='replace')}"
                         )
                         continue
-                    with aax_path.open("wb") as fh:
+                    with encrypted_path.open("wb") as fh:
                         async for chunk in r.aiter_bytes(chunk_size=65536):
                             fh.write(chunk)
-            return aax_path
         except Exception as exc:
             last_err = f"download: {exc}"
             continue
+
+        ok, conv_err = await _convert_to_playable(
+            encrypted_path, out_path, client.auth, license_resp
+        )
+        if ok:
+            # Clear any prior error marker; mark this file as decoded so
+            # `_find_playable_audio` can pick it up.
+            err_path.unlink(missing_ok=True)
+            (base / "audio.m4a.decode_ok").write_text("ok", encoding="utf-8")
+            # Schedule transcription as a separate background task. The
+            # download flag in /status flips to false right now —
+            # audio is playable — and the transcription progress is
+            # reported via the independent `transcript: {…}` block in
+            # the same status payload. Without this split, an hour-long
+            # transcription run would keep the UI saying "Downloading…"
+            # the whole time.
+            if not (base / "transcript.json").is_file():
+                try:
+                    asyncio.create_task(_transcribe_audiobook(asin, out_path))
+                except Exception as exc:
+                    logging.warning(
+                        "audible: could not schedule transcription for %s: %s",
+                        asin,
+                        exc,
+                    )
+            return out_path
+        last_err = f"decrypt ({ext}): {conv_err}"
+
     logging.warning("audible: download failed for %s — %s", asin, last_err)
-    (base / "download_error.txt").write_text(last_err, encoding="utf-8")
+    err_path.write_text(last_err, encoding="utf-8")
     return None
 
 
@@ -1125,6 +1653,50 @@ class audible(Extensions):
                 "last_position_ms": last_position_ms,
             }
 
+        @router.get(
+            "/book/{asin}/transcript",
+            summary="Read-along transcript with segment timestamps",
+        )
+        async def book_transcript(
+            asin: str,
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
+        ):
+            """Return the segment-timed transcript for an audiobook if
+            one has been generated, plus the current generation status.
+
+            Format: `{segments: [{start, end, text, [words]}]}` with
+            timestamps in milliseconds. Generated by `_transcribe_audiobook`
+            once the audio download finishes; lives at
+            `~/.agixt/audiobooks/<asin>/transcript.json`.
+            """
+            asin = _validate_asin(asin)
+            base = _AUDIO_CACHE_ROOT / asin
+            tx = base / "transcript.json"
+            status = _read_transcript_status(asin)
+            if tx.is_file():
+                try:
+                    data = json.loads(tx.read_text(encoding="utf-8"))
+                    segs = data.get("segments") or []
+                    if isinstance(segs, list):
+                        return {
+                            "asin": asin,
+                            "language": data.get("language") or "en",
+                            "source": data.get("source") or "agixt",
+                            "segments": segs,
+                            "status": status,
+                        }
+                except Exception as exc:
+                    logging.warning("audible: transcript at %s unreadable: %s", tx, exc)
+            return {
+                "asin": asin,
+                "language": "en",
+                "source": None,
+                "segments": [],
+                "status": status,
+            }
+
         @router.get("/cover/{asin}", summary="Cover image (JWT-protected proxy)")
         async def cover_image(
             asin: str,
@@ -1180,8 +1752,16 @@ class audible(Extensions):
         ):
             asin = _validate_asin(asin)
             playable = _find_playable_audio(asin)
-            base, aax_path = _audio_cache_paths(asin)
+            base, _ = _audio_cache_paths(asin)
             err_path = base / "download_error.txt"
+            # "encrypted_only" used to mean `.aax` is on disk but not yet
+            # decoded; now ffmpeg runs as part of the download pipeline,
+            # so the only reason this would be true is if conversion
+            # failed mid-flight. We still report it so the UI can show a
+            # specific message instead of a generic "not cached".
+            encrypted_only = not playable and any(
+                (base / f"audio.{ext}").is_file() for ext in ("aax", "aaxc")
+            )
             is_downloading = (
                 asin in _DOWNLOAD_TASKS and not _DOWNLOAD_TASKS[asin].done()
             )
@@ -1189,11 +1769,12 @@ class audible(Extensions):
                 "asin": asin,
                 "playable": bool(playable),
                 "playable_path": str(playable) if playable else None,
-                "encrypted_only": aax_path.is_file() and not playable,
+                "encrypted_only": encrypted_only,
                 "downloading": is_downloading,
                 "last_error": (
                     err_path.read_text(encoding="utf-8") if err_path.is_file() else None
                 ),
+                "transcript": _read_transcript_status(asin),
             }
 
         @router.post(

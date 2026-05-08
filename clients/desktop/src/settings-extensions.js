@@ -1388,6 +1388,20 @@
       extensions = exts;
       providers = provs.filter((p) => p && p.client_id);   // only configured
       userConnections = conns;
+      // Custom-connect extensions (audible) carry their connection
+      // state on a separate server endpoint, not in the agent
+      // extension payload. Fetch those probes in parallel BEFORE
+      // rendering so the audible tile lands in the correct
+      // Connected/Available section on first paint instead of
+      // flashing under Available until the user opens the drawer.
+      const customConnectExts = extensions.filter(customConnectFor);
+      if (customConnectExts.length) {
+        await Promise.all(customConnectExts.map((e) => {
+          const cfg = customConnectFor(e);
+          const raw = extensionRawName(e);
+          return cfg ? fetchCustomConnectStatus(raw, cfg).catch(() => null) : null;
+        }));
+      }
       render();
       // If the drawer is open, the cached `drawerExt` is stale — find the
       // refreshed copy and rerender, or close if the extension disappeared.
