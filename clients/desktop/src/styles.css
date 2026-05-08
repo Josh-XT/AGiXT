@@ -80,9 +80,9 @@
   --accent: #6b7bff;
   --accent-2: #9a6cff;
   --accent-soft: rgba(107, 123, 255, 0.18);
-  /* VSCode-classic blue — pops against the neutral grayscale chrome
-     without competing with the purple primary accent. */
-  --accent-blue: #4fb3ff;
+  /* Muted GitHub-y blue. Sits comfortably between --text (#cccccc) and
+     the brighter VSCode link-blue without glowing on the gray panels. */
+  --accent-blue: #4a7eba;
   --user-bubble: linear-gradient(135deg, #4a5dff 0%, #7a4dff 100%);
   --assistant-bubble: #2a2a2a;
   --activity: rgba(60, 80, 130, 0.22);
@@ -1121,7 +1121,11 @@ details.sub-tool > summary.sub-tool-summary:hover {
    stays pinned. Switching from `view-pane.view-pane-extension`'s
    default `overflow: auto` to `overflow: hidden` here is what makes
    that pinning work. */
-.view-pane.view-pane-extension.is-framed {
+/* `:not([hidden])` is load-bearing: without it the `display: flex`
+   below outranks `.view-pane[hidden] { display: none }` (specificity
+   30 vs 11) and every framed pane renders simultaneously, stacking
+   their headers down the chat-screen-main column. */
+.view-pane.view-pane-extension.is-framed:not([hidden]) {
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1619,6 +1623,24 @@ body.window-mode.chat-collapsed .chat-resize-handle {
   outline: 1px solid var(--accent);
   border-color: var(--accent);
 }
+/* Native <select> renders its closed face with the OS chrome by
+   default (white in light, dark in some themes) regardless of our
+   CSS. Strip the appearance and paint a chevron with currentColor so
+   the closed widget reads as part of the theme. The dropdown popup
+   itself is still drawn by the OS, but `color-scheme` on :root
+   already aligns it with the active theme. */
+.field select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  /* Pad on the right so the chevron has room. */
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  cursor: pointer;
+}
+.field select::-ms-expand { display: none; }
 .field.readonly input,
 .field input:read-only {
   opacity: 0.7;

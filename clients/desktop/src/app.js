@@ -169,7 +169,10 @@
     // pref disagrees with what we resolved at boot.
     const themePref = (settings.theme || 'system');
     if ($('setting-theme')) $('setting-theme').value = themePref;
-    applyTheme(themePref, { persist: false });
+    // Sync localStorage to whatever the Tauri DB has — the pre-paint
+    // bootstrap script in <head> reads localStorage next launch, so
+    // the two need to agree or the user gets a flash on boot.
+    applyTheme(themePref, { persist: true });
     settingsUser.textContent = settings.user_email
       ? `${settings.user_email} @ ${settings.server_url}`
       : `not signed in`;
@@ -1809,13 +1812,21 @@
   settingsBtn.addEventListener('click', openSettings);
   settingsClose.addEventListener('click', closeSettings);
   saveSettingsBtn.addEventListener('click', onSaveSettings);
-  // Live preview when the user changes the theme dropdown — apply
-  // immediately so they can see the difference before hitting Save.
-  // The Save button still persists to the Tauri settings DB; this just
-  // updates `<html data-theme>` + localStorage for the next boot.
+  // Theme dropdown auto-persists on change. We don't want the user to
+  // have to click Save just to lock in their theme choice — that's a
+  // common-enough decision that it should survive even if they dismiss
+  // the modal. `applyTheme` updates the live DOM + localStorage cache,
+  // and `persistSettings` writes through to the Tauri DB so the next
+  // launch's `loadSettings` reads the same value.
   const themeSelect = $('setting-theme');
   if (themeSelect) {
-    themeSelect.addEventListener('change', () => applyTheme(themeSelect.value));
+    themeSelect.addEventListener('change', async () => {
+      applyTheme(themeSelect.value);
+      if (settings) {
+        try { await persistSettings({ theme: themeSelect.value }); }
+        catch (err) { console.warn('theme: auto-persist failed', err); }
+      }
+    });
   }
   const openAgentSettingsBtn = $('btn-open-agent-settings');
   if (openAgentSettingsBtn) {

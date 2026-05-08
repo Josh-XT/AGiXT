@@ -34,57 +34,57 @@ window.AgixtRegisterExtension('repos', {
 
 const STYLE_ID = 'agixt-repos-style';
 const STYLE_CSS = `
-  .repos-root { padding: 16px 20px 24px; color: var(--fg, #e6edf3); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .repos-root { padding: 16px 20px 24px; color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
   .repos-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
   .repos-header h2 { margin: 0; font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-  .repos-last-updated { color: #8b949e; font-size: 12px; }
+  .repos-last-updated { color: var(--text-faint); font-size: 12px; }
   .repos-btn { background: #238636; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
   .repos-btn:hover { background: #2ea043; }
   .repos-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
   .repos-summary { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-  .repos-summary-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px 16px; flex: 1; min-width: 140px; }
-  .repos-summary-card .label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .repos-summary-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; flex: 1; min-width: 140px; }
+  .repos-summary-card .label { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
   .repos-summary-card .value { font-size: 22px; font-weight: 600; }
   .repos-summary-card .value.critical { color: #f85149; }
   .repos-summary-card .value.warning { color: #d29922; }
   .repos-summary-card .value.success { color: #3fb950; }
-  .repos-summary-card .value.info { color: #58a6ff; }
+  .repos-summary-card .value.info { color: var(--accent-blue); }
 
   .repos-filters { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
-  .repos-filters .search { background: #0d1117; border: 1px solid #30363d; color: var(--fg, #e6edf3); padding: 6px 10px; border-radius: 6px; font-size: 13px; min-width: 220px; flex: 0 0 auto; }
-  .repos-filter-btn { background: #21262d; border: 1px solid #30363d; color: var(--fg, #e6edf3); padding: 5px 10px; border-radius: 16px; cursor: pointer; font-size: 12px; }
-  .repos-filter-btn.active { background: #1f6feb; border-color: #1f6feb; }
+  .repos-filters .search { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 6px; font-size: 13px; min-width: 220px; flex: 0 0 auto; }
+  .repos-filter-btn { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 5px 10px; border-radius: 16px; cursor: pointer; font-size: 12px; }
+  .repos-filter-btn.active { background: var(--accent); border-color: var(--accent); }
 
-  .repos-loading { text-align: center; padding: 40px; color: #8b949e; }
-  .repos-loading .spinner { display:inline-block; width:18px; height:18px; border:3px solid #30363d; border-top-color:#58a6ff; border-radius:50%; animation:repos-spin 0.7s linear infinite; vertical-align:middle; margin-right:8px; }
+  .repos-loading { text-align: center; padding: 40px; color: var(--text-faint); }
+  .repos-loading .spinner { display:inline-block; width:18px; height:18px; border:3px solid var(--border); border-top-color: var(--accent-blue); border-radius:50%; animation:repos-spin 0.7s linear infinite; vertical-align:middle; margin-right:8px; }
   @keyframes repos-spin { to { transform: rotate(360deg); } }
 
-  .repos-table-container { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+  .repos-table-container { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
   .repos-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .repos-table th { text-align: left; padding: 8px 10px; background: #161b22; border-bottom: 1px solid #30363d; cursor: pointer; user-select: none; font-weight: 600; }
-  .repos-table th:hover { background: #1c2128; }
+  .repos-table th { text-align: left; padding: 8px 10px; background: var(--panel-2); border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; font-weight: 600; }
+  .repos-table th:hover { background: var(--panel-hover); }
   .repos-table td { padding: 10px; border-bottom: 1px solid #1f242c; vertical-align: top; }
   .repos-table tr.has-vulns { background: rgba(248, 81, 73, 0.04); }
   .repos-table tr.selected { background: rgba(31, 111, 235, 0.08); }
   .repos-table .checkbox-col { width: 28px; }
   .repos-table .count-cell { text-align: center; white-space: nowrap; }
-  .repos-table .repo-name { color: var(--fg, #e6edf3); text-decoration: none; font-weight: 600; }
-  .repos-table .repo-name:hover { color: #58a6ff; }
-  .repos-table .repo-owner { color: #8b949e; font-weight: 400; }
-  .repos-table .repo-desc { color: #8b949e; font-size: 12px; margin-top: 2px; line-height: 1.4; max-width: 480px; }
+  .repos-table .repo-name { color: var(--text); text-decoration: none; font-weight: 600; }
+  .repos-table .repo-name:hover { color: var(--accent-blue); }
+  .repos-table .repo-owner { color: var(--text-faint); font-weight: 400; }
+  .repos-table .repo-desc { color: var(--text-faint); font-size: 12px; margin-top: 2px; line-height: 1.4; max-width: 480px; }
   .repos-table .lang-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
-  .repos-table .visibility-badge { display: inline-block; background: #21262d; color: #8b949e; padding: 1px 6px; border-radius: 10px; font-size: 10px; margin-left: 6px; text-transform: uppercase; letter-spacing: 0.4px; }
-  .repos-table .zero { color: #484f58; }
-  .repos-table .sort-arrow { color: #58a6ff; margin-left: 2px; }
+  .repos-table .visibility-badge { display: inline-block; background: var(--panel-2); color: var(--text-faint); padding: 1px 6px; border-radius: 10px; font-size: 10px; margin-left: 6px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .repos-table .zero { color: var(--text-faint); }
+  .repos-table .sort-arrow { color: var(--accent-blue); margin-left: 2px; }
 
   .repos-badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; margin-right: 4px; }
   .repos-badge.critical { background: rgba(248,81,73,0.15); color: #f85149; }
   .repos-badge.high { background: rgba(248,81,73,0.10); color: #f85149; }
   .repos-badge.medium { background: rgba(210,153,34,0.15); color: #d29922; }
   .repos-badge.low { background: rgba(63,185,80,0.10); color: #3fb950; }
-  .repos-badge.info { background: rgba(88,166,255,0.15); color: #58a6ff; }
-  .repos-badge.neutral { background: rgba(139,148,158,0.15); color: #8b949e; }
+  .repos-badge.info { background: rgba(88,166,255,0.15); color: var(--accent-blue); }
+  .repos-badge.neutral { background: rgba(139,148,158,0.15); color: var(--text-faint); }
   .repos-vuln-pills { display: inline-flex; gap: 4px; flex-wrap: wrap; }
 
   .repos-badge-disabled { background: rgba(210,153,34,0.10); color: #d29922; border: 1px solid rgba(210,153,34,0.4); padding: 2px 7px; border-radius: 6px; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
@@ -93,16 +93,16 @@ const STYLE_CSS = `
 
   .repos-toggle { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; padding: 2px 6px; border-radius: 4px; }
   .repos-toggle:hover { background: rgba(88,166,255,0.10); }
-  .repos-toggle .expand-icon { font-size: 9px; transition: transform 0.15s; color: #8b949e; }
+  .repos-toggle .expand-icon { font-size: 9px; transition: transform 0.15s; color: var(--text-faint); }
   .repos-toggle.expanded .expand-icon { transform: rotate(90deg); }
 
   .repos-detail-row td { padding: 0 !important; background: #0a0d12 !important; }
-  .repos-detail-container { padding: 12px 16px; border-left: 3px solid #1f6feb; }
+  .repos-detail-container { padding: 12px 16px; border-left: 3px solid var(--accent); }
   .repos-filter-bar { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
-  .repos-filter-bar .alert-filter-btn { background: #21262d; border: 1px solid #30363d; color: var(--fg, #e6edf3); padding: 3px 8px; border-radius: 12px; cursor: pointer; font-size: 11px; }
-  .repos-filter-bar .alert-filter-btn.active { background: #1f6feb; border-color: #1f6feb; }
+  .repos-filter-bar .alert-filter-btn { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 3px 8px; border-radius: 12px; cursor: pointer; font-size: 11px; }
+  .repos-filter-bar .alert-filter-btn.active { background: var(--accent); border-color: var(--accent); }
 
-  .repos-card { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 10px 12px; margin-bottom: 6px; display: flex; gap: 10px; }
+  .repos-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 6px; display: flex; gap: 10px; }
   .repos-card .sev-indicator { width: 4px; border-radius: 4px; flex-shrink: 0; }
   .repos-card .sev-indicator.critical { background: #f85149; }
   .repos-card .sev-indicator.high { background: #f85149; opacity: 0.75; }
@@ -112,46 +112,46 @@ const STYLE_CSS = `
   .repos-card .body { flex: 1; min-width: 0; }
   .repos-card .header { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
   .repos-card .title { font-weight: 600; flex: 1; min-width: 200px; }
-  .repos-card .title a { color: var(--fg, #e6edf3); text-decoration: none; }
-  .repos-card .title a:hover { color: #58a6ff; }
-  .repos-card .meta { font-size: 11px; color: #8b949e; display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  .repos-card .title a { color: var(--text); text-decoration: none; }
+  .repos-card .title a:hover { color: var(--accent-blue); }
+  .repos-card .meta { font-size: 11px; color: var(--text-faint); display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
   .repos-card .meta-label { color: #6e7681; margin-right: 3px; }
-  .repos-card .desc { color: #8b949e; font-size: 12px; margin-top: 6px; line-height: 1.4; }
-  .repos-card .alert-type-badge { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 8px; background: rgba(139,148,158,0.15); color: #8b949e; }
+  .repos-card .desc { color: var(--text-faint); font-size: 12px; margin-top: 6px; line-height: 1.4; }
+  .repos-card .alert-type-badge { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 8px; background: rgba(139,148,158,0.15); color: var(--text-faint); }
 
   .repos-label-badge { display: inline-block; padding: 1px 6px; border-radius: 10px; font-size: 10px; }
   .repos-pr-actions { display: inline-flex; gap: 6px; margin-left: auto; }
-  .repos-merge-method { background: #0d1117; border: 1px solid #30363d; color: var(--fg, #e6edf3); padding: 3px 6px; border-radius: 4px; font-size: 11px; }
-  .repos-btn-action { background: #21262d; border: 1px solid #30363d; color: var(--fg, #e6edf3); padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
-  .repos-btn-action:hover { background: #30363d; }
+  .repos-merge-method { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 3px 6px; border-radius: 4px; font-size: 11px; }
+  .repos-btn-action { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+  .repos-btn-action:hover { background: var(--panel-hover); }
   .repos-btn-action.danger { background: rgba(248,81,73,0.10); color: #f85149; border-color: rgba(248,81,73,0.4); }
   .repos-btn-action.success { background: rgba(63,185,80,0.10); color: #3fb950; border-color: rgba(63,185,80,0.4); }
   .repos-btn-action.merged { background: rgba(63,185,80,0.20); color: #3fb950; }
 
-  .repos-agent-log { background: #0a0d12; border: 1px solid #30363d; border-radius: 4px; margin-top: 8px; max-height: 280px; overflow: auto; display: none; }
+  .repos-agent-log { background: #0a0d12; border: 1px solid var(--border); border-radius: 4px; margin-top: 8px; max-height: 280px; overflow: auto; display: none; }
   .repos-agent-log.active { display: block; }
-  .repos-agent-log-header { padding: 6px 10px; background: #161b22; border-bottom: 1px solid #30363d; font-size: 11px; color: #8b949e; display: flex; justify-content: space-between; align-items: center; }
+  .repos-agent-log-header { padding: 6px 10px; background: var(--panel-2); border-bottom: 1px solid var(--border); font-size: 11px; color: var(--text-faint); display: flex; justify-content: space-between; align-items: center; }
   .repos-agent-log-body { padding: 8px 10px; font-family: ui-monospace, monospace; font-size: 11px; line-height: 1.5; white-space: pre-wrap; }
-  .repos-agent-log-line { color: #8b949e; }
+  .repos-agent-log-line { color: var(--text-faint); }
   .repos-agent-log-line.activity { color: #d29922; }
-  .repos-agent-log-line.execution { color: #58a6ff; }
+  .repos-agent-log-line.execution { color: var(--accent-blue); }
   .repos-agent-log-line.error { color: #f85149; }
-  .repos-agent-response { padding: 10px; border-top: 1px solid #30363d; line-height: 1.5; font-size: 13px; }
+  .repos-agent-response { padding: 10px; border-top: 1px solid var(--border); line-height: 1.5; font-size: 13px; }
   .repos-status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #6e7681; margin-right: 6px; vertical-align: middle; }
   .repos-status-dot.active { background: #3fb950; box-shadow: 0 0 6px rgba(63,185,80,0.5); animation: repos-pulse 1.2s infinite; }
   @keyframes repos-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 
-  .repos-diff-container { background: #0a0d12; border: 1px solid #30363d; border-radius: 4px; margin-top: 8px; overflow: hidden; }
+  .repos-diff-container { background: #0a0d12; border: 1px solid var(--border); border-radius: 4px; margin-top: 8px; overflow: hidden; }
   .repos-diff-file { border-bottom: 1px solid #1f242c; }
   .repos-diff-file:last-child { border-bottom: none; }
-  .repos-diff-file-header { padding: 6px 10px; background: #161b22; border-bottom: 1px solid #1f242c; font-family: ui-monospace, monospace; font-size: 11px; color: #8b949e; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+  .repos-diff-file-header { padding: 6px 10px; background: var(--panel-2); border-bottom: 1px solid #1f242c; font-family: ui-monospace, monospace; font-size: 11px; color: var(--text-faint); cursor: pointer; display: flex; align-items: center; gap: 8px; }
   .repos-diff-file-header.collapsed .repos-diff-arrow { transform: rotate(-90deg); }
   .repos-diff-arrow { transition: transform 0.15s; font-size: 10px; }
-  .repos-diff-file-name { font-weight: 600; color: var(--fg, #e6edf3); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .repos-diff-file-name { font-weight: 600; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .repos-diff-status { font-size: 10px; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.4px; }
   .repos-diff-status.added { background: rgba(63,185,80,0.20); color: #3fb950; }
   .repos-diff-status.removed { background: rgba(248,81,73,0.20); color: #f85149; }
-  .repos-diff-status.modified { background: rgba(88,166,255,0.20); color: #58a6ff; }
+  .repos-diff-status.modified { background: rgba(88,166,255,0.20); color: var(--accent-blue); }
   .repos-diff-status.renamed { background: rgba(210,153,34,0.20); color: #d29922; }
   .repos-additions { color: #3fb950; }
   .repos-deletions { color: #f85149; }
@@ -159,8 +159,8 @@ const STYLE_CSS = `
   .repos-diff-patch .line { padding: 0 12px; line-height: 1.45; white-space: pre; }
   .repos-diff-patch .line.add { background: rgba(63,185,80,0.10); color: #56d364; }
   .repos-diff-patch .line.del { background: rgba(248,81,73,0.10); color: #f85149; }
-  .repos-diff-patch .line.hunk { color: #58a6ff; background: #161b22; }
-  .repos-diff-patch .line.context { color: #8b949e; }
+  .repos-diff-patch .line.hunk { color: var(--accent-blue); background: var(--panel-2); }
+  .repos-diff-patch .line.context { color: var(--text-faint); }
 
   .repos-error { color: #f85149; padding: 16px; }
 `;
@@ -392,8 +392,8 @@ class ReposView {
     this.container.innerHTML = `
       <div class="repos-root">
         <div class="repos-header">
-          <h2><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2c-3.2.7-3.88-1.36-3.88-1.36-.52-1.34-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.05 11.05 0 0 1 5.79 0c2.21-1.49 3.18-1.18 3.18-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.39-5.27 5.68.41.36.78 1.05.78 2.13v3.16c0 .31.21.67.8.55C20.21 21.39 23.5 17.07 23.5 12 23.5 5.65 18.35.5 12 .5Z"/></svg> Repo Security</h2>
-          <div style="display:flex;align-items:center;gap:12px;">
+          <!-- Page title comes from the host pane chrome (manifest.layout="framed"). -->
+          <div style="display:flex;align-items:center;gap:12px;margin-left:auto;">
             <span class="repos-last-updated" data-role="last-updated"></span>
             <button class="repos-btn" data-role="refresh">Refresh</button>
           </div>
@@ -628,7 +628,7 @@ class ReposView {
       <td class="count-cell">${prsHtml}</td>
       <td>${alertsHtml}</td>
       <td class="count-cell">${r.stars > 0 ? `⭐ ${r.stars}` : '<span class="zero">0</span>'}</td>
-      <td style="white-space:nowrap;color:#8b949e;">${escapeHtml(r.updated_at_display || '')}</td>
+      <td style="white-space:nowrap;color: var(--text-faint);">${escapeHtml(r.updated_at_display || '')}</td>
       <td class="count-cell"><button class="repos-btn-action" data-action="audit">🛡️ Audit</button></td>
     `;
 
@@ -736,7 +736,7 @@ class ReposView {
 
   renderAlertDetails(container, r, alerts) {
     if (!alerts || alerts.length === 0) {
-      container.innerHTML = '<div style="color:#8b949e;padding:8px;">No open alerts</div>';
+      container.innerHTML = '<div style="color: var(--text-faint);padding:8px;">No open alerts</div>';
       return;
     }
     const types = [...new Set(alerts.map((a) => a.type))];
@@ -753,7 +753,7 @@ class ReposView {
       const c = alerts.filter((a) => (a.severity || '').toLowerCase() === s).length;
       if (c > 0) bar += `<button class="alert-filter-btn" data-filter="sev:${s}">${cap(s)} (${c})</button>`;
     });
-    bar += `<a href="https://github.com/${enc(r.owner)}/${enc(r.name)}/security" target="_blank" style="font-size:11px;color:#58a6ff;margin-left:auto;text-decoration:none;">View on GitHub →</a>`;
+    bar += `<a href="https://github.com/${enc(r.owner)}/${enc(r.name)}/security" target="_blank" style="font-size:11px;color: var(--accent-blue);margin-left:auto;text-decoration:none;">View on GitHub →</a>`;
     bar += `<button class="repos-btn-action danger" data-action="fix-vulns">🤖 Fix All Vulns</button>`;
     bar += `<button class="repos-btn-action" data-action="audit">🛡️ AI Audit</button>`;
     bar += '</div>';
@@ -841,13 +841,13 @@ class ReposView {
 
   renderIssueDetails(container, r, issues) {
     if (!issues || issues.length === 0) {
-      container.innerHTML = '<div style="color:#8b949e;padding:8px;">No open issues</div>';
+      container.innerHTML = '<div style="color: var(--text-faint);padding:8px;">No open issues</div>';
       return;
     }
     container.innerHTML = `
       <div class="repos-filter-bar">
-        <span style="font-size:12px;color:#8b949e;font-weight:600;">${issues.length} open issue${issues.length !== 1 ? 's' : ''}</span>
-        <a href="https://github.com/${enc(r.owner)}/${enc(r.name)}/issues" target="_blank" style="font-size:11px;color:#58a6ff;margin-left:auto;text-decoration:none;">View on GitHub →</a>
+        <span style="font-size:12px;color: var(--text-faint);font-weight:600;">${issues.length} open issue${issues.length !== 1 ? 's' : ''}</span>
+        <a href="https://github.com/${enc(r.owner)}/${enc(r.name)}/issues" target="_blank" style="font-size:11px;color: var(--accent-blue);margin-left:auto;text-decoration:none;">View on GitHub →</a>
       </div>
       <div class="repos-list" data-role="issues-list"></div>
     `;
@@ -886,13 +886,13 @@ class ReposView {
 
   renderPRDetails(container, r, pulls) {
     if (!pulls || pulls.length === 0) {
-      container.innerHTML = '<div style="color:#8b949e;padding:8px;">No open pull requests</div>';
+      container.innerHTML = '<div style="color: var(--text-faint);padding:8px;">No open pull requests</div>';
       return;
     }
     container.innerHTML = `
       <div class="repos-filter-bar">
-        <span style="font-size:12px;color:#8b949e;font-weight:600;">${pulls.length} open PR${pulls.length !== 1 ? 's' : ''}</span>
-        <a href="https://github.com/${enc(r.owner)}/${enc(r.name)}/pulls" target="_blank" style="font-size:11px;color:#58a6ff;margin-left:auto;text-decoration:none;">View on GitHub →</a>
+        <span style="font-size:12px;color: var(--text-faint);font-weight:600;">${pulls.length} open PR${pulls.length !== 1 ? 's' : ''}</span>
+        <a href="https://github.com/${enc(r.owner)}/${enc(r.name)}/pulls" target="_blank" style="font-size:11px;color: var(--accent-blue);margin-left:auto;text-decoration:none;">View on GitHub →</a>
       </div>
       <div class="repos-list" data-role="pr-list"></div>
     `;
@@ -905,7 +905,7 @@ class ReposView {
     card.className = 'repos-card';
     const draftBadge = pr.draft ? '<span class="repos-badge neutral">Draft</span>' : '';
     const stats = pr.changed_files > 0
-      ? `<span style="font-size:11px;color:#8b949e;">${pr.changed_files} file${pr.changed_files !== 1 ? 's' : ''} <span class="repos-additions">+${pr.additions}</span> <span class="repos-deletions">-${pr.deletions}</span></span>`
+      ? `<span style="font-size:11px;color: var(--text-faint);">${pr.changed_files} file${pr.changed_files !== 1 ? 's' : ''} <span class="repos-additions">+${pr.additions}</span> <span class="repos-deletions">-${pr.deletions}</span></span>`
       : '';
     card.innerHTML = `
       <div class="sev-indicator unknown"></div>
@@ -1179,11 +1179,11 @@ function labelHtml(l) {
 
 function renderDiffHtml(files) {
   if (!files || files.length === 0) {
-    return '<div style="color:#8b949e;padding:12px;">No file changes</div>';
+    return '<div style="color: var(--text-faint);padding:12px;">No file changes</div>';
   }
   const sum = files.reduce((s, f) => { s.add += f.additions || 0; s.del += f.deletions || 0; return s; }, { add: 0, del: 0 });
   let html = '<div class="repos-diff-container">';
-  html += `<div style="padding:6px 10px;background:#161b22;border-bottom:1px solid #30363d;font-size:11px;color:#8b949e;">${files.length} file${files.length !== 1 ? 's' : ''} changed <span class="repos-additions">+${sum.add}</span> <span class="repos-deletions">-${sum.del}</span></div>`;
+  html += `<div style="padding:6px 10px;background: var(--panel-2); border-bottom: 1px solid var(--border);font-size:11px;color: var(--text-faint);">${files.length} file${files.length !== 1 ? 's' : ''} changed <span class="repos-additions">+${sum.add}</span> <span class="repos-deletions">-${sum.del}</span></div>`;
   for (const f of files) {
     const status = f.status || 'modified';
     html += '<div class="repos-diff-file">';
@@ -1198,7 +1198,7 @@ function renderDiffHtml(files) {
         html += `<div class="line ${cls}">${escapeHtml(line) || '&nbsp;'}</div>`;
       }
     } else {
-      html += '<div class="line context" style="color:#8b949e;">No patch available — too large.</div>';
+      html += '<div class="line context" style="color: var(--text-faint);">No patch available — too large.</div>';
     }
     html += '</div></div>';
   }
