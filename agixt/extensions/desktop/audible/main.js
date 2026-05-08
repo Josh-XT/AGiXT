@@ -290,6 +290,26 @@ AudibleView.prototype.fetchBlob = async function (path, params) {
 
 AudibleView.prototype.injectStyles = function () {
   if (document.getElementById('aud-ext-styles')) return;
+  // Pull in Lora (serif body) and Inter (chapter headings) from Google
+  // Fonts so the read-along matches the kids reader. Without this our
+  // CSS falls back to Georgia / system-ui and the section reads like a
+  // plain UI panel rather than a book.
+  if (!document.getElementById('aud-ext-fonts')) {
+    const preconnect1 = document.createElement('link');
+    preconnect1.rel = 'preconnect';
+    preconnect1.href = 'https://fonts.googleapis.com';
+    document.head.appendChild(preconnect1);
+    const preconnect2 = document.createElement('link');
+    preconnect2.rel = 'preconnect';
+    preconnect2.href = 'https://fonts.gstatic.com';
+    preconnect2.crossOrigin = 'anonymous';
+    document.head.appendChild(preconnect2);
+    const fontLink = document.createElement('link');
+    fontLink.id = 'aud-ext-fonts';
+    fontLink.rel = 'stylesheet';
+    fontLink.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap';
+    document.head.appendChild(fontLink);
+  }
   const style = document.createElement('style');
   style.id = 'aud-ext-styles';
   style.textContent = `
@@ -759,9 +779,10 @@ AudibleView.prototype.injectStyles = function () {
 }
 .aud-transcript-body {
   font-family: 'Lora', 'Georgia', serif;
-  font-size: 1.05rem;
+  font-size: 1.18rem;
   line-height: 1.85;
-  color: var(--aud-text-dim);
+  color: var(--aud-text);
+  max-width: 720px;
 }
 .aud-transcript-para {
   margin: 0 0 1.1rem;
@@ -774,12 +795,37 @@ AudibleView.prototype.injectStyles = function () {
   border-radius: 3px;
   transition: background 0.15s ease, color 0.15s ease;
 }
-.aud-transcript-seg:hover { background: rgba(177, 186, 196, 0.06); color: var(--aud-text); }
+.aud-transcript-seg:hover { background: rgba(177, 186, 196, 0.08); color: var(--aud-text); }
 .aud-transcript-seg.current {
   background: rgba(56, 139, 253, 0.22);
   color: #ffffff;
   font-weight: 500;
   box-shadow: 0 0 0 1px rgba(56, 139, 253, 0.4);
+}
+/* Inline chapter heading rendered above each chapter's segments —
+ * matches the kids-app reader so the user gets navigable chapter
+ * structure inside the transcript flow, not just in the sidebar. */
+.aud-transcript-chapter-title {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--aud-accent);
+  margin: 2.2rem 0 1.1rem;
+  text-indent: 0;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--aud-border-muted);
+}
+.aud-transcript-chapter-title:first-child { margin-top: 0; }
+.aud-transcript-chapter-title.current {
+  color: #ffffff;
+  background: rgba(56, 139, 253, 0.18);
+  border-bottom-color: rgba(56, 139, 253, 0.55);
+  border-radius: 6px;
+  padding: 0.55rem 0.75rem;
+  margin-left: -0.75rem;
+  margin-right: -0.75rem;
 }
 
 /* Audio status banner */
@@ -1767,15 +1813,44 @@ AudibleView.prototype.renderTranscript = function () {
   const body = el('div', { class: 'aud-transcript-body' });
   const segEls = new Array(segs.length);
 
-  // Group segments into paragraphs. Whisper-base segments often don't
-  // terminate at sentence boundaries — base.en cuts on VAD silence,
-  // not on punctuation — so we can't rely on a hard char-count cap
-  // (it would force breaks mid-sentence). Instead:
-  //   * prefer to break at a sentence end after ~360 chars
-  //   * past 700 chars, fall back to any "weak" break (comma, semi-
-  //     colon, em-dash) so paragraphs don't run away
-  //   * only force a break with no punctuation past 1500 chars, as a
-  //     last-resort wall-of-text guard
+  // Build chapter ranges from `currentChapters` so we can insert an
+  // inline chapter heading above each chapter's text, the same way the
+  // kids reader does. Without this the transcript is one undifferen-
+  // tiated wall and the user has no sense of where they are in the book.
+  const chapters = (this.currentChapters || []).slice();
+  const chapterRanges = chapters.map((ch, i) => {
+    const start = Number(ch.start_ms || 0);
+    const next = chapters[i + 1];
+    const end = next
+      ? Number(next.start_ms || 0)
+      : (start + Number(ch.length_ms || 0)) || Number.MAX_SAFE_INTEGER;
+    return { title: ch.title || `Chapter ${i + 1}`, start, end, idx: i };
+  });
+  const chapterTitleEls = new Array(chapterRanges.length);
+  const findChapterIdx = (ms) => {
+    for (let i = chapterRanges.length - 1; i >= 0; i--) {
+      if (ms >= chapterRanges[i].start) return i;
+    }
+    return -1;
+  };
+  // Normalize text for fuzzy chapter-title equality so we can drop
+  // segments that just repeat the chapter title (e.g. the narrator
+  // says "Laying Plans" right after the chapter heading appears).
+  const norm = (s) => String(s || '')
+    .toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').trim().replace(/\s+/g, ' ');
+  const isTitleSegment = (segText, title) => {
+    const a = norm(segText);
+    const b = norm(title);
+    if (!a || !b) return false;
+    if (a === b) return true;
+    // Common Audible pattern: "1. Laying Plans" or "Chapter 1 Laying Plans"
+    if (a.endsWith(' ' + b) && a.length - b.length <= 6) return true;
+    if (b.endsWith(' ' + a) && b.length - a.length <= 6) return true;
+    return false;
+  };
+
+  // Paragraph grouping rules — see commit history; whisper segments
+  // don't reliably terminate at sentence boundaries.
   const PARAGRAPH_SOFT_BREAK_CHARS = 360;
   const PARAGRAPH_HARD_BREAK_CHARS = 700;
   const PARAGRAPH_MAX_BREAK_CHARS = 1500;
@@ -1784,22 +1859,59 @@ AudibleView.prototype.renderTranscript = function () {
 
   let para = el('p', { class: 'aud-transcript-para' });
   let charCount = 0;
+  let lastChapterIdx = -2;
+  const flushPara = () => {
+    if (para.childNodes.length) {
+      body.appendChild(para);
+      para = el('p', { class: 'aud-transcript-para' });
+      charCount = 0;
+    }
+  };
+
   segs.forEach((seg, i) => {
     const text = (seg.text || '').trim();
+    const segStart = Number(seg.start) || 0;
+    // Insert a chapter heading at chapter boundaries.
+    const cIdx = findChapterIdx(segStart);
+    if (cIdx >= 0 && cIdx !== lastChapterIdx) {
+      flushPara();
+      const titleEl = el('h2', {
+        class: 'aud-transcript-chapter-title',
+        'data-chapter': cIdx,
+        onclick: () => this.seekToChapter(cIdx),
+        style: 'cursor:pointer',
+      }, chapterRanges[cIdx].title);
+      chapterTitleEls[cIdx] = titleEl;
+      body.appendChild(titleEl);
+      lastChapterIdx = cIdx;
+    }
+    // Skip segments that just repeat the chapter title — the heading
+    // already shows it. Still register a placeholder span so timestamps
+    // and click-to-seek line up with the segment index.
+    const skipForTitle = cIdx >= 0
+      && isTitleSegment(text, chapterRanges[cIdx].title);
     const span = el('span', {
-      class: 'aud-transcript-seg',
+      class: skipForTitle ? 'aud-transcript-seg aud-transcript-seg-hidden' : 'aud-transcript-seg',
       'data-idx': i,
+      style: skipForTitle ? 'display:none' : '',
       onclick: () => {
-        const startSec = (Number(seg.start) || 0) / 1000;
+        const startSec = segStart / 1000;
         if (this.audio && this.audio.src && isFinite(this.audio.duration)) {
           this.seekTo(startSec);
         } else {
-          this.lastPositionMs = Number(seg.start) || 0;
+          this.lastPositionMs = segStart;
           this.renderProgressFromVirtual();
         }
       },
     }, text + ' ');
     segEls[i] = span;
+    if (skipForTitle) {
+      // Park hidden spans on the title element so they're still in the
+      // DOM (highlightTranscriptAt indexes by segment, not by visible
+      // node), but don't take up layout space.
+      if (chapterTitleEls[cIdx]) chapterTitleEls[cIdx].appendChild(span);
+      return;
+    }
     para.appendChild(span);
     charCount += text.length + 1;
 
@@ -1809,16 +1921,14 @@ AudibleView.prototype.renderTranscript = function () {
       (endsSentence && charCount >= PARAGRAPH_SOFT_BREAK_CHARS)
       || (charCount >= PARAGRAPH_HARD_BREAK_CHARS && (endsSentence || endsWeakly))
       || charCount >= PARAGRAPH_MAX_BREAK_CHARS;
-    if (shouldBreak) {
-      body.appendChild(para);
-      para = el('p', { class: 'aud-transcript-para' });
-      charCount = 0;
-    }
+    if (shouldBreak) flushPara();
   });
-  if (para.childNodes.length) body.appendChild(para);
+  flushPara();
 
   this.transcriptSegEls = segEls;
   this.transcriptSegmentStarts = segs.map((s) => Number(s.start) || 0);
+  this.transcriptChapterTitleEls = chapterTitleEls;
+  this.transcriptChapterRanges = chapterRanges;
   wrap.appendChild(body);
   this.detailEl.appendChild(wrap);
 
@@ -1865,7 +1975,7 @@ AudibleView.prototype.buildTranscriptStatusBlock = function (status) {
   );
 };
 
-AudibleView.prototype.highlightTranscriptAt = function (ms) {
+AudibleView.prototype.highlightTranscriptAt = function (ms, opts) {
   const segEls = this.transcriptSegEls;
   const starts = this.transcriptSegmentStarts;
   if (!segEls || !segEls.length || !starts) return;
@@ -1876,7 +1986,26 @@ AudibleView.prototype.highlightTranscriptAt = function (ms) {
     if (starts[mid] <= ms) { idx = mid; lo = mid + 1; }
     else hi = mid - 1;
   }
-  if (idx === this.lastTranscriptIdx) return;
+  const force = !!(opts && opts.forceScroll);
+  // Highlight the current chapter heading too so the user can see at
+  // a glance which chapter the audio is in.
+  const ranges = this.transcriptChapterRanges || [];
+  const titleEls = this.transcriptChapterTitleEls || [];
+  let curChIdx = -1;
+  for (let i = ranges.length - 1; i >= 0; i--) {
+    if (ms >= ranges[i].start) { curChIdx = i; break; }
+  }
+  if (this.lastChapterTitleIdx !== curChIdx) {
+    if (this.lastChapterTitleIdx >= 0 && titleEls[this.lastChapterTitleIdx]) {
+      titleEls[this.lastChapterTitleIdx].classList.remove('current');
+    }
+    if (curChIdx >= 0 && titleEls[curChIdx]) {
+      titleEls[curChIdx].classList.add('current');
+    }
+    this.lastChapterTitleIdx = curChIdx;
+  }
+
+  if (idx === this.lastTranscriptIdx && !force) return;
   if (this.lastTranscriptIdx >= 0 && segEls[this.lastTranscriptIdx]) {
     segEls[this.lastTranscriptIdx].classList.remove('current');
   }
@@ -1885,15 +2014,33 @@ AudibleView.prototype.highlightTranscriptAt = function (ms) {
   const cur = segEls[idx];
   if (!cur) return;
   cur.classList.add('current');
-  // Auto-scroll the active segment into view, but only if it's not
-  // already visible — otherwise the constant smooth-scroll fights the
-  // user's manual scroll.
-  const rect = cur.getBoundingClientRect();
-  const parent = cur.parentElement && cur.parentElement.parentElement; // .aud-transcript
-  if (!parent) return;
-  const pRect = parent.getBoundingClientRect();
-  if (rect.top < pRect.top + 40 || rect.bottom > pRect.bottom - 40) {
-    cur.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  this.scrollTranscriptInto(cur, force);
+};
+
+AudibleView.prototype.scrollTranscriptInto = function (target, force) {
+  if (!target || !this.detailEl) return;
+  // Hidden title-segment spans live inside the chapter heading and
+  // have zero layout — scroll the heading instead.
+  const visible = (target.offsetParent === null && target.parentElement)
+    ? target.parentElement
+    : target;
+  const cRect = visible.getBoundingClientRect();
+  const dRect = this.detailEl.getBoundingClientRect();
+  const inView =
+    cRect.top >= dRect.top + 40
+    && cRect.bottom <= dRect.bottom - 40;
+  if (force || !inView) {
+    // Compute the offset within `.aud-detail` and animate the scroll
+    // ourselves rather than calling `scrollIntoView`. The latter walks
+    // up to the nearest scrolling ancestor, which on some Tauri layouts
+    // ends up being the window — that scrolls the whole page instead
+    // of the transcript pane.
+    const offset = cRect.top - dRect.top + this.detailEl.scrollTop
+      - (dRect.height / 2 - cRect.height / 2);
+    this.detailEl.scrollTo({
+      top: Math.max(0, offset),
+      behavior: force ? 'auto' : 'smooth',
+    });
   }
 };
 
@@ -1928,12 +2075,20 @@ AudibleView.prototype.renderChapters = function () {
 AudibleView.prototype.seekToChapter = function (idx) {
   const ch = this.currentChapters[idx];
   if (!ch) return;
+  const startMs = ch.start_ms || 0;
   if (this.audio && this.audio.src && isFinite(this.audio.duration)) {
-    this.seekTo((ch.start_ms || 0) / 1000);
+    this.seekTo(startMs / 1000);
   } else {
-    this.lastPositionMs = ch.start_ms || 0;
+    this.lastPositionMs = startMs;
     this.renderProgressFromVirtual();
   }
+  // Force-scroll the transcript to the chapter — the seek above will
+  // re-highlight on `seeked`/`timeupdate`, but if the user clicks the
+  // same chapter twice (or the highlighted segment is already in
+  // view) `highlightTranscriptAt`'s built-in "already-visible" guard
+  // suppresses the scroll. A chapter click is an explicit jump
+  // request from the user; honor it unconditionally.
+  this.highlightTranscriptAt(startMs, { forceScroll: true });
 };
 
 /* ---------- audio status / streaming -------------------------------- */

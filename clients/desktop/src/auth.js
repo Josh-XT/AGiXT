@@ -23,6 +23,7 @@
   let currentBrand = null; // {slug, label, default_url}
   let mfaPending = false;
   let onAuthenticatedCb = null;
+  let oauthRefreshSeq = 0;
 
   function setStatus(text, cls) {
     const el = $('auth-status');
@@ -138,6 +139,7 @@
   // ----- OAuth providers --------------------------------------------------
 
   async function refreshOAuthProviders() {
+    const refreshSeq = ++oauthRefreshSeq;
     const row = $('oauth-row');
     const wrap = $('oauth-buttons');
     wrap.innerHTML = '';
@@ -148,6 +150,7 @@
       // Servers without /v1/oauth simply have no SSO buttons.
       console.debug('no oauth providers for', activeServerUrl(), e);
     }
+    if (refreshSeq !== oauthRefreshSeq) return;
     if (!providers || providers.length === 0) {
       row.hidden = true;
       return;
@@ -264,10 +267,16 @@
 
   $('service-brand').addEventListener('change', async () => {
     setActiveBrand($('service-brand').value);
+    try { await persistBrand(); } catch (e) { console.warn('persistBrand failed', e); }
     await refreshOAuthProviders();
   });
-  $('server-url').addEventListener('change', refreshOAuthProviders);
-  $('web-url').addEventListener('change', () => { /* persisted on save */ });
+  $('server-url').addEventListener('change', async () => {
+    try { await persistBrand(); } catch (e) { console.warn('persistBrand failed', e); }
+    await refreshOAuthProviders();
+  });
+  $('web-url').addEventListener('change', async () => {
+    try { await persistBrand(); } catch (e) { console.warn('persistBrand failed', e); }
+  });
 
   // ----- Email + password login -------------------------------------------
 
@@ -323,6 +332,7 @@
     }
     setStatus('Sending magic link…');
     try {
+      await persistBrand();
       await invoke('request_magic_link', { args: { server_url: activeServerUrl(), email } });
       setStatus(
         `Sent. Check ${email} for a sign-in link — clicking it will sign you in here.`,

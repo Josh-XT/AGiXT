@@ -10,6 +10,7 @@
   if (window.__TAURI__) return;
 
   const SETTINGS_KEY = 'agixt.web.settings.v1';
+  const OAUTH_FLOW_KEY = 'agixt.web.oauthFlow.v1';
   const CONNECT_FLOW_KEY = 'agixt.web.oauthConnectFlow.v1';
   const CONNECT_PROVIDER_KEY = 'agixt.web.oauthConnectProvider.v1';
   const streamControllers = new Map();
@@ -40,6 +41,16 @@
 
   function storageRemove(key) {
     try { window.localStorage.removeItem(key); } catch (_) {}
+  }
+
+  function storageGetJson(key) {
+    const raw = storageGet(key);
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch (_) { return null; }
+  }
+
+  function storageSetJson(key, value) {
+    storageSet(key, JSON.stringify(value));
   }
 
   function defaults() {
@@ -159,6 +170,30 @@
     }
   }
 
+  function extractTokenFromDetail(detail) {
+    if (typeof detail !== 'string' || !detail.trim()) return null;
+    try {
+      const parsed = detail.startsWith('http')
+        ? new URL(detail)
+        : new URL(detail, window.location.origin);
+      const token = parsed.searchParams.get('token') || parsed.searchParams.get('jwt');
+      if (token) return token;
+    } catch (_) {
+      // The backend sometimes returns a bare query string rather than a
+      // complete URL. Fall through to the same regex-style extraction used
+      // by the NextJS web client.
+    }
+    const match = detail.match(/(?:[?&]|^)(?:token|jwt)=([^&\s]+)/);
+    if (!match || !match[1]) return null;
+    try { return decodeURIComponent(match[1]); }
+    catch (_) { return match[1]; }
+  }
+
+  function extractAuthToken(data) {
+    if (!data || typeof data !== 'object') return null;
+    return data.token || data.jwt || extractTokenFromDetail(data.detail);
+  }
+
   function consumeUrlToken() {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('jwt') || params.get('token') || params.get('auth');
@@ -211,6 +246,49 @@
       { slug: 'boltremote', label: 'BoltRemote.com', default_url: 'https://api.boltremote.com', default_web_url: 'https://boltremote.com' },
       { slug: 'custom', label: 'Custom', default_url: serverUrl, default_web_url: webUrl },
     ];
+  }
+
+  function serviceBrandForUrls(serverUrl, webUrl) {
+    const server = trimSlash(serverUrl);
+    const web = trimSlash(webUrl);
+    const brands = serviceBrands();
+    const serverMatch = brands.find((brand) => trimSlash(brand.default_url) === server);
+    if (serverMatch) return serverMatch.slug;
+    const webMatch = brands.find((brand) => {
+      return brand.slug !== 'web'
+        && brand.slug !== 'custom'
+        && trimSlash(brand.default_web_url) === web;
+    });
+    return webMatch ? webMatch.slug : 'custom';
+  }
+
+  function rememberOAuthFlow(args, provider, redirectUri, connectFlow) {
+    const serverUrl = trimSlash(args.server_url || currentServerUrl());
+    const webUrl = trimSlash(args.web_url || currentWebUrl());
+    storageSetJson(OAUTH_FLOW_KEY, {
+      server_url: serverUrl,
+      web_url: webUrl,
+      service_brand: serviceBrandForUrls(serverUrl, webUrl),
+      provider: provider.name || redirectSlugFor(provider.name),
+      redirect_uri: redirectUri,
+      connect: !!connectFlow,
+      started_at: Date.now(),
+    });
+  }
+
+  function pendingOAuthFlow() {
+    const flow = storageGetJson(OAUTH_FLOW_KEY);
+    if (!flow || !flow.started_at || Date.now() - Number(flow.started_at) > 600000) {
+      storageRemove(OAUTH_FLOW_KEY);
+      return null;
+    }
+    return flow;
+  }
+
+  function clearOAuthFlow() {
+    storageRemove(OAUTH_FLOW_KEY);
+    storageRemove(CONNECT_FLOW_KEY);
+    storageRemove(CONNECT_PROVIDER_KEY);
   }
 
   function normalizeArrayOrKeyedObject(value, keyName) {
@@ -354,13 +432,14 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (data && data.token) {
+    const token = extractAuthToken(data);
+    if (token) {
       const settings = loadSettings();
       saveSettings({
         ...settings,
         server_url: trimSlash(args.server_url),
-        jwt: data.token,
-        user_email: args.email || data.email || decodeJwtEmail(data.token),
+        jwt: token,
+        user_email: args.email || data.email || decodeJwtEmail(token),
       });
     }
     return data;
@@ -379,13 +458,14 @@
         invitation_id: args.invitation_id || undefined,
       }),
     });
-    if (data && data.token) {
+    const token = extractAuthToken(data);
+    if (token) {
       const settings = loadSettings();
       saveSettings({
         ...settings,
         server_url: trimSlash(args.server_url),
-        jwt: data.token,
-        user_email: args.email || data.email || decodeJwtEmail(data.token),
+        jwt: token,
+        user_email: args.email || data.email || decodeJwtEmail(token),
       });
     }
     return data;
@@ -475,6 +555,7 @@
       storageSet(CONNECT_FLOW_KEY, String(Date.now()));
       storageSet(CONNECT_PROVIDER_KEY, provider.name || slug);
     }
+    rememberOAuthFlow(args, provider, redirectUri, connectFlow);
     return { url: appendQuery(provider.authorize, params), redirect_uri: redirectUri, pkce };
   }
 
@@ -849,12 +930,20 @@
       return;
     }
     const settings = loadSettings();
+    const oauthFlow = pendingOAuthFlow();
+    const callbackSettings = oauthFlow ? {
+      ...settings,
+      server_url: trimSlash(oauthFlow.server_url || settings.server_url),
+      web_url: trimSlash(oauthFlow.web_url || settings.web_url),
+      service_brand: oauthFlow.service_brand || settings.service_brand,
+    } : settings;
     if (token) {
       saveSettings({
-        ...settings,
+        ...callbackSettings,
         jwt: token,
-        user_email: settings.user_email || decodeJwtEmail(token),
+        user_email: callbackSettings.user_email || decodeJwtEmail(token),
       });
+      clearOAuthFlow();
       renderOAuthStatus('done', 'Signed in', 'Redirecting back to AGiXT...');
       setTimeout(() => { window.location.href = '/'; }, 700);
       return;
@@ -865,40 +954,43 @@
       return;
     }
     const connectStarted = Number(storageGet(CONNECT_FLOW_KEY) || '0');
-    const isConnect = !!settings.jwt && connectStarted && Date.now() - connectStarted < 300000;
+    const isConnect = !!callbackSettings.jwt
+      && ((oauthFlow && oauthFlow.connect) || (connectStarted && Date.now() - connectStarted < 300000));
     const providerForPost = isConnect
-      ? redirectSlugFor(storageGet(CONNECT_PROVIDER_KEY) || providerFromPath)
+      ? redirectSlugFor(storageGet(CONNECT_PROVIDER_KEY) || (oauthFlow && oauthFlow.provider) || providerFromPath)
       : providerFromPath;
     const headers = { 'Content-Type': 'application/json' };
-    if (isConnect && settings.jwt) Object.assign(headers, authHeader(settings));
+    if (isConnect && callbackSettings.jwt) Object.assign(headers, authHeader(callbackSettings));
     const body = {
       code,
-      referrer: `${trimSlash(settings.web_url || currentWebUrl())}/user/close/${providerFromPath}`,
+      referrer: oauthFlow && oauthFlow.redirect_uri
+        ? oauthFlow.redirect_uri
+        : `${trimSlash(callbackSettings.web_url || currentWebUrl())}/user/close/${providerFromPath}`,
     };
     if (params.get('state')) body.state = params.get('state');
     try {
-      const data = await jsonFetch(`${trimSlash(settings.server_url)}/v1/oauth2/${providerForPost}`, {
+      const data = await jsonFetch(`${trimSlash(callbackSettings.server_url)}/v1/oauth2/${providerForPost}`, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
       });
-      storageRemove(CONNECT_FLOW_KEY);
-      storageRemove(CONNECT_PROVIDER_KEY);
+      clearOAuthFlow();
       if (isConnect) {
         renderOAuthStatus('done', 'Connected', 'Redirecting back to AGiXT...');
         emit('agixt-extension-connected', { provider: providerForPost });
       } else {
-        const jwt = data && data.token;
+        const jwt = extractAuthToken(data);
         if (!jwt) throw toolError('OAuth succeeded, but AGiXT did not return a token.');
         saveSettings({
-          ...settings,
+          ...callbackSettings,
           jwt,
-          user_email: data.email || settings.user_email || decodeJwtEmail(jwt),
+          user_email: data.email || callbackSettings.user_email || decodeJwtEmail(jwt),
         });
         renderOAuthStatus('done', 'Signed in', 'Redirecting back to AGiXT...');
       }
       setTimeout(() => { window.location.href = '/'; }, 800);
     } catch (err) {
+      clearOAuthFlow();
       renderOAuthStatus('error', 'OAuth callback failed', err && err.error ? err.error : String(err));
       setTimeout(() => { window.location.href = '/'; }, 3500);
     }
