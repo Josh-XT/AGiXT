@@ -24,6 +24,10 @@ pub mod terminal;
 #[cfg(mobile)]
 #[path = "terminal_mobile.rs"]
 pub mod terminal;
+#[cfg(not(mobile))]
+pub mod transcription;
+#[cfg(mobile)]
+#[path = "transcription_mobile.rs"]
 pub mod transcription;
 pub mod updater;
 #[cfg(not(mobile))]

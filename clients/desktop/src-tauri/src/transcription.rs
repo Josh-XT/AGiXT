@@ -216,8 +216,8 @@ where
     F: Fn(&str, f32, &str),
 {
     let filename = match choice {
-        "tiny" | "tiny.en" | "base" | "base.en" | "small" | "small.en" | "medium"
-        | "medium.en" | "large-v3" => format!("ggml-{}.bin", choice),
+        "tiny" | "tiny.en" | "base" | "base.en" | "small" | "small.en" | "medium" | "medium.en"
+        | "large-v3" => format!("ggml-{}.bin", choice),
         other => return Err(anyhow!("unsupported whisper model: {other}")),
     };
     let cache_root = app
@@ -259,17 +259,15 @@ where
     let mut file = BufWriter::new(File::create(&tmp).context("create whisper model tmp")?);
     let mut downloaded: u64 = 0;
     while let Some(chunk) = resp.chunk().await.context("download chunk")? {
-        file.write_all(&chunk).context("write whisper model chunk")?;
+        file.write_all(&chunk)
+            .context("write whisper model chunk")?;
         downloaded += chunk.len() as u64;
         if let Some(total) = total {
             let pct = (downloaded as f32 / total as f32).clamp(0.0, 1.0);
             emit(
                 "downloading_model",
                 pct,
-                &format!(
-                    "Downloading whisper model… {:.0}%",
-                    pct * 100.0
-                ),
+                &format!("Downloading whisper model… {:.0}%", pct * 100.0),
             );
         }
     }
@@ -496,7 +494,9 @@ fn transcribe_windows<R: Runtime>(
         // Single-threaded by default — whisper-rs sets a safe value
         // based on the available CPU count, which we leave alone.
 
-        state.full(params, window).context("whisper full inference")?;
+        state
+            .full(params, window)
+            .context("whisper full inference")?;
 
         let n = state.full_n_segments().context("count segments")?;
         for i in 0..n {
@@ -516,12 +516,8 @@ fn transcribe_windows<R: Runtime>(
                 continue;
             }
             // whisper returns timestamps in centiseconds (10 ms units).
-            let t0 = state
-                .full_get_segment_t0(i)
-                .context("read segment t0")? as u64;
-            let t1 = state
-                .full_get_segment_t1(i)
-                .context("read segment t1")? as u64;
+            let t0 = state.full_get_segment_t0(i).context("read segment t0")? as u64;
+            let t1 = state.full_get_segment_t1(i).context("read segment t1")? as u64;
             let abs_start = window_start_ms + t0 * 10;
             let abs_end = window_start_ms + t1 * 10;
             // For all windows after the first, drop segments inside the
@@ -613,4 +609,3 @@ async fn upload_transcript(
     }
     Ok(())
 }
-
