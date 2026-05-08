@@ -224,6 +224,30 @@ jobs:
               x86_64-linux-android
           fi
 
+      - name: Cache Rust desktop build state
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            clients/desktop/src-tauri/target
+          key: desktop-rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.rust_target }}-${{ hashFiles('clients/desktop/src-tauri/Cargo.lock', 'clients/desktop/src-tauri/Cargo.toml', 'clients/desktop/src-tauri/tauri.conf.json', 'clients/desktop/package-lock.json') }}
+          restore-keys: |
+            desktop-rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.rust_target }}-
+
+      - name: Cache Android Gradle state
+        if: matrix.kind == 'android'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            clients/desktop/src-tauri/gen/android/.gradle
+          key: desktop-gradle-v1-${{ runner.os }}-${{ matrix.tauri_target }}-${{ hashFiles('clients/desktop/src-tauri/Cargo.lock', 'clients/desktop/src-tauri/tauri.conf.json', 'clients/desktop/package-lock.json') }}
+          restore-keys: |
+            desktop-gradle-v1-${{ runner.os }}-${{ matrix.tauri_target }}-
+
       - name: Install desktop npm dependencies
         working-directory: clients/desktop
         shell: bash
