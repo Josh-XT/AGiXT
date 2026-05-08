@@ -7,6 +7,35 @@
     <title>Agent Settings — AGiXT</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="agent-settings.css" />
+    <!-- Theme bootstrap. Standalone window shares the user's theme
+         preference with the main popover via localStorage so opening
+         "Configure Agent…" doesn't flash the wrong palette. Mirrors the
+         identical block in index.html — kept inline (rather than an
+         external file) because it has to run before paint. -->
+    <script>
+      (function () {
+        try {
+          var pref = localStorage.getItem('agixt.theme') || 'system';
+          var prefersDark = window.matchMedia
+            ? window.matchMedia('(prefers-color-scheme: dark)')
+            : null;
+          var KNOWN = { light: 1, dark: 1, gray: 1 };
+          var resolve = function (p) {
+            if (p && KNOWN[p]) return p;
+            return prefersDark && prefersDark.matches ? 'dark' : 'light';
+          };
+          document.documentElement.setAttribute('data-theme', resolve(pref));
+          if (prefersDark && typeof prefersDark.addEventListener === 'function') {
+            prefersDark.addEventListener('change', function () {
+              var current = localStorage.getItem('agixt.theme') || 'system';
+              if (current === 'system') {
+                document.documentElement.setAttribute('data-theme', resolve('system'));
+              }
+            });
+          }
+        } catch (e) { /* ignore — leave default dark theme */ }
+      })();
+    </script>
   </head>
   <body class="as-body">
     <header class="as-header">

@@ -6,7 +6,7 @@
 .as-body {
   margin: 0;
   min-height: 100vh;
-  background: rgb(15, 17, 24);
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font);
   display: flex;
@@ -287,7 +287,7 @@
   height: 8px;
   border-radius: 50%;
   background: #62c886;
-  box-shadow: 0 0 0 2px rgb(15, 17, 24);
+  box-shadow: 0 0 0 2px var(--bg);
 }
 .ext-tile-badge {
   position: absolute;
@@ -303,7 +303,7 @@
   font-weight: 600;
   line-height: 16px;
   text-align: center;
-  box-shadow: 0 0 0 2px rgb(15, 17, 24);
+  box-shadow: 0 0 0 2px var(--bg);
 }
 
 /* ---------- Extension detail drawer ---------- */
@@ -324,7 +324,7 @@
   right: 0;
   bottom: 0;
   width: min(440px, 100%);
-  background: rgb(15, 17, 24);
+  background: var(--bg);
   border-left: 1px solid var(--border-strong);
   box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
   z-index: 210;
@@ -397,7 +397,7 @@
 .ext-drawer-desc p:first-child { margin-top: 0; }
 .ext-drawer-desc p:last-child { margin-bottom: 0; }
 .ext-drawer-desc code {
-  background: rgba(255,255,255,0.06);
+  background: var(--code-bg);
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 11.5px;
@@ -474,11 +474,11 @@
 }
 .ext-aud-input {
   flex: 1;
-  background: var(--bg-1, #0d1117);
-  border: 1px solid var(--border, #30363d);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 7px 10px;
-  color: var(--text, #e6edf3);
+  color: var(--text);
   font-size: 12px;
   font-family: inherit;
   outline: none;
@@ -579,7 +579,7 @@
 .as-switch-slider {
   position: absolute;
   inset: 0;
-  background: rgba(255,255,255,0.12);
+  background: var(--scrollbar-thumb);
   border-radius: 16px;
   transition: background 0.15s ease;
   cursor: pointer;
@@ -594,6 +594,7 @@
   background: #fff;
   border-radius: 50%;
   transition: transform 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
 }
 .as-switch input:checked + .as-switch-slider { background: var(--accent); }
 .as-switch input:checked + .as-switch-slider::before { transform: translateX(14px); }

@@ -116,6 +116,12 @@ pub struct DesktopSettings {
     pub desktop_auto_update: bool,
     pub sidebar_open: bool,
     pub allow_client_commands: bool,
+    /// `"system"`, `"light"`, or `"dark"`. `"system"` defers to the
+    /// current OS color scheme via `prefers-color-scheme` and reacts to
+    /// changes live. The frontend reads/applies this on boot before
+    /// any UI paint to avoid a light-mode user flashing dark.
+    #[serde(default)]
+    pub theme: String,
     /// Last user-positioned coordinates of the dock window (physical px).
     /// Saved when the user drags the bubble; restored on next launch so
     /// the WM (mutter etc) doesn't place us in a random tile slot.
@@ -141,6 +147,7 @@ impl DesktopSettings {
             desktop_auto_update: true,
             sidebar_open: false,
             allow_client_commands: true,
+            theme: "system".to_string(),
             dock_pos_x: None,
             dock_pos_y: None,
         }
@@ -263,6 +270,9 @@ impl ConfigStore {
         if let Some(v) = self.get_raw("allow_client_commands").await? {
             s.allow_client_commands = v == "1";
         }
+        if let Some(v) = self.get_raw("theme").await? {
+            s.theme = v;
+        }
         if let Some(v) = self.get_raw("dock_pos_x").await? {
             s.dock_pos_x = v.parse().ok();
         }
@@ -318,6 +328,8 @@ impl ConfigStore {
             if s.allow_client_commands { "1" } else { "0" },
         )
         .await?;
+        let theme = if s.theme.is_empty() { "system" } else { s.theme.as_str() };
+        self.put_raw("theme", theme).await?;
         if let Some(v) = s.dock_pos_x {
             self.put_raw("dock_pos_x", &v.to_string()).await?;
         }
@@ -369,6 +381,27 @@ mod tests {
         assert!(!s.sidebar_open);
         assert!(!s.voice_enabled);
         assert!(s.desktop_auto_update);
+        // Theme defaults to "system" so first-launch matches the OS
+        // (light-mode users don't get force-flashed dark).
+        assert_eq!(s.theme, "system");
+    }
+
+    #[tokio::test]
+    async fn theme_round_trip() {
+        let (_dir, p) = temp_db();
+        let store = ConfigStore::open_at(p).await.unwrap();
+        let mut s = store.load().await.unwrap();
+        s.theme = "light".into();
+        store.save(&s).await.unwrap();
+        assert_eq!(store.load().await.unwrap().theme, "light");
+        s.theme = "dark".into();
+        store.save(&s).await.unwrap();
+        assert_eq!(store.load().await.unwrap().theme, "dark");
+        // Empty incoming string normalizes back to "system" so we never
+        // persist a value the frontend can't interpret.
+        s.theme = "".into();
+        store.save(&s).await.unwrap();
+        assert_eq!(store.load().await.unwrap().theme, "system");
     }
 
     #[tokio::test]

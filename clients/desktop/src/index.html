@@ -8,6 +8,40 @@
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="workspace.css" />
     <link rel="stylesheet" href="agent-settings.css" />
+    <!-- Theme bootstrap. Runs before any CSS is applied to the body so
+         a light-mode user never sees a dark flash on launch. The script
+         reads the cached preference from localStorage (the Tauri
+         settings.db is async; we sync it on boot), resolves "system" via
+         prefers-color-scheme, and stamps `data-theme` on <html>. The
+         media-query listener stays attached so `system` mode tracks the
+         OS in real time. app.js takes over once it loads. -->
+    <script>
+      (function () {
+        try {
+          var pref = localStorage.getItem('agixt.theme') || 'system';
+          var prefersDark = window.matchMedia
+            ? window.matchMedia('(prefers-color-scheme: dark)')
+            : null;
+          var KNOWN = { light: 1, dark: 1, gray: 1 };
+          var resolve = function (p) {
+            if (p && KNOWN[p]) return p;
+            return prefersDark && prefersDark.matches ? 'dark' : 'light';
+          };
+          document.documentElement.setAttribute('data-theme', resolve(pref));
+          if (prefersDark && typeof prefersDark.addEventListener === 'function') {
+            prefersDark.addEventListener('change', function () {
+              var current = localStorage.getItem('agixt.theme') || 'system';
+              if (current === 'system') {
+                document.documentElement.setAttribute('data-theme', resolve('system'));
+                window.dispatchEvent(new CustomEvent('agixt-theme-changed', {
+                  detail: { theme: 'system', resolved: resolve('system') },
+                }));
+              }
+            });
+          }
+        } catch (e) { /* ignore — leave default dark theme */ }
+      })();
+    </script>
   </head>
   <body class="dock dock-popover">
     <!-- The window is hidden by default and only shown when the user
@@ -446,6 +480,16 @@
                  (sudo, voice, etc) stay below in this modal. -->
             <button class="btn btn-secondary" id="btn-open-agent-settings" type="button">Configure Agent…</button>
           </div>
+          <label class="field">
+            <span class="field-label">Theme</span>
+            <select id="setting-theme">
+              <option value="system">Match system</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+              <option value="gray">Dark gray</option>
+            </select>
+            <span class="field-hint">"Match system" follows your OS and updates live when you switch.</span>
+          </label>
           <label class="field check">
             <input type="checkbox" id="setting-allow-commands" />
             <span>Allow this agent to control my desktop (screenshot, click, type, files)</span>

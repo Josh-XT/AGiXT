@@ -20,7 +20,7 @@ permissions:
 
 concurrency:
   group: desktop-client-downloads-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   DOWNLOAD_SERVER_URL: ${{ vars.DESKTOP_DOWNLOAD_SERVER_URL || 'https://download.xt.systems' }}
@@ -193,6 +193,7 @@ jobs:
             libssl-dev \
             patchelf \
             pkg-config
+            xdg-utils
 
       - name: Install Windows desktop dependencies
         if: matrix.kind == 'windows'

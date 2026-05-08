@@ -160,6 +160,15 @@
     $('setting-allow-commands').checked = !!settings.allow_client_commands;
     $('setting-voice').checked = !!settings.voice_enabled;
     if (desktopAutoUpdateInput) desktopAutoUpdateInput.checked = !!settings.desktop_auto_update;
+    // Theme: the inline bootstrap script in index.html already applied
+    // a theme based on localStorage / OS prefers-color-scheme before the
+    // first paint. Now that we have the user's persisted setting from
+    // the Tauri DB, reconcile: backfill localStorage so the bootstrap
+    // is correct on the next launch, and reapply if the persisted
+    // pref disagrees with what we resolved at boot.
+    const themePref = (settings.theme || 'system');
+    if ($('setting-theme')) $('setting-theme').value = themePref;
+    applyTheme(themePref, { persist: false });
     settingsUser.textContent = settings.user_email
       ? `${settings.user_email} @ ${settings.server_url}`
       : `not signed in`;
@@ -169,6 +178,29 @@
     if (window.AgixtBranding && settings.service_brand) {
       window.AgixtBranding.apply(settings.service_brand);
     }
+  }
+
+  // Stamp the resolved theme on <html data-theme> so the CSS variables
+  // switch (and propagate to every desktop extension that uses them).
+  // `pref` is the user's intent: "system" | "light" | "dark"; "system"
+  // resolves via the OS prefers-color-scheme media query. We also fire
+  // an `agixt-theme-changed` window event so any extension that wants
+  // to react beyond CSS (e.g. swap an icon set, redraw a chart) can.
+  function applyTheme(pref, { persist = true } = {}) {
+    const KNOWN = ['light', 'dark', 'gray', 'system'];
+    const choice = KNOWN.indexOf(pref) >= 0 ? pref : 'system';
+    const resolved = choice === 'system'
+      ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+          ? 'dark'
+          : 'light')
+      : choice;
+    document.documentElement.setAttribute('data-theme', resolved);
+    if (persist) {
+      try { window.localStorage.setItem('agixt.theme', choice); } catch (_) {}
+    }
+    window.dispatchEvent(new CustomEvent('agixt-theme-changed', {
+      detail: { theme: choice, resolved },
+    }));
   }
 
   async function persistSettings(patch) {
@@ -182,10 +214,13 @@
       const autoUpdateEnabled = desktopAutoUpdateInput
         ? desktopAutoUpdateInput.checked
         : !!settings.desktop_auto_update;
+      const themeSelect = $('setting-theme');
+      const themePref = themeSelect ? themeSelect.value : (settings.theme || 'system');
       await persistSettings({
         allow_client_commands: $('setting-allow-commands').checked,
         voice_enabled: $('setting-voice').checked,
         desktop_auto_update: autoUpdateEnabled,
+        theme: themePref,
       });
       setSettingsStatus('Saved.', 'success');
       await refreshSudoStatus();
@@ -1775,6 +1810,14 @@
   settingsBtn.addEventListener('click', openSettings);
   settingsClose.addEventListener('click', closeSettings);
   saveSettingsBtn.addEventListener('click', onSaveSettings);
+  // Live preview when the user changes the theme dropdown — apply
+  // immediately so they can see the difference before hitting Save.
+  // The Save button still persists to the Tauri settings DB; this just
+  // updates `<html data-theme>` + localStorage for the next boot.
+  const themeSelect = $('setting-theme');
+  if (themeSelect) {
+    themeSelect.addEventListener('change', () => applyTheme(themeSelect.value));
+  }
   const openAgentSettingsBtn = $('btn-open-agent-settings');
   if (openAgentSettingsBtn) {
     openAgentSettingsBtn.addEventListener('click', () => {

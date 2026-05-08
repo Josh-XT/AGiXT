@@ -4,18 +4,36 @@
  * (parent group with collapsible children, accent colors per type).
  */
 
-:root {
+/* Theme tokens.
+ *
+ * Dark is the default (lives on :root). Light is opt-in via
+ * `<html data-theme="light">` which app.js sets on boot from the user's
+ * saved preference (system / light / dark). When set to system we
+ * reflect the OS `prefers-color-scheme` and live-update on changes.
+ *
+ * Server-delivered desktop extensions reuse these CSS variables, so
+ * flipping the attribute on <html> recolors them automatically without
+ * extension-side code. The few host rules that hardcoded
+ * `rgba(255,255,255,…)` (scrollbar thumb, sidenav muted state, code
+ * background, etc.) are explicitly overridden in the light block below
+ * so the popover doesn't read as "mostly light with a few dark scars."
+ */
+:root,
+:root[data-theme="dark"] {
   color-scheme: dark;
   --bg: rgba(15, 17, 24, 0.96);
   --panel: rgba(20, 24, 36, 0.92);
   --panel-2: rgba(28, 32, 46, 0.92);
+  --panel-hover: rgba(36, 41, 56, 0.92);
   --border: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.16);
+  --border-muted: rgba(255, 255, 255, 0.05);
   --text: #e6e8ee;
   --text-dim: #a1a7b5;
   --text-faint: #6f7585;
   --accent: #6b7bff;
   --accent-2: #9a6cff;
+  --accent-soft: rgba(107, 123, 255, 0.18);
   --user-bubble: linear-gradient(135deg, #4a5dff 0%, #7a4dff 100%);
   --assistant-bubble: rgba(36, 41, 56, 0.95);
   --activity: rgba(60, 80, 130, 0.30);
@@ -23,11 +41,91 @@
   --activity-error: rgba(220, 60, 80, 0.25);
   --activity-warn: rgba(220, 160, 60, 0.20);
   --activity-info: rgba(60, 140, 220, 0.20);
+  --code-bg: rgba(255, 255, 255, 0.08);
+  --code-block-bg: rgba(0, 0, 0, 0.4);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.12);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.22);
+  --sidenav-icon: rgba(255, 255, 255, 0.55);
+  --sidenav-icon-active: #fff;
+  --sidenav-hover-bg: rgba(255, 255, 255, 0.04);
+  --modal-backdrop: rgba(0, 0, 0, 0.55);
   --radius: 12px;
   --radius-sm: 8px;
   --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* "Dark gray" — modeled on VSCode Dark Modern. Neutral grayscale chrome
+ * (no blue tint) with the brand accent kept intact. Gives users a
+ * lower-saturation alternative to the default deep-navy dark theme
+ * without flipping to light. */
+:root[data-theme="gray"] {
+  color-scheme: dark;
+  --bg: #1f1f1f;
+  --panel: #181818;
+  --panel-2: #2a2a2a;
+  --panel-hover: #2f2f2f;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --border-muted: rgba(255, 255, 255, 0.05);
+  --text: #cccccc;
+  --text-dim: #9d9d9d;
+  --text-faint: #6e6e6e;
+  --accent: #6b7bff;
+  --accent-2: #9a6cff;
+  --accent-soft: rgba(107, 123, 255, 0.18);
+  --user-bubble: linear-gradient(135deg, #4a5dff 0%, #7a4dff 100%);
+  --assistant-bubble: #2a2a2a;
+  --activity: rgba(60, 80, 130, 0.22);
+  --activity-thought: rgba(120, 90, 200, 0.18);
+  --activity-error: rgba(220, 60, 80, 0.22);
+  --activity-warn: rgba(220, 160, 60, 0.18);
+  --activity-info: rgba(60, 140, 220, 0.18);
+  --code-bg: rgba(255, 255, 255, 0.06);
+  --code-block-bg: #181818;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+  --sidenav-icon: rgba(255, 255, 255, 0.55);
+  --sidenav-icon-active: #ffffff;
+  --sidenav-hover-bg: rgba(255, 255, 255, 0.04);
+  --modal-backdrop: rgba(0, 0, 0, 0.55);
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f6fa;
+  --panel: #ffffff;
+  --panel-2: #eef0f5;
+  --panel-hover: #e3e6ee;
+  --border: rgba(15, 17, 24, 0.10);
+  --border-strong: rgba(15, 17, 24, 0.20);
+  --border-muted: rgba(15, 17, 24, 0.05);
+  --text: #1a1d27;
+  --text-dim: #565d6e;
+  --text-faint: #8a90a0;
+  --accent: #4f5dd1;
+  --accent-2: #7a4dff;
+  --accent-soft: rgba(79, 93, 209, 0.14);
+  /* Keep the user bubble gradient (it's a brand-y cue and reads well on
+     both backgrounds since the bubble's text is white). */
+  --user-bubble: linear-gradient(135deg, #4a5dff 0%, #7a4dff 100%);
+  --assistant-bubble: #ffffff;
+  --activity: rgba(60, 80, 130, 0.08);
+  --activity-thought: rgba(120, 90, 200, 0.10);
+  --activity-error: rgba(220, 60, 80, 0.10);
+  --activity-warn: rgba(220, 160, 60, 0.12);
+  --activity-info: rgba(60, 140, 220, 0.10);
+  --code-bg: rgba(15, 17, 24, 0.06);
+  --code-block-bg: #f1f3f8;
+  --scrollbar-thumb: rgba(15, 17, 24, 0.18);
+  --scrollbar-thumb-hover: rgba(15, 17, 24, 0.32);
+  --sidenav-icon: rgba(15, 17, 24, 0.55);
+  --sidenav-icon-active: #1a1d27;
+  --sidenav-hover-bg: rgba(15, 17, 24, 0.05);
+  --modal-backdrop: rgba(15, 17, 24, 0.40);
+  --shadow: 0 12px 32px rgba(15, 17, 24, 0.12);
 }
 
 * { box-sizing: border-box; }
@@ -726,12 +824,12 @@ details.sub-tool > summary.sub-tool-summary:hover {
 .md code {
   font-family: var(--mono);
   font-size: 12px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--code-bg);
   padding: 1px 4px;
   border-radius: 4px;
 }
 .md pre {
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--code-block-bg);
   padding: 8px 10px;
   border-radius: 6px;
   overflow-x: auto;
@@ -1245,9 +1343,9 @@ body.window-mode.chat-collapsed .chat-resize-handle {
   border-radius: 8px;
   border: none;
   background: transparent;
-  /* VSCode activity-bar treatment: muted gray by default, white on
-     hover/active. Icons inherit `currentColor` from the SVG. */
-  color: rgba(255, 255, 255, 0.55);
+  /* VSCode activity-bar treatment: muted gray by default, full
+     contrast on hover/active. Icons inherit `currentColor` from the SVG. */
+  color: var(--sidenav-icon);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1257,15 +1355,15 @@ body.window-mode.chat-collapsed .chat-resize-handle {
   transition: color 0.14s ease, background 0.14s ease;
 }
 .sidenav-btn:hover {
-  color: rgba(255, 255, 255, 0.95);
-  background: rgba(255, 255, 255, 0.04);
+  color: var(--sidenav-icon-active);
+  background: var(--sidenav-hover-bg);
 }
 .sidenav-btn:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: 1px;
 }
 .sidenav-btn.is-active {
-  color: #fff;
+  color: var(--sidenav-icon-active);
   background: transparent;
 }
 /* VSCode-style accent rail running along the left edge of the active
@@ -1659,7 +1757,7 @@ body.window-mode.chat-collapsed .chat-resize-handle {
 
 .modal {
   position: fixed; inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--modal-backdrop);
   display: none;
   align-items: center;
   justify-content: center;
@@ -1698,7 +1796,7 @@ body.window-mode.chat-collapsed .chat-resize-handle {
   font-size: 12px;
 }
 .field textarea { resize: vertical; font-family: var(--mono); font-size: 11px; }
-.field code { font-family: var(--mono); font-size: 11px; background: rgba(255,255,255,0.08); padding: 1px 4px; border-radius: 3px; }
+.field code { font-family: var(--mono); font-size: 11px; background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
 .field.check {
   flex-direction: row; align-items: flex-start; gap: 8px;
   cursor: pointer;
@@ -1753,8 +1851,8 @@ body.window-mode.chat-collapsed .chat-resize-handle {
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 

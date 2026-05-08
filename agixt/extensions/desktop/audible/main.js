@@ -290,26 +290,6 @@ AudibleView.prototype.fetchBlob = async function (path, params) {
 
 AudibleView.prototype.injectStyles = function () {
   if (document.getElementById('aud-ext-styles')) return;
-  // Pull in Lora (serif body) and Inter (chapter headings) from Google
-  // Fonts so the read-along matches the kids reader. Without this our
-  // CSS falls back to Georgia / system-ui and the section reads like a
-  // plain UI panel rather than a book.
-  if (!document.getElementById('aud-ext-fonts')) {
-    const preconnect1 = document.createElement('link');
-    preconnect1.rel = 'preconnect';
-    preconnect1.href = 'https://fonts.googleapis.com';
-    document.head.appendChild(preconnect1);
-    const preconnect2 = document.createElement('link');
-    preconnect2.rel = 'preconnect';
-    preconnect2.href = 'https://fonts.gstatic.com';
-    preconnect2.crossOrigin = 'anonymous';
-    document.head.appendChild(preconnect2);
-    const fontLink = document.createElement('link');
-    fontLink.id = 'aud-ext-fonts';
-    fontLink.rel = 'stylesheet';
-    fontLink.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap';
-    document.head.appendChild(fontLink);
-  }
   const style = document.createElement('style');
   style.id = 'aud-ext-styles';
   style.textContent = `
@@ -713,7 +693,6 @@ AudibleView.prototype.injectStyles = function () {
   font-size: 0.95rem;
   line-height: 1.65;
   color: var(--aud-text);
-  font-family: 'Lora', 'Georgia', serif;
 }
 
 /* Read-along transcript */
@@ -778,9 +757,8 @@ AudibleView.prototype.injectStyles = function () {
   transition: width 0.4s ease;
 }
 .aud-transcript-body {
-  font-family: 'Lora', 'Georgia', serif;
-  font-size: 1.18rem;
-  line-height: 1.85;
+  font-size: 1.05rem;
+  line-height: 1.75;
   color: var(--aud-text);
   max-width: 720px;
 }
@@ -806,7 +784,6 @@ AudibleView.prototype.injectStyles = function () {
  * matches the kids-app reader so the user gets navigable chapter
  * structure inside the transcript flow, not just in the sidebar. */
 .aud-transcript-chapter-title {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   font-size: 0.85rem;
   font-weight: 700;
   text-transform: uppercase;
