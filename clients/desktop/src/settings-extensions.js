@@ -34,15 +34,31 @@
   // (colored variants) plus a handful of hand-authored ones for providers
   // Simple Icons declines to host (Microsoft, Apple, etc.).
   const LOCAL_BRAND_ICONS = new Set([
-    'airtable', 'anthropic', 'apple', 'audible', 'bitdefender', 'confluence',
-    'discord', 'dropbox', 'elevenlabs', 'facebook', 'fitbit', 'garmin',
-    'github', 'gitlab', 'gmail', 'google', 'googlecalendar', 'googledrive',
-    'googlegemini', 'homeassistant', 'hubspot', 'huggingface', 'jira',
+    'airtable', 'anthropic', 'apple', 'audible', 'azure', 'bitdefender',
+    'confluence', 'datto', 'deepseek', 'discord', 'dji', 'dropbox',
+    'elevenlabs', 'facebook', 'fitbit', 'garmin', 'github', 'gitlab',
+    'gmail', 'google', 'googlecalendar', 'googledrive', 'googlegemini',
+    'graphql', 'homeassistant', 'hubspot', 'huggingface', 'jira', 'meta',
     'microsoft', 'mongodb', 'mysql', 'notion', 'obsidian', 'okta',
-    'pagerduty', 'perplexity', 'postgresql', 'producthunt', 'proxmox',
-    'reddit', 'solana', 'spotify', 'sqlite', 'stripe', 'tesla', 'todoist',
-    'trello', 'veeam', 'vmware', 'wordpress', 'x', 'youtube', 'zapier',
-    'zendesk',
+    'openai', 'openrouter', 'pagerduty', 'paloaltonetworks', 'perplexity',
+    'postgresql', 'producthunt', 'proxmox', 'reddit', 'sendgrid', 'solana',
+    'spotify', 'sqlite', 'stripe', 'telegram', 'tesla', 'todoist',
+    'trello', 'twilio', 'veeam', 'vmware', 'whatsapp', 'wordpress', 'x',
+    'youtube', 'zapier', 'zendesk', 'zoho',
+  ]);
+
+  // Lucide stroke icons in assets/lucide/ — used when a brand icon doesn't
+  // exist for a concept (assets, contacts, tickets, secrets, etc.). Pre-baked
+  // with white stroke since <img> elements don't propagate CSS color.
+  const LOCAL_LUCIDE_ICONS = new Set([
+    'activity', 'book-open', 'bot', 'brain', 'briefcase', 'calendar',
+    'camera', 'chart-column', 'code', 'cog', 'contact-round', 'cpu',
+    'crosshair', 'database', 'drone', 'dumbbell', 'eye', 'file-text',
+    'folder', 'globe', 'hard-drive', 'key', 'key-round', 'list-todo',
+    'lock', 'mail', 'megaphone', 'monitor-smartphone', 'network', 'radar',
+    'receipt', 'search', 'server', 'shield', 'shield-check', 'sticky-note',
+    'target', 'terminal', 'ticket', 'wallet', 'watch', 'workflow', 'wrench',
+    'zap',
   ]);
 
   // Brand-color tile backgrounds for providers we don't have an SVG for.
@@ -69,15 +85,17 @@
   };
 
   // Maps an extension's raw name (lowercase, snake_case) to an icon slug.
-  // The slug points to assets/oauth/{slug}.svg if it's in LOCAL_BRAND_ICONS,
-  // otherwise it acts as a key into BRAND_TILE_COLORS for a colored letter tile.
+  // Lookup order in pickIconSlug: LOCAL_BRAND_ICONS (colored brand SVG),
+  // BRAND_TILE_COLORS (letter tile in brand color), LOCAL_LUCIDE_ICONS
+  // (white stroke concept icon).
   const EXTENSION_ICON_SLUGS = {
-    // OAuth providers
+    // OAuth / brand providers
     google: 'google',
     google_sso: 'google',
     google_email: 'gmail',
     google_calendar: 'googlecalendar',
     google_marketing: 'google',
+    google_search: 'google',
     google_drive: 'googledrive',
     microsoft: 'microsoft',
     microsoft_sso: 'microsoft',
@@ -94,7 +112,7 @@
     linkedin: 'linkedin',
     linkedin_sso: 'linkedin',
     meta_ads: 'meta',
-    meta_sso: 'facebook',
+    meta_sso: 'meta',
     facebook: 'facebook',
     amazon: 'amazon',
     alexa: 'alexa',
@@ -124,10 +142,15 @@
     stripe: 'stripe',
     walmart: 'walmart',
     solana_wallet: 'solana',
+    bags_app: 'wallet',
+    raydium: 'zap',
+    wallet: 'wallet',
 
     // Health & Fitness
     fitbit: 'fitbit',
     garmin: 'garmin',
+    oura: 'activity',
+    workout_tracker: 'dumbbell',
 
     // AI Providers
     openai: 'openai',
@@ -142,36 +165,129 @@
     elevenlabs: 'elevenlabs',
     azure: 'azure',
     azure_openai: 'azure',
+    deepseek: 'deepseek',
+    deepinfra: 'brain',
+    openrouter: 'openrouter',
+    chutes: 'cog',
+    ezlocalai: 'cpu',
+    xai: 'bot',
 
-    // Smart Home / IoT
-    home_assistant: 'homeassistant',
-
-    // IT / MSP
+    // PSA & Ticketing
     jira: 'jira',
     confluence: 'confluence',
     zendesk: 'zendesk',
     hubspot_service_hub: 'hubspot',
-    okta: 'okta',
     pagerduty: 'pagerduty',
+    autotask_psa: 'ticket',
+    halo_psa: 'ticket',
+    kaseya_bms: 'ticket',
+    servicenow: 'ticket',
+    syncro: 'ticket',
+    zoho_desk: 'zoho',
+    connectwise_manage: 'ticket',
+
+    // Remote Monitoring
+    atera: 'monitor-smartphone',
+    connectwise_automate: 'monitor-smartphone',
+    datto_rmm: 'monitor-smartphone',
+    domotz: 'network',
+    kaseya_vsa: 'monitor-smartphone',
+    meraki: 'network',
+    nable_ncentral: 'monitor-smartphone',
+    nable_rmm: 'monitor-smartphone',
+    ninja_rmm: 'monitor-smartphone',
+    pulseway: 'monitor-smartphone',
+    auvik: 'network',
+
+    // Security & Compliance
+    activity_log: 'file-text',
     bitdefender: 'bitdefender',
+    crowdstrike: 'shield-check',
+    cybercns: 'shield',
+    duo: 'key',
+    huntress: 'crosshair',
+    knowbe4: 'shield-check',
+    okta: 'okta',
+    palo_alto_networks: 'paloaltonetworks',
+    phin: 'shield-check',
+    sentinelone: 'shield-check',
+    sophos: 'shield',
+    webroot: 'shield',
+    rocketcyber: 'radar',
+    acronis: 'shield',
+    secrets: 'lock',
+
+    // Backup & Recovery
+    datto_backup: 'datto',
+    veeam: 'veeam',
+
+    // Documentation & Knowledge
+    it_glue: 'book-open',
+    hudu: 'book-open',
+
+    // Virtualization
     vmware_vsphere: 'vmware',
     proxmox: 'proxmox',
-    veeam: 'veeam',
+
+    // Smart Home / IoT
+    home_assistant: 'homeassistant',
+    axis_camera: 'camera',
+    blink: 'camera',
+    hikvision: 'camera',
+    ring: 'camera',
+    spypoint: 'camera',
+    vivotek: 'camera',
+    roomba: 'bot',
+    tuya: 'bot',
+    dji_tello: 'dji',
+    find_my_devices: 'monitor-smartphone',
 
     // Communication
     sendgrid_email: 'sendgrid',
     twilio_sms: 'twilio',
 
     // Databases
-    mssql_database: 'mongodb',
+    mssql_database: 'database',
     mysql_database: 'mysql',
     postgres_database: 'postgresql',
     sqlite_database: 'sqlite',
 
+    // Development & Code
+    automation_helpers: 'zap',
+    custom_automation: 'workflow',
+    graphql_server: 'graphql',
+    microcontroller_development: 'cpu',
+    safe_execute: 'terminal',
+    code_execution: 'terminal',
+
+    // Marketing & Growth
+    content_repurpose: 'megaphone',
+    lead_tracker: 'target',
+    review_sites: 'chart-column',
+    seo_research: 'search',
+    social_monitor: 'eye',
+    product_hunt: 'producthunt',
+
+    // Core Abilities
+    assets: 'briefcase',
+    contacts: 'contact-round',
+    essential_abilities: 'zap',
+    grokipedia: 'book-open',
+    invoices: 'receipt',
+    machines: 'server',
+    notes: 'sticky-note',
+    tickets: 'ticket',
+    web_browsing: 'globe',
+    web_search: 'search',
+    websearch: 'search',
+
     // Entertainment
     audible: 'audible',
-    product_hunt: 'producthunt',
   };
+
+  function isKnownSlug(slug) {
+    return LOCAL_BRAND_ICONS.has(slug) || LOCAL_LUCIDE_ICONS.has(slug) || !!BRAND_TILE_COLORS[slug];
+  }
 
   function pickIconSlug(ext) {
     const raw = extensionRawName(ext);
@@ -183,14 +299,14 @@
       if (provider && provider.name) {
         const slug = api.redirectSlug(provider.name);
         if (EXTENSION_ICON_SLUGS[slug]) return EXTENSION_ICON_SLUGS[slug];
-        if (LOCAL_BRAND_ICONS.has(slug)) return slug;
+        if (isKnownSlug(slug)) return slug;
       }
     }
     // Last resort: if the raw name itself happens to match a known slug.
-    if (LOCAL_BRAND_ICONS.has(raw) || BRAND_TILE_COLORS[raw]) return raw;
+    if (isKnownSlug(raw)) return raw;
     // Try the prefix before the first underscore (e.g. google_marketing → google).
     const root = raw.split('_')[0];
-    if (LOCAL_BRAND_ICONS.has(root) || BRAND_TILE_COLORS[root]) return root;
+    if (isKnownSlug(root)) return root;
     return null;
   }
 
@@ -371,6 +487,11 @@
     const slug = pickIconSlug(ext);
     if (slug && LOCAL_BRAND_ICONS.has(slug)) {
       return `<div class="ext-tile-icon"><img src="assets/oauth/${escape(slug)}.svg" alt="" /></div>`;
+    }
+    // Lucide stroke icons sit on the neutral panel-2 tile — they're concept
+    // icons (folder, ticket, etc.) so they don't carry brand color.
+    if (slug && LOCAL_LUCIDE_ICONS.has(slug)) {
+      return `<div class="ext-tile-icon ext-tile-icon-lucide"><img src="assets/lucide/${escape(slug)}.svg" alt="" /></div>`;
     }
     // No SVG, but we know the brand's color — render a colored letter tile
     // that still reads as that brand (e.g. Slack purple "S").
