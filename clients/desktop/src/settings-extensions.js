@@ -1,9 +1,13 @@
-/* Extensions tab — vanilla JS port of web/components/settings/ExtensionGrid.tsx
+/* Extensions tab — Android-launcher-style tile grid + slide-in detail drawer.
  *
- * Renders extension categories → expandable extension cards → per-command
- * toggles + inline settings form for non-OAuth extensions. OAuth extensions
- * delegate the "Connect" action to settings-connections.js so we have one
- * code path for the OAuth handshake.
+ * Renders extensions as icon tiles grouped into "Connected" and "Available"
+ * sections, sorted alphabetically within each. Tapping a tile opens a
+ * detail drawer with the description, connect/configure action, and the
+ * per-command toggles. Categories are no longer the primary structure —
+ * they're a chip filter row above the grid.
+ *
+ * OAuth extensions delegate the "Connect" action to settings-connections.js
+ * so we have one code path for the OAuth handshake.
  */
 (function () {
   const api = window.AgixtApi;
@@ -20,7 +24,175 @@
   let userConnections = null;   // GET /v1/oauth2 — per-user state
   let searchText = '';
   let onlyEnabled = false;
+  let activeCategory = null;    // null = "All"
   let bodyEl = null;
+  let drawerOpen = false;
+  let drawerExt = null;
+  let drawerEventsWired = false;
+
+  // Brand SVGs we ship locally in assets/oauth/. Curated from Simple Icons
+  // (colored variants) plus a handful of hand-authored ones for providers
+  // Simple Icons declines to host (Microsoft, Apple, etc.).
+  const LOCAL_BRAND_ICONS = new Set([
+    'airtable', 'anthropic', 'apple', 'audible', 'bitdefender', 'confluence',
+    'discord', 'dropbox', 'elevenlabs', 'facebook', 'fitbit', 'garmin',
+    'github', 'gitlab', 'gmail', 'google', 'googlecalendar', 'googledrive',
+    'googlegemini', 'homeassistant', 'hubspot', 'huggingface', 'jira',
+    'microsoft', 'mongodb', 'mysql', 'notion', 'obsidian', 'okta',
+    'pagerduty', 'perplexity', 'postgresql', 'producthunt', 'proxmox',
+    'reddit', 'solana', 'spotify', 'sqlite', 'stripe', 'tesla', 'todoist',
+    'trello', 'veeam', 'vmware', 'wordpress', 'x', 'youtube', 'zapier',
+    'zendesk',
+  ]);
+
+  // Brand-color tile backgrounds for providers we don't have an SVG for.
+  // Renders the letter tile in the actual brand color so the launcher stays
+  // recognizable (Slack purple "S", LinkedIn blue "in", OpenAI green "O").
+  const BRAND_TILE_COLORS = {
+    slack: '#4A154B',
+    linkedin: '#0A66C2',
+    openai: '#10A37F',
+    chatgpt: '#10A37F',
+    amazon: '#FF9900',
+    alexa: '#00CAFF',
+    walmart: '#0071CE',
+    meta: '#0866FF',
+    whatsapp: '#25D366',
+    telegram: '#26A5E4',
+    twilio: '#F22F46',
+    sendgrid: '#1A82E2',
+    azure: '#0078D4',
+    teams: '#5059C9',
+    outlook: '#0078D4',
+    onedrive: '#0078D4',
+    sharepoint: '#0078D4',
+  };
+
+  // Maps an extension's raw name (lowercase, snake_case) to an icon slug.
+  // The slug points to assets/oauth/{slug}.svg if it's in LOCAL_BRAND_ICONS,
+  // otherwise it acts as a key into BRAND_TILE_COLORS for a colored letter tile.
+  const EXTENSION_ICON_SLUGS = {
+    // OAuth providers
+    google: 'google',
+    google_sso: 'google',
+    google_email: 'gmail',
+    google_calendar: 'googlecalendar',
+    google_marketing: 'google',
+    google_drive: 'googledrive',
+    microsoft: 'microsoft',
+    microsoft_sso: 'microsoft',
+    microsoft_email: 'microsoft',
+    microsoft_calendar: 'microsoft',
+    microsoft_onedrive: 'microsoft',
+    microsoft_sharepoint: 'microsoft',
+    teams: 'microsoft',
+    outlook: 'microsoft',
+    github: 'github',
+    github_sso: 'github',
+    github_copilot: 'github',
+    gitlab: 'gitlab',
+    linkedin: 'linkedin',
+    linkedin_sso: 'linkedin',
+    meta_ads: 'meta',
+    meta_sso: 'facebook',
+    facebook: 'facebook',
+    amazon: 'amazon',
+    alexa: 'alexa',
+    tesla: 'tesla',
+    discord: 'discord',
+    x: 'x',
+    twitter: 'x',
+    slack: 'slack',
+    telegram: 'telegram',
+    whatsapp: 'whatsapp',
+    spotify: 'spotify',
+    youtube: 'youtube',
+    reddit: 'reddit',
+
+    // Productivity / SaaS
+    notion: 'notion',
+    todoist: 'todoist',
+    trello: 'trello',
+    airtable: 'airtable',
+    dropbox: 'dropbox',
+    obsidian: 'obsidian',
+    wordpress: 'wordpress',
+    zapier_webhooks: 'zapier',
+
+    // Finance / Crypto
+    stripe_payments: 'stripe',
+    stripe: 'stripe',
+    walmart: 'walmart',
+    solana_wallet: 'solana',
+
+    // Health & Fitness
+    fitbit: 'fitbit',
+    garmin: 'garmin',
+
+    // AI Providers
+    openai: 'openai',
+    openai_codex: 'openai',
+    chatgpt: 'chatgpt',
+    anthropic: 'anthropic',
+    claude: 'anthropic',
+    perplexity: 'perplexity',
+    gemini: 'googlegemini',
+    google_gemini: 'googlegemini',
+    huggingface: 'huggingface',
+    elevenlabs: 'elevenlabs',
+    azure: 'azure',
+    azure_openai: 'azure',
+
+    // Smart Home / IoT
+    home_assistant: 'homeassistant',
+
+    // IT / MSP
+    jira: 'jira',
+    confluence: 'confluence',
+    zendesk: 'zendesk',
+    hubspot_service_hub: 'hubspot',
+    okta: 'okta',
+    pagerduty: 'pagerduty',
+    bitdefender: 'bitdefender',
+    vmware_vsphere: 'vmware',
+    proxmox: 'proxmox',
+    veeam: 'veeam',
+
+    // Communication
+    sendgrid_email: 'sendgrid',
+    twilio_sms: 'twilio',
+
+    // Databases
+    mssql_database: 'mongodb',
+    mysql_database: 'mysql',
+    postgres_database: 'postgresql',
+    sqlite_database: 'sqlite',
+
+    // Entertainment
+    audible: 'audible',
+    product_hunt: 'producthunt',
+  };
+
+  function pickIconSlug(ext) {
+    const raw = extensionRawName(ext);
+    if (EXTENSION_ICON_SLUGS[raw]) return EXTENSION_ICON_SLUGS[raw];
+    // If it's an OAuth extension, fall back to the provider slug — the
+    // provider name often matches a brand we have an icon for.
+    if (isOAuthExtension(ext)) {
+      const provider = findProviderForExtension(ext);
+      if (provider && provider.name) {
+        const slug = api.redirectSlug(provider.name);
+        if (EXTENSION_ICON_SLUGS[slug]) return EXTENSION_ICON_SLUGS[slug];
+        if (LOCAL_BRAND_ICONS.has(slug)) return slug;
+      }
+    }
+    // Last resort: if the raw name itself happens to match a known slug.
+    if (LOCAL_BRAND_ICONS.has(raw) || BRAND_TILE_COLORS[raw]) return raw;
+    // Try the prefix before the first underscore (e.g. google_marketing → google).
+    const root = raw.split('_')[0];
+    if (LOCAL_BRAND_ICONS.has(root) || BRAND_TILE_COLORS[root]) return root;
+    return null;
+  }
 
   // Field-name → input type heuristics (mirrors web's
   // ExtensionSettingsDialog.getInputTypeAndDefaults).
@@ -37,7 +209,6 @@
 
   function formatExtensionName(name) {
     if (!name) return 'Unknown';
-    // Replace _ with space, leave existing spaces.
     return String(name).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
@@ -77,10 +248,8 @@
   function findProviderForExtension(ext) {
     if (!isOAuthExtension(ext)) return null;
     const raw = extensionRawName(ext);
-    // Prefer exact match
     let p = providers.find((p) => (p.name || '').toLowerCase() === raw);
     if (!p) {
-      // twitter is sometimes registered as "x"
       const alt = raw === 'twitter' ? 'x' : raw === 'x' ? 'twitter' : null;
       if (alt) p = providers.find((p) => (p.name || '').toLowerCase() === alt);
     }
@@ -91,10 +260,7 @@
     return (ext.commands || []).filter((c) => c.enabled).length;
   }
 
-  /** Does the user have an active OAuth connection for this provider?
-   *  Empirically /v1/oauth2 returns either a bare list of provider names,
-   *  a list of `{name, connected}` objects, or an object with a
-   *  `connected: [...]` field. Cover all three. */
+  /** Does the user have an active OAuth connection for this provider? */
   function isProviderConnected(provider) {
     if (!provider || !userConnections) return false;
     const targetName = (provider.name || '').toLowerCase();
@@ -124,54 +290,96 @@
     return !!userConnections[provider.name];
   }
 
+  /** Mirrors web/app/settings/page.tsx getExtensionConnected. A setting
+   *  counts as sensitive when the API marks it `is_sensitive` OR its name
+   *  matches the API_KEY/PASSWORD/SECRET/TOKEN heuristic. Default values
+   *  on non-sensitive fields (e.g. `_TEMPERATURE=0.7`) shouldn't make an
+   *  extension look "connected" — that bug is what this guards against. */
+  function isSensitiveSetting(s) {
+    if (!s || typeof s === 'string') {
+      return /_(api_key|password|secret|token)$/i.test(String(s || ''));
+    }
+    if (s.is_sensitive === true) return true;
+    return /_(api_key|password|secret|token)$/i.test(String(s.setting_key || ''));
+  }
+
+  function settingValue(s) {
+    if (!s || typeof s === 'string') return '';
+    return s.setting_value == null ? '' : String(s.setting_value);
+  }
+
+  function hasAnyValue(settings) {
+    return settings.some((s) => settingValue(s).length > 0);
+  }
+
   function extensionConnected(ext) {
-    // OAuth extensions: connection follows the user's OAuth state.
     if (isOAuthExtension(ext)) {
       return isProviderConnected(findProviderForExtension(ext));
     }
-    // Non-OAuth extensions with settings (API keys etc.): "connected"
-    // means at least one setting is filled in.
     const settings = ext.settings || [];
-    if (settings.length > 0) {
-      return settings.some((s) => {
-        const v = typeof s === 'string' ? '' : (s.setting_value || '');
-        return typeof v === 'string' && v.length > 0;
-      });
+    if (settings.length === 0) return true;   // always-on, no setup needed
+    const sensitive = settings.filter(isSensitiveSetting);
+    if (sensitive.length > 0) {
+      // The extension declares secrets — those gate "connected".
+      return hasAnyValue(sensitive);
     }
-    // Plain extensions with no settings need no configuration; they're
-    // always usable.
-    return true;
+    // No sensitive fields — treat any populated setting OR an enabled
+    // command as evidence the user has wired it up.
+    const anyEnabled = (ext.commands || []).some((c) => c.enabled);
+    return hasAnyValue(settings) || anyEnabled;
   }
 
-  /** Some extensions don't really have a "connection" concept. Hide the
-   *  status dot for those so it doesn't read as "this is broken". */
+  /** Plain extensions with no settings are always usable; we don't show a
+   *  connection state for them so nothing reads as "broken". */
   function extensionHasConnectionState(ext) {
     return isOAuthExtension(ext) || (ext.settings || []).length > 0;
   }
 
-  function groupByCategory(list) {
-    const groups = {};
-    for (const ext of list) {
-      const cat = ext.category || 'Other';
-      if (!groups[cat]) groups[cat] = [];
-      groups[cat].push(ext);
-    }
-    return groups;
+  function escape(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
-  function filterExtensions(list) {
-    const q = (searchText || '').trim().toLowerCase();
-    return list.filter((ext) => {
-      if (onlyEnabled && commandsEnabled(ext) === 0) return false;
-      if (!q) return true;
-      const name = (ext.friendly_name || ext.extension_name || '').toLowerCase();
-      const desc = (ext.description || '').toLowerCase();
-      if (name.includes(q) || desc.includes(q)) return true;
-      return (ext.commands || []).some((c) =>
-        (c.command_name || '').toLowerCase().includes(q) ||
-        (c.friendly_name || '').toLowerCase().includes(q),
-      );
-    });
+  function prettyProviderName(name) {
+    if (!name) return '';
+    let s = String(name).replace(/_(sso|oauth)$/i, '');
+    return s.split(/[_\s]+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
+  }
+
+  // Stable hue per name so each fallback letter tile keeps the same color
+  // across reloads. 38% sat / 38% light keeps it muted on the dark theme.
+  function colorForName(name) {
+    let h = 0;
+    const s = String(name || '');
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return `hsl(${Math.abs(h) % 360}, 38%, 38%)`;
+  }
+
+  function letterFor(name) {
+    const s = String(name || '').trim();
+    return (s.charAt(0) || '?').toUpperCase();
+  }
+
+  function iconHtmlForExtension(ext) {
+    const friendly = formatExtensionName(ext.friendly_name || ext.extension_name);
+    const slug = pickIconSlug(ext);
+    if (slug && LOCAL_BRAND_ICONS.has(slug)) {
+      return `<div class="ext-tile-icon"><img src="assets/oauth/${escape(slug)}.svg" alt="" /></div>`;
+    }
+    // No SVG, but we know the brand's color — render a colored letter tile
+    // that still reads as that brand (e.g. Slack purple "S").
+    if (slug && BRAND_TILE_COLORS[slug]) {
+      const bg = BRAND_TILE_COLORS[slug];
+      return `<div class="ext-tile-icon" style="background:${bg}"><span class="ext-tile-icon-letter">${escape(letterFor(friendly))}</span></div>`;
+    }
+    const bg = colorForName(friendly);
+    return `<div class="ext-tile-icon" style="background:${bg}"><span class="ext-tile-icon-letter">${escape(letterFor(friendly))}</span></div>`;
   }
 
   function renderSwitch(checked, disabled) {
@@ -224,123 +432,42 @@
     `;
   }
 
-  function renderExtensionCard(ext) {
-    const name = formatExtensionName(ext.friendly_name || ext.extension_name);
-    const enabled = commandsEnabled(ext);
-    const total = (ext.commands || []).length;
+  function renderTile(ext) {
+    const friendly = formatExtensionName(ext.friendly_name || ext.extension_name);
     const connected = extensionConnected(ext);
+    const hasConnState = extensionHasConnectionState(ext);
     const isOAuth = isOAuthExtension(ext);
-    const provider = isOAuth ? findProviderForExtension(ext) : null;
-    const providerSlug = provider ? api.redirectSlug(provider.name) : null;
-    const allOn = total > 0 && enabled === total;
-    const dataAttrs = `data-ext-name="${escape(ext.extension_name || '')}" data-oauth="${isOAuth ? '1' : '0'}" ${providerSlug ? `data-provider-slug="${escape(providerSlug)}" data-provider-name="${escape(provider.name)}"` : ''}`;
-    let desc = '';
-    if (ext.description) {
-      if (md) {
-        try { desc = md.render(ext.description); }
-        catch (e) {
-          console.warn('markdown render failed for', ext.extension_name, e);
-          desc = `<p>${escape(ext.description)}</p>`;
-        }
-      } else {
-        desc = `<p>${escape(ext.description)}</p>`;
-      }
-    }
-
-    let actions = '';
-    if (isOAuth && provider) {
-      if (connected) {
-        actions = `<button class="btn btn-secondary ext-oauth-disconnect" type="button">Disconnect</button>`;
-      } else {
-        actions = `<button class="btn btn-primary ext-oauth-connect" type="button">Connect ${escape(prettyProviderName(provider.name))}</button>`;
-      }
-    }
-    if (total > 0) {
-      // For OAuth extensions only show the bulk toggle once connected — no
-      // point in toggling commands for a provider you can't reach yet.
-      if (!isOAuth || connected) {
-        actions += `
-          <label class="ext-bulk-toggle">
-            ${renderSwitch(allOn)}
-            <span>Enable all commands</span>
-          </label>
-        `;
-      }
-    }
-
-    const showDot = extensionHasConnectionState(ext);
-    const dotTitle = !showDot ? 'Always available'
-      : isOAuth
-        ? (connected ? 'Connected' : 'Not connected')
-        : (connected ? 'Configured' : 'Not configured');
-    // For OAuth extensions, hide the commands list until the user has
-    // connected the provider — toggling abilities you can't reach is
-    // confusing.
-    const showCommands = !isOAuth || connected;
+    const needsSetup = hasConnState && !connected;
+    const enabled = commandsEnabled(ext);
+    const showDot = isOAuth && connected;
+    const showBadge = enabled > 0;
+    const klass = needsSetup ? 'is-disconnected' : 'is-connected';
     return `
-      <details class="ext-card" ${dataAttrs}>
-        <summary class="ext-card-summary">
-          <svg class="ext-card-chevron" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          ${showDot ? `<span class="ext-card-conn-dot ${connected ? 'connected' : ''}" title="${dotTitle}"></span>` : ''}
-          <span class="ext-card-name">${escape(name)}</span>
-          ${total > 0 ? `<span class="ext-card-counts">${enabled}/${total}</span>` : ''}
-        </summary>
-        <div class="ext-card-body">
-          ${desc ? `<div class="ext-card-desc">${desc}</div>` : ''}
-          ${actions ? `<div class="ext-card-actions">${actions}</div>` : ''}
-          ${showCommands ? renderExtensionCommands(ext) : ''}
-          ${renderExtensionSettingsForm(ext)}
-        </div>
-      </details>
+      <button class="ext-tile ${klass}" type="button" data-ext-name="${escape(ext.extension_name || '')}" title="${escape(friendly)}">
+        ${iconHtmlForExtension(ext)}
+        ${showDot ? '<span class="ext-tile-dot" aria-hidden="true"></span>' : ''}
+        ${showBadge ? `<span class="ext-tile-badge" aria-label="${enabled} abilities enabled">${enabled}</span>` : ''}
+        <span class="ext-tile-name">${escape(friendly)}</span>
+      </button>
     `;
   }
 
-  function renderCategory(catName, exts) {
-    const description = (exts.find((e) => e.category_description) || {}).category_description || '';
-    const totalCmds = exts.reduce((n, e) => n + (e.commands || []).length, 0);
-    const enabledCmds = exts.reduce((n, e) => n + commandsEnabled(e), 0);
-    // Connection ratio counts only extensions whose connection has any
-    // meaning (OAuth-backed or with sensitive settings). Plain-always-on
-    // extensions inflate the ratio and confuse the at-a-glance read.
-    const connExts = exts.filter(extensionHasConnectionState);
-    const connectedCount = connExts.filter(extensionConnected).length;
-    const cmdBadgeClass = totalCmds === 0 ? '' : enabledCmds === totalCmds ? 'ok' : enabledCmds > 0 ? 'partial' : '';
-    return `
-      <div class="ext-category" data-cat="${escape(catName)}">
-        <div class="ext-category-header">
-          <div>
-            <h3 class="ext-category-title">${escape(catName)}</h3>
-            ${description ? `<p class="ext-category-blurb">${escape(description)}</p>` : ''}
-          </div>
-          <div class="ext-category-badges">
-            ${connExts.length > 0 ? `<span class="ext-badge connected">${connectedCount}/${connExts.length} connected</span>` : ''}
-            ${totalCmds > 0 ? `<span class="ext-badge ${cmdBadgeClass}">${enabledCmds}/${totalCmds} abilities</span>` : ''}
-          </div>
-        </div>
-        <div class="ext-category-body">
-          ${exts.map(renderExtensionCard).join('')}
-        </div>
-      </div>
-    `;
-  }
-
-  function escape(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
-
-  function prettyProviderName(name) {
-    if (!name) return '';
-    let s = String(name).replace(/_(sso|oauth)$/i, '');
-    return s.split(/[_\s]+/)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(' ');
+  function filterExtensions(list) {
+    const q = (searchText || '').trim().toLowerCase();
+    return list.filter((ext) => {
+      const cat = ext.category || 'Other';
+      if (cat.toLowerCase() === 'authentication') return false;
+      if (activeCategory && cat !== activeCategory) return false;
+      if (onlyEnabled && commandsEnabled(ext) === 0) return false;
+      if (!q) return true;
+      const name = (ext.friendly_name || ext.extension_name || '').toLowerCase();
+      const desc = (ext.description || '').toLowerCase();
+      if (name.includes(q) || desc.includes(q)) return true;
+      return (ext.commands || []).some((c) =>
+        (c.command_name || '').toLowerCase().includes(q) ||
+        (c.friendly_name || '').toLowerCase().includes(q),
+      );
+    });
   }
 
   function refreshStats() {
@@ -351,23 +478,84 @@
     stats.textContent = `${enabledCmds}/${totalCmds} abilities enabled · ${extensions.length} extensions`;
   }
 
+  function renderChips() {
+    const chipsEl = document.getElementById('ext-chips');
+    if (!chipsEl) return;
+    const visible = extensions.filter((e) => (e.category || '').toLowerCase() !== 'authentication');
+    const cats = Array.from(new Set(visible.map((e) => e.category || 'Other')))
+      .sort((a, b) => {
+        if (a === 'Core Abilities') return -1;
+        if (b === 'Core Abilities') return 1;
+        return a.localeCompare(b);
+      });
+    if (cats.length <= 1) {
+      chipsEl.hidden = true;
+      chipsEl.innerHTML = '';
+      return;
+    }
+    chipsEl.hidden = false;
+    const allChip = `<button class="ext-chip ${!activeCategory ? 'is-active' : ''}" type="button" data-cat="">All <span class="ext-chip-count">${visible.length}</span></button>`;
+    const catChips = cats.map((c) => {
+      const count = visible.filter((e) => (e.category || 'Other') === c).length;
+      return `<button class="ext-chip ${activeCategory === c ? 'is-active' : ''}" type="button" data-cat="${escape(c)}">${escape(c)} <span class="ext-chip-count">${count}</span></button>`;
+    }).join('');
+    chipsEl.innerHTML = allChip + catChips;
+    chipsEl.querySelectorAll('.ext-chip').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const c = btn.getAttribute('data-cat');
+        activeCategory = c || null;
+        render();
+      });
+    });
+  }
+
   function render() {
     if (!bodyEl) return;
+    renderChips();
+
     const filtered = filterExtensions(extensions);
-    const groups = groupByCategory(filtered);
-    const sorted = Object.entries(groups)
-      .filter(([n]) => n.toLowerCase() !== 'authentication')
-      .sort((a, b) => {
-        if (a[0] === 'Core Abilities') return -1;
-        if (b[0] === 'Core Abilities') return 1;
-        return a[0].localeCompare(b[0]);
-      });
-    if (sorted.length === 0) {
+    if (filtered.length === 0) {
       bodyEl.innerHTML = '<div class="as-empty">No extensions match.</div>';
-    } else {
-      bodyEl.innerHTML = `<div class="ext-grid">${sorted.map(([n, e]) => renderCategory(n, e)).join('')}</div>`;
-      bindCardEvents();
+      refreshStats();
+      return;
     }
+
+    const sortAlpha = (a, b) => {
+      const an = (a.friendly_name || a.extension_name || '').toLowerCase();
+      const bn = (b.friendly_name || b.extension_name || '').toLowerCase();
+      return an.localeCompare(bn);
+    };
+
+    // "Connected" = OAuth-connected, configured-non-OAuth, or always-on
+    // (no setup concept). "Available" = anything that needs setup.
+    const connected = filtered.filter((e) => !extensionHasConnectionState(e) || extensionConnected(e)).sort(sortAlpha);
+    const available = filtered.filter((e) => extensionHasConnectionState(e) && !extensionConnected(e)).sort(sortAlpha);
+
+    const sections = [];
+    if (connected.length > 0) {
+      sections.push(`
+        <div class="ext-section">
+          <div class="ext-section-head">
+            <span class="ext-section-label">Connected</span>
+            <span class="ext-section-count">${connected.length}</span>
+          </div>
+          <div class="ext-tile-grid">${connected.map(renderTile).join('')}</div>
+        </div>
+      `);
+    }
+    if (available.length > 0) {
+      sections.push(`
+        <div class="ext-section">
+          <div class="ext-section-head">
+            <span class="ext-section-label">Available</span>
+            <span class="ext-section-count">${available.length}</span>
+          </div>
+          <div class="ext-tile-grid">${available.map(renderTile).join('')}</div>
+        </div>
+      `);
+    }
+    bodyEl.innerHTML = sections.join('');
+    bindTileEvents();
     refreshStats();
   }
 
@@ -375,123 +563,266 @@
     return extensions.find((e) => (e.extension_name || '') === name) || null;
   }
 
-  function bindCardEvents() {
-    bodyEl.querySelectorAll('.ext-card').forEach((card) => {
-      const extName = card.getAttribute('data-ext-name');
-      const ext = findExtensionByName(extName);
-      if (!ext) return;
-
-      // Per-command toggles
-      card.querySelectorAll('.ext-cmd input[type="checkbox"]').forEach((cb) => {
-        cb.addEventListener('change', async () => {
-          const row = cb.closest('.ext-cmd');
-          const idx = Number(row.getAttribute('data-cmd-idx'));
-          const cmd = (ext.commands || [])[idx];
-          if (!cmd) return;
-          cb.disabled = true;
-          try {
-            await api.toggleCommand(agentId, cmd.command_name, cb.checked);
-            cmd.enabled = cb.checked;
-            refreshStats();
-          } catch (e) {
-            cb.checked = !cb.checked;
-            window.AgentSettings.toast('Failed to toggle: ' + (e.message || e), 'error');
-          } finally {
-            cb.disabled = false;
-          }
-        });
+  function bindTileEvents() {
+    bodyEl.querySelectorAll('.ext-tile').forEach((tile) => {
+      const extName = tile.getAttribute('data-ext-name');
+      tile.addEventListener('click', () => {
+        const ext = findExtensionByName(extName);
+        if (ext) openDrawer(ext);
       });
+    });
+  }
 
-      // Bulk toggle (on the card body, NOT in the cmd list — those are
-      // wrapped in .ext-bulk-toggle)
-      const bulk = card.querySelector('.ext-bulk-toggle input[type="checkbox"]');
-      if (bulk) {
-        bulk.addEventListener('change', async () => {
-          bulk.disabled = true;
-          const target = bulk.checked;
-          try {
-            await api.bulkToggleExtension(agentId, ext.extension_name, target);
-            (ext.commands || []).forEach((c) => { c.enabled = target; });
-            // Refresh just this card by re-rendering — easiest path.
-            const open = card.hasAttribute('open');
-            card.outerHTML = renderExtensionCard(ext);
-            if (open) {
-              // Re-find since outerHTML replaced the node.
-              const newCard = bodyEl.querySelector(`.ext-card[data-ext-name="${CSS.escape(extName)}"]`);
-              if (newCard) newCard.setAttribute('open', '');
-            }
-            // Re-bind events on the regenerated DOM.
-            bindCardEvents();
-            refreshStats();
-          } catch (e) {
-            bulk.checked = !target;
-            window.AgentSettings.toast('Failed to bulk toggle: ' + (e.message || e), 'error');
-          } finally {
-            bulk.disabled = false;
-          }
-        });
-      }
+  function openDrawer(ext) {
+    drawerExt = ext;
+    drawerOpen = true;
+    renderDrawer();
+    const drawer = document.getElementById('ext-drawer');
+    const backdrop = document.getElementById('ext-drawer-backdrop');
+    if (!drawer || !backdrop) return;
+    drawer.hidden = false;
+    backdrop.hidden = false;
+    // Force reflow before adding the open class so the slide animation runs.
+    void drawer.offsetWidth;
+    drawer.classList.add('is-open');
+    backdrop.classList.add('is-open');
+    drawer.setAttribute('aria-hidden', 'false');
+  }
 
-      // Save settings (non-OAuth)
-      const saveBtn = card.querySelector('.ext-settings-save');
-      if (saveBtn) {
-        saveBtn.addEventListener('click', async () => {
-          const inputs = card.querySelectorAll('.ext-settings-row');
-          const map = {};
-          inputs.forEach((row) => {
-            const key = row.getAttribute('data-setting-key');
-            const input = row.querySelector('input');
-            if (!key || !input) return;
-            // Skip empty password fields where the value is just the
-            // placeholder dots — avoids overwriting saved secrets.
-            if (input.type === 'password' && input.value === '') return;
-            map[key] = input.value;
-          });
-          saveBtn.disabled = true;
-          saveBtn.textContent = 'Saving…';
-          try {
-            await api.updateAgentSettings(agentId, map);
-            window.AgentSettings.toast('Settings saved.', 'success');
-          } catch (e) {
-            window.AgentSettings.toast('Save failed: ' + (e.message || e), 'error');
-          } finally {
-            saveBtn.disabled = false;
-            saveBtn.textContent = 'Save settings';
-          }
-        });
+  function closeDrawer() {
+    const drawer = document.getElementById('ext-drawer');
+    const backdrop = document.getElementById('ext-drawer-backdrop');
+    drawerOpen = false;
+    if (!drawer || !backdrop) return;
+    drawer.classList.remove('is-open');
+    backdrop.classList.remove('is-open');
+    drawer.setAttribute('aria-hidden', 'true');
+    setTimeout(() => {
+      if (!drawerOpen) {
+        drawer.hidden = true;
+        backdrop.hidden = true;
+        drawerExt = null;
       }
+    }, 200);
+  }
 
-      // OAuth connect — delegate to the connections helper.
-      const connectBtn = card.querySelector('.ext-oauth-connect');
-      if (connectBtn) {
-        connectBtn.addEventListener('click', async () => {
-          const providerName = card.getAttribute('data-provider-name');
-          const provider = providers.find((p) => p.name === providerName);
-          if (!provider || !window.AgentSettingsConnections) return;
-          connectBtn.disabled = true;
-          connectBtn.textContent = 'Opening browser…';
-          try { await window.AgentSettingsConnections.startConnect(provider); }
-          finally {
-            connectBtn.disabled = false;
-            connectBtn.textContent = `Connect ${prettyProviderName(provider.name)}`;
-          }
-        });
-      }
+  function renderDrawer() {
+    if (!drawerExt) return;
+    const ext = drawerExt;
+    const friendly = formatExtensionName(ext.friendly_name || ext.extension_name);
+    const connected = extensionConnected(ext);
+    const isOAuth = isOAuthExtension(ext);
+    const provider = isOAuth ? findProviderForExtension(ext) : null;
+    const hasConnState = extensionHasConnectionState(ext);
+    const enabled = commandsEnabled(ext);
+    const total = (ext.commands || []).length;
+    const cat = ext.category || 'Other';
 
-      const disconnectBtn = card.querySelector('.ext-oauth-disconnect');
-      if (disconnectBtn) {
-        disconnectBtn.addEventListener('click', async () => {
-          const providerName = card.getAttribute('data-provider-name');
-          const provider = providers.find((p) => p.name === providerName);
-          if (!provider || !window.AgentSettingsConnections) return;
-          disconnectBtn.disabled = true;
-          disconnectBtn.textContent = 'Disconnecting…';
-          try { await window.AgentSettingsConnections.startDisconnect(provider); }
-          finally { disconnectBtn.disabled = false; }
-          // The connections helper already calls refreshConnectionState
-          // which will rerender; no need to do anything else here.
-        });
+    const iconEl = document.getElementById('ext-drawer-icon');
+    const titleEl = document.getElementById('ext-drawer-title');
+    const subEl = document.getElementById('ext-drawer-sub');
+    const bodyDr = document.getElementById('ext-drawer-body');
+    if (!iconEl || !titleEl || !subEl || !bodyDr) return;
+
+    iconEl.innerHTML = iconHtmlForExtension(ext);
+    titleEl.textContent = friendly;
+
+    let statusText, statusClass;
+    if (isOAuth) {
+      statusText = connected ? 'Connected' : 'Not connected';
+      statusClass = connected ? 'connected' : '';
+    } else if (hasConnState) {
+      statusText = connected ? 'Configured' : 'Not configured';
+      statusClass = connected ? 'connected' : '';
+    } else {
+      statusText = 'Always available';
+      statusClass = 'connected';
+    }
+    subEl.innerHTML = `${escape(cat)} · <span class="ext-drawer-status ${statusClass}">${escape(statusText)}</span>`;
+
+    const parts = [];
+
+    if (ext.description) {
+      let desc = '';
+      if (md) {
+        try { desc = md.render(ext.description); }
+        catch (e) {
+          console.warn('markdown render failed for', ext.extension_name, e);
+          desc = `<p>${escape(ext.description)}</p>`;
+        }
+      } else {
+        desc = `<p>${escape(ext.description)}</p>`;
       }
+      parts.push(`<div class="ext-drawer-desc">${desc}</div>`);
+    }
+
+    // Primary action: connect (disconnected OAuth) — sized big and full-width
+    // so it reads as the obvious "do this first" thing.
+    if (isOAuth && provider && !connected) {
+      parts.push(`
+        <div class="ext-drawer-action ext-drawer-action-primary">
+          <button class="btn btn-primary ext-oauth-connect" type="button">Connect ${escape(prettyProviderName(provider.name))}</button>
+        </div>
+      `);
+    }
+
+    // Settings form for non-OAuth extensions with config fields.
+    const settingsForm = renderExtensionSettingsForm(ext);
+    if (settingsForm) {
+      parts.push(`<div class="ext-drawer-section-title">Settings</div>${settingsForm}`);
+    }
+
+    // Abilities — only meaningful once the extension is reachable.
+    if (total > 0) {
+      const reachable = !isOAuth || connected;
+      if (reachable) {
+        const allOn = enabled === total;
+        parts.push(`<div class="ext-drawer-section-title">Abilities (${enabled}/${total})</div>`);
+        parts.push(`
+          <label class="ext-bulk-toggle">
+            ${renderSwitch(allOn)}
+            <span>Enable all abilities</span>
+          </label>
+        `);
+        parts.push(renderExtensionCommands(ext));
+      } else {
+        const pp = provider ? prettyProviderName(provider.name) : friendly;
+        parts.push(`<div class="ext-drawer-section-title">Abilities</div>`);
+        parts.push(`<div class="ext-drawer-empty">Connect ${escape(pp)} to use ${total} ${total === 1 ? 'ability' : 'abilities'}.</div>`);
+      }
+    }
+
+    // Secondary action: disconnect lives at the bottom for connected OAuth.
+    if (isOAuth && provider && connected) {
+      parts.push(`
+        <div class="ext-drawer-action">
+          <button class="btn btn-secondary ext-oauth-disconnect" type="button">Disconnect ${escape(prettyProviderName(provider.name))}</button>
+        </div>
+      `);
+    }
+
+    bodyDr.innerHTML = parts.join('');
+    bindDrawerBodyEvents();
+  }
+
+  function bindDrawerBodyEvents() {
+    const ext = drawerExt;
+    if (!ext) return;
+    const bodyDr = document.getElementById('ext-drawer-body');
+    if (!bodyDr) return;
+
+    // Per-command toggles
+    bodyDr.querySelectorAll('.ext-cmd input[type="checkbox"]').forEach((cb) => {
+      cb.addEventListener('change', async () => {
+        const row = cb.closest('.ext-cmd');
+        const idx = Number(row.getAttribute('data-cmd-idx'));
+        const cmd = (ext.commands || [])[idx];
+        if (!cmd) return;
+        cb.disabled = true;
+        try {
+          await api.toggleCommand(agentId, cmd.command_name, cb.checked);
+          cmd.enabled = cb.checked;
+          // Refresh the drawer header counts and the tile badge.
+          renderDrawer();
+          render();
+        } catch (e) {
+          cb.checked = !cb.checked;
+          window.AgentSettings.toast('Failed to toggle: ' + (e.message || e), 'error');
+        } finally {
+          cb.disabled = false;
+        }
+      });
+    });
+
+    // Bulk toggle
+    const bulk = bodyDr.querySelector('.ext-bulk-toggle input[type="checkbox"]');
+    if (bulk) {
+      bulk.addEventListener('change', async () => {
+        bulk.disabled = true;
+        const target = bulk.checked;
+        try {
+          await api.bulkToggleExtension(agentId, ext.extension_name, target);
+          (ext.commands || []).forEach((c) => { c.enabled = target; });
+          renderDrawer();
+          render();
+        } catch (e) {
+          bulk.checked = !target;
+          window.AgentSettings.toast('Failed to bulk toggle: ' + (e.message || e), 'error');
+        } finally {
+          bulk.disabled = false;
+        }
+      });
+    }
+
+    // Save settings (non-OAuth)
+    const saveBtn = bodyDr.querySelector('.ext-settings-save');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        const inputs = bodyDr.querySelectorAll('.ext-settings-row');
+        const map = {};
+        inputs.forEach((row) => {
+          const key = row.getAttribute('data-setting-key');
+          const input = row.querySelector('input');
+          if (!key || !input) return;
+          // Skip empty password fields where the value is just the
+          // placeholder dots — avoids overwriting saved secrets.
+          if (input.type === 'password' && input.value === '') return;
+          map[key] = input.value;
+        });
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
+        try {
+          await api.updateAgentSettings(agentId, map);
+          window.AgentSettings.toast('Settings saved.', 'success');
+          await load();
+        } catch (e) {
+          window.AgentSettings.toast('Save failed: ' + (e.message || e), 'error');
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save settings';
+        }
+      });
+    }
+
+    // OAuth connect — delegate to the connections helper. The deep-link
+    // handler will fire `agixt-extension-connected` and trigger a reload.
+    const connectBtn = bodyDr.querySelector('.ext-oauth-connect');
+    if (connectBtn) {
+      connectBtn.addEventListener('click', async () => {
+        const provider = findProviderForExtension(ext);
+        if (!provider || !window.AgentSettingsConnections) return;
+        connectBtn.disabled = true;
+        connectBtn.textContent = 'Opening browser…';
+        try { await window.AgentSettingsConnections.startConnect(provider); }
+        finally {
+          connectBtn.disabled = false;
+          connectBtn.textContent = `Connect ${prettyProviderName(provider.name)}`;
+        }
+      });
+    }
+
+    const disconnectBtn = bodyDr.querySelector('.ext-oauth-disconnect');
+    if (disconnectBtn) {
+      disconnectBtn.addEventListener('click', async () => {
+        const provider = findProviderForExtension(ext);
+        if (!provider || !window.AgentSettingsConnections) return;
+        disconnectBtn.disabled = true;
+        disconnectBtn.textContent = 'Disconnecting…';
+        try { await window.AgentSettingsConnections.startDisconnect(provider); }
+        finally { disconnectBtn.disabled = false; }
+      });
+    }
+  }
+
+  function bindDrawerChromeEvents() {
+    if (drawerEventsWired) return;
+    drawerEventsWired = true;
+    const closeBtn = document.getElementById('ext-drawer-close');
+    const backdrop = document.getElementById('ext-drawer-backdrop');
+    if (closeBtn) closeBtn.addEventListener('click', closeDrawer);
+    if (backdrop) backdrop.addEventListener('click', closeDrawer);
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && drawerOpen) closeDrawer();
     });
   }
 
@@ -509,6 +840,17 @@
       providers = provs.filter((p) => p && p.client_id);   // only configured
       userConnections = conns;
       render();
+      // If the drawer is open, the cached `drawerExt` is stale — find the
+      // refreshed copy and rerender, or close if the extension disappeared.
+      if (drawerOpen && drawerExt) {
+        const updated = findExtensionByName(drawerExt.extension_name);
+        if (updated) {
+          drawerExt = updated;
+          renderDrawer();
+        } else {
+          closeDrawer();
+        }
+      }
     } catch (e) {
       if (bodyEl) bodyEl.innerHTML = `<div class="as-empty">Failed to load: ${escape(e.message || e)}</div>`;
     }
@@ -531,6 +873,7 @@
         render();
       });
     }
+    bindDrawerChromeEvents();
     return load();
   }
 
@@ -540,7 +883,8 @@
     setAgent(id, name) { agentId = id; agentName = name || null; },
     refreshConnectionState: () => {
       // Called by connections module after a connect/disconnect succeeds —
-      // re-fetch extensions so the per-card connection dots update.
+      // re-fetch extensions so the tiles re-section and the drawer
+      // reflects the new state.
       return load();
     },
   };

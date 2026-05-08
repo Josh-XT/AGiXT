@@ -352,10 +352,26 @@
                   </label>
                   <div class="as-stats" id="ext-stats">—</div>
                 </div>
+                <div class="ext-chips" id="ext-chips" role="tablist" aria-label="Filter by category" hidden></div>
                 <div class="as-panel-body" id="ext-body">
                   <div class="as-empty" id="ext-loading">Loading extensions…</div>
                 </div>
               </section>
+
+              <!-- Extension detail drawer (slides in over the panel area) -->
+              <div class="ext-drawer-backdrop" id="ext-drawer-backdrop" hidden></div>
+              <aside class="ext-drawer" id="ext-drawer" hidden aria-hidden="true"
+                     aria-labelledby="ext-drawer-title" role="dialog">
+                <div class="ext-drawer-header">
+                  <div class="ext-drawer-icon" id="ext-drawer-icon"></div>
+                  <div class="ext-drawer-meta">
+                    <h2 class="ext-drawer-title" id="ext-drawer-title">—</h2>
+                    <div class="ext-drawer-sub" id="ext-drawer-sub"></div>
+                  </div>
+                  <button class="ext-drawer-close" id="ext-drawer-close" type="button" aria-label="Close">×</button>
+                </div>
+                <div class="ext-drawer-body" id="ext-drawer-body"></div>
+              </aside>
 
               <section class="as-panel" id="as-panel-training" role="tabpanel"
                        aria-labelledby="as-tab-training" hidden>

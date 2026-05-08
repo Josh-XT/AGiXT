@@ -2520,13 +2520,6 @@ fn demote_to_normal(win: &WebviewWindow) {
         gw.set_skip_pager_hint(false);
         gw.set_keep_above(false);
         gw.set_decorated(true);
-        // Without an explicit icon list, GNOME's overview / dash-to-dock
-        // / taskbar shows a generic placeholder for the window. Load the
-        // bundled 128px PNG and attach it so the window picks up the
-        // AGiXT logo in switcher / alt-tab / taskbar.
-        if let Some(pixbuf) = load_app_pixbuf() {
-            gw.set_icon(Some(&pixbuf));
-        }
     }
     // We deliberately *don't* re-stamp `_GTK_APPLICATION_ID` here:
     // `demote_to_normal` is invoked from `set_workspace_window_mode`,
@@ -2535,25 +2528,40 @@ fn demote_to_normal(win: &WebviewWindow) {
     // Tauri `.setup` callback, which is on the main thread) and X11
     // preserves it across hide → show cycles since the underlying
     // X11 window isn't re-created.
-    // Tauri's own icon hook also writes _NET_WM_ICON via the wry
-    // backend; call it too so any non-GTK consumers (eg. Window
-    // List in some panels) pick it up.
-    if let Ok(image) = Image::from_bytes(APP_ICON_BYTES) {
-        let _ = win.set_icon(image);
-    }
+    apply_window_icon(win);
 }
 
 #[cfg(all(not(mobile), not(target_os = "linux")))]
 fn demote_to_normal(win: &WebviewWindow) {
-    if let Ok(image) = Image::from_bytes(APP_ICON_BYTES) {
-        let _ = win.set_icon(image);
-    }
+    apply_window_icon(win);
 }
 
 /// 128px AGiXT logo, embedded at compile time so we don't need a
 /// runtime file lookup. Used as the window icon in decorated mode.
 #[cfg(not(mobile))]
 const APP_ICON_BYTES: &[u8] = include_bytes!("../icons/128x128.png");
+
+/// Apply the AGiXT logo to the live native window. The bundle icon is
+/// enough for installers, but GTK taskbars and window switchers often
+/// need the runtime window icon set explicitly too.
+#[cfg(not(mobile))]
+fn apply_window_icon(win: &WebviewWindow) {
+    #[cfg(target_os = "linux")]
+    {
+        use gtk::prelude::*;
+        if let Ok(gw) = win.gtk_window() {
+            if let Some(pixbuf) = load_app_pixbuf() {
+                gw.set_icon(Some(&pixbuf));
+            }
+        }
+    }
+
+    if let Ok(image) = Image::from_bytes(APP_ICON_BYTES) {
+        if let Err(e) = win.set_icon(image) {
+            tracing::debug!("apply_window_icon: set_icon failed: {e}");
+        }
+    }
+}
 
 #[cfg(target_os = "linux")]
 fn load_app_pixbuf() -> Option<gtk::gdk_pixbuf::Pixbuf> {
@@ -2842,6 +2850,7 @@ fn show_popover(
         let _ = win.unminimize();
     }
     promote_to_utility(win);
+    apply_window_icon(win);
     if let Err(e) = position_popover(app, win, tray_rect) {
         tracing::warn!("show_popover: position_popover err: {:?}", e);
     }
@@ -3250,22 +3259,42 @@ fn install_linux_launcher() {
     };
     let exe_str = current_exe.display().to_string();
 
-    // Install icon under the user's hicolor theme so `Icon=agixt`
-    // resolves to a real PNG.
-    let icons_dir = home.join(".local/share/icons/hicolor/128x128/apps");
-    if let Err(e) = std::fs::create_dir_all(&icons_dir) {
-        tracing::warn!(
-            "install_linux_launcher: mkdir {} failed: {e}",
-            icons_dir.display()
-        );
-        return;
-    }
-    let icon_path = icons_dir.join("agixt.png");
-    if let Err(e) = std::fs::write(&icon_path, APP_ICON_BYTES) {
-        tracing::warn!(
-            "install_linux_launcher: write icon {} failed: {e}",
-            icon_path.display()
-        );
+    // Install icons under the user's hicolor theme so `Icon=agixt`
+    // resolves in launchers, taskbars, and search menus at common sizes.
+    let icons_root = home.join(".local/share/icons/hicolor");
+    let mut icon_updated = false;
+    for (size, bytes) in [
+        ("32x32", include_bytes!("../icons/32x32.png").as_slice()),
+        ("128x128", APP_ICON_BYTES),
+        (
+            "256x256",
+            include_bytes!("../icons/128x128@2x.png").as_slice(),
+        ),
+    ] {
+        let icons_dir = icons_root.join(size).join("apps");
+        if let Err(e) = std::fs::create_dir_all(&icons_dir) {
+            tracing::warn!(
+                "install_linux_launcher: mkdir {} failed: {e}",
+                icons_dir.display()
+            );
+            continue;
+        }
+        let icon_path = icons_dir.join("agixt.png");
+        let needs_icon_write = match std::fs::read(&icon_path) {
+            Ok(existing) => existing != bytes,
+            Err(_) => true,
+        };
+        if needs_icon_write {
+            if let Err(e) = std::fs::write(&icon_path, bytes) {
+                tracing::warn!(
+                    "install_linux_launcher: write icon {} failed: {e}",
+                    icon_path.display()
+                );
+            } else {
+                icon_updated = true;
+                tracing::info!("installed desktop icon {}", icon_path.display());
+            }
+        }
     }
 
     let apps_dir = home.join(".local/share/applications");
@@ -3305,12 +3334,10 @@ fn install_linux_launcher() {
             return;
         }
         tracing::info!("installed desktop launcher {}", desktop_path.display());
-        let _ = std::process::Command::new("update-desktop-database")
-            .arg(&apps_dir)
-            .status();
-        let _ = std::process::Command::new("gtk-update-icon-cache")
-            .arg(home.join(".local/share/icons/hicolor"))
-            .status();
+    }
+
+    if needs_write || icon_updated {
+        refresh_linux_desktop_caches(&home, &apps_dir);
     }
 
     // Mask any leftover deb-installed system launcher
@@ -3368,6 +3395,17 @@ fn install_linux_launcher() {
             .args(["default", "agixt.desktop", "x-scheme-handler/agixt"])
             .status();
     }
+}
+
+#[cfg(target_os = "linux")]
+fn refresh_linux_desktop_caches(home: &std::path::Path, apps_dir: &std::path::Path) {
+    let _ = std::process::Command::new("update-desktop-database")
+        .arg(apps_dir)
+        .status();
+    let _ = std::process::Command::new("gtk-update-icon-cache")
+        .args(["-f", "-t"])
+        .arg(home.join(".local/share/icons/hicolor"))
+        .status();
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -3461,6 +3499,7 @@ pub fn run() {
             let handle = app.handle().clone();
             if let Some(win) = app.get_webview_window(MAIN_LABEL) {
                 configure_media_capture(&win);
+                apply_window_icon(&win);
                 promote_to_utility(&win);
                 let _ = position_popover(&handle, &win, None);
                 let _ = win.show();

@@ -51,6 +51,7 @@
   min-height: 0;
   display: flex;
   overflow: hidden;
+  position: relative;
 }
 .as-panel {
   flex: 1;
@@ -159,128 +160,276 @@
 
 /* ---------- Extensions tab ---------- */
 
-.ext-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 14px;
-}
-.ext-category {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-.ext-category-header {
+.ext-chips {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  background: var(--panel-2);
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 10px 28px 12px;
   border-bottom: 1px solid var(--border);
 }
-.ext-category-title {
-  font-size: 13px;
-  font-weight: 600;
-  margin: 0;
-}
-.ext-category-blurb {
-  font-size: 11.5px;
+.ext-chip {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
   color: var(--text-dim);
-  margin: 2px 0 0;
-  line-height: 1.4;
-}
-.ext-category-badges { display: flex; gap: 6px; flex-shrink: 0; }
-.ext-badge {
-  font-size: 10.5px;
-  padding: 1px 7px;
-  border-radius: 10px;
-  border: 1px solid var(--border-strong);
-  color: var(--text-faint);
-  background: rgba(255,255,255,0.03);
-}
-.ext-badge.ok { color: #62c886; border-color: rgba(98, 200, 134, 0.4); }
-.ext-badge.partial { color: #e0c168; border-color: rgba(224, 193, 104, 0.4); }
-.ext-badge.connected { color: var(--accent); border-color: rgba(107, 123, 255, 0.5); }
-
-.ext-category-body { padding: 8px; display: flex; flex-direction: column; gap: 4px; }
-
-.ext-card {
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: rgba(255,255,255,0.02);
-  transition: background 0.1s ease, border-color 0.1s ease;
-}
-.ext-card[open], .ext-card:hover { background: var(--panel-2); border-color: var(--border); }
-
-.ext-card-summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 999px;
   cursor: pointer;
-  list-style: none;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+  white-space: nowrap;
+}
+.ext-chip:hover { color: var(--text); border-color: var(--border-strong); }
+.ext-chip.is-active {
+  background: rgba(107, 123, 255, 0.14);
+  border-color: rgba(107, 123, 255, 0.55);
+  color: var(--accent);
+}
+.ext-chip-count {
+  margin-left: 4px;
+  color: var(--text-faint);
+  font-weight: 400;
+}
+.ext-chip.is-active .ext-chip-count { color: var(--accent); opacity: 0.75; }
+
+.ext-section { margin-bottom: 22px; }
+.ext-section:last-child { margin-bottom: 0; }
+.ext-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 4px 10px;
+}
+.ext-section-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-faint);
+}
+.ext-section-count {
+  font-size: 11px;
+  color: var(--text-faint);
+  opacity: 0.7;
+}
+
+.ext-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: 6px;
+}
+
+.ext-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 14px 8px 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  text-align: center;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+  appearance: none;
   outline: none;
 }
-.ext-card-summary::-webkit-details-marker { display: none; }
-.ext-card-summary::marker { content: ""; }
-.ext-card-chevron {
-  width: 12px;
-  flex-shrink: 0;
-  color: var(--text-faint);
-  transition: transform 0.12s ease;
-}
-.ext-card[open] .ext-card-chevron { transform: rotate(90deg); }
+.ext-tile:hover { background: var(--panel-2); border-color: var(--border); }
+.ext-tile:active { transform: scale(0.97); }
+.ext-tile:focus-visible { border-color: var(--accent); }
+.ext-tile.is-disconnected .ext-tile-icon { opacity: 0.55; }
+.ext-tile.is-disconnected .ext-tile-name { color: var(--text-dim); }
 
-.ext-card-name {
-  flex: 1;
-  min-width: 0;
-  font-size: 12.5px;
-  font-weight: 500;
+.ext-tile-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  overflow: hidden;
+  flex-shrink: 0;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 1px 2px rgba(0,0,0,0.25);
+}
+.ext-tile-icon img { width: 30px; height: 30px; object-fit: contain; }
+.ext-tile-icon-letter {
+  font-size: 22px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.4px;
+}
+
+.ext-tile-name {
+  font-size: 11.5px;
+  line-height: 1.25;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.ext-tile-dot {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #62c886;
+  box-shadow: 0 0 0 2px rgb(15, 17, 24);
+}
+.ext-tile-badge {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  box-shadow: 0 0 0 2px rgb(15, 17, 24);
+}
+
+/* ---------- Extension detail drawer ---------- */
+
+.ext-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 200;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.ext-drawer-backdrop.is-open { opacity: 1; }
+
+.ext-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 100%);
+  background: rgb(15, 17, 24);
+  border-left: 1px solid var(--border-strong);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+  z-index: 210;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.18s ease;
+}
+.ext-drawer.is-open { transform: translateX(0); }
+
+.ext-drawer-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.ext-drawer-icon { flex-shrink: 0; }
+.ext-drawer-icon .ext-tile-icon { width: 44px; height: 44px; border-radius: 12px; }
+.ext-drawer-icon .ext-tile-icon img { width: 26px; height: 26px; }
+.ext-drawer-icon .ext-tile-icon-letter { font-size: 18px; }
+.ext-drawer-meta { flex: 1; min-width: 0; }
+.ext-drawer-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.ext-card-counts {
+.ext-drawer-sub {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.ext-drawer-status {
   font-size: 11px;
   color: var(--text-faint);
+}
+.ext-drawer-status.connected { color: #62c886; }
+.ext-drawer-close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  font-size: 22px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
   flex-shrink: 0;
 }
-.ext-card-conn-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-faint);
-  flex-shrink: 0;
-}
-.ext-card-conn-dot.connected { background: #62c886; }
+.ext-drawer-close:hover { background: var(--panel-2); color: var(--text); }
 
-.ext-card-body {
-  padding: 4px 12px 12px 28px;
+.ext-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px 24px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
-.ext-card-desc {
-  font-size: 12px;
+
+.ext-drawer-desc {
+  font-size: 12.5px;
   color: var(--text-dim);
-  line-height: 1.45;
+  line-height: 1.5;
 }
-.ext-card-desc p:first-child { margin-top: 0; }
-.ext-card-desc p:last-child { margin-bottom: 0; }
-.ext-card-desc code {
+.ext-drawer-desc p:first-child { margin-top: 0; }
+.ext-drawer-desc p:last-child { margin-bottom: 0; }
+.ext-drawer-desc code {
   background: rgba(255,255,255,0.06);
   padding: 1px 4px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: 11.5px;
 }
 
-.ext-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ext-drawer-action { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.ext-drawer-action .btn { flex: 0 0 auto; }
+.ext-drawer-action-primary { width: 100%; justify-content: center; }
+.ext-drawer-action-primary .btn { width: 100%; padding: 10px 16px; font-size: 13px; }
+
+.ext-drawer-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--text-faint);
+  margin: 4px 0 -4px;
+}
+
+.ext-drawer-empty {
+  padding: 24px 8px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+
 .ext-bulk-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-dim);
 }
 
@@ -512,11 +661,14 @@
 .view-pane-agent-settings .as-tab { padding: 8px 12px; font-size: 12.5px; }
 .view-pane-agent-settings .as-panel-toolbar { padding: 10px 16px; gap: 10px; }
 .view-pane-agent-settings .as-panel-body { padding: 14px 16px 20px; }
-.view-pane-agent-settings .ext-grid {
-  /* Side pane is often too narrow for two columns; let the cards
-     stack into a single column when there's not enough room. */
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 10px;
+.view-pane-agent-settings .ext-chips { padding: 8px 16px 10px; }
+.view-pane-agent-settings .ext-tile-grid {
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 4px;
 }
+.view-pane-agent-settings .ext-tile { padding: 12px 6px 10px; }
+.view-pane-agent-settings .ext-tile-icon { width: 44px; height: 44px; border-radius: 12px; }
+.view-pane-agent-settings .ext-tile-icon img { width: 26px; height: 26px; }
+.view-pane-agent-settings .ext-drawer { width: min(380px, 100%); }
 .view-pane-agent-settings .as-search-wrap { min-width: 160px; }
 .view-pane-agent-settings .as-stats { font-size: 11px; }
