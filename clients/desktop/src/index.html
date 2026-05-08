@@ -249,9 +249,9 @@
             <footer class="composer">
           <!-- Attachment chips tray. Hidden until the user picks files via
                the paperclip; each chip is removable. The selected paths
-               are prepended to the prompt as context — the files
-               themselves stay on the user's desktop and the agent reads
-               them through fs_read / shell_run / etc. -->
+               are sent as hidden turn context — the files themselves
+               stay on the user's desktop and the agent reads them
+               through fs_read / shell_run / etc. -->
           <div class="attachments" id="attachments" hidden></div>
           <div class="composer-row">
             <button class="icon-btn attach-btn" id="btn-attach" title="Attach files from your computer" aria-label="Attach files">

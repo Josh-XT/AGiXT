@@ -1108,7 +1108,7 @@
     return `stream-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
-  async function send(userInput, conversationName) {
+  async function send(userInput, conversationName, turnContext) {
     if (!userInput || !userInput.trim()) return;
     const inv = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
     const event = window.__TAURI__ && window.__TAURI__.event;
@@ -1133,9 +1133,11 @@
     turnStopped = false;
     setGenerating(true);
     try {
-      await runStreamingTurn(inv, event, conversationName, [
-        { role: 'user', content: userInput },
-      ], userInput);
+      const message = { role: 'user', content: userInput };
+      if (turnContext && String(turnContext).trim()) {
+        message.context = String(turnContext).trim();
+      }
+      await runStreamingTurn(inv, event, conversationName, [message], userInput);
     } finally {
       activeTurn = null;
       setGenerating(false);

@@ -1009,12 +1009,12 @@
     });
   }
 
-  // Build the context block sent to the agent for the attached files.
-  // Phrasing primes the model that the *user* attached them deliberately
-  // and that they live on disk — not in the AGiXT workspace — so it
-  // reaches for fs_read / shell_run / workspace_upload instead of
-  // assuming an attachment was already uploaded server-side.
-  function buildAttachmentsPrefix(files) {
+  // Build the hidden context block sent to the agent for the attached
+  // files. Phrasing primes the model that the *user* attached them
+  // deliberately and that they live on disk — not in the AGiXT
+  // workspace — so it reaches for fs_read / shell_run / workspace_upload
+  // instead of assuming an attachment was already uploaded server-side.
+  function buildAttachmentsContext(files) {
     if (!files || !files.length) return '';
     const list = files.map((p) => `- ${p}`).join('\n');
     return [
@@ -1026,18 +1026,16 @@
       '',
       list,
       '',
-      '---',
-      '',
     ].join('\n');
   }
 
   // When the workspace editor is open with a file selected, prepend a
-  // small context block so the agent knows what the user is looking at
-  // (and which selection, if any, they want help with). Mirrors the
-  // attachments prefix in tone — primes the agent to use its workspace
-  // tools (workspace_read / workspace_write) for the active conversation
-  // rather than guessing.
-  function buildWorkspaceContextPrefix(ctx) {
+  // small hidden context block so the agent knows what the user is
+  // looking at (and which selection, if any, they want help with).
+  // Mirrors the attachments context in tone — primes the agent to use
+  // its workspace tools (workspace_read / workspace_write) for the
+  // active conversation rather than guessing.
+  function buildWorkspaceContext(ctx) {
     if (!ctx) return '';
     const lines = [
       `The user has \`${ctx.path}\` open in the workspace editor for this conversation.`,
@@ -1054,10 +1052,25 @@
       lines.push(trimmed);
       lines.push('```');
     }
-    lines.push('');
-    lines.push('---');
-    lines.push('');
     return lines.join('\n');
+  }
+
+  function buildExtensionContext() {
+    const ext = window.AgixtDesktopExtensions;
+    if (!ext || typeof ext.getActiveContext !== 'function') return '';
+    try {
+      return ext.getActiveContext() || '';
+    } catch (err) {
+      console.warn('extension context failed', err);
+      return '';
+    }
+  }
+
+  function buildTurnContext(parts) {
+    return (parts || [])
+      .map((p) => (p == null ? '' : String(p).trim()))
+      .filter(Boolean)
+      .join('\n\n---\n\n');
   }
 
   async function sendCurrent() {
@@ -1079,9 +1092,11 @@
       const wsCtx = (window.AgixtWorkspace && typeof window.AgixtWorkspace.getContext === 'function')
         ? window.AgixtWorkspace.getContext()
         : null;
-      const wsPrefix = buildWorkspaceContextPrefix(wsCtx);
-      const filesPrefix = filesForTurn.length ? buildAttachmentsPrefix(filesForTurn) : '';
-      const prefixed = wsPrefix + filesPrefix + text;
+      const turnContext = buildTurnContext([
+        buildWorkspaceContext(wsCtx),
+        filesForTurn.length ? buildAttachmentsContext(filesForTurn) : '',
+        buildExtensionContext(),
+      ]);
       composerInput.value = '';
       autoResize();
       // Clear chips before the await so a follow-up keystroke can't
@@ -1089,7 +1104,11 @@
       attachedFiles = [];
       renderAttachments();
       frontendLog('info', `sendCurrent sending chat (attachments=${filesForTurn.length})`);
-      await window.AgixtChat.send(prefixed, conversationName || settings.conversation_name || '-');
+      await window.AgixtChat.send(
+        text,
+        conversationName || settings.conversation_name || '-',
+        turnContext,
+      );
     } catch (err) {
       const message = err && err.error ? err.error : String(err);
       window.AgixtChat.setComposerStatus(message, 'error');
@@ -1468,7 +1487,7 @@
   });
   // Surface a tiny extension point so future modules can register their
   // own sections without touching this file directly.
-  window.AgixtSidenav = { setActiveView };
+  window.AgixtSidenav = { setActiveView, getActiveView: () => activeView };
 
   // True when something other than chat is occupying the right side
   // of the chat-screen-main row layout (an active extension OR the

@@ -140,6 +140,23 @@ function loadFullApp({ ipc } = {}) {
   return { window, calls };
 }
 
+function loadDesktopExtensionsOnly() {
+  const dom = new JSDOM(
+    '<!doctype html><body><button class="sidenav-btn is-active" data-view="audible"></button><div class="chat-screen-main"><div class="view-pane" data-view="chat"></div><div class="view-pane view-pane-extension" data-view="audible"></div></div></body>',
+    { runScripts: 'outside-only', url: 'http://localhost/' },
+  );
+  const { window } = dom;
+  window.__TAURI__ = { core: { invoke: async () => null } };
+  window.AgixtAppContext = () => ({
+    serverUrl: 'http://localhost:7437',
+    jwt: 'jwt',
+    agentId: 'agent-id',
+  });
+  const code = fs.readFileSync(path.join(SRC, 'desktop-extensions.js'), 'utf8');
+  vm.runInContext(code, dom.getInternalVMContext(), { filename: 'desktop-extensions.js' });
+  return { window };
+}
+
 test('markdown: paragraph and inline formatting', () => {
   const { window } = loadFrontend();
   const html = window.AgixtMarkdown.render('Hello **bold** and *italic*.');
@@ -273,6 +290,43 @@ test('app: composer enter and send button call chat_send', async () => {
   window.AgixtChat.disconnect();
 });
 
+test('desktop extensions: active context provider formats hidden page context', () => {
+  const { window } = loadDesktopExtensionsOnly();
+  const off = window.AgixtDesktopExtensions.registerContextProvider(
+    'audible',
+    () => 'Open audiobook: "A Wrinkle in Time"\nCurrent position: 12:34',
+  );
+
+  const ctx = window.AgixtDesktopExtensions.getActiveContext();
+  assert.match(ctx, /Current audible Desktop Extension Context/i);
+  assert.match(ctx, /A Wrinkle in Time/);
+  assert.match(ctx, /do not treat it as a new user request/);
+
+  off();
+  assert.equal(window.AgixtDesktopExtensions.getActiveContext(), '');
+});
+
+test('app: extension context is sent hidden from the displayed user message', async () => {
+  const { window, calls } = loadFullApp();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  window.AgixtDesktopExtensions = {
+    getActiveContext: () => '## Current Audible Desktop Extension Context\nOpen audiobook: "The Hobbit"\nCurrent position: 1:02:03',
+  };
+
+  const input = window.document.getElementById('composer-input');
+  input.value = 'Where am I in the story?';
+  window.document.getElementById('btn-send').click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const send = calls.find((c) => c.cmd === 'chat_send');
+  assert.ok(send);
+  const msg = send.args.args.messages[0];
+  assert.equal(msg.content, 'Where am I in the story?');
+  assert.match(msg.context, /The Hobbit/);
+  assert.doesNotMatch(window.document.getElementById('messages').textContent, /The Hobbit/);
+  window.AgixtChat.disconnect();
+});
+
 test('app: signed-out startup shows auth and blocks agent settings', async () => {
   const signedOutSettings = {
     jwt: null,
@@ -309,13 +363,14 @@ test('app: signed-out startup shows auth and blocks agent settings', async () =>
   assert.equal(window.document.getElementById('auth-screen').hidden, false);
   assert.equal(window.document.getElementById('chat-screen').hidden, true);
   assert.equal(window.document.body.classList.contains('auth-mode'), true);
-  assert.equal(window.document.getElementById('btn-agent-settings').disabled, true);
+  assert.equal(window.document.getElementById('btn-agent-training').disabled, true);
   assert.equal(window.document.getElementById('agent-switcher-btn').disabled, true);
   assert.equal(window.document.getElementById('convo-switcher-btn').disabled, true);
 
-  window.document.getElementById('btn-agent-settings').click();
+  window.document.getElementById('btn-agent-training').click();
   await new Promise((resolve) => setTimeout(resolve, 5));
-  assert.equal(calls.some((c) => c.cmd === 'open_agent_settings'), false);
+  assert.equal(window.document.getElementById('auth-screen').hidden, false);
+  assert.equal(calls.some((c) => c.cmd === 'show_chat'), false);
   window.AgixtChat.disconnect();
 });
 

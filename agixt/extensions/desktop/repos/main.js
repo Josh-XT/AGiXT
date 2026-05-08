@@ -185,6 +185,9 @@ class ReposView {
   }
 
   start() {
+    if (this.ctx && typeof this.ctx.registerContextProvider === 'function') {
+      this.unregisterContextProvider = this.ctx.registerContextProvider(() => this.getContext());
+    }
     if (!document.getElementById(STYLE_ID)) {
       const style = document.createElement('style');
       style.id = STYLE_ID;
@@ -196,10 +199,131 @@ class ReposView {
   }
 
   stop() {
+    if (typeof this.unregisterContextProvider === 'function') {
+      try { this.unregisterContextProvider(); } catch (_) {}
+      this.unregisterContextProvider = null;
+    }
     for (const a of this._aborts) {
       try { a.abort(); } catch (_) {}
     }
     this._aborts.clear();
+  }
+
+  getContext() {
+    const filtered = this.getFilteredRepos();
+    const source = filtered.length ? filtered : this.allRepos;
+    const total = source.length;
+    const vulnRepos = source.filter((r) => r.total_vulns > 0).length;
+    const totalAlerts = source.reduce((sum, r) => sum + (Number(r.total_vulns) || 0), 0);
+    const totalIssues = source.reduce((sum, r) => sum + (Number(r.open_issues) || 0), 0);
+    const totalPRs = source.reduce((sum, r) => sum + (Number(r.open_prs) || 0), 0);
+    const unprotected = source.filter((r) => !r.dependabot_enabled || !r.code_scanning_enabled).length;
+    const lines = [
+      'The user is on the GitHub repo security dashboard desktop extension.',
+      `Dashboard filter: ${this.ownerFilter || 'all'}`,
+      `Search term: ${this.searchTerm || '(none)'}`,
+      `Sort: ${this.sort && this.sort.key ? `${this.sort.key} ${this.sort.desc ? 'descending' : 'ascending'}` : 'default'}`,
+      `Visible repositories: ${total}`,
+      `Repositories with security alerts: ${vulnRepos}`,
+      `Total open security alerts: ${totalAlerts}`,
+      `Total open issues on visible repos: ${totalIssues}`,
+      `Total open PRs on visible repos: ${totalPRs}`,
+      `Repositories missing Dependabot or CodeQL: ${unprotected}`,
+    ];
+
+    const detailRows = Array.from(this.container.querySelectorAll('.repos-detail-row'))
+      .map((row) => ({
+        repo: row.dataset.detailFor,
+        kind: row.dataset.detailKind,
+      }))
+      .filter((x) => x.repo && x.kind);
+
+    if (detailRows.length) {
+      lines.push('');
+      lines.push('Expanded dashboard details:');
+      for (const row of detailRows.slice(0, 4)) {
+        lines.push(this.describeExpandedDetail(row.repo, row.kind));
+      }
+    } else {
+      const notable = source
+        .slice()
+        .sort((a, b) => {
+          const score = (r) =>
+            (Number(r.severity && r.severity.critical) || 0) * 100
+            + (Number(r.severity && r.severity.high) || 0) * 40
+            + (Number(r.total_vulns) || 0) * 10
+            + (!r.dependabot_enabled ? 5 : 0)
+            + (!r.code_scanning_enabled ? 5 : 0)
+            + (Number(r.open_issues) || 0);
+          return score(b) - score(a);
+        })
+        .filter((r) => (r.total_vulns || r.open_issues || r.open_prs || !r.dependabot_enabled || !r.code_scanning_enabled))
+        .slice(0, 5);
+      if (notable.length) {
+        lines.push('');
+        lines.push('Notable repos currently called out by the dashboard:');
+        for (const r of notable) lines.push('- ' + this.describeRepoSummary(r));
+      }
+    }
+
+    lines.push('');
+    lines.push('When the user asks about this dashboard, use the repo names, expanded issue/PR/security-alert details, and visible filters above as the current page context. Use GitHub extension commands or dashboard actions for deeper repo, issue, PR, security audit, or vulnerability-fix work when useful.');
+    return lines.join('\n');
+  }
+
+  describeRepoSummary(r) {
+    const parts = [`${r.full_name}`];
+    if (r.language) parts.push(`language ${r.language}`);
+    if (r.total_vulns) parts.push(`${r.total_vulns} security alert${r.total_vulns === 1 ? '' : 's'}`);
+    if (r.severity) {
+      const sev = [];
+      for (const key of ['critical', 'high', 'medium', 'low']) {
+        if (r.severity[key]) sev.push(`${r.severity[key]} ${key}`);
+      }
+      if (sev.length) parts.push(`severity: ${sev.join(', ')}`);
+    }
+    if (r.open_issues) parts.push(`${r.open_issues} open issue${r.open_issues === 1 ? '' : 's'}`);
+    if (r.open_prs) parts.push(`${r.open_prs} open PR${r.open_prs === 1 ? '' : 's'}`);
+    const missing = [];
+    if (!r.dependabot_enabled) missing.push('Dependabot');
+    if (!r.code_scanning_enabled) missing.push('CodeQL');
+    if (missing.length) parts.push(`missing ${missing.join(' and ')}`);
+    return parts.join('; ');
+  }
+
+  describeExpandedDetail(fullName, kind) {
+    if (kind === 'issues') {
+      const issues = this.issuesCache[fullName] || [];
+      const shown = issues.slice(0, 5).map((issue) =>
+        `#${issue.number} ${issue.title || '(untitled)'}`
+        + (issue.assignees && issue.assignees.length ? ` assigned to ${issue.assignees.join(', ')}` : ''),
+      );
+      return `- ${fullName}: issues expanded (${issues.length} loaded). ${shown.join('; ') || 'No open issues in the expanded panel.'}`;
+    }
+    if (kind === 'prs') {
+      const pulls = this.pullsCache[fullName] || [];
+      const shown = pulls.slice(0, 5).map((pr) =>
+        `#${pr.number} ${pr.title || '(untitled)'}`
+        + (pr.draft ? ' [draft]' : '')
+        + (pr.changed_files ? `, ${pr.changed_files} changed files` : ''),
+      );
+      return `- ${fullName}: pull requests expanded (${pulls.length} loaded). ${shown.join('; ') || 'No open pull requests in the expanded panel.'}`;
+    }
+    if (kind === 'alerts') {
+      const alerts = this.alertsCache[fullName] || [];
+      const shown = alerts.slice(0, 5).map((alert) => {
+        const bits = [
+          alert.severity || 'unknown severity',
+          alert.type || 'alert',
+          alert.summary || alert.package || alert.rule_id || 'untitled alert',
+        ];
+        if (alert.package) bits.push(`package ${alert.package}`);
+        if (alert.patched_version) bits.push(`fix ${alert.patched_version}`);
+        return bits.join(' ');
+      });
+      return `- ${fullName}: security alerts expanded (${alerts.length} loaded). ${shown.join('; ') || 'No open alerts in the expanded panel.'}`;
+    }
+    return `- ${fullName}: ${kind} details expanded.`;
   }
 
   // ------------------------------------------------------------------

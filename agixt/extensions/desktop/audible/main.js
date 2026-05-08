@@ -30,7 +30,7 @@
 // Bumped in lockstep with manifest.json — embedded into the
 // diagnostic placeholder so we can tell from a screenshot whether
 // the user is running the latest main.js or a cached older one.
-const AUD_BUILD_TAG = '0.1.4';
+const AUD_BUILD_TAG = '0.5.0';
 
 window.AgixtRegisterExtension('audible', {
   mount(container, ctx) {
@@ -185,6 +185,9 @@ function AudibleView(container, ctx) {
 }
 
 AudibleView.prototype.start = function () {
+  if (this.ctx && typeof this.ctx.registerContextProvider === 'function') {
+    this.unregisterContextProvider = this.ctx.registerContextProvider(() => this.getContext());
+  }
   this.injectStyles();
   this.renderShell();
   // Server-side manifest gating (`connection_check: ["audible"]`)
@@ -196,6 +199,10 @@ AudibleView.prototype.start = function () {
 };
 
 AudibleView.prototype.stop = function () {
+  if (typeof this.unregisterContextProvider === 'function') {
+    try { this.unregisterContextProvider(); } catch (_) {}
+    this.unregisterContextProvider = null;
+  }
   if (this.statusPollTimer) {
     clearInterval(this.statusPollTimer);
     this.statusPollTimer = null;
@@ -1309,6 +1316,112 @@ AudibleView.prototype.onProgressClick = function (e) {
     this.lastPositionMs = ratio * this.totalDurationMs;
     this.renderProgressFromVirtual();
   }
+};
+
+AudibleView.prototype.getCurrentPositionMs = function () {
+  if (this.audio) {
+    let seconds = Number(this.audio.currentTime) || 0;
+    if (this.pendingSeekSec != null && this.audio.paused) {
+      seconds = Number(this.pendingSeekSec) || seconds;
+    }
+    if (seconds > 0 || this.audio.src) return Math.max(0, Math.round(seconds * 1000));
+  }
+  return Math.max(0, Math.round(Number(this.lastPositionMs) || 0));
+};
+
+AudibleView.prototype.chapterForMs = function (ms) {
+  if (!this.currentChapters || !this.currentChapters.length) return null;
+  for (let i = 0; i < this.currentChapters.length; i++) {
+    const ch = this.currentChapters[i];
+    const start = Number(ch.start_ms) || 0;
+    const end = start + (Number(ch.length_ms) || 0);
+    if (ms >= start && (ms < end || i === this.currentChapters.length - 1)) {
+      return Object.assign({ ordinal: i + 1 }, ch);
+    }
+  }
+  return Object.assign({ ordinal: this.currentChapters.length }, this.currentChapters[this.currentChapters.length - 1]);
+};
+
+AudibleView.prototype.transcriptWindowForMs = function (ms) {
+  const segs = (this.currentTranscript && this.currentTranscript.segments) || [];
+  if (!segs.length) return '';
+  let idx = -1;
+  for (let i = 0; i < segs.length; i++) {
+    const start = Number(segs[i].start) || 0;
+    if (start <= ms) idx = i;
+    else break;
+  }
+  if (idx < 0) idx = 0;
+  const start = Math.max(0, idx - 4);
+  const end = Math.min(segs.length, idx + 4);
+  const text = segs.slice(start, end)
+    .map((seg) => String(seg.text || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  return text.length > 1800 ? '…' + text.slice(-1800) : text;
+};
+
+AudibleView.prototype.getContext = function () {
+  const lines = [
+    'The user is on the Audible audiobook desktop page.',
+    `Visible library tab: ${this.libraryTab || 'all'}`,
+  ];
+  if (this.libraryFilter) lines.push(`Library search filter: "${this.libraryFilter}"`);
+  if (this.libraryLoaded && Array.isArray(this.library)) {
+    lines.push(`Books visible in this tab before search filtering: ${this.library.length}`);
+  }
+
+  const b = this.currentBook;
+  if (!b) {
+    if (this.currentAsin) {
+      lines.push(`A book is selected and still loading. ASIN: ${this.currentAsin}`);
+    } else {
+      lines.push('No audiobook is currently selected in the reader pane.');
+    }
+    return lines.join('\n');
+  }
+
+  const positionMs = this.getCurrentPositionMs();
+  const totalMs = this.totalDurationMs
+    || (this.audio && isFinite(this.audio.duration) ? Math.round(this.audio.duration * 1000) : 0)
+    || (b.runtime_minutes ? b.runtime_minutes * 60 * 1000 : 0);
+  const chapter = this.chapterForMs(positionMs);
+  const transcriptWindow = this.transcriptWindowForMs(positionMs);
+  const playerState = this.audio && this.audio.src
+    ? (this.audio.paused ? 'paused' : 'playing')
+    : (this.audioStatus && this.audioStatus.playable ? 'audio ready but not loaded' : 'audio not ready');
+
+  lines.push(`Open audiobook: "${b.title || 'Untitled'}"`);
+  if ((b.authors || []).length) lines.push(`Author(s): ${(b.authors || []).join(', ')}`);
+  if ((b.narrators || []).length) lines.push(`Narrator(s): ${(b.narrators || []).join(', ')}`);
+  if (b.series_title) {
+    lines.push(`Series: ${b.series_title}${b.series_sequence ? `, book ${b.series_sequence}` : ''}`);
+  }
+  lines.push(`ASIN: ${b.asin || this.currentAsin || ''}`);
+  if (typeof b.percent_complete === 'number') {
+    lines.push(`Audible account progress: ${b.is_finished ? 'finished' : `${b.percent_complete.toFixed(1)}% complete`}`);
+  }
+  lines.push(`Current player state: ${playerState}`);
+  lines.push(`Current position: ${fmtDuration(positionMs)}${totalMs ? ` of ${fmtDuration(totalMs)}` : ''}`);
+  if (totalMs > 0) {
+    lines.push(`Current local progress: ${Math.max(0, Math.min(100, (positionMs / totalMs) * 100)).toFixed(1)}%`);
+  }
+  if (chapter) {
+    lines.push(`Current chapter: ${chapter.ordinal}. ${chapter.title || `Chapter ${chapter.ordinal}`} (${fmtDuration(chapter.start_ms || 0)} - ${fmtDuration((chapter.start_ms || 0) + (chapter.length_ms || 0))})`);
+  }
+  if (transcriptWindow) {
+    lines.push('');
+    lines.push('Transcript near the current listening position (most recent context is near the middle/end of this excerpt):');
+    lines.push(transcriptWindow);
+  } else if (this.currentTranscript && this.currentTranscript.status) {
+    const status = this.currentTranscript.status;
+    lines.push(`Transcript status: ${status.state || 'idle'}${status.message ? ` - ${status.message}` : ''}`);
+  } else {
+    lines.push('No transcript excerpt is available for the current position yet.');
+  }
+  lines.push('');
+  lines.push('When the user asks about this audiobook, ground the answer in the title, ASIN, current chapter, player position, and transcript excerpt above. Use Audible extension commands for deeper book metadata, chapters, progress, or annotations when useful.');
+  return lines.join('\n');
 };
 
 AudibleView.prototype.onTimeUpdate = function () {

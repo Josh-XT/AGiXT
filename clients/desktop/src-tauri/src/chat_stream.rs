@@ -49,6 +49,10 @@ pub struct ChatMessage {
     pub log_output: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_command_selection: Option<bool>,
+    /// Hidden per-turn context for AGiXT. The backend folds this into
+    /// prompt_args.context instead of logging it as the user's message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -589,6 +593,7 @@ mod tests {
             log_user_input: None,
             log_output: None,
             enable_command_selection: None,
+            context: None,
         }];
         let tools = [json!({
             "type": "function",

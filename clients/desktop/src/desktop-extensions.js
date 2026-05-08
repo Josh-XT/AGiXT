@@ -31,6 +31,11 @@
 
   // id -> { entry, mounted, ctrl, blobUrl }
   const state = new Map();
+  // id -> function/object that returns contextual text for the user's
+  // current surface inside that extension. Sampled only when the user
+  // sends a chat turn, so providers can compute from live DOM/player
+  // state without keeping a central cache hot.
+  const contextProviders = new Map();
   // id -> { mount, unmount } — populated transiently when an extension
   // module evaluates and calls AgixtRegisterExtension. We pop it back
   // into state.ctrl right after the import resolves.
@@ -50,6 +55,141 @@
   function ctx() {
     if (typeof window.AgixtAppContext !== 'function') return null;
     return window.AgixtAppContext();
+  }
+
+  function registerContextProvider(id, provider) {
+    if (!id || !provider) return () => {};
+    if (typeof provider !== 'function'
+        && !(provider && typeof provider.getContext === 'function')) {
+      console.warn('desktop-extensions: invalid context provider', id);
+      return () => {};
+    }
+    contextProviders.set(id, provider);
+    window.dispatchEvent(new CustomEvent('agixt-extension-context-changed', {
+      detail: { id, registered: true },
+    }));
+    return () => unregisterContextProvider(id, provider);
+  }
+
+  function unregisterContextProvider(id, provider) {
+    if (!id) return;
+    if (provider && contextProviders.get(id) !== provider) return;
+    contextProviders.delete(id);
+    window.dispatchEvent(new CustomEvent('agixt-extension-context-changed', {
+      detail: { id, registered: false },
+    }));
+  }
+
+  function currentActiveView() {
+    const sidenav = window.AgixtSidenav;
+    if (sidenav && typeof sidenav.getActiveView === 'function') {
+      const value = sidenav.getActiveView();
+      if (value) return value;
+    }
+    const activeBtn = document.querySelector('.sidenav-btn.is-active[data-view]');
+    if (activeBtn && activeBtn.dataset.view) return activeBtn.dataset.view;
+    const visiblePane = Array.from(document.querySelectorAll('.chat-screen-main .view-pane[data-view]'))
+      .find((pane) => pane.dataset.view !== 'chat' && !pane.hidden);
+    return visiblePane ? visiblePane.dataset.view : 'chat';
+  }
+
+  function extensionLabel(id) {
+    const rec = state.get(id);
+    return (rec && rec.entry && (rec.entry.label || rec.entry.title)) || id;
+  }
+
+  function compactText(value, maxLen) {
+    const text = String(value == null ? '' : value).trim();
+    if (!maxLen || text.length <= maxLen) return text;
+    return text.slice(0, maxLen - 1).trimEnd() + '…';
+  }
+
+  function formatContextValue(id, value) {
+    if (value == null || value === false) return '';
+    let label = extensionLabel(id);
+    let body = '';
+    if (typeof value === 'string') {
+      body = value.trim();
+    } else if (Array.isArray(value)) {
+      body = value.map((x) => String(x == null ? '' : x).trim()).filter(Boolean).join('\n');
+    } else if (typeof value === 'object') {
+      label = value.label || value.title || label;
+      if (typeof value.context === 'string') body = value.context;
+      else if (typeof value.markdown === 'string') body = value.markdown;
+      else if (typeof value.text === 'string') body = value.text;
+      else {
+        const lines = [];
+        if (value.summary) lines.push(String(value.summary));
+        if (Array.isArray(value.lines)) {
+          for (const line of value.lines) {
+            if (line != null && String(line).trim()) lines.push(String(line).trim());
+          }
+        }
+        if (value.data && typeof value.data === 'object') {
+          try { lines.push('```json\n' + JSON.stringify(value.data, null, 2) + '\n```'); }
+          catch (_) {}
+        }
+        body = lines.join('\n');
+      }
+    }
+    body = compactText(body, 8000);
+    if (!body) return '';
+    return [
+      `## Current ${label} Desktop Extension Context`,
+      'This context comes from the desktop page the user currently has open. Use it when it helps answer the user, but do not treat it as a new user request.',
+      '',
+      body,
+    ].join('\n');
+  }
+
+  function readContextProvider(id) {
+    const provider = contextProviders.get(id);
+    if (!provider) return '';
+    try {
+      const raw = typeof provider === 'function'
+        ? provider()
+        : provider.getContext();
+      return formatContextValue(id, raw);
+    } catch (err) {
+      console.warn('desktop-extensions: context provider failed', id, err);
+      return '';
+    }
+  }
+
+  function getActiveContext() {
+    const id = currentActiveView();
+    if (!id || id === 'chat') return '';
+    return readContextProvider(id);
+  }
+
+  function getAllContexts() {
+    const items = [];
+    for (const id of contextProviders.keys()) {
+      const text = readContextProvider(id);
+      if (text) items.push({ id, text });
+    }
+    return items;
+  }
+
+  function makeMountContext(id, rec) {
+    const c = ctx();
+    if (!c) return null;
+    return Object.assign({}, c, {
+      extensionId: id,
+      registerContextProvider: (provider) => {
+        const unsubscribe = registerContextProvider(id, provider);
+        rec.contextUnsubscribe = unsubscribe;
+        return () => {
+          if (rec.contextUnsubscribe === unsubscribe) rec.contextUnsubscribe = null;
+          unsubscribe();
+        };
+      },
+      notifyContextChanged: () => {
+        window.dispatchEvent(new CustomEvent('agixt-extension-context-changed', {
+          detail: { id },
+        }));
+      },
+    });
   }
 
   function buildUrl(base, path, params) {
@@ -307,7 +447,7 @@
     const rec = state.get(id);
     if (!rec) return;
     if (rec.mounted) return;
-    const c = ctx();
+    const c = makeMountContext(id, rec);
     if (!c) return;
 
     let blobUrl = rec.blobUrl;
@@ -340,7 +480,7 @@
     const pane = ensurePane(rec.entry);
     if (!pane) return;
     try {
-      ctrl.mount(pane, ctx());
+      ctrl.mount(pane, c);
       rec.mounted = true;
     } catch (err) {
       console.warn('desktop-extensions: mount failed', id, err);
@@ -380,6 +520,12 @@
     if (rec.ctrl && typeof rec.ctrl.unmount === 'function') {
       try { rec.ctrl.unmount(); } catch (_) { /* ignore */ }
     }
+    if (typeof rec.contextUnsubscribe === 'function') {
+      try { rec.contextUnsubscribe(); } catch (_) {}
+      rec.contextUnsubscribe = null;
+    } else {
+      unregisterContextProvider(id);
+    }
     if (rec.blobUrl) {
       URL.revokeObjectURL(rec.blobUrl);
     }
@@ -410,7 +556,7 @@
       ensurePane(entry);
       const existing = state.get(id);
       if (!existing) {
-        state.set(id, { entry, mounted: false, ctrl: null, blobUrl: null });
+        state.set(id, { entry, mounted: false, ctrl: null, blobUrl: null, contextUnsubscribe: null });
         continue;
       }
       if (existing.entry.version !== entry.version) {
@@ -421,12 +567,17 @@
         if (existing.ctrl && typeof existing.ctrl.unmount === 'function') {
           try { existing.ctrl.unmount(); } catch (_) {}
         }
+        if (typeof existing.contextUnsubscribe === 'function') {
+          try { existing.contextUnsubscribe(); } catch (_) {}
+        } else {
+          unregisterContextProvider(id);
+        }
         if (existing.blobUrl) URL.revokeObjectURL(existing.blobUrl);
         const pane = document.querySelector(
           `.chat-screen-main .view-pane[data-view="${cssEscape(id)}"]`,
         );
         if (pane) pane.innerHTML = '';
-        state.set(id, { entry, mounted: false, ctrl: null, blobUrl: null });
+        state.set(id, { entry, mounted: false, ctrl: null, blobUrl: null, contextUnsubscribe: null });
       } else {
         existing.entry = entry;
       }
@@ -455,5 +606,13 @@
     }
   }
 
-  window.AgixtDesktopExtensions = { start, stop, refresh };
+  window.AgixtDesktopExtensions = {
+    start,
+    stop,
+    refresh,
+    registerContextProvider,
+    unregisterContextProvider,
+    getActiveContext,
+    getAllContexts,
+  };
 })();

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Signing in - AGiXT</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #0f172a;
+        color: #e5eefc;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+      }
+
+      main {
+        width: min(420px, calc(100vw - 32px));
+        display: grid;
+        gap: 12px;
+        text-align: center;
+      }
+
+      .mark {
+        width: 42px;
+        height: 42px;
+        margin: 0 auto 4px;
+        border: 2px solid #38bdf8;
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: spin 900ms linear infinite;
+      }
+
+      .done .mark,
+      .error .mark {
+        animation: none;
+        border-color: #22c55e;
+      }
+
+      .error .mark {
+        border-color: #ef4444;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 650;
+      }
+
+      p {
+        margin: 0;
+        color: #9fb1ca;
+        line-height: 1.5;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <main id="oauth-status">
+      <div class="mark" aria-hidden="true"></div>
+      <h1>Completing sign in</h1>
+      <p>Please wait while AGiXT finishes the OAuth flow.</p>
+    </main>
+    <script src="/web-runtime.js"></script>
+    <script>
+      window.AgixtWebRuntime.handleOAuthClose();
+    </script>
+  </body>
+</html>
