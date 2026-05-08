@@ -1,0 +1,24 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "AGiXT",
+        "url": "index.html",
+        "width": 400,
+        "height": 800,
+        "minWidth": 320,
+        "minHeight": 420,
+        "resizable": true,
+        "decorations": false,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "visible": true,
+        "center": true,
+        "focus": true,
+        "shadow": false
+      }
+    ]
+  }
+}

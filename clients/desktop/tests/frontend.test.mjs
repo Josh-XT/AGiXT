@@ -273,6 +273,52 @@ test('app: composer enter and send button call chat_send', async () => {
   window.AgixtChat.disconnect();
 });
 
+test('app: signed-out startup shows auth and blocks agent settings', async () => {
+  const signedOutSettings = {
+    jwt: null,
+    conversation_id: null,
+    conversation_name: null,
+    server_url: 'https://api.agixt.com',
+    web_url: 'https://agixt.com',
+    service_brand: 'agixt',
+    agent_id: null,
+    agent_name: 'XT',
+    company_id: null,
+    company_name: null,
+    allow_client_commands: true,
+    voice_enabled: false,
+    desktop_auto_update: false,
+    user_email: null,
+  };
+  const { window, calls } = loadFullApp({
+    ipc: {
+      get_settings: async () => signedOutSettings,
+      list_service_brands: async () => [
+        {
+          slug: 'agixt',
+          label: 'AGiXT.com',
+          default_url: 'https://api.agixt.com',
+          default_web_url: 'https://agixt.com',
+        },
+      ],
+      list_oauth_providers: async () => [],
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  assert.equal(window.document.getElementById('auth-screen').hidden, false);
+  assert.equal(window.document.getElementById('chat-screen').hidden, true);
+  assert.equal(window.document.body.classList.contains('auth-mode'), true);
+  assert.equal(window.document.getElementById('btn-agent-settings').disabled, true);
+  assert.equal(window.document.getElementById('agent-switcher-btn').disabled, true);
+  assert.equal(window.document.getElementById('convo-switcher-btn').disabled, true);
+
+  window.document.getElementById('btn-agent-settings').click();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(calls.some((c) => c.cmd === 'open_agent_settings'), false);
+  window.AgixtChat.disconnect();
+});
+
 test('app: switching agents activates that agent conversation and filters the menu', async () => {
   let savedSettings = {
     jwt: 'jwt',

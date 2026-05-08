@@ -141,9 +141,16 @@
     const auth = which === 'auth';
     $('auth-screen').hidden = !auth;
     $('chat-screen').hidden = auth;
+    document.body.classList.toggle('auth-mode', auth);
     // When showing auth, also disable the new-convo button etc. so users
     // don't get a weird state.
-    [newConvoBtn].forEach((b) => { if (b) b.disabled = auth; });
+    [
+      newConvoBtn,
+      agentBtn,
+      convoBtn,
+      agentSettingsBtn,
+    ].forEach((b) => { if (b) b.disabled = auth; });
+    closeMenus();
   }
 
   // ----- Settings load / save ---------------------------------------------
@@ -1710,9 +1717,14 @@
   if (agentSettingsBtn) {
     agentSettingsBtn.addEventListener('click', async () => {
       try {
+        if (!settings || !settings.jwt) {
+          showScreen('auth');
+          return;
+        }
         await invoke('open_agent_settings');
       } catch (err) {
         console.warn('open_agent_settings', err);
+        showScreen('auth');
       }
     });
   }
@@ -1735,10 +1747,16 @@
   if (openAgentSettingsBtn) {
     openAgentSettingsBtn.addEventListener('click', async () => {
       try {
+        if (!settings || !settings.jwt) {
+          closeSettings();
+          showScreen('auth');
+          return;
+        }
         await invoke('open_agent_settings');
         closeSettings();
       } catch (err) {
         setSettingsStatus(err && err.error ? err.error : String(err), 'error');
+        showScreen('auth');
       }
     });
   }

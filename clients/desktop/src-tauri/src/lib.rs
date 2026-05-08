@@ -481,7 +481,28 @@ fn urlencode_state(s: &str) -> String {
 /// tauri.conf.json with `visible: false`; this command just promotes it,
 /// focuses it, and centers it (the user might've moved/hidden it earlier).
 #[tauri::command]
-async fn open_agent_settings(app: AppHandle) -> ToolResult<()> {
+async fn open_agent_settings(app: AppHandle, state: State<'_, AppState>) -> ToolResult<()> {
+    let signed_in = {
+        let settings = state.settings.lock().await;
+        settings
+            .jwt
+            .as_deref()
+            .map(|jwt| !jwt.trim().is_empty())
+            .unwrap_or(false)
+    };
+    if !signed_in {
+        if let Some(win) = app.get_webview_window(MAIN_LABEL) {
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+        if let Some(win) = app.get_webview_window("agent-settings") {
+            let _ = win.hide();
+        }
+        return Err(ToolError {
+            error: "Sign in before opening agent settings.".into(),
+        });
+    }
+
     if let Some(win) = app.get_webview_window("agent-settings") {
         let _ = win.show();
         #[cfg(not(mobile))]
@@ -3781,6 +3802,15 @@ pub fn run() {
                 sudo_keepalive: Mutex::new(None),
                 suppress_blur_hide: Arc::new(AtomicBool::new(false)),
             });
+
+            // Mobile is a single-surface app. Desktop-only secondary
+            // windows, especially agent-settings, can otherwise win the
+            // initial WebView focus on Android and strand signed-out users
+            // away from the login screen.
+            if let Some(win) = app.get_webview_window("agent-settings") {
+                let _ = win.hide();
+                let _ = win.destroy();
+            }
 
             if let Some(win) = app.get_webview_window(MAIN_LABEL) {
                 let _ = win.show();

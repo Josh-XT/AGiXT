@@ -192,6 +192,10 @@ html, body {
   position: relative;
 }
 
+body.auth-mode .topbar-stack {
+  display: none;
+}
+
 /* Window mode: hide the global topbar (the OS title bar provides the
    drag region + close, and the brand identity), and slot the agent /
    conversation chips into the top of the chat pane via the

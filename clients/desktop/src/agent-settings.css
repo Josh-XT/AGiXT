@@ -119,6 +119,26 @@
   font-size: 13px;
 }
 
+.as-auth-gate {
+  width: min(360px, calc(100vw - 48px));
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.as-auth-gate h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+}
+.as-auth-gate p {
+  margin: 0 0 4px;
+  color: var(--text-dim);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
 .as-toast {
   position: fixed;
   bottom: 24px;

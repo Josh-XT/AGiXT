@@ -106,10 +106,50 @@
     }
   }
 
+  function renderSignedOut() {
+    document.body.classList.add('as-signed-out');
+    const title = document.querySelector('.as-title');
+    if (title) title.textContent = 'AGiXT';
+    const sub = document.getElementById('as-subtitle');
+    if (sub) sub.textContent = 'Sign in to configure an agent.';
+    const tabsEl = document.querySelector('.as-tabs');
+    if (tabsEl) tabsEl.hidden = true;
+    const main = document.querySelector('.as-main');
+    if (!main) return;
+    main.innerHTML = '';
+    const wrap = document.createElement('section');
+    wrap.className = 'as-auth-gate';
+    const heading = document.createElement('h2');
+    heading.textContent = 'Sign in to continue';
+    const body = document.createElement('p');
+    body.textContent = 'Agent settings are available after the desktop client is connected to an AGiXT account.';
+    const button = document.createElement('button');
+    button.className = 'btn btn-primary';
+    button.type = 'button';
+    button.textContent = 'Open sign in';
+    button.addEventListener('click', async () => {
+      try {
+        await invoke('show_chat');
+      } catch (_) {
+        // Navigating below is the important fallback when this page was
+        // opened as the only mobile WebView.
+      }
+      window.location.href = 'index.html';
+    });
+    wrap.appendChild(heading);
+    wrap.appendChild(body);
+    wrap.appendChild(button);
+    main.appendChild(wrap);
+  }
+
   async function boot() {
     bindTabs();
     try {
       const settings = await window.AgixtApi.getSettings();
+      if (!settings || !settings.jwt) {
+        renderSignedOut();
+        return;
+      }
       agentId = settings.agent_id || null;
       agentName = settings.agent_name || null;
       paintHeader(settings);
