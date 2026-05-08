@@ -64,9 +64,31 @@ _PENDING_TTL_SECONDS = 60 * 60
 
 def _validate_asin(asin: str) -> str:
     asin = (asin or "").strip().upper()
-    if not _ASIN_RE.match(asin):
+    match = _ASIN_RE.fullmatch(asin)
+    if not match:
         raise HTTPException(status_code=400, detail="invalid asin")
-    return asin
+    return match.group(0)
+
+
+def _audio_cache_root() -> Path:
+    root = _AUDIO_CACHE_ROOT.expanduser().resolve(strict=False)
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _safe_cache_path(path: Path) -> Path:
+    root = _audio_cache_root()
+    resolved = Path(path).expanduser().resolve(strict=False)
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="invalid audio cache path") from exc
+    return resolved
+
+
+def _audio_cache_dir(asin: str) -> Path:
+    safe_asin = _validate_asin(asin)
+    return _safe_cache_path(_audio_cache_root() / safe_asin)
 
 
 def _require_audible_pkg() -> None:
@@ -302,9 +324,8 @@ def _complete_audible_login(
         query = parse_qs(parsed.query.decode())
         authorization_code = query["openid.oa2.authorization_code"][0]
     except Exception as exc:
-        raise HTTPException(
-            status_code=400, detail=f"Could not parse redirect URL: {exc}"
-        )
+        logging.warning("audible: could not parse redirect URL: %s", exc)
+        raise HTTPException(status_code=400, detail="Could not parse redirect URL.")
 
     try:
         register_response = register_device(
@@ -318,7 +339,7 @@ def _complete_audible_login(
         logging.error("audible: register exchange failed: %s", exc)
         raise HTTPException(
             status_code=502,
-            detail=f"Amazon rejected the authorization code: {exc}",
+            detail="Amazon rejected the authorization code.",
         )
 
     auth = Authenticator()
@@ -523,7 +544,7 @@ async def _auth_auto_playwright(
         raise
     except Exception as exc:
         logging.error("audible: playwright auth failed: %s", exc)
-        raise HTTPException(status_code=502, detail=f"Playwright login failed: {exc}")
+        raise HTTPException(status_code=502, detail="Playwright login failed.")
 
     # We now have the redirect URL; finish the flow as if the user had
     # pasted it manually. This re-uses the same exchange code path so
@@ -568,12 +589,13 @@ def _audible_auth_status_for_agent(agent) -> Dict[str, Any]:
     try:
         auth = Authenticator.from_dict(raw)
     except Exception as exc:
+        logging.warning("audible: stored auth could not be loaded: %s", exc)
         return {
             "package_installed": True,
             "configured": True,
             "loadable": False,
             "auth_file": "agent_setting",
-            "error": str(exc),
+            "error": "Stored Audible auth could not be loaded.",
         }
     customer_info = getattr(auth, "customer_info", {}) or {}
     return {
@@ -633,7 +655,7 @@ def _book_full(b: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _audio_cache_paths(asin: str) -> Tuple[Path, Path]:
-    base = _AUDIO_CACHE_ROOT / asin
+    base = _audio_cache_dir(asin)
     base.mkdir(parents=True, exist_ok=True)
     return base, base / "audio.aax"
 
@@ -647,7 +669,7 @@ def _find_playable_audio(asin: str) -> Optional[Path]:
     plays through cleanly. Still picks up older `.mp3` / `.m4b` /
     `.mp4` artifacts validated by previous versions.
     """
-    base = _AUDIO_CACHE_ROOT / asin
+    base = _audio_cache_dir(asin)
     if not base.is_dir():
         return None
     for name in ("audio.m4a", "audio.mp3", "audio.m4b", "audio.mp4"):
@@ -757,7 +779,8 @@ def _detect_aax_format(path: Path) -> Optional[str]:
     "aaxc", or None if we can't tell.
     """
     try:
-        with path.open("rb") as fh:
+        safe_path = _safe_cache_path(path)
+        with safe_path.open("rb") as fh:
             header = fh.read(32)
     except Exception:
         return None
@@ -774,6 +797,7 @@ def _detect_aax_format(path: Path) -> Optional[str]:
 def _run_ffmpeg_decrypt(command: List[str], output_path: Path) -> Tuple[int, str]:
     """Run ffmpeg synchronously with stdout+stderr captured. Returns
     `(returncode, tail_of_output)`. Caller invokes via asyncio.to_thread."""
+    output_path = _safe_cache_path(output_path)
     try:
         proc = subprocess.run(
             command,
@@ -796,6 +820,7 @@ def _probe_audio_duration_seconds(audio_path: Path) -> Optional[float]:
     ffprobe = shutil.which("ffprobe")
     if not ffprobe:
         return None
+    audio_path = _safe_cache_path(audio_path)
     try:
         result = subprocess.run(
             [
@@ -831,12 +856,13 @@ def _validate_decoded_audio(audio_path: Path) -> Tuple[bool, str]:
     - a duration ffprobe can read of at least 5 seconds.
     """
     try:
-        size = audio_path.stat().st_size
+        safe_path = _safe_cache_path(audio_path)
+        size = safe_path.stat().st_size
     except Exception:
         return False, "audio file missing"
     if size < 1024 * 1024:
         return False, f"audio file is too small to be real ({size} bytes)"
-    duration = _probe_audio_duration_seconds(audio_path)
+    duration = _probe_audio_duration_seconds(safe_path)
     if duration is None:
         return False, "ffprobe could not read audio duration"
     if duration < 5:
@@ -860,6 +886,8 @@ async def _convert_to_playable(
     saved as `.m4a` would be treated as success and serve a corrupt
     file the browser refuses.
     """
+    input_path = _safe_cache_path(input_path)
+    output_path = _safe_cache_path(output_path)
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         return False, (
@@ -1159,7 +1187,7 @@ def _maybe_clean_transcript_file(
         and stats.get("dropped_special_token", 0) <= 0
     ):
         return transcript
-    base = _AUDIO_CACHE_ROOT / asin
+    base = _audio_cache_dir(asin)
     base.mkdir(parents=True, exist_ok=True)
     raw_path = base / "transcript.raw.json"
     final_path = base / "transcript.json"
@@ -1188,7 +1216,7 @@ def _maybe_clean_transcript_file(
 
 def _read_transcript_status(asin: str) -> Dict[str, Any]:
     """Snapshot of the audiobook's transcription progress on disk."""
-    p = _AUDIO_CACHE_ROOT / asin / "transcript_status.json"
+    p = _audio_cache_dir(asin) / "transcript_status.json"
     if not p.is_file():
         return {"state": "idle"}
     try:
@@ -1198,7 +1226,7 @@ def _read_transcript_status(asin: str) -> Dict[str, Any]:
 
 
 def _write_transcript_status(asin: str, **fields) -> None:
-    base = _AUDIO_CACHE_ROOT / asin
+    base = _audio_cache_dir(asin)
     base.mkdir(parents=True, exist_ok=True)
     p = base / "transcript_status.json"
     payload = _read_transcript_status(asin)
@@ -1237,6 +1265,8 @@ async def _ffmpeg_extract_chunk(
     those drifts accumulate across 7+ chunks until the back half of
     the book's transcript is seconds out of sync with the audio.
     """
+    audio_path = _safe_cache_path(audio_path)
+    out_path = _safe_cache_path(out_path)
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         return False
@@ -1287,6 +1317,7 @@ async def _transcribe_chunk(
     and return the parsed JSON. None on failure."""
     api_url = voice_server + "/v1/audio/transcriptions"
     api_key = (getenv("EZLOCALAI_API_KEY") or "none") or "none"
+    chunk_path = _safe_cache_path(chunk_path)
     try:
         async with httpx.AsyncClient(timeout=1800.0) as hc:
             with chunk_path.open("rb") as fh:
@@ -1323,6 +1354,8 @@ async def _transcribe_audiobook(asin: str, audio_path: Path) -> Tuple[bool, str]
     shifted by the chunk offset and concatenated. Status is emitted to
     `transcript_status.json` so the desktop UI can render a progress bar.
     """
+    asin = _validate_asin(asin)
+    audio_path = _safe_cache_path(audio_path)
     voice_server = _voice_server_url()
     if not voice_server:
         return False, "no transcription voice server configured"
@@ -1403,8 +1436,9 @@ async def _transcribe_audiobook(asin: str, audio_path: Path) -> Tuple[bool, str]
     try:
         (base / "transcript.json").write_text(json.dumps(transcript), encoding="utf-8")
     except Exception as exc:
-        _write_transcript_status(asin, state="error", error=f"write failed: {exc}")
-        return False, f"write failed: {exc}"
+        logging.warning("audible: could not write transcript for %s: %s", asin, exc)
+        _write_transcript_status(asin, state="error", error="write failed")
+        return False, "write failed"
 
     _write_transcript_status(
         asin,
@@ -1708,7 +1742,9 @@ class audible(Extensions):
                 )
             except Exception as exc:
                 logging.error("audible: library fetch failed: %s", exc)
-                raise HTTPException(status_code=502, detail=str(exc))
+                raise HTTPException(
+                    status_code=502, detail="Audible library fetch failed."
+                )
             items = [_book_brief(b) for b in resp.get("items", []) if b.get("asin")]
             if q:
                 ql = q.lower()
@@ -1743,7 +1779,10 @@ class audible(Extensions):
                     },
                 )
             except Exception as exc:
-                raise HTTPException(status_code=502, detail=str(exc))
+                logging.error("audible: progress fetch failed: %s", exc)
+                raise HTTPException(
+                    status_code=502, detail="Audible progress fetch failed."
+                )
 
             in_progress = []
             for b in resp.get("items", []):
@@ -1792,7 +1831,10 @@ class audible(Extensions):
                     },
                 )
             except Exception as exc:
-                raise HTTPException(status_code=502, detail=str(exc))
+                logging.error("audible: wishlist fetch failed: %s", exc)
+                raise HTTPException(
+                    status_code=502, detail="Audible wishlist fetch failed."
+                )
             items = [_book_brief(b) for b in resp.get("products", []) if b.get("asin")]
             return {"items": items, "count": len(items)}
 
@@ -1819,7 +1861,12 @@ class audible(Extensions):
                     },
                 )
             except Exception as exc:
-                raise HTTPException(status_code=502, detail=str(exc))
+                logging.error(
+                    "audible: book details fetch failed for %s: %s", asin, exc
+                )
+                raise HTTPException(
+                    status_code=502, detail="Audible book details fetch failed."
+                )
             product = resp.get("product") or resp
             out = _book_full(product)
             try:
@@ -1869,7 +1916,12 @@ class audible(Extensions):
                     },
                 )
             except Exception as exc:
-                raise HTTPException(status_code=502, detail=str(exc))
+                logging.error(
+                    "audible: chapter metadata fetch failed for %s: %s", asin, exc
+                )
+                raise HTTPException(
+                    status_code=502, detail="Audible chapter fetch failed."
+                )
             info = (resp.get("content_metadata") or {}).get("chapter_info") or {}
             chapters_in = info.get("chapters") or []
             out_chapters = []
@@ -1924,7 +1976,7 @@ class audible(Extensions):
             `~/.agixt/audiobooks/<asin>/transcript.json`.
             """
             asin = _validate_asin(asin)
-            base = _AUDIO_CACHE_ROOT / asin
+            base = _audio_cache_dir(asin)
             tx = base / "transcript.json"
             status = _read_transcript_status(asin)
             if tx.is_file():
@@ -2010,7 +2062,7 @@ class audible(Extensions):
                     status_code=400,
                     detail="all segments were dropped as duplicates / unrealistic",
                 )
-            base = _AUDIO_CACHE_ROOT / asin
+            base = _audio_cache_dir(asin)
             base.mkdir(parents=True, exist_ok=True)
             language = (payload.get("language") or "en").strip() or "en"
             source = (
@@ -2027,8 +2079,11 @@ class audible(Extensions):
                     json.dumps(data), encoding="utf-8"
                 )
             except Exception as exc:
+                logging.warning(
+                    "audible: could not write uploaded transcript for %s: %s", asin, exc
+                )
                 raise HTTPException(
-                    status_code=500, detail=f"could not write transcript: {exc}"
+                    status_code=500, detail="could not write transcript"
                 )
             _write_transcript_status(
                 asin,
@@ -2063,7 +2118,7 @@ class audible(Extensions):
             use that to decide whether to fall back to local whisper-rs.
             """
             asin = _validate_asin(asin)
-            base = _AUDIO_CACHE_ROOT / asin
+            base = _audio_cache_dir(asin)
             removed = []
             for name in ("transcript.json", "transcript.raw.json"):
                 p = base / name
@@ -2116,12 +2171,12 @@ class audible(Extensions):
             user=Depends(verify_api_key),
             authorization: str = Header(None),
             agent_id: Optional[str] = Query(None),
-            size: int = Query(500),
+            size: int = Query(500, ge=64, le=2000),
         ):
             asin = _validate_asin(asin)
             agent = _resolve_agent(authorization, agent_id, user)
             client = _client_for(agent)
-            cache_dir = _AUDIO_CACHE_ROOT / asin
+            cache_dir = _audio_cache_dir(asin)
             cache_dir.mkdir(parents=True, exist_ok=True)
             cover_path = cache_dir / f"cover_{size}.jpg"
             if cover_path.is_file() and cover_path.stat().st_size > 0:
@@ -2136,7 +2191,12 @@ class audible(Extensions):
                     },
                 )
             except Exception as exc:
-                raise HTTPException(status_code=502, detail=str(exc))
+                logging.error(
+                    "audible: cover metadata fetch failed for %s: %s", asin, exc
+                )
+                raise HTTPException(
+                    status_code=502, detail="Audible cover metadata fetch failed."
+                )
             product = resp.get("product") or resp
             images = product.get("product_images") or {}
             url = images.get(str(size)) or images.get("500") or images.get("252")
@@ -2148,9 +2208,8 @@ class audible(Extensions):
                     r.raise_for_status()
                     cover_path.write_bytes(r.content)
             except Exception as exc:
-                raise HTTPException(
-                    status_code=502, detail=f"cover fetch failed: {exc}"
-                )
+                logging.error("audible: cover fetch failed for %s: %s", asin, exc)
+                raise HTTPException(status_code=502, detail="cover fetch failed")
             return FileResponse(str(cover_path), media_type="image/jpeg")
 
         @router.get(

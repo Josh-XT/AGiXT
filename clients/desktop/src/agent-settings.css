@@ -19,6 +19,11 @@
   justify-content: space-between;
   gap: 24px;
   padding: 18px 28px 0;
+  /* Match the .topbar / .sidenav background so the chrome strip across
+     the top of the window reads as one continuous band — VSCode-style.
+     Without this the embedded pane inherits --bg and the header pops
+     lighter than the activity bar to its left. */
+  background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
 }

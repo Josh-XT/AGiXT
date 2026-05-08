@@ -21,31 +21,44 @@
       .replace(/'/g, '&#039;');
   }
 
-  function isSafeUrl(url, media) {
+  function normalizeSafeUrl(url, media) {
     const raw = String(url || '').trim();
-    if (!raw || /[\u0000-\u001f\u007f]/.test(raw)) return false;
-    if (/^data:/i.test(raw)) return !!media && SAFE_DATA_MEDIA.test(raw);
-    if (/^blob:/i.test(raw)) return !!media;
+    if (!raw || /[\u0000-\u001f\u007f]/.test(raw)) return '';
+    if (/^data:/i.test(raw)) {
+      return media && SAFE_DATA_MEDIA.test(raw) ? raw.replace(/\s+/g, '') : '';
+    }
+    if (media && raw.startsWith('/') && !raw.startsWith('//')) {
+      return encodeURI(raw);
+    }
     try {
       const base = (typeof document !== 'undefined' && document.baseURI)
         || (typeof window !== 'undefined' && window.location && window.location.href)
         || 'http://localhost/';
       const parsed = new URL(raw, base);
-      const allowed = media ? ['http:', 'https:'] : ['http:', 'https:', 'mailto:', 'tel:'];
-      return allowed.includes(parsed.protocol);
+      if (media && (parsed.protocol === 'http:' || parsed.protocol === 'https:' || parsed.protocol === 'blob:')) {
+        return encodeURI(parsed.href);
+      }
+      if (!media && (
+        parsed.protocol === 'http:'
+        || parsed.protocol === 'https:'
+        || parsed.protocol === 'mailto:'
+        || parsed.protocol === 'tel:'
+      )) {
+        return encodeURI(parsed.href);
+      }
+      return '';
     } catch (_) {
-      return false;
+      return '';
     }
   }
 
   function safeUrl(url, media) {
-    const raw = String(url || '').trim();
-    return isSafeUrl(raw, media) ? raw : '';
+    return normalizeSafeUrl(url, media);
   }
 
   function classifyMedia(url) {
     const clean = String(url || '').split('#')[0];
-    if (!isSafeUrl(clean, true)) return null;
+    if (!safeUrl(clean, true)) return null;
     if (/^data:image\//i.test(clean)) return 'image';
     if (/^data:video\//i.test(clean)) return 'video';
     if (/^data:audio\//i.test(clean)) return 'audio';

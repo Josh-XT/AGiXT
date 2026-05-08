@@ -21,6 +21,7 @@
   let companies = [];
   let agents = [];
   let conversationName = null;
+  const rememberedAgentConversations = new Map();
 
   // ----- DOM -----
   const $ = (id) => document.getElementById(id);
@@ -676,15 +677,13 @@
   function rememberAgentConversation(agentId = settings && settings.agent_id, conversationId = settings && settings.conversation_id) {
     const key = agentConversationStorageKey(agentId);
     if (!key || !conversationId) return;
-    try { window.localStorage.setItem(key, conversationId); }
-    catch (_) { /* ignore storage failures */ }
+    rememberedAgentConversations.set(key, conversationId);
   }
 
   function rememberedAgentConversation(agentId = settings && settings.agent_id) {
     const key = agentConversationStorageKey(agentId);
     if (!key) return '';
-    try { return window.localStorage.getItem(key) || ''; }
-    catch (_) { return ''; }
+    return rememberedAgentConversations.get(key) || '';
   }
 
   async function refreshConversations() {

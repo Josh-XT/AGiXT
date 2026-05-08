@@ -225,7 +225,9 @@ def _gh_headers(token: str) -> Dict[str, str]:
     }
 
 
-def _gh_get_paginated(url: str, token: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+def _gh_get_paginated(
+    url: str, token: str, params: Optional[Dict[str, Any]] = None
+) -> List[Dict[str, Any]]:
     """GET a GitHub list endpoint, transparently paging through results."""
     out: List[Dict[str, Any]] = []
     params = dict(params or {})
@@ -280,8 +282,11 @@ def _fetch_user_repos(token: str) -> List[Dict[str, Any]]:
     repos = _gh_get_paginated(
         "https://api.github.com/user/repos",
         token,
-        {"sort": "updated", "direction": "desc",
-         "affiliation": "owner,organization_member,collaborator"},
+        {
+            "sort": "updated",
+            "direction": "desc",
+            "affiliation": "owner,organization_member,collaborator",
+        },
     )
 
     # Best-effort enumerate orgs and pull each org's repo list to catch
@@ -310,7 +315,8 @@ def _fetch_user_repos(token: str) -> List[Dict[str, Any]]:
                 repos.append(r)
 
     return [
-        r for r in repos
+        r
+        for r in repos
         if not r.get("archived", False)
         and (r.get("owner") or {}).get("login", "").lower() not in _EXCLUDED_OWNERS
     ]
@@ -350,7 +356,9 @@ def _fetch_repo_security(token: str, repo: Dict[str, Any]) -> Dict[str, Any]:
     def _get_dependabot():
         r = requests.get(
             f"https://api.github.com/repos/{owner_name}/{repo_name}/dependabot/alerts",
-            headers=headers, params={"state": "open", "per_page": 100}, timeout=30,
+            headers=headers,
+            params={"state": "open", "per_page": 100},
+            timeout=30,
         )
         enabled = r.status_code == 200
         return (r.json() if enabled else []), enabled
@@ -358,7 +366,9 @@ def _fetch_repo_security(token: str, repo: Dict[str, Any]) -> Dict[str, Any]:
     def _get_code_scanning():
         r = requests.get(
             f"https://api.github.com/repos/{owner_name}/{repo_name}/code-scanning/alerts",
-            headers=headers, params={"state": "open", "per_page": 100}, timeout=30,
+            headers=headers,
+            params={"state": "open", "per_page": 100},
+            timeout=30,
         )
         if r.status_code == 200:
             return r.json(), True
@@ -377,12 +387,18 @@ def _fetch_repo_security(token: str, repo: Dict[str, Any]) -> Dict[str, Any]:
     def _get_advisories():
         r = requests.get(
             f"https://api.github.com/repos/{owner_name}/{repo_name}/security-advisories",
-            headers=headers, params={"per_page": 100}, timeout=30,
+            headers=headers,
+            params={"per_page": 100},
+            timeout=30,
         )
         if r.status_code == 200:
             data = r.json()
             if isinstance(data, list):
-                return [a for a in data if a.get("state") not in ("published", "closed", "withdrawn")]
+                return [
+                    a
+                    for a in data
+                    if a.get("state") not in ("published", "closed", "withdrawn")
+                ]
         return []
 
     with ThreadPoolExecutor(max_workers=3) as pool:
@@ -406,7 +422,9 @@ def _fetch_repo_security(token: str, repo: Dict[str, Any]) -> Dict[str, Any]:
 
     severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
     for alert in dependabot:
-        sev = (alert.get("security_vulnerability", {}) or {}).get("severity", "").lower()
+        sev = (
+            (alert.get("security_vulnerability", {}) or {}).get("severity", "").lower()
+        )
         if not sev:
             sev = (alert.get("security_advisory", {}) or {}).get("severity", "").lower()
         if sev in severity_counts:
@@ -506,6 +524,7 @@ def _drop_from_cache(user_id: str, full_name: str) -> None:
 
 # ---- alert-detail helpers (per-alert flattening, mirrors Flask app) ----
 
+
 def _alert_severity(alert_type: str, alert: Dict[str, Any]) -> str:
     if alert_type == "dependabot":
         sev = (alert.get("security_vulnerability", {}) or {}).get("severity", "")
@@ -514,7 +533,11 @@ def _alert_severity(alert_type: str, alert: Dict[str, Any]) -> str:
         return sev or "unknown"
     if alert_type == "code_scanning":
         rule = alert.get("rule", {}) or {}
-        return rule.get("security_severity_level", "") or rule.get("severity", "") or "unknown"
+        return (
+            rule.get("security_severity_level", "")
+            or rule.get("severity", "")
+            or "unknown"
+        )
     if alert_type == "advisory":
         return alert.get("severity", "") or "unknown"
     return "unknown"
@@ -522,7 +545,9 @@ def _alert_severity(alert_type: str, alert: Dict[str, Any]) -> str:
 
 def _alert_summary(alert_type: str, alert: Dict[str, Any]) -> str:
     if alert_type == "dependabot":
-        return (alert.get("security_advisory", {}) or {}).get("summary", "Dependabot Alert")
+        return (alert.get("security_advisory", {}) or {}).get(
+            "summary", "Dependabot Alert"
+        )
     if alert_type == "code_scanning":
         return (alert.get("rule", {}) or {}).get("description", "Code Scanning Alert")
     if alert_type == "advisory":
@@ -544,7 +569,9 @@ def _flatten_alert(alert_type: str, alert: Dict[str, Any]) -> Dict[str, Any]:
         item["package"] = (vuln.get("package", {}) or {}).get("name", "")
         item["ecosystem"] = (vuln.get("package", {}) or {}).get("ecosystem", "")
         item["vulnerable_range"] = vuln.get("vulnerable_version_range", "")
-        item["patched_version"] = (vuln.get("first_patched_version") or {}).get("identifier", "")
+        item["patched_version"] = (vuln.get("first_patched_version") or {}).get(
+            "identifier", ""
+        )
         item["cve"] = ""
         for ident in advisory.get("identifiers", []) or []:
             if ident.get("type") == "CVE":
@@ -562,7 +589,9 @@ def _flatten_alert(alert_type: str, alert: Dict[str, Any]) -> Dict[str, Any]:
         item["created_at"] = alert.get("created_at", "")
     elif alert_type == "code_scanning":
         rule = alert.get("rule", {}) or {}
-        item["severity"] = rule.get("security_severity_level", "") or rule.get("severity", "")
+        item["severity"] = rule.get("security_severity_level", "") or rule.get(
+            "severity", ""
+        )
         item["summary"] = rule.get("description", "")
         item["full_description"] = rule.get("full_description", "")
         instance = alert.get("most_recent_instance", {}) or {}
@@ -621,7 +650,9 @@ def _fetch_alerts(token: str, owner: str, repo: str) -> List[Dict[str, Any]]:
     alerts: List[Tuple[str, Dict[str, Any]]] = []
 
     def _fetch(alert_type: str, url: str) -> List[Tuple[str, Dict[str, Any]]]:
-        r = requests.get(url, headers=headers, params={"state": "open", "per_page": 100}, timeout=30)
+        r = requests.get(
+            url, headers=headers, params={"state": "open", "per_page": 100}, timeout=30
+        )
         if r.status_code == 200:
             data = r.json()
             if isinstance(data, list):
@@ -631,23 +662,32 @@ def _fetch_alerts(token: str, owner: str, repo: str) -> List[Dict[str, Any]]:
     def _fetch_advisories() -> List[Tuple[str, Dict[str, Any]]]:
         r = requests.get(
             f"https://api.github.com/repos/{owner}/{repo}/security-advisories",
-            headers=headers, params={"per_page": 100}, timeout=30,
+            headers=headers,
+            params={"per_page": 100},
+            timeout=30,
         )
         if r.status_code == 200:
             data = r.json()
             if isinstance(data, list):
                 return [
-                    ("advisory", a) for a in data
+                    ("advisory", a)
+                    for a in data
                     if a.get("state") not in ("published", "closed", "withdrawn")
                 ]
         return []
 
     with ThreadPoolExecutor(max_workers=3) as pool:
         futures = [
-            pool.submit(_fetch, "dependabot",
-                        f"https://api.github.com/repos/{owner}/{repo}/dependabot/alerts"),
-            pool.submit(_fetch, "code_scanning",
-                        f"https://api.github.com/repos/{owner}/{repo}/code-scanning/alerts"),
+            pool.submit(
+                _fetch,
+                "dependabot",
+                f"https://api.github.com/repos/{owner}/{repo}/dependabot/alerts",
+            ),
+            pool.submit(
+                _fetch,
+                "code_scanning",
+                f"https://api.github.com/repos/{owner}/{repo}/code-scanning/alerts",
+            ),
             pool.submit(_fetch_advisories),
         ]
         for f in futures:
@@ -656,6 +696,7 @@ def _fetch_alerts(token: str, owner: str, repo: str) -> List[Dict[str, Any]]:
 
 
 # ---- AI streaming: forward to local /v1/chat/completions over HTTP ----
+
 
 def _agixt_base_url() -> str:
     """Local AGiXT URL we self-call for chat completions. Defaults to the
@@ -679,22 +720,33 @@ def _stream_chat_completions(authorization: str, payload: Dict[str, Any]):
 
     def _gen():
         try:
-            with requests.post(url, headers=headers, json=payload, stream=True, timeout=3600) as resp:
+            with requests.post(
+                url, headers=headers, json=payload, stream=True, timeout=3600
+            ) as resp:
                 if resp.status_code != 200:
-                    err = resp.text[:500]
-                    yield f"data: {json.dumps({'type': 'error', 'content': f'AGiXT returned {resp.status_code}: {err}'})}\n\n"
+                    logging.warning(
+                        "github: AGiXT chat stream returned %s: %s",
+                        resp.status_code,
+                        resp.text[:500],
+                    )
+                    yield f"data: {json.dumps({'type': 'error', 'content': f'AGiXT returned {resp.status_code}.'})}\n\n"
                     return
                 for raw in resp.iter_lines(decode_unicode=False):
                     if raw is None:
                         continue
-                    line = raw.decode("utf-8", errors="replace") if isinstance(raw, (bytes, bytearray)) else raw
+                    line = (
+                        raw.decode("utf-8", errors="replace")
+                        if isinstance(raw, (bytes, bytearray))
+                        else raw
+                    )
                     if not line:
                         # Preserve SSE event boundaries (blank line between events).
                         yield "\n"
                         continue
                     yield line + "\n"
         except Exception as exc:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(exc)})}\n\n"
+            logging.exception("github: AGiXT chat stream proxy failed")
+            yield f"data: {json.dumps({'type': 'error', 'content': 'AGiXT chat stream failed.'})}\n\n"
 
     return _gen()
 
@@ -805,7 +857,9 @@ class github(Extensions):
                 raise HTTPException(status_code=401, detail="Invalid token")
             tok = _gh_token_for_user(auth.user_id)
             if not tok:
-                raise HTTPException(status_code=403, detail="GitHub OAuth not connected")
+                raise HTTPException(
+                    status_code=403, detail="GitHub OAuth not connected"
+                )
             return auth, tok
 
         @router.get("/repos", summary="List user repos with security counts")
@@ -849,8 +903,10 @@ class github(Extensions):
                 msg = resp.text[:300]
             return JSONResponse({"error": msg}, status_code=resp.status_code)
 
-        @router.post("/repos/{owner}/{repo}/enable-security",
-                     summary="Enable a security feature on a repo")
+        @router.post(
+            "/repos/{owner}/{repo}/enable-security",
+            summary="Enable a security feature on a repo",
+        )
         async def enable_security(
             owner: str,
             repo: str,
@@ -871,21 +927,39 @@ class github(Extensions):
                 if feature == "dependabot":
                     resp = requests.put(
                         f"https://api.github.com/repos/{owner}/{repo}/vulnerability-alerts",
-                        headers=headers, timeout=30,
+                        headers=headers,
+                        timeout=30,
                     )
                     if resp.status_code == 204:
-                        _update_cache_field(auth.user_id, f"{owner}/{repo}", "dependabot_enabled", True)
-                        return {"status": "ok", "message": f"Dependabot enabled on {owner}/{repo}"}
+                        _update_cache_field(
+                            auth.user_id, f"{owner}/{repo}", "dependabot_enabled", True
+                        )
+                        return {
+                            "status": "ok",
+                            "message": f"Dependabot enabled on {owner}/{repo}",
+                        }
                 elif feature == "code_scanning":
                     resp = requests.patch(
                         f"https://api.github.com/repos/{owner}/{repo}/code-scanning/default-setup",
-                        headers=headers, json={"state": "configured"}, timeout=30,
+                        headers=headers,
+                        json={"state": "configured"},
+                        timeout=30,
                     )
                     if resp.status_code in (200, 202):
-                        _update_cache_field(auth.user_id, f"{owner}/{repo}", "code_scanning_enabled", True)
-                        return {"status": "ok", "message": f"CodeQL enabled on {owner}/{repo}"}
+                        _update_cache_field(
+                            auth.user_id,
+                            f"{owner}/{repo}",
+                            "code_scanning_enabled",
+                            True,
+                        )
+                        return {
+                            "status": "ok",
+                            "message": f"CodeQL enabled on {owner}/{repo}",
+                        }
                 else:
-                    return JSONResponse({"error": f"Unknown feature: {feature}"}, status_code=400)
+                    return JSONResponse(
+                        {"error": f"Unknown feature: {feature}"}, status_code=400
+                    )
                 # If we fell through, surface GitHub's error.
                 try:
                     msg = resp.json().get("message", "")
@@ -896,10 +970,18 @@ class github(Extensions):
                     status_code=resp.status_code,
                 )
             except Exception as exc:
-                return JSONResponse({"error": str(exc)}, status_code=500)
+                logging.exception(
+                    "github: failed to update repository security feature"
+                )
+                return JSONResponse(
+                    {"error": "Failed to update repository security feature."},
+                    status_code=500,
+                )
 
-        @router.get("/repos/{owner}/{repo}/alerts",
-                    summary="Detailed security alerts for a repo")
+        @router.get(
+            "/repos/{owner}/{repo}/alerts",
+            summary="Detailed security alerts for a repo",
+        )
         async def get_alerts(
             owner: str,
             repo: str,
@@ -913,8 +995,10 @@ class github(Extensions):
             result.sort(key=lambda a: sev_order.get(a.get("severity", "").lower(), 4))
             return {"alerts": result, "total": len(result)}
 
-        @router.get("/repos/{owner}/{repo}/issues",
-                    summary="Open issues for a repo (PRs filtered out)")
+        @router.get(
+            "/repos/{owner}/{repo}/issues",
+            summary="Open issues for a repo (PRs filtered out)",
+        )
         async def get_issues(
             owner: str,
             repo: str,
@@ -924,32 +1008,39 @@ class github(Extensions):
             _, token = _require_token(authorization)
             raw = _gh_get_paginated(
                 f"https://api.github.com/repos/{owner}/{repo}/issues",
-                token, {"state": "open"},
+                token,
+                {"state": "open"},
             )
             issues = [i for i in raw if "pull_request" not in i]
             out = []
             for issue in issues:
-                out.append({
-                    "number": issue["number"],
-                    "title": issue.get("title", ""),
-                    "html_url": issue.get("html_url", ""),
-                    "state": issue.get("state", ""),
-                    "created_at": issue.get("created_at", ""),
-                    "updated_at": issue.get("updated_at", ""),
-                    "user": (issue.get("user") or {}).get("login", ""),
-                    "labels": [
-                        {"name": l.get("name", ""), "color": l.get("color", "ccc")}
-                        for l in issue.get("labels", []) or []
-                    ],
-                    "assignees": [(a or {}).get("login", "") for a in issue.get("assignees", []) or []],
-                    "comments": issue.get("comments", 0),
-                    "body": (issue.get("body") or "")[:1000],
-                    "milestone": (issue.get("milestone") or {}).get("title", ""),
-                })
+                out.append(
+                    {
+                        "number": issue["number"],
+                        "title": issue.get("title", ""),
+                        "html_url": issue.get("html_url", ""),
+                        "state": issue.get("state", ""),
+                        "created_at": issue.get("created_at", ""),
+                        "updated_at": issue.get("updated_at", ""),
+                        "user": (issue.get("user") or {}).get("login", ""),
+                        "labels": [
+                            {"name": l.get("name", ""), "color": l.get("color", "ccc")}
+                            for l in issue.get("labels", []) or []
+                        ],
+                        "assignees": [
+                            (a or {}).get("login", "")
+                            for a in issue.get("assignees", []) or []
+                        ],
+                        "comments": issue.get("comments", 0),
+                        "body": (issue.get("body") or "")[:1000],
+                        "milestone": (issue.get("milestone") or {}).get("title", ""),
+                    }
+                )
             return {"issues": out, "total": len(out)}
 
-        @router.get("/repos/{owner}/{repo}/pulls",
-                    summary="Open pull requests for a repo")
+        @router.get(
+            "/repos/{owner}/{repo}/pulls", summary="Open pull requests for a repo"
+        )
         async def get_pulls(
             owner: str,
             repo: str,
@@ -959,36 +1050,42 @@ class github(Extensions):
             _, token = _require_token(authorization)
             raw = _gh_get_paginated(
                 f"https://api.github.com/repos/{owner}/{repo}/pulls",
-                token, {"state": "open"},
+                token,
+                {"state": "open"},
             )
             out = []
             for pr in raw:
-                out.append({
-                    "number": pr["number"],
-                    "title": pr.get("title", ""),
-                    "html_url": pr.get("html_url", ""),
-                    "state": pr.get("state", ""),
-                    "draft": pr.get("draft", False),
-                    "created_at": pr.get("created_at", ""),
-                    "updated_at": pr.get("updated_at", ""),
-                    "user": (pr.get("user") or {}).get("login", ""),
-                    "labels": [
-                        {"name": l.get("name", ""), "color": l.get("color", "ccc")}
-                        for l in pr.get("labels", []) or []
-                    ],
-                    "head_ref": (pr.get("head") or {}).get("ref", ""),
-                    "base_ref": (pr.get("base") or {}).get("ref", ""),
-                    "comments": (pr.get("comments", 0) or 0) + (pr.get("review_comments", 0) or 0),
-                    "additions": pr.get("additions", 0),
-                    "deletions": pr.get("deletions", 0),
-                    "changed_files": pr.get("changed_files", 0),
-                    "body": (pr.get("body") or "")[:1000],
-                    "mergeable_state": pr.get("mergeable_state", ""),
-                })
+                out.append(
+                    {
+                        "number": pr["number"],
+                        "title": pr.get("title", ""),
+                        "html_url": pr.get("html_url", ""),
+                        "state": pr.get("state", ""),
+                        "draft": pr.get("draft", False),
+                        "created_at": pr.get("created_at", ""),
+                        "updated_at": pr.get("updated_at", ""),
+                        "user": (pr.get("user") or {}).get("login", ""),
+                        "labels": [
+                            {"name": l.get("name", ""), "color": l.get("color", "ccc")}
+                            for l in pr.get("labels", []) or []
+                        ],
+                        "head_ref": (pr.get("head") or {}).get("ref", ""),
+                        "base_ref": (pr.get("base") or {}).get("ref", ""),
+                        "comments": (pr.get("comments", 0) or 0)
+                        + (pr.get("review_comments", 0) or 0),
+                        "additions": pr.get("additions", 0),
+                        "deletions": pr.get("deletions", 0),
+                        "changed_files": pr.get("changed_files", 0),
+                        "body": (pr.get("body") or "")[:1000],
+                        "mergeable_state": pr.get("mergeable_state", ""),
+                    }
+                )
             return {"pulls": out, "total": len(out)}
 
-        @router.post("/repos/{owner}/{repo}/pulls/{pr_number}/merge",
-                     summary="Merge a pull request")
+        @router.post(
+            "/repos/{owner}/{repo}/pulls/{pr_number}/merge",
+            summary="Merge a pull request",
+        )
         async def merge_pull(
             owner: str,
             repo: str,
@@ -1008,11 +1105,14 @@ class github(Extensions):
             headers = _gh_headers(token)
             pr_resp = requests.get(
                 f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}",
-                headers=headers, timeout=30,
+                headers=headers,
+                timeout=30,
             )
             if pr_resp.status_code != 200:
-                return JSONResponse({"error": "Failed to fetch PR details"},
-                                    status_code=pr_resp.status_code)
+                return JSONResponse(
+                    {"error": "Failed to fetch PR details"},
+                    status_code=pr_resp.status_code,
+                )
             pr = pr_resp.json()
             resp = requests.put(
                 f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/merge",
@@ -1045,8 +1145,10 @@ class github(Extensions):
                 msg = resp.text[:300]
             return JSONResponse({"error": msg}, status_code=resp.status_code)
 
-        @router.get("/repos/{owner}/{repo}/pulls/{pr_number}/files",
-                    summary="File diffs for a pull request")
+        @router.get(
+            "/repos/{owner}/{repo}/pulls/{pr_number}/files",
+            summary="File diffs for a pull request",
+        )
         async def get_pr_files(
             owner: str,
             repo: str,
@@ -1066,7 +1168,10 @@ class github(Extensions):
             if missing:
                 diff_resp = requests.get(
                     f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}",
-                    headers={**_gh_headers(token), "Accept": "application/vnd.github.v3.diff"},
+                    headers={
+                        **_gh_headers(token),
+                        "Accept": "application/vnd.github.v3.diff",
+                    },
                     timeout=60,
                 )
                 if diff_resp.status_code == 200:
@@ -1077,23 +1182,27 @@ class github(Extensions):
                 patch = f.get("patch", "")
                 if not patch:
                     patch = diff_patches.get(f.get("filename", ""), "")
-                out.append({
-                    "filename": f.get("filename", ""),
-                    "status": f.get("status", ""),
-                    "additions": f.get("additions", 0),
-                    "deletions": f.get("deletions", 0),
-                    "changes": f.get("changes", 0),
-                    "patch": patch,
-                    "blob_url": f.get("blob_url", ""),
-                    "raw_url": f.get("raw_url", ""),
-                    "previous_filename": f.get("previous_filename", ""),
-                })
+                out.append(
+                    {
+                        "filename": f.get("filename", ""),
+                        "status": f.get("status", ""),
+                        "additions": f.get("additions", 0),
+                        "deletions": f.get("deletions", 0),
+                        "changes": f.get("changes", 0),
+                        "patch": patch,
+                        "blob_url": f.get("blob_url", ""),
+                        "raw_url": f.get("raw_url", ""),
+                        "previous_filename": f.get("previous_filename", ""),
+                    }
+                )
             return {"files": out, "total": len(out)}
 
         # ---- AI-driven endpoints (SSE) -----------------------------------
 
-        @router.post("/repos/{owner}/{repo}/issues/{issue_number}/fix",
-                     summary="Have the XT agent fix a GitHub issue (SSE)")
+        @router.post(
+            "/repos/{owner}/{repo}/issues/{issue_number}/fix",
+            summary="Have the XT agent fix a GitHub issue (SSE)",
+        )
         async def fix_issue(
             owner: str,
             repo: str,
@@ -1105,15 +1214,19 @@ class github(Extensions):
             headers = _gh_headers(token)
             resp = requests.get(
                 f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}",
-                headers=headers, timeout=30,
+                headers=headers,
+                timeout=30,
             )
             if resp.status_code != 200:
-                return JSONResponse({"error": "Failed to fetch issue"},
-                                    status_code=resp.status_code)
+                return JSONResponse(
+                    {"error": "Failed to fetch issue"}, status_code=resp.status_code
+                )
             issue = resp.json()
             comments_resp = requests.get(
                 f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/comments",
-                headers=headers, params={"per_page": 50}, timeout=30,
+                headers=headers,
+                params={"per_page": 50},
+                timeout=30,
             )
             comments = comments_resp.json() if comments_resp.status_code == 200 else []
 
@@ -1182,8 +1295,10 @@ class github(Extensions):
                 media_type="text/event-stream",
             )
 
-        @router.post("/repos/{owner}/{repo}/pulls/{pr_number}/review",
-                     summary="Have the XT agent review a pull request (SSE)")
+        @router.post(
+            "/repos/{owner}/{repo}/pulls/{pr_number}/review",
+            summary="Have the XT agent review a pull request (SSE)",
+        )
         async def review_pr(
             owner: str,
             repo: str,
@@ -1195,11 +1310,13 @@ class github(Extensions):
             headers = _gh_headers(token)
             resp = requests.get(
                 f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}",
-                headers=headers, timeout=30,
+                headers=headers,
+                timeout=30,
             )
             if resp.status_code != 200:
-                return JSONResponse({"error": "Failed to fetch PR"},
-                                    status_code=resp.status_code)
+                return JSONResponse(
+                    {"error": "Failed to fetch PR"}, status_code=resp.status_code
+                )
             pr = resp.json()
 
             diff_resp = requests.get(
@@ -1207,16 +1324,24 @@ class github(Extensions):
                 headers={**headers, "Accept": "application/vnd.github.v3.diff"},
                 timeout=30,
             )
-            diff_text = diff_resp.text[:50000] if diff_resp.status_code == 200 else "Diff not available"
+            diff_text = (
+                diff_resp.text[:50000]
+                if diff_resp.status_code == 200
+                else "Diff not available"
+            )
 
             comments_resp = requests.get(
                 f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/comments",
-                headers=headers, params={"per_page": 50}, timeout=30,
+                headers=headers,
+                params={"per_page": 50},
+                timeout=30,
             )
             comments = comments_resp.json() if comments_resp.status_code == 200 else []
             ic_resp = requests.get(
                 f"https://api.github.com/repos/{owner}/{repo}/issues/{pr_number}/comments",
-                headers=headers, params={"per_page": 50}, timeout=30,
+                headers=headers,
+                params={"per_page": 50},
+                timeout=30,
             )
             issue_comments = ic_resp.json() if ic_resp.status_code == 200 else []
 
@@ -1302,8 +1427,10 @@ class github(Extensions):
                 media_type="text/event-stream",
             )
 
-        @router.post("/repos/{owner}/{repo}/fix-vulns",
-                     summary="Have the XT agent fix all open security alerts (SSE)")
+        @router.post(
+            "/repos/{owner}/{repo}/fix-vulns",
+            summary="Have the XT agent fix all open security alerts (SSE)",
+        )
         async def fix_vulns(
             owner: str,
             repo: str,
@@ -1313,8 +1440,9 @@ class github(Extensions):
             _, token = _require_token(authorization)
             alerts = _fetch_alerts(token, owner, repo)
             if not alerts:
-                return JSONResponse({"error": "No open alerts found for this repo"},
-                                    status_code=404)
+                return JSONResponse(
+                    {"error": "No open alerts found for this repo"}, status_code=404
+                )
             vuln_md = _build_vulnerabilities_md(owner, repo, alerts)
             conversation_name = (
                 f"Fix Vulnerabilities - {owner}/{repo} - "
@@ -1361,8 +1489,10 @@ class github(Extensions):
                 media_type="text/event-stream",
             )
 
-        @router.post("/repos/{owner}/{repo}/security-audit",
-                     summary="Run a comprehensive AI security audit (SSE)")
+        @router.post(
+            "/repos/{owner}/{repo}/security-audit",
+            summary="Run a comprehensive AI security audit (SSE)",
+        )
         async def security_audit(
             owner: str,
             repo: str,
@@ -1372,11 +1502,15 @@ class github(Extensions):
             _, token = _require_token(authorization)
             headers = _gh_headers(token)
             repo_resp = requests.get(
-                f"https://api.github.com/repos/{owner}/{repo}", headers=headers, timeout=30,
+                f"https://api.github.com/repos/{owner}/{repo}",
+                headers=headers,
+                timeout=30,
             )
             if repo_resp.status_code != 200:
-                return JSONResponse({"error": "Failed to fetch repository"},
-                                    status_code=repo_resp.status_code)
+                return JSONResponse(
+                    {"error": "Failed to fetch repository"},
+                    status_code=repo_resp.status_code,
+                )
             repo_data = repo_resp.json()
             language = repo_data.get("language", "Unknown")
             default_branch = repo_data.get("default_branch", "main")
@@ -1425,6 +1559,7 @@ class github(Extensions):
 
 # ---- markdown builders -----------------------------------------------------
 
+
 def _parse_unified_diff(diff_text: str) -> Dict[str, str]:
     """Split a unified diff into per-file patches keyed by `b/` filename."""
     patches: Dict[str, str] = {}
@@ -1435,8 +1570,9 @@ def _parse_unified_diff(diff_text: str) -> Dict[str, str]:
             if current_file and current_lines:
                 patches[current_file] = "\n".join(current_lines)
             current_lines = []
-            match = re.search(r" b/(.+)$", line)
-            current_file = match.group(1) if match else None
+            parts = line.split(maxsplit=3)
+            target = parts[3] if len(parts) == 4 else ""
+            current_file = target[2:] if target.startswith("b/") else None
         elif current_file and (line.startswith("@@") or current_lines):
             if line.startswith("---") or line.startswith("+++"):
                 continue
@@ -1446,7 +1582,9 @@ def _parse_unified_diff(diff_text: str) -> Dict[str, str]:
     return patches
 
 
-def _build_vulnerabilities_md(owner: str, repo: str, alerts: List[Tuple[str, Dict[str, Any]]]) -> str:
+def _build_vulnerabilities_md(
+    owner: str, repo: str, alerts: List[Tuple[str, Dict[str, Any]]]
+) -> str:
     sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     alerts = sorted(
         alerts,
@@ -1476,8 +1614,12 @@ def _build_vulnerabilities_md(owner: str, repo: str, alerts: List[Tuple[str, Dic
             pkg = vuln.get("package", {}) or {}
             lines.append(f"- **Package:** {pkg.get('name', 'Unknown')}")
             lines.append(f"- **Ecosystem:** {pkg.get('ecosystem', 'Unknown')}")
-            lines.append(f"- **Vulnerable Range:** {vuln.get('vulnerable_version_range', 'N/A')}")
-            patched = (vuln.get("first_patched_version") or {}).get("identifier", "No patch available")
+            lines.append(
+                f"- **Vulnerable Range:** {vuln.get('vulnerable_version_range', 'N/A')}"
+            )
+            patched = (vuln.get("first_patched_version") or {}).get(
+                "identifier", "No patch available"
+            )
             lines.append(f"- **Patched Version:** {patched}")
             if dep.get("manifest_path"):
                 lines.append(f"- **Manifest File:** {dep['manifest_path']}")
@@ -1533,7 +1675,9 @@ def _build_vulnerabilities_md(owner: str, repo: str, alerts: List[Tuple[str, Dic
             if instance.get("ref"):
                 lines.append(f"- **Branch:** {instance['ref']}")
             if rule.get("full_description"):
-                lines.append(f"- **Full Description:** {rule['full_description'][:500]}")
+                lines.append(
+                    f"- **Full Description:** {rule['full_description'][:500]}"
+                )
             msg = (instance.get("message", {}) or {}).get("text", "")
             if msg:
                 lines.append(f"- **Details:** {msg[:500]}")
@@ -1554,9 +1698,13 @@ def _build_vulnerabilities_md(owner: str, repo: str, alerts: List[Tuple[str, Dic
                 lines.append(f"- **CWEs:** {'; '.join(cwe_strs)}")
             for v in alert.get("vulnerabilities", []) or []:
                 pkg = v.get("package", {}) or {}
-                lines.append(f"- **Package:** {pkg.get('name', 'Unknown')} ({pkg.get('ecosystem', '')})")
+                lines.append(
+                    f"- **Package:** {pkg.get('name', 'Unknown')} ({pkg.get('ecosystem', '')})"
+                )
                 if v.get("vulnerable_version_range"):
-                    lines.append(f"- **Vulnerable Range:** {v['vulnerable_version_range']}")
+                    lines.append(
+                        f"- **Vulnerable Range:** {v['vulnerable_version_range']}"
+                    )
                 if v.get("patched_versions"):
                     lines.append(f"- **Patched Version:** {v['patched_versions']}")
             desc = alert.get("description", "")
@@ -1569,192 +1717,198 @@ def _build_vulnerabilities_md(owner: str, repo: str, alerts: List[Tuple[str, Dic
             lines.append(f"- **URL:** {alert['html_url']}")
         lines.append("")
 
-    lines.extend([
-        "---",
-        "",
-        "IMPORTANT: Do NOT commit directly to the main branch. Create a new branch "
-        "named `fix/security-vulnerabilities` from the default branch, make all changes there, "
-        "then open a pull request back to the default branch.",
-        "",
-        "Please fix all of the above vulnerabilities. For dependency vulnerabilities, "
-        "update the affected packages to their patched versions. For code scanning issues, "
-        "fix the code at the specified locations. For security advisories, review the reported "
-        "vulnerability and implement the necessary code fixes to address them.",
-    ])
+    lines.extend(
+        [
+            "---",
+            "",
+            "IMPORTANT: Do NOT commit directly to the main branch. Create a new branch "
+            "named `fix/security-vulnerabilities` from the default branch, make all changes there, "
+            "then open a pull request back to the default branch.",
+            "",
+            "Please fix all of the above vulnerabilities. For dependency vulnerabilities, "
+            "update the affected packages to their patched versions. For code scanning issues, "
+            "fix the code at the specified locations. For security advisories, review the reported "
+            "vulnerability and implement the necessary code fixes to address them.",
+        ]
+    )
     return "\n".join(lines)
 
 
-def _build_security_audit_md(owner: str, repo: str, language: str, default_branch: str) -> str:
-    return "\n".join([
-        f"# Security Audit for {owner}/{repo}",
-        "",
-        "## Instructions",
-        "",
-        f"IMPORTANT: Do NOT commit directly to the `{default_branch}` branch. Create a new branch "
-        f"named `fix/security-audit` from `{default_branch}`, make all changes there, "
-        f"then open a pull request back to `{default_branch}` with a summary of all findings and fixes.",
-        "",
-        "If GitHub Copilot is available, ask it to help investigate the codebase for each "
-        "vulnerability category below. Have Copilot examine the source code thoroughly and "
-        "identify any instances of these security issues. For each issue found, fix it on the branch.",
-        "",
-        f"**Repository:** https://github.com/{owner}/{repo}",
-        f"**Primary Language:** {language}",
-        f"**Default Branch:** {default_branch}",
-        f"**Generated:** {datetime.now(timezone.utc).isoformat()}",
-        "",
-        "---",
-        "",
-        "## Vulnerability Categories to Audit",
-        "",
-        "Thoroughly review the entire codebase for the following security vulnerability categories. "
-        "For each category, search for patterns, anti-patterns, and known vulnerable code constructs.",
-        "",
-        "### 1. Injection Attacks",
-        "",
-        "#### SQL Injection",
-        "- Look for raw SQL queries constructed with string concatenation or f-strings",
-        "- Check for use of unparameterized queries in database calls",
-        "- Identify any ORM usage that falls back to raw SQL without proper escaping",
-        "- Check stored procedures for dynamic SQL construction",
-        "- Look for second-order SQL injection where stored data is later used in queries unsafely",
-        "",
-        "#### Command Injection",
-        "- Search for `os.system()`, `subprocess.Popen()`, `subprocess.run()`, `subprocess.call()` with `shell=True`",
-        "- Check for unsanitized user input passed to shell commands",
-        "- Look for backtick execution or `eval()`/`exec()` with user-controlled input",
-        "- Identify template engines executing system commands",
-        "",
-        "#### Code Injection",
-        "- Look for `eval()`, `exec()`, `compile()` with user-controlled strings",
-        "- Check for `Function()` constructor in JavaScript with dynamic input",
-        "- Search for deserialization of untrusted data (`pickle.loads()`, `yaml.load()` without SafeLoader, `JSON.parse()` feeding `eval()`)",
-        "- Look for dynamic imports or `__import__()` with user input",
-        "",
-        "#### LDAP Injection",
-        "- Check for LDAP queries built with string concatenation from user input",
-        "- Look for unescaped special characters in LDAP filter expressions",
-        "",
-        "#### XPath/XML Injection",
-        "- Search for XML parsers without entity expansion disabled (XXE)",
-        "- Check for XPath queries with unescaped user input",
-        "- Look for XML parsers with `resolve_entities=True` or missing `defusedxml` usage",
-        "",
-        "### 2. Server-Side Request Forgery (SSRF)",
-        "",
-        "- Look for HTTP requests where the URL or any part of it is user-controlled",
-        "- Check for URL redirect endpoints that fetch remote content",
-        "- Identify webhook handlers that make outbound requests to user-supplied URLs",
-        "- Look for image/file download features that accept URLs",
-        "- Check for DNS rebinding vulnerabilities in URL validation",
-        "- Verify that internal/private IP ranges (127.0.0.1, 10.x, 172.16-31.x, 192.168.x, 169.254.x) are blocked",
-        "- Check for SSRF via protocol smuggling (file://, gopher://, dict://, etc.)",
-        "",
-        "### 3. Cross-Site Scripting (XSS)",
-        "",
-        "- Search for unsanitized user input rendered in HTML templates",
-        "- Look for `innerHTML`, `outerHTML`, `document.write()`, `insertAdjacentHTML()` with user data",
-        "- Check for template engines with auto-escaping disabled or `| safe` / `{!! !!}` / `<%- %>` usage",
-        "- Identify DOM-based XSS through `location.hash`, `location.search`, `document.referrer`",
-        "- Look for reflected XSS in error messages, search results, or URL parameters",
-        "- Check for stored XSS in user-generated content (comments, profiles, messages)",
-        "- Verify Content-Security-Policy headers are properly configured",
-        "",
-        "### 4. Broken Authentication & Session Management",
-        "",
-        "- Check for hardcoded credentials, API keys, tokens, or passwords in source code",
-        "- Look for weak password hashing (MD5, SHA1, plain text storage)",
-        "- Verify bcrypt/scrypt/argon2 is used for password storage",
-        "- Check session tokens for sufficient entropy and secure cookie flags (HttpOnly, Secure, SameSite)",
-        "- Look for session fixation vulnerabilities",
-        "- Check for missing or weak CSRF protection on state-changing endpoints",
-        "- Verify JWT tokens are validated properly (algorithm confusion, missing signature verification, expired token acceptance)",
-        "- Look for insecure password reset flows",
-        "",
-        "### 5. Broken Access Control",
-        "",
-        "- Check for missing authorization checks on API endpoints",
-        "- Look for Insecure Direct Object References (IDOR) where user IDs or resource IDs are guessable",
-        "- Verify role-based access controls are enforced server-side, not just client-side",
-        "- Check for privilege escalation paths (horizontal and vertical)",
-        "- Look for directory traversal via `../` in file paths or URL parameters",
-        "- Verify that API endpoints enforce proper scoping (users can only access their own data)",
-        "- Check for CORS misconfigurations that could allow unauthorized cross-origin access",
-        "",
-        "### 6. Sensitive Data Exposure",
-        "",
-        "- Look for sensitive data logged in plaintext (passwords, tokens, SSNs, credit cards)",
-        "- Check for missing encryption of data at rest or in transit",
-        "- Verify TLS is enforced and HTTP Strict Transport Security (HSTS) is configured",
-        "- Look for sensitive information in URL parameters (tokens, passwords)",
-        "- Check for overly verbose error messages that reveal stack traces, database schemas, or internal paths",
-        "- Verify PII is properly handled and not exposed in API responses unnecessarily",
-        "- Look for secrets committed in version control (.env files, config files with credentials)",
-        "",
-        "### 7. Security Misconfiguration",
-        "",
-        "- Check for debug mode enabled in production configurations",
-        "- Look for default credentials or admin panels left accessible",
-        "- Verify security headers are present (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, CSP)",
-        "- Check for open directory listings or exposed configuration files",
-        "- Look for permissive CORS policies (`Access-Control-Allow-Origin: *` on sensitive endpoints)",
-        "- Verify that unnecessary HTTP methods are disabled",
-        "- Check for missing rate limiting on authentication and sensitive endpoints",
-        "",
-        "### 8. Insecure Deserialization",
-        "",
-        "- Look for `pickle.loads()`, `yaml.load()` (without SafeLoader), `marshal.loads()` on untrusted data",
-        "- Check for Java deserialization (ObjectInputStream) with untrusted input",
-        "- Look for JSON deserialization that feeds into `eval()` or dynamic object creation",
-        "- Check for XML deserialization vulnerabilities (XML bombs, entity expansion)",
-        "",
-        "### 9. Using Components with Known Vulnerabilities",
-        "",
-        "- Check dependency files (requirements.txt, package.json, Gemfile, go.mod, Cargo.toml) for outdated packages",
-        "- Look for pinned versions of packages with known CVEs",
-        "- Check for vendored/copied library code that may be outdated",
-        "- Verify that dependency lock files exist and are up to date",
-        "",
-        "### 10. Insufficient Logging & Monitoring",
-        "",
-        "- Check if authentication failures are logged",
-        "- Verify that security-relevant events (access control failures, input validation failures) are logged",
-        "- Look for sensitive data in log output",
-        "- Check that logs cannot be tampered with (injection into logs via user input)",
-        "",
-        "### 11. Cryptographic Failures",
-        "",
-        "- Look for weak or deprecated cryptographic algorithms (DES, RC4, MD5 for signing, SHA1 for signing)",
-        "- Check for hardcoded encryption keys or IVs",
-        "- Verify random number generation uses cryptographically secure sources (`secrets` module, not `random`)",
-        "- Look for ECB mode usage in block ciphers",
-        "- Check for missing or improper certificate validation in HTTPS connections (`verify=False`)",
-        "",
-        "### 12. Business Logic Vulnerabilities",
-        "",
-        "- Look for race conditions in financial transactions or resource allocation",
-        "- Check for missing validation on quantities, prices, or amounts (negative values, integer overflow)",
-        "- Look for time-of-check to time-of-use (TOCTOU) bugs",
-        "- Check for abuse of bulk operations or batch endpoints",
-        "",
-        "### 13. File Upload Vulnerabilities",
-        "",
-        "- Check for unrestricted file upload types (allowing .php, .jsp, .exe, .sh)",
-        "- Look for missing file size limits",
-        "- Verify uploaded files are stored outside the web root",
-        "- Check for path traversal in uploaded file names",
-        "- Look for missing content-type validation (checking magic bytes, not just extension)",
-        "",
-        "---",
-        "",
-        "## Output Format",
-        "",
-        "For each vulnerability found:",
-        "1. **Category** — Which of the above categories it falls under",
-        "2. **Severity** — Critical / High / Medium / Low",
-        "3. **File & Line** — Exact location in the codebase",
-        "4. **Description** — What the vulnerability is and how it could be exploited",
-        "5. **Fix** — The specific code change to remediate it",
-        "",
-        "Apply all fixes to the `fix/security-audit` branch and open a pull request with the full report.",
-    ])
+def _build_security_audit_md(
+    owner: str, repo: str, language: str, default_branch: str
+) -> str:
+    return "\n".join(
+        [
+            f"# Security Audit for {owner}/{repo}",
+            "",
+            "## Instructions",
+            "",
+            f"IMPORTANT: Do NOT commit directly to the `{default_branch}` branch. Create a new branch "
+            f"named `fix/security-audit` from `{default_branch}`, make all changes there, "
+            f"then open a pull request back to `{default_branch}` with a summary of all findings and fixes.",
+            "",
+            "If GitHub Copilot is available, ask it to help investigate the codebase for each "
+            "vulnerability category below. Have Copilot examine the source code thoroughly and "
+            "identify any instances of these security issues. For each issue found, fix it on the branch.",
+            "",
+            f"**Repository:** https://github.com/{owner}/{repo}",
+            f"**Primary Language:** {language}",
+            f"**Default Branch:** {default_branch}",
+            f"**Generated:** {datetime.now(timezone.utc).isoformat()}",
+            "",
+            "---",
+            "",
+            "## Vulnerability Categories to Audit",
+            "",
+            "Thoroughly review the entire codebase for the following security vulnerability categories. "
+            "For each category, search for patterns, anti-patterns, and known vulnerable code constructs.",
+            "",
+            "### 1. Injection Attacks",
+            "",
+            "#### SQL Injection",
+            "- Look for raw SQL queries constructed with string concatenation or f-strings",
+            "- Check for use of unparameterized queries in database calls",
+            "- Identify any ORM usage that falls back to raw SQL without proper escaping",
+            "- Check stored procedures for dynamic SQL construction",
+            "- Look for second-order SQL injection where stored data is later used in queries unsafely",
+            "",
+            "#### Command Injection",
+            "- Search for `os.system()`, `subprocess.Popen()`, `subprocess.run()`, `subprocess.call()` with `shell=True`",
+            "- Check for unsanitized user input passed to shell commands",
+            "- Look for backtick execution or `eval()`/`exec()` with user-controlled input",
+            "- Identify template engines executing system commands",
+            "",
+            "#### Code Injection",
+            "- Look for `eval()`, `exec()`, `compile()` with user-controlled strings",
+            "- Check for `Function()` constructor in JavaScript with dynamic input",
+            "- Search for deserialization of untrusted data (`pickle.loads()`, `yaml.load()` without SafeLoader, `JSON.parse()` feeding `eval()`)",
+            "- Look for dynamic imports or `__import__()` with user input",
+            "",
+            "#### LDAP Injection",
+            "- Check for LDAP queries built with string concatenation from user input",
+            "- Look for unescaped special characters in LDAP filter expressions",
+            "",
+            "#### XPath/XML Injection",
+            "- Search for XML parsers without entity expansion disabled (XXE)",
+            "- Check for XPath queries with unescaped user input",
+            "- Look for XML parsers with `resolve_entities=True` or missing `defusedxml` usage",
+            "",
+            "### 2. Server-Side Request Forgery (SSRF)",
+            "",
+            "- Look for HTTP requests where the URL or any part of it is user-controlled",
+            "- Check for URL redirect endpoints that fetch remote content",
+            "- Identify webhook handlers that make outbound requests to user-supplied URLs",
+            "- Look for image/file download features that accept URLs",
+            "- Check for DNS rebinding vulnerabilities in URL validation",
+            "- Verify that internal/private IP ranges (127.0.0.1, 10.x, 172.16-31.x, 192.168.x, 169.254.x) are blocked",
+            "- Check for SSRF via protocol smuggling (file://, gopher://, dict://, etc.)",
+            "",
+            "### 3. Cross-Site Scripting (XSS)",
+            "",
+            "- Search for unsanitized user input rendered in HTML templates",
+            "- Look for `innerHTML`, `outerHTML`, `document.write()`, `insertAdjacentHTML()` with user data",
+            "- Check for template engines with auto-escaping disabled or `| safe` / `{!! !!}` / `<%- %>` usage",
+            "- Identify DOM-based XSS through `location.hash`, `location.search`, `document.referrer`",
+            "- Look for reflected XSS in error messages, search results, or URL parameters",
+            "- Check for stored XSS in user-generated content (comments, profiles, messages)",
+            "- Verify Content-Security-Policy headers are properly configured",
+            "",
+            "### 4. Broken Authentication & Session Management",
+            "",
+            "- Check for hardcoded credentials, API keys, tokens, or passwords in source code",
+            "- Look for weak password hashing (MD5, SHA1, plain text storage)",
+            "- Verify bcrypt/scrypt/argon2 is used for password storage",
+            "- Check session tokens for sufficient entropy and secure cookie flags (HttpOnly, Secure, SameSite)",
+            "- Look for session fixation vulnerabilities",
+            "- Check for missing or weak CSRF protection on state-changing endpoints",
+            "- Verify JWT tokens are validated properly (algorithm confusion, missing signature verification, expired token acceptance)",
+            "- Look for insecure password reset flows",
+            "",
+            "### 5. Broken Access Control",
+            "",
+            "- Check for missing authorization checks on API endpoints",
+            "- Look for Insecure Direct Object References (IDOR) where user IDs or resource IDs are guessable",
+            "- Verify role-based access controls are enforced server-side, not just client-side",
+            "- Check for privilege escalation paths (horizontal and vertical)",
+            "- Look for directory traversal via `../` in file paths or URL parameters",
+            "- Verify that API endpoints enforce proper scoping (users can only access their own data)",
+            "- Check for CORS misconfigurations that could allow unauthorized cross-origin access",
+            "",
+            "### 6. Sensitive Data Exposure",
+            "",
+            "- Look for sensitive data logged in plaintext (passwords, tokens, SSNs, credit cards)",
+            "- Check for missing encryption of data at rest or in transit",
+            "- Verify TLS is enforced and HTTP Strict Transport Security (HSTS) is configured",
+            "- Look for sensitive information in URL parameters (tokens, passwords)",
+            "- Check for overly verbose error messages that reveal stack traces, database schemas, or internal paths",
+            "- Verify PII is properly handled and not exposed in API responses unnecessarily",
+            "- Look for secrets committed in version control (.env files, config files with credentials)",
+            "",
+            "### 7. Security Misconfiguration",
+            "",
+            "- Check for debug mode enabled in production configurations",
+            "- Look for default credentials or admin panels left accessible",
+            "- Verify security headers are present (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, CSP)",
+            "- Check for open directory listings or exposed configuration files",
+            "- Look for permissive CORS policies (`Access-Control-Allow-Origin: *` on sensitive endpoints)",
+            "- Verify that unnecessary HTTP methods are disabled",
+            "- Check for missing rate limiting on authentication and sensitive endpoints",
+            "",
+            "### 8. Insecure Deserialization",
+            "",
+            "- Look for `pickle.loads()`, `yaml.load()` (without SafeLoader), `marshal.loads()` on untrusted data",
+            "- Check for Java deserialization (ObjectInputStream) with untrusted input",
+            "- Look for JSON deserialization that feeds into `eval()` or dynamic object creation",
+            "- Check for XML deserialization vulnerabilities (XML bombs, entity expansion)",
+            "",
+            "### 9. Using Components with Known Vulnerabilities",
+            "",
+            "- Check dependency files (requirements.txt, package.json, Gemfile, go.mod, Cargo.toml) for outdated packages",
+            "- Look for pinned versions of packages with known CVEs",
+            "- Check for vendored/copied library code that may be outdated",
+            "- Verify that dependency lock files exist and are up to date",
+            "",
+            "### 10. Insufficient Logging & Monitoring",
+            "",
+            "- Check if authentication failures are logged",
+            "- Verify that security-relevant events (access control failures, input validation failures) are logged",
+            "- Look for sensitive data in log output",
+            "- Check that logs cannot be tampered with (injection into logs via user input)",
+            "",
+            "### 11. Cryptographic Failures",
+            "",
+            "- Look for weak or deprecated cryptographic algorithms (DES, RC4, MD5 for signing, SHA1 for signing)",
+            "- Check for hardcoded encryption keys or IVs",
+            "- Verify random number generation uses cryptographically secure sources (`secrets` module, not `random`)",
+            "- Look for ECB mode usage in block ciphers",
+            "- Check for missing or improper certificate validation in HTTPS connections (`verify=False`)",
+            "",
+            "### 12. Business Logic Vulnerabilities",
+            "",
+            "- Look for race conditions in financial transactions or resource allocation",
+            "- Check for missing validation on quantities, prices, or amounts (negative values, integer overflow)",
+            "- Look for time-of-check to time-of-use (TOCTOU) bugs",
+            "- Check for abuse of bulk operations or batch endpoints",
+            "",
+            "### 13. File Upload Vulnerabilities",
+            "",
+            "- Check for unrestricted file upload types (allowing .php, .jsp, .exe, .sh)",
+            "- Look for missing file size limits",
+            "- Verify uploaded files are stored outside the web root",
+            "- Check for path traversal in uploaded file names",
+            "- Look for missing content-type validation (checking magic bytes, not just extension)",
+            "",
+            "---",
+            "",
+            "## Output Format",
+            "",
+            "For each vulnerability found:",
+            "1. **Category** — Which of the above categories it falls under",
+            "2. **Severity** — Critical / High / Medium / Low",
+            "3. **File & Line** — Exact location in the codebase",
+            "4. **Description** — What the vulnerability is and how it could be exploited",
+            "5. **Fix** — The specific code change to remediate it",
+            "",
+            "Apply all fixes to the `fix/security-audit` branch and open a pull request with the full report.",
+        ]
+    )

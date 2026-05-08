@@ -265,6 +265,12 @@ def _normalize_entry(item: Dict[str, Any], ext_id: str) -> Dict[str, Any]:
     # client when an extension wants to ship a bespoke glyph.
     if item.get("icon_svg"):
         out["icon_svg"] = str(item["icon_svg"])
+    # Optional layout hint — `"framed"` opts the extension into the
+    # host-rendered header strip (label from manifest, actions slot
+    # exposed on ctx). Anything else (including unset) keeps the
+    # legacy single-container pane the extension fully owns.
+    if item.get("layout"):
+        out["layout"] = str(item["layout"])
     return out
 
 

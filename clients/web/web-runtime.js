@@ -15,6 +15,10 @@
   const CONNECT_PROVIDER_KEY = 'agixt.web.oauthConnectProvider.v1';
   const streamControllers = new Map();
   const eventListeners = new Map();
+  const runtimeAuth = {
+    jwt: null,
+    user_email: null,
+  };
 
   const config = window.AGIXT_WEB_CONFIG || {};
   const origin = window.location.origin;
@@ -53,6 +57,28 @@
     storageSet(key, JSON.stringify(value));
   }
 
+  function persistableSettings(settings) {
+    const { jwt: _jwt, token: _token, ...copy } = settings || {};
+    return copy;
+  }
+
+  function rememberRuntimeAuth(settings) {
+    if (!settings || typeof settings !== 'object') return;
+    if (Object.prototype.hasOwnProperty.call(settings, 'jwt')) {
+      runtimeAuth.jwt = settings.jwt || null;
+    }
+    if (Object.prototype.hasOwnProperty.call(settings, 'user_email')) {
+      runtimeAuth.user_email = settings.user_email || null;
+    }
+  }
+
+  function attachRuntimeAuth(settings) {
+    const next = { ...(settings || {}) };
+    if (runtimeAuth.jwt) next.jwt = runtimeAuth.jwt;
+    if (runtimeAuth.user_email) next.user_email = runtimeAuth.user_email;
+    return next;
+  }
+
   function defaults() {
     return {
       server_url: currentServerUrl(),
@@ -77,20 +103,21 @@
 
   function loadSettings() {
     const raw = storageGet(SETTINGS_KEY);
-    if (!raw) return defaults();
+    if (!raw) return attachRuntimeAuth(defaults());
     try {
       const parsed = JSON.parse(raw);
-      return { ...defaults(), ...parsed };
+      return attachRuntimeAuth({ ...defaults(), ...parsed });
     } catch (_) {
-      return defaults();
+      return attachRuntimeAuth(defaults());
     }
   }
 
   function saveSettings(settings) {
+    rememberRuntimeAuth(settings);
     const next = { ...defaults(), ...(settings || {}) };
     next.server_url = trimSlash(next.server_url || currentServerUrl());
     next.web_url = trimSlash(next.web_url || currentWebUrl());
-    storageSet(SETTINGS_KEY, JSON.stringify(next));
+    storageSet(SETTINGS_KEY, JSON.stringify(persistableSettings(next)));
     return next;
   }
 
@@ -148,6 +175,24 @@
     return `${trimSlash((settings || loadSettings()).server_url)}/${String(path).replace(/^\/+/, '')}`;
   }
 
+  function safeNavigableUrl(url) {
+    const raw = String(url || '').trim();
+    if (!raw || /[\u0000-\u001f\u007f]/.test(raw)) return '';
+    try {
+      const parsed = new URL(raw, window.location.href);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return encodeURI(parsed.href);
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  function redirectHomeWithToken(token, delayMs) {
+    const target = new URL('/', window.location.origin);
+    if (token) target.searchParams.set('jwt', token);
+    setTimeout(() => { window.location.replace(target.toString()); }, delayMs);
+  }
+
   async function apiJson(path, opts) {
     const settings = loadSettings();
     const init = opts || {};
@@ -200,12 +245,13 @@
     if (!token) return;
     const settings = loadSettings();
     const serverUrl = params.get('server_url') || params.get('server') || settings.server_url;
+    const email = settings.user_email || decodeJwtEmail(token);
+    rememberRuntimeAuth({ jwt: token, user_email: email });
     const next = saveSettings({
       ...settings,
       server_url: trimSlash(serverUrl),
       web_url: settings.web_url || currentWebUrl(),
-      jwt: token,
-      user_email: settings.user_email || decodeJwtEmail(token),
+      user_email: email,
     });
     hydrateUser(next).catch(() => {});
     params.delete('jwt');
@@ -435,12 +481,18 @@
     const token = extractAuthToken(data);
     if (token) {
       const settings = loadSettings();
+      const email = args.email || data.email || decodeJwtEmail(token);
+      rememberRuntimeAuth({ jwt: token, user_email: email });
       saveSettings({
         ...settings,
         server_url: trimSlash(args.server_url),
-        jwt: token,
-        user_email: args.email || data.email || decodeJwtEmail(token),
+        user_email: email,
       });
+      return {
+        ...data,
+        token: true,
+        jwt: undefined,
+      };
     }
     return data;
   }
@@ -461,12 +513,18 @@
     const token = extractAuthToken(data);
     if (token) {
       const settings = loadSettings();
+      const email = args.email || data.email || decodeJwtEmail(token);
+      rememberRuntimeAuth({ jwt: token, user_email: email });
       saveSettings({
         ...settings,
         server_url: trimSlash(args.server_url),
-        jwt: token,
-        user_email: args.email || data.email || decodeJwtEmail(token),
+        user_email: email,
       });
+      return {
+        ...data,
+        token: true,
+        jwt: undefined,
+      };
     }
     return data;
   }
@@ -556,7 +614,7 @@
       storageSet(CONNECT_PROVIDER_KEY, provider.name || slug);
     }
     rememberOAuthFlow(args, provider, redirectUri, connectFlow);
-    return { url: appendQuery(provider.authorize, params), redirect_uri: redirectUri, pkce };
+    return { url: appendQuery(provider.authorize, params), redirect_uri: redirectUri };
   }
 
   function emit(eventName, payload) {
@@ -586,7 +644,12 @@
     if (window.crypto && typeof window.crypto.randomUUID === 'function') {
       return window.crypto.randomUUID();
     }
-    return `web-stream-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const bytes = new Uint8Array(12);
+    if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+      window.crypto.getRandomValues(bytes);
+    }
+    const suffix = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return `web-stream-${Date.now()}-${suffix}`;
   }
 
   function flushPendingTools(pendingTools, streamId) {
@@ -897,7 +960,8 @@
   }
 
   function openUrl(url) {
-    const text = String(url || '');
+    const text = safeNavigableUrl(url);
+    if (!text) return Promise.reject(toolError('Refusing to open an unsafe URL.'));
     if (/(\?|&)response_type=code(&|$)/.test(text) || (/\/oauth/i.test(text) && /(\?|&)client_id=/.test(text))) {
       window.location.assign(text);
       return Promise.resolve();
@@ -926,7 +990,7 @@
     const code = params.get('code');
     if (error) {
       renderOAuthStatus('error', 'Authentication failed', error);
-      setTimeout(() => { window.location.href = '/'; }, 2500);
+      redirectHomeWithToken('', 2500);
       return;
     }
     const settings = loadSettings();
@@ -940,17 +1004,16 @@
     if (token) {
       saveSettings({
         ...callbackSettings,
-        jwt: token,
         user_email: callbackSettings.user_email || decodeJwtEmail(token),
       });
       clearOAuthFlow();
       renderOAuthStatus('done', 'Signed in', 'Redirecting back to AGiXT...');
-      setTimeout(() => { window.location.href = '/'; }, 700);
+      redirectHomeWithToken(token, 700);
       return;
     }
     if (!code || !providerFromPath) {
       renderOAuthStatus('error', 'Missing OAuth response', 'No authorization code was returned.');
-      setTimeout(() => { window.location.href = '/'; }, 2500);
+      redirectHomeWithToken('', 2500);
       return;
     }
     const connectStarted = Number(storageGet(CONNECT_FLOW_KEY) || '0');
@@ -978,21 +1041,21 @@
       if (isConnect) {
         renderOAuthStatus('done', 'Connected', 'Redirecting back to AGiXT...');
         emit('agixt-extension-connected', { provider: providerForPost });
+        redirectHomeWithToken('', 800);
       } else {
         const jwt = extractAuthToken(data);
         if (!jwt) throw toolError('OAuth succeeded, but AGiXT did not return a token.');
         saveSettings({
           ...callbackSettings,
-          jwt,
           user_email: data.email || callbackSettings.user_email || decodeJwtEmail(jwt),
         });
         renderOAuthStatus('done', 'Signed in', 'Redirecting back to AGiXT...');
+        redirectHomeWithToken(jwt, 800);
       }
-      setTimeout(() => { window.location.href = '/'; }, 800);
     } catch (err) {
       clearOAuthFlow();
       renderOAuthStatus('error', 'OAuth callback failed', err && err.error ? err.error : String(err));
-      setTimeout(() => { window.location.href = '/'; }, 3500);
+      redirectHomeWithToken('', 3500);
     }
   }
 

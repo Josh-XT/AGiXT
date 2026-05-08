@@ -34,6 +34,11 @@
   --accent: #6b7bff;
   --accent-2: #9a6cff;
   --accent-soft: rgba(107, 123, 255, 0.18);
+  /* Third accent — a clean blue distinct from the primary purple-blue
+     accent. Used for chapter/heading foregrounds in markdown and as
+     the blue stop in the user-bubble gradient. Tracks each theme so
+     the same role reads consistently across light / dark / gray. */
+  --accent-blue: #5b8eff;
   --user-bubble: linear-gradient(135deg, #4a5dff 0%, #7a4dff 100%);
   --assistant-bubble: rgba(36, 41, 56, 0.95);
   --activity: rgba(60, 80, 130, 0.30);
@@ -75,6 +80,9 @@
   --accent: #6b7bff;
   --accent-2: #9a6cff;
   --accent-soft: rgba(107, 123, 255, 0.18);
+  /* VSCode-classic blue — pops against the neutral grayscale chrome
+     without competing with the purple primary accent. */
+  --accent-blue: #4fb3ff;
   --user-bubble: linear-gradient(135deg, #4a5dff 0%, #7a4dff 100%);
   --assistant-bubble: #2a2a2a;
   --activity: rgba(60, 80, 130, 0.22);
@@ -108,6 +116,9 @@
   --accent: #4f5dd1;
   --accent-2: #7a4dff;
   --accent-soft: rgba(79, 93, 209, 0.14);
+  /* Darker blue so it stays readable against the white panel
+     backgrounds without bloom. Same hue family as GitHub's link blue. */
+  --accent-blue: #1f6feb;
   /* Keep the user bubble gradient (it's a brand-y cue and reads well on
      both backgrounds since the bubble's text is white). */
   --user-bubble: linear-gradient(135deg, #4a5dff 0%, #7a4dff 100%);
@@ -821,6 +832,33 @@ details.sub-tool > summary.sub-tool-summary:hover {
 
 .md p { margin: 0 0 8px; }
 .md p:last-child { margin-bottom: 0; }
+/* Chapter / section titles in agent responses pick up the third
+   accent (--accent-blue). Themed per scheme so the hue stays
+   readable on each background — VSCode-y blue on the gray chrome,
+   GitHub-y darker blue on the light scheme, etc. */
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+  color: var(--accent-blue);
+  margin: 14px 0 6px;
+  line-height: 1.25;
+}
+.md h1 { font-size: 19px; font-weight: 700; }
+.md h2 { font-size: 16px; font-weight: 700; }
+.md h3 { font-size: 14px; font-weight: 600; }
+.md h4, .md h5, .md h6 { font-size: 13px; font-weight: 600; }
+.md > h1:first-child,
+.md > h2:first-child,
+.md > h3:first-child,
+.md > h4:first-child { margin-top: 0; }
+/* Inside the user bubble the gradient already carries the blue cue and
+   the bubble text is white — recoloring headings blue there would
+   reduce contrast. Force them back to inherit the bubble's white. */
+.message-user .md h1,
+.message-user .md h2,
+.message-user .md h3,
+.message-user .md h4,
+.message-user .md h5,
+.message-user .md h6,
+.message-user .md a { color: inherit; }
 .md code {
   font-family: var(--mono);
   font-size: 12px;
@@ -1071,6 +1109,54 @@ details.sub-tool > summary.sub-tool-summary:hover {
    they don't bleed past the dock-panel; extensions can still set their
    own overflow on their root if they need fixed footers/etc. */
 .view-pane.view-pane-extension {
+  overflow: auto;
+}
+/* Framed layout (manifest opt-in: `"layout": "framed"`). The host
+   draws a thin header strip — same color as the topbar + sidenav so
+   the chrome reads as one continuous band across the top of the
+   window — with the manifest label as the title and a flex actions
+   slot the extension can populate via `ctx.headerActionsEl` /
+   `ctx.setHeaderActions(...)`. The body below it is where the
+   extension mounts its content; it owns its own scroll so the header
+   stays pinned. Switching from `view-pane.view-pane-extension`'s
+   default `overflow: auto` to `overflow: hidden` here is what makes
+   that pinning work. */
+.view-pane.view-pane-extension.is-framed {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ext-pane-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  min-height: 0;
+}
+.ext-pane-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin: 0;
+  flex: 0 0 auto;
+  color: var(--text);
+}
+.ext-pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Push actions to the right by default — extensions typically put
+     a refresh icon, search input, and column picker here. */
+  justify-content: flex-end;
+}
+.ext-pane-body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
 }
 

@@ -171,11 +171,35 @@
     return items;
   }
 
-  function makeMountContext(id, rec) {
+  function makeMountContext(id, rec, pane) {
     const c = ctx();
     if (!c) return null;
+    const framed = isFramed(rec.entry);
+    const headerEl = framed
+      ? pane.querySelector(':scope > .ext-pane-header')
+      : null;
+    const headerActionsEl = framed
+      ? pane.querySelector(':scope > .ext-pane-header > .ext-pane-actions')
+      : null;
     return Object.assign({}, c, {
       extensionId: id,
+      // Framed-layout helpers. `headerEl` and `headerActionsEl` are null
+      // for unframed extensions so old extensions can defensively check
+      // before appending. `setHeaderActions(...nodes)` is sugar that
+      // clears the slot and appends the given nodes — most extensions
+      // call it once at mount time with their refresh/search controls.
+      framed,
+      headerEl,
+      headerActionsEl,
+      setHeaderActions: function () {
+        if (!headerActionsEl) return false;
+        headerActionsEl.innerHTML = '';
+        for (let i = 0; i < arguments.length; i++) {
+          const node = arguments[i];
+          if (node) headerActionsEl.appendChild(node);
+        }
+        return true;
+      },
       registerContextProvider: (provider) => {
         const unsubscribe = registerContextProvider(id, provider);
         rec.contextUnsubscribe = unsubscribe;
@@ -426,17 +450,74 @@
     return btn;
   }
 
+  // Manifest opt-in: when `layout === 'framed'`, the host wraps the
+  // pane with a header strip (background: var(--panel) so it lines up
+  // with the topbar + sidenav) above a scroll container the extension
+  // mounts into. The header carries the manifest label and a flex
+  // actions slot the extension can append to via
+  // `ctx.headerActionsEl`. Extensions that don't opt in keep the
+  // legacy single-container pane and remain responsible for their own
+  // chrome — no behavior change for them.
+  function isFramed(entry) {
+    return entry && entry.layout === 'framed';
+  }
+
   function ensurePane(entry) {
     const main = document.querySelector('.chat-screen-main');
     if (!main) return null;
     let pane = main.querySelector(`.view-pane[data-view="${cssEscape(entry.id)}"]`);
-    if (pane) return pane;
+    if (pane) {
+      // Manifest can flip layout between updates (e.g. version bump
+      // adopts `framed`). Re-wrap to match — drop any cached body the
+      // extension mounted into, since `activate` will refetch+remount.
+      const wantsFramed = isFramed(entry);
+      const hasFrame = !!pane.querySelector(':scope > .ext-pane-header');
+      if (wantsFramed !== hasFrame) {
+        pane.innerHTML = '';
+        pane.classList.remove('is-framed');
+        if (wantsFramed) buildFramedPane(pane, entry);
+      } else if (wantsFramed) {
+        // Refresh the header label in place if it changed.
+        const titleEl = pane.querySelector(':scope > .ext-pane-header > .ext-pane-title');
+        if (titleEl) titleEl.textContent = entry.label || entry.id;
+      }
+      return pane;
+    }
     pane = document.createElement('div');
     pane.className = 'view-pane view-pane-extension';
     pane.dataset.view = entry.id;
     pane.hidden = true;
+    if (isFramed(entry)) buildFramedPane(pane, entry);
     main.appendChild(pane);
     return pane;
+  }
+
+  function buildFramedPane(pane, entry) {
+    pane.classList.add('is-framed');
+    const header = document.createElement('header');
+    header.className = 'ext-pane-header';
+    const title = document.createElement('h1');
+    title.className = 'ext-pane-title';
+    title.textContent = entry.label || entry.id;
+    const actions = document.createElement('div');
+    actions.className = 'ext-pane-actions';
+    header.appendChild(title);
+    header.appendChild(actions);
+    const body = document.createElement('div');
+    body.className = 'ext-pane-body';
+    pane.appendChild(header);
+    pane.appendChild(body);
+  }
+
+  // Where the extension should mount its content. For framed panes
+  // this is the `.ext-pane-body` element; otherwise it's the pane
+  // itself (legacy behavior). Returns null if the framed wrapper got
+  // out of sync with the layout flag (defensive — refresh() rewrites
+  // the wrapper when the manifest's `layout` changes).
+  function mountTargetFor(pane, entry) {
+    if (!pane) return null;
+    if (!isFramed(entry)) return pane;
+    return pane.querySelector(':scope > .ext-pane-body') || null;
   }
 
   // Minimal CSS.escape polyfill — the ids only ever match _ID_RE on the
@@ -447,7 +528,9 @@
     const rec = state.get(id);
     if (!rec) return;
     if (rec.mounted) return;
-    const c = makeMountContext(id, rec);
+    const pane = ensurePane(rec.entry);
+    if (!pane) return;
+    const c = makeMountContext(id, rec, pane);
     if (!c) return;
 
     let blobUrl = rec.blobUrl;
@@ -477,10 +560,10 @@
       return;
     }
     rec.ctrl = ctrl;
-    const pane = ensurePane(rec.entry);
-    if (!pane) return;
+    const target = mountTargetFor(pane, rec.entry);
+    if (!target) return;
     try {
-      ctrl.mount(pane, c);
+      ctrl.mount(target, c);
       rec.mounted = true;
     } catch (err) {
       console.warn('desktop-extensions: mount failed', id, err);
@@ -576,7 +659,15 @@
         const pane = document.querySelector(
           `.chat-screen-main .view-pane[data-view="${cssEscape(id)}"]`,
         );
-        if (pane) pane.innerHTML = '';
+        if (pane) {
+          pane.innerHTML = '';
+          pane.classList.remove('is-framed');
+          // Rebuild the framed wrapper for the *new* manifest — the
+          // version bump may have flipped the layout flag, and even
+          // when it didn't, the empty body is what the next mount
+          // expects to find.
+          if (isFramed(entry)) buildFramedPane(pane, entry);
+        }
         state.set(id, { entry, mounted: false, ctrl: null, blobUrl: null, contextUnsubscribe: null });
       } else {
         existing.entry = entry;

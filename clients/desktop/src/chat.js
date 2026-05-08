@@ -1105,7 +1105,12 @@
     if (window.crypto && typeof window.crypto.randomUUID === 'function') {
       return window.crypto.randomUUID();
     }
-    return `stream-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const bytes = new Uint8Array(12);
+    if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+      window.crypto.getRandomValues(bytes);
+    }
+    const suffix = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return `stream-${Date.now()}-${suffix}`;
   }
 
   async function send(userInput, conversationName, turnContext) {
