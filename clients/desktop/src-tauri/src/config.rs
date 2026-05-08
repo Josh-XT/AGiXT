@@ -185,6 +185,20 @@ impl ConfigStore {
         if store.load().await?.jwt.is_none() && store.get_raw("server_url").await?.is_none() {
             store.save(&DesktopSettings::defaults()).await?;
         }
+        #[cfg(mobile)]
+        {
+            let mut settings = store.load().await?;
+            if settings.jwt.is_none()
+                && settings.service_brand == BRAND_LOCAL
+                && settings.server_url.trim_end_matches('/') == "http://localhost:7437"
+            {
+                let defaults = DesktopSettings::defaults();
+                settings.service_brand = defaults.service_brand;
+                settings.server_url = defaults.server_url;
+                settings.web_url = defaults.web_url;
+                store.save(&settings).await?;
+            }
+        }
         Ok(store)
     }
 
