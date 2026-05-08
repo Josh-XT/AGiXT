@@ -148,7 +148,7 @@
       newConvoBtn,
       agentBtn,
       convoBtn,
-      agentSettingsBtn,
+      agentTrainingBtn,
     ].forEach((b) => { if (b) b.disabled = auth; });
     closeMenus();
   }
@@ -1417,6 +1417,11 @@
   // page. `body.with-content-pane` flips the chat pane to its
   // 340px-wide side layout when something else is on the right.
   let activeView = 'chat';
+  // Both 'extensions' and 'training' surface inside the shared
+  // agent-settings pane. Sidenav/topbar buttons set the desired tab,
+  // we map back to the underlying pane id when toggling visibility.
+  const PANE_ALIASES = { extensions: 'agent-settings', training: 'agent-settings' };
+  function paneIdFor(viewId) { return PANE_ALIASES[viewId] || viewId; }
   function setActiveView(viewId) {
     if (!viewId) return;
     activeView = viewId;
@@ -1425,12 +1430,13 @@
       btn.classList.toggle('is-active', on);
       btn.setAttribute('aria-selected', on ? 'true' : 'false');
     });
+    const targetPane = paneIdFor(viewId);
     document.querySelectorAll('.chat-screen-main .view-pane[data-view]').forEach((pane) => {
       if (pane.dataset.view === 'chat') {
         // Chat is always visible. Layout swaps via body.with-content-pane.
         pane.hidden = false;
       } else {
-        pane.hidden = pane.dataset.view !== viewId;
+        pane.hidden = pane.dataset.view !== targetPane;
       }
     });
     // Switching to a non-chat extension closes any open workspace —
@@ -1444,10 +1450,13 @@
     }
     // Lazy-mount the embedded agent-settings module on first activation
     // so its API calls don't fire until the user actually opens the pane.
-    if (viewId === 'agent-settings'
+    // Pass the requested tab so the same pane can host both Extensions
+    // (sidenav) and Training (topbar icon).
+    if (targetPane === 'agent-settings'
         && window.AgentSettings
         && typeof window.AgentSettings.mount === 'function') {
-      Promise.resolve(window.AgentSettings.mount()).catch((err) => {
+      const tab = (viewId === 'training') ? 'training' : 'extensions';
+      Promise.resolve(window.AgentSettings.mount({ tab })).catch((err) => {
         console.warn('AgentSettings.mount', err);
       });
     }
@@ -1718,19 +1727,18 @@
     };
   };
 
-  // The gear next to the agent selector activates the embedded Agent
-  // Settings pane (extensions / training) on the right side of the
-  // chat-screen-main row, sharing the layout slot with workspace and
-  // server-delivered extension panes. App settings live on the pinned
-  // gear at the bottom of the sidenav.
-  const agentSettingsBtn = $('btn-agent-settings');
-  if (agentSettingsBtn) {
-    agentSettingsBtn.addEventListener('click', () => {
+  // The graduation-cap icon next to the agent selector activates the
+  // embedded Agent Settings pane focused on the Training tab.
+  // Extensions live in the sidenav button on the left activity bar.
+  // App settings live on the pinned gear at the bottom of the sidenav.
+  const agentTrainingBtn = $('btn-agent-training');
+  if (agentTrainingBtn) {
+    agentTrainingBtn.addEventListener('click', () => {
       if (!settings || !settings.jwt) {
         showScreen('auth');
         return;
       }
-      setActiveView('agent-settings');
+      setActiveView('training');
     });
   }
 
@@ -1756,7 +1764,7 @@
         showScreen('auth');
         return;
       }
-      setActiveView('agent-settings');
+      setActiveView('extensions');
       closeSettings();
     });
   }

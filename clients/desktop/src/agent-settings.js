@@ -52,6 +52,7 @@
     toastTimer = setTimeout(() => { el.hidden = true; }, kind === 'error' ? 6000 : 3500);
   }
 
+  const TAB_TITLES = { extensions: 'Extensions', training: 'Training' };
   function setActive(name) {
     tabs.forEach((t) => {
       const btn = document.getElementById('as-tab-' + t);
@@ -66,6 +67,11 @@
         panel.hidden = !active;
       }
     });
+    // Embedded mode hides the tab nav and uses the title bar to indicate
+    // which view the user landed on (Extensions vs Training); keep it in
+    // sync with whichever tab is active.
+    const titleEl = document.getElementById('as-title');
+    if (titleEl && TAB_TITLES[name]) titleEl.textContent = TAB_TITLES[name];
     if (!initialized[name] && agentId) {
       initialized[name] = true;
       try {
@@ -159,8 +165,15 @@
     main.appendChild(wrap);
   }
 
-  async function boot() {
-    if (booted) return;
+  async function boot(opts) {
+    const requestedTab = (opts && tabs.indexOf(opts.tab) !== -1) ? opts.tab : null;
+    if (booted) {
+      // Subsequent mount() calls (e.g. user toggling between the
+      // sidenav Extensions button and the topbar Training button)
+      // just need to switch the active tab.
+      if (requestedTab) setActive(requestedTab);
+      return;
+    }
     booted = true;
     bindTabs();
     try {
@@ -191,8 +204,10 @@
         });
         return;
       }
-      // Default to the Extensions tab (already aria-selected in the HTML).
-      setActive('extensions');
+      // Default to the requested tab when one was passed (Extensions or
+      // Training entry points), otherwise Extensions for the standalone
+      // window.
+      setActive(requestedTab || 'extensions');
       // Wire up cross-window OAuth callback listeners regardless of tab so
       // the Extensions tab can refresh after `agixt://oauth-connect`
       // round-trips, even if the user is on the Training tab when it

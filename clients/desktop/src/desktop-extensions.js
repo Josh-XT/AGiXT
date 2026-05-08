@@ -350,8 +350,15 @@
   async function fetchModuleText(entry) {
     const c = ctx();
     if (!c) return null;
+    // Forward `company_id` and `agent_id` the same way `fetchManifest`
+    // does. The server re-runs the manifest's `requires` block when
+    // serving main.js, and per-agent gates (e.g. `connection_check`,
+    // `agent_extension`) return False when agent_id is missing — which
+    // would 403 the asset and leave the pane blank with no UI feedback.
     const url = buildUrl(c.serverUrl, entry.entry_url || `/v1/desktop/extensions/${entry.id}/main.js`, {
       v: entry.version,
+      company_id: c.companyId,
+      agent_id: c.agentId,
     });
     let resp;
     try {

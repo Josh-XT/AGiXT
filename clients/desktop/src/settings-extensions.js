@@ -353,15 +353,17 @@
     'facebook', 'slack',
   ]);
 
-  // Extensions whose "Connect" action is a custom flow that lives in the
-  // sidenav (the desktop extensions hub). The drawer renders a primary
-  // Connect button that switches to the named view rather than the OAuth
-  // handshake. Connection state comes from a backend status probe.
+  // Extensions whose "Connect" action is a custom flow we render inline
+  // in the drawer (not an OAuth handshake against AGiXT's provider
+  // table). Each entry has a `statusPath` for the connection probe and
+  // a `renderInline(host, ctx, onConnected)` that paints the connect UI
+  // into the drawer body. Connection state polling lives here too so
+  // the tile reads "Connected" the moment the auth file lands.
   const CUSTOM_CONNECT_EXTENSIONS = {
     audible: {
-      view: 'audible',
       statusPath: '/v1/audible/auth/status',
       ctaLabel: 'Connect Audible',
+      renderInline: renderAudibleConnect,
     },
   };
   const customConnectStatus = {};   // raw -> { loadable, configured } | null
@@ -371,11 +373,21 @@
     return CUSTOM_CONNECT_EXTENSIONS[extensionRawName(ext)] || null;
   }
 
+  /** Append `agent_id=<ctx.agentId>` to a path if not already present.
+   *  All audible auth endpoints store/read state on the requested
+   *  agent so this needs to flow through every request. */
+  function withAgentParam(path) {
+    const ctx = window.AgixtAppContext && window.AgixtAppContext();
+    if (!ctx || !ctx.agentId) return path;
+    if (path.indexOf('agent_id=') !== -1) return path;
+    return path + (path.indexOf('?') === -1 ? '?' : '&') + 'agent_id=' + encodeURIComponent(ctx.agentId);
+  }
+
   function fetchCustomConnectStatus(raw, cfg) {
     if (customConnectInflight[raw]) return customConnectInflight[raw];
     const ctx = window.AgixtAppContext && window.AgixtAppContext();
     if (!ctx) return Promise.resolve(null);
-    const url = (ctx.serverUrl || '').replace(/\/+$/, '') + cfg.statusPath;
+    const url = (ctx.serverUrl || '').replace(/\/+$/, '') + withAgentParam(cfg.statusPath);
     const p = fetch(url, { headers: { Authorization: 'Bearer ' + ctx.jwt } })
       .then((r) => r.ok ? r.json() : null)
       .then((s) => { customConnectStatus[raw] = s || null; return s; })
@@ -383,6 +395,284 @@
       .finally(() => { delete customConnectInflight[raw]; });
     customConnectInflight[raw] = p;
     return p;
+  }
+
+  // Audible marketplaces, in the order we surface them. Codes match the
+  // `audible.localization.Locale` keys the server uses.
+  const AUDIBLE_MARKETPLACES = [
+    { code: 'us', label: 'US — audible.com' },
+    { code: 'uk', label: 'UK — audible.co.uk' },
+    { code: 'de', label: 'Germany — audible.de' },
+    { code: 'fr', label: 'France — audible.fr' },
+    { code: 'ca', label: 'Canada — audible.ca' },
+    { code: 'au', label: 'Australia — audible.com.au' },
+    { code: 'it', label: 'Italy — audible.it' },
+    { code: 'es', label: 'Spain — audible.es' },
+    { code: 'in', label: 'India — audible.in' },
+    { code: 'jp', label: 'Japan — audible.co.jp' },
+    { code: 'br', label: 'Brazil — audible.com.br' },
+  ];
+  const AUDIBLE_MARKETPLACE_LABELS = AUDIBLE_MARKETPLACES.reduce((m, x) => {
+    m[x.code] = x.label;
+    return m;
+  }, {});
+
+  // Map of timezone-region prefixes to Audible marketplace codes.
+  // Timezone is a much better signal than navigator.language for an
+  // English-speaking user in the UK (whose browser may still report
+  // en-US) — but we fall back to language tag → store code afterward.
+  const TIMEZONE_REGION_TO_MARKETPLACE = {
+    'America/Toronto': 'ca', 'America/Vancouver': 'ca', 'America/Edmonton': 'ca',
+    'America/Halifax': 'ca', 'America/St_Johns': 'ca', 'America/Winnipeg': 'ca',
+    'America/Sao_Paulo': 'br', 'America/Fortaleza': 'br', 'America/Manaus': 'br',
+    'Europe/London': 'uk', 'Europe/Belfast': 'uk', 'Europe/Dublin': 'uk',
+    'Europe/Berlin': 'de', 'Europe/Vienna': 'de', 'Europe/Zurich': 'de',
+    'Europe/Paris': 'fr', 'Europe/Brussels': 'fr', 'Europe/Luxembourg': 'fr',
+    'Europe/Rome': 'it', 'Europe/Madrid': 'es', 'Europe/Lisbon': 'es',
+    'Asia/Tokyo': 'jp',
+    'Asia/Kolkata': 'in', 'Asia/Calcutta': 'in',
+    'Australia/Sydney': 'au', 'Australia/Melbourne': 'au', 'Australia/Brisbane': 'au',
+    'Australia/Perth': 'au', 'Australia/Adelaide': 'au',
+  };
+
+  // Region letters from a BCP-47 language tag → marketplace code.
+  const LANGUAGE_REGION_TO_MARKETPLACE = {
+    us: 'us', gb: 'uk', uk: 'uk',
+    ca: 'ca', mx: 'us',
+    de: 'de', at: 'de', ch: 'de',
+    fr: 'fr', be: 'fr', lu: 'fr',
+    it: 'it', es: 'es', pt: 'es',
+    in: 'in', jp: 'jp',
+    au: 'au', nz: 'au',
+    br: 'br',
+  };
+
+  // Pure language tag → marketplace fallback for browsers that don't
+  // include a region code.
+  const LANGUAGE_BASE_TO_MARKETPLACE = {
+    en: 'us', de: 'de', fr: 'fr', it: 'it',
+    es: 'es', pt: 'br', ja: 'jp',
+  };
+
+  function detectAudibleMarketplace() {
+    try {
+      const tz = (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone || '';
+      if (tz && TIMEZONE_REGION_TO_MARKETPLACE[tz]) {
+        return TIMEZONE_REGION_TO_MARKETPLACE[tz];
+      }
+      // Generic America/* timezones default to US — Mexico/Central
+      // America also use audible.com per Amazon's marketplace mapping.
+      if (tz.startsWith('America/')) return 'us';
+    } catch (_) {}
+    try {
+      const lang = String(navigator.language || '').toLowerCase();
+      const parts = lang.split('-');
+      if (parts.length >= 2 && LANGUAGE_REGION_TO_MARKETPLACE[parts[1]]) {
+        return LANGUAGE_REGION_TO_MARKETPLACE[parts[1]];
+      }
+      if (parts[0] && LANGUAGE_BASE_TO_MARKETPLACE[parts[0]]) {
+        return LANGUAGE_BASE_TO_MARKETPLACE[parts[0]];
+      }
+    } catch (_) {}
+    return 'us';
+  }
+
+  /** Open the system browser to the supplied URL, falling back through
+   *  the Tauri opener plugin → shell.open → `window.open`. */
+  function openExternal(url) {
+    try {
+      const t = window.__TAURI__;
+      if (t && t.opener && typeof t.opener.openUrl === 'function') {
+        return t.opener.openUrl(url);
+      }
+      if (t && t.shell && typeof t.shell.open === 'function') {
+        return t.shell.open(url);
+      }
+    } catch (_) {}
+    try { window.open(url, '_blank', 'noopener'); } catch (_) {}
+    return null;
+  }
+
+  /** POST/GET helper for the audible connect flow. We avoid api.* here
+   *  because those helpers are scoped to extension/agent endpoints. */
+  async function audibleFetch(path, init) {
+    const ctx = window.AgixtAppContext && window.AgixtAppContext();
+    if (!ctx) throw new Error('No AGiXT context available');
+    const url = (ctx.serverUrl || '').replace(/\/+$/, '') + withAgentParam(path);
+    const opts = Object.assign({}, init || {});
+    opts.headers = Object.assign(
+      { Authorization: 'Bearer ' + ctx.jwt },
+      (opts.body && !(opts.headers && opts.headers['Content-Type']))
+        ? { 'Content-Type': 'application/json' }
+        : {},
+      opts.headers || {},
+    );
+    const r = await fetch(url, opts);
+    if (!r.ok) {
+      let detail = '';
+      try { detail = JSON.stringify(await r.json()); }
+      catch (_) { try { detail = await r.text(); } catch (_) {} }
+      throw new Error(`${r.status} ${r.statusText}: ${detail.slice(0, 240)}`);
+    }
+    if (r.status === 204) return null;
+    const ct = r.headers.get('content-type') || '';
+    return ct.includes('application/json') ? r.json() : r.text();
+  }
+
+  /** Render the Audible connect form into a host element. `onConnected`
+   *  is called once the auth file lands; the caller is responsible for
+   *  refreshing the extensions list + closing the drawer. */
+  function renderAudibleConnect(host, onConnected) {
+    let pendingId = null;
+    let pollTimer = null;
+
+    function cleanupPoll() {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+
+    function setMsg(kind, text) {
+      msgEl.className = 'ext-aud-msg ext-aud-msg-' + kind;
+      msgEl.textContent = text;
+    }
+
+    // Pick a sensible marketplace default from the user's locale rather
+    // than making them choose. Most signed-in Audible users will hit
+    // their own store first, and we leave a "Different marketplace?"
+    // disclosure for the rare case of an account in another region.
+    const detected = detectAudibleMarketplace();
+    const marketLabel = AUDIBLE_MARKETPLACE_LABELS[detected] || detected.toUpperCase();
+    const marketOptions = AUDIBLE_MARKETPLACES.map(
+      (m) => `<option value="${m.code}"${m.code === detected ? ' selected' : ''}>${m.label}</option>`,
+    ).join('');
+
+    host.innerHTML = `
+      <p class="ext-aud-intro">
+        Sign in with your Amazon account in your default browser.
+        We'll capture the redirect once Amazon hands us a one-time code —
+        no password is stored in AGiXT.
+      </p>
+      <details class="ext-aud-market">
+        <summary class="ext-aud-market-summary">
+          Marketplace: <b class="ext-aud-market-label">${escape(marketLabel)}</b>
+          <span class="ext-aud-market-hint">— different marketplace?</span>
+        </summary>
+        <label class="ext-aud-row ext-aud-market-row">
+          <span class="ext-aud-label">Audible store</span>
+          <select class="ext-aud-input ext-aud-locale">${marketOptions}</select>
+        </label>
+      </details>
+      <div class="ext-aud-actions">
+        <button class="btn btn-primary ext-aud-open" type="button">Open Amazon login</button>
+        <button class="btn ext-aud-cancel" type="button" hidden>Cancel</button>
+      </div>
+      <div class="ext-aud-paste" hidden>
+        <p class="ext-aud-step">After signing in Amazon will land on a "page not found" screen — copy the FULL URL from the address bar and paste it here:</p>
+        <input type="url" class="ext-aud-input ext-aud-redirect" placeholder="https://www.amazon.com/ap/maplanding?openid.oa2.authorization_code=…" />
+        <button class="btn btn-primary ext-aud-verify" type="button">Verify &amp; connect</button>
+      </div>
+      <div class="ext-aud-msg" hidden></div>
+    `;
+
+    const localeEl = host.querySelector('.ext-aud-locale');
+    const marketLabelEl = host.querySelector('.ext-aud-market-label');
+    if (localeEl && marketLabelEl) {
+      localeEl.addEventListener('change', () => {
+        marketLabelEl.textContent = AUDIBLE_MARKETPLACE_LABELS[localeEl.value] || localeEl.value.toUpperCase();
+      });
+    }
+    const openBtn = host.querySelector('.ext-aud-open');
+    const cancelBtn = host.querySelector('.ext-aud-cancel');
+    const pasteWrap = host.querySelector('.ext-aud-paste');
+    const redirectInput = host.querySelector('.ext-aud-redirect');
+    const verifyBtn = host.querySelector('.ext-aud-verify');
+    const msgEl = host.querySelector('.ext-aud-msg');
+
+    openBtn.addEventListener('click', async () => {
+      openBtn.disabled = true;
+      openBtn.textContent = 'Opening…';
+      try {
+        const r = await audibleFetch('/v1/audible/auth/url', {
+          method: 'POST',
+          body: JSON.stringify({ locale: localeEl.value }),
+        });
+        pendingId = r.pending_id;
+        openExternal(r.login_url);
+        pasteWrap.hidden = false;
+        cancelBtn.hidden = false;
+        msgEl.hidden = true;
+        openBtn.textContent = 'Reopen Amazon login';
+        redirectInput.focus();
+        // Start polling — if Amazon's redirect lands somewhere our
+        // helper script can catch it (e.g. the user already ran the
+        // CLI in another terminal), the auth file appears and we can
+        // skip the manual paste.
+        cleanupPoll();
+        pollTimer = setInterval(async () => {
+          try {
+            const s = await audibleFetch('/v1/audible/auth/status');
+            if (s && s.loadable) {
+              cleanupPoll();
+              msgEl.hidden = false;
+              setMsg('ok', `Connected as ${s.name || s.given_name || 'your Audible account'}.`);
+              setTimeout(onConnected, 700);
+            }
+          } catch (_) { /* keep polling */ }
+        }, 4000);
+      } catch (err) {
+        msgEl.hidden = false;
+        setMsg('err', 'Could not start login: ' + (err.message || err));
+      } finally {
+        openBtn.disabled = false;
+      }
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      cleanupPoll();
+      pendingId = null;
+      pasteWrap.hidden = true;
+      cancelBtn.hidden = true;
+      msgEl.hidden = true;
+      openBtn.textContent = 'Open Amazon login';
+    });
+
+    verifyBtn.addEventListener('click', async () => {
+      const url = (redirectInput.value || '').trim();
+      if (!pendingId) {
+        msgEl.hidden = false;
+        setMsg('err', 'Click "Open Amazon login" first.');
+        return;
+      }
+      if (!url) {
+        msgEl.hidden = false;
+        setMsg('err', 'Paste the redirected URL after signing in.');
+        return;
+      }
+      verifyBtn.disabled = true;
+      verifyBtn.textContent = 'Verifying…';
+      try {
+        const result = await audibleFetch('/v1/audible/auth/complete', {
+          method: 'POST',
+          body: JSON.stringify({ pending_id: pendingId, redirect_url: url }),
+        });
+        cleanupPoll();
+        if (result && result.loadable) {
+          msgEl.hidden = false;
+          setMsg('ok', `Connected as ${result.name || result.given_name || 'your Audible account'}.`);
+          setTimeout(onConnected, 700);
+        } else {
+          msgEl.hidden = false;
+          setMsg('err', 'Verification finished but Amazon did not return a usable token. Try again.');
+        }
+      } catch (err) {
+        msgEl.hidden = false;
+        setMsg('err', String(err.message || err));
+      } finally {
+        verifyBtn.disabled = false;
+        verifyBtn.textContent = 'Verify & connect';
+      }
+    });
+
+    return cleanupPoll;
   }
 
   function extensionRawName(ext) {
@@ -405,6 +695,13 @@
   }
 
   function commandsEnabled(ext) {
+    // An ability that's flipped "enabled" in the database against an
+    // extension that isn't actually connected can't run — surfacing it
+    // as enabled in the UI is misleading. Treat enabled-but-not-
+    // reachable as effectively zero so the launcher tile, the bulk
+    // counter, and the section badges all reflect what the user can
+    // actually use right now.
+    if (extensionHasConnectionState(ext) && !extensionConnected(ext)) return 0;
     return (ext.commands || []).filter((c) => c.enabled).length;
   }
 
@@ -601,7 +898,10 @@
     const isOAuth = isOAuthExtension(ext);
     const needsSetup = hasConnState && !connected;
     const enabled = commandsEnabled(ext);
-    const showDot = isOAuth && connected;
+    // The green "is-connected" dot reads as "this integration is wired
+    // up and ready". OAuth and custom-connect both qualify; pure
+    // settings-driven extensions don't have an analogous binary state.
+    const showDot = (isOAuth || !!customConnectFor(ext)) && connected;
     const showBadge = enabled > 0;
     const klass = needsSetup ? 'is-disconnected' : 'is-connected';
     return `
@@ -868,8 +1168,11 @@
     }
 
     // Abilities — only meaningful once the extension is reachable.
+    // For OAuth and custom-connect extensions we hide the toggles
+    // entirely until the user has connected; otherwise the user is
+    // staring at switches that won't actually run anything.
     if (total > 0) {
-      const reachable = !isOAuth || connected;
+      const reachable = (!isOAuth && !customConnect) || connected;
       if (reachable) {
         const allOn = enabled === total;
         parts.push(`<div class="ext-drawer-section-title">Abilities (${enabled}/${total})</div>`);
@@ -880,11 +1183,10 @@
           </label>
         `);
         parts.push(renderExtensionCommands(ext));
-      } else {
-        const pp = provider ? prettyProviderName(provider.name) : friendly;
-        parts.push(`<div class="ext-drawer-section-title">Abilities</div>`);
-        parts.push(`<div class="ext-drawer-empty">Connect ${escape(pp)} to use ${total} ${total === 1 ? 'ability' : 'abilities'}.</div>`);
       }
+      // When not reachable, surface no abilities section at all — the
+      // primary CTA above ("Connect …") is the only action that makes
+      // sense; listing locked toggles just adds noise.
     }
 
     // Secondary action: disconnect lives at the bottom for connected OAuth.
@@ -1008,29 +1310,55 @@
       });
     }
 
-    // Custom-connect (audible-style) — close the drawer and switch the
-    // active sidenav view to the extension's own page, which hosts
-    // the actual auth flow.
+    // Custom-connect (audible-style) — render the inline connect UI
+    // INTO the drawer. The sidebar tab for these extensions stays
+    // hidden until the auth file lands (manifest gating), so this is
+    // the only entry point. On success we refresh the desktop
+    // extensions manifest so the tab appears.
     const customConnectBtn = bodyDr.querySelector('.ext-custom-connect');
     if (customConnectBtn) {
       customConnectBtn.addEventListener('click', () => {
-        const view = customConnectBtn.dataset.view;
-        if (!view) return;
-        closeDrawer();
-        try {
-          // The sidenav button click also runs the lazy-mount path,
-          // which is what we actually want; calling setActiveView
-          // alone wouldn't fire the loader's per-view activate().
-          const escaped = String(view).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
-          const btn = document.querySelector(`.sidenav-btn[data-view="${escaped}"]`);
-          if (btn) {
-            btn.click();
-          } else if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
-            window.AgixtSidenav.setActiveView(view);
+        const cfg = customConnectFor(ext);
+        if (!cfg || typeof cfg.renderInline !== 'function') return;
+        // Replace the action area with a host element the inline
+        // renderer takes over. Keep the drawer open so the user can
+        // see the marketplace picker + paste field without losing
+        // their place in the settings list.
+        const action = customConnectBtn.closest('.ext-drawer-action') || customConnectBtn.parentElement;
+        if (!action) return;
+        action.innerHTML = '<div class="ext-aud-host"></div>';
+        const host = action.querySelector('.ext-aud-host');
+        cfg.renderInline(host, async () => {
+          const raw = extensionRawName(ext);
+          delete customConnectStatus[raw];
+          try { await fetchCustomConnectStatus(raw, cfg); } catch (_) {}
+          // Tell the desktop loader to re-pull the manifest now that
+          // the connection_check passes — that's what makes the
+          // sidebar tab appear.
+          try {
+            if (window.AgixtDesktopExtensions
+                && typeof window.AgixtDesktopExtensions.refresh === 'function') {
+              window.AgixtDesktopExtensions.refresh();
+            }
+          } catch (_) {}
+          // Re-fetch the agent extensions list so the tile grid
+          // re-sections (audible moves from "Available" to
+          // "Connected"), the bulk counter at the top updates, and
+          // any abilities that were enabled but hidden behind the
+          // connection_check now show up in the drawer abilities
+          // section. Without this, the tile keeps reading "Not
+          // connected" even though the auth blob was just written.
+          try { await load(); } catch (err) {
+            console.warn('custom-connect: extensions reload failed', err);
           }
-        } catch (err) {
-          console.warn('custom-connect: could not switch view', view, err);
-        }
+          // Re-render the drawer so the status flips to "Connected"
+          // and the CTA changes to "Manage". `load()` already replaced
+          // `drawerExt` with the fresh entry from the new fetch.
+          if (drawerOpen && drawerExt) renderDrawer();
+          if (window.AgentSettings && window.AgentSettings.toast) {
+            window.AgentSettings.toast(`${formatExtensionName(ext.friendly_name || ext.extension_name)} connected.`, 'success');
+          }
+        });
       });
     }
   }

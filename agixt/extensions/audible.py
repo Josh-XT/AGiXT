@@ -1,9 +1,9 @@
 import asyncio
+import base64
 import json
 import logging
 import os
 import re
-import secrets
 import time
 from datetime import datetime
 from pathlib import Path
@@ -11,11 +11,13 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs
 
 import httpx
+import jwt
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
 from ApiClient import Agent as ApiAgent, get_api_client, verify_api_key
 from Extensions import Extensions
+from Globals import getenv
 from MagicalAuth import MagicalAuth
 
 try:
@@ -39,17 +41,21 @@ except ImportError:
 
 _ASIN_RE = re.compile(r"^[A-Z0-9]{6,16}$")
 _AUDIO_CACHE_ROOT = Path(os.path.expanduser("~/.agixt/audiobooks"))
-_AUTH_FILE = os.path.join(os.path.expanduser("~"), ".agixt", "audible_auth.json")
 _CLIENT_CACHE: Dict[str, Any] = {}  # cache_key -> audible_api.Client
 _DOWNLOAD_TASKS: Dict[str, asyncio.Task] = {}
 
-# In-flight external-browser logins, keyed by an opaque pending_id we
-# hand back to the desktop client. Each entry holds the PKCE code
-# verifier + serial we generated for this login attempt — the user pastes
-# the redirect URL back, we extract the auth code, and exchange it via
-# `audible.register` to mint long-lived tokens. Entries older than one
-# hour are garbage-collected on each new start request.
-_PENDING_LOGINS: Dict[str, Dict[str, Any]] = {}
+# Per-agent setting key holding the JSON-encoded `Authenticator.to_dict()`
+# blob for that agent's Audible connection. Agents belong to users, so
+# storing here gives us per-user isolation without inventing a new
+# table — and it sits in the same AgentSetting store every other
+# extension uses for its credentials.
+_AUTH_SETTING_KEY = "AUDIBLE_AUTH"
+
+# In-flight external-browser logins are NOT stored in process memory
+# (uvicorn runs four workers — a pending entry created by worker A is
+# invisible to worker B that fields the /auth/complete request). We
+# encode the PKCE state into a signed JWT-style "pending_id" instead;
+# any worker can decode it as long as it has the same AGIXT_API_KEY.
 _PENDING_TTL_SECONDS = 60 * 60
 
 
@@ -68,57 +74,153 @@ def _require_audible_pkg() -> None:
         )
 
 
-def _audible_client_for_settings(cache_key: str):
-    """Return a logged-in `audible_api.Client` from the cached auth file.
+def _read_auth_dict_from_agent(agent) -> Optional[Dict[str, Any]]:
+    """Pull the audible auth dict out of the agent's settings, or None
+    if no connection has been made yet."""
+    settings = (agent.AGENT_CONFIG or {}).get("settings") or {}
+    raw = settings.get(_AUTH_SETTING_KEY)
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        data = json.loads(raw)
+    except Exception as exc:
+        logging.warning("audible: stored auth not valid JSON (%s)", exc)
+        return None
+    return data if isinstance(data, dict) else None
 
-    Auth source of truth is `~/.agixt/audible_auth.json`, populated by
-    the desktop Audible page's Connect flow (`/v1/audible/auth/*`).
-    No username/password paths exist on the server side anymore —
-    Amazon CAPTCHA + 2FA make that brittle. If the file is missing or
-    invalid we return a structured 401 so the desktop UI pops the
-    Connect screen.
+
+def _write_auth_dict_to_agent(agent, auth_dict: Optional[Dict[str, Any]]) -> None:
+    """Persist (or clear) the audible auth dict on the agent's settings.
+
+    Goes through `Agent.update_agent_config(...)` which writes to the
+    `agent_setting` table — same code path AGiXT uses for every other
+    extension credential. Passing an empty string clears the setting.
+    """
+    payload = json.dumps(auth_dict, separators=(",", ":")) if auth_dict else ""
+    agent.update_agent_config({_AUTH_SETTING_KEY: payload}, "settings")
+    # Refresh the in-memory copy so callers see the new value.
+    if agent.AGENT_CONFIG and "settings" in agent.AGENT_CONFIG:
+        agent.AGENT_CONFIG["settings"][_AUTH_SETTING_KEY] = payload
+
+
+def _authenticator_from_agent(agent):
+    """Materialize an `Authenticator` from the agent's stored auth.
+
+    Returns None when nothing is stored or the blob is unreadable.
     """
     _require_audible_pkg()
+    data = _read_auth_dict_from_agent(agent)
+    if not data:
+        return None
+    try:
+        return Authenticator.from_dict(data)
+    except Exception as exc:
+        logging.warning("audible: stored auth could not be loaded (%s)", exc)
+        return None
+
+
+def _audible_client_for_agent(agent):
+    """Return a logged-in `audible_api.Client` for this agent.
+
+    Auth source of truth is the `AUDIBLE_AUTH` agent setting, populated
+    by the desktop Audible page's Connect flow (`/v1/audible/auth/*`).
+    Username/password login was removed because Amazon's CAPTCHA + 2FA
+    make it brittle. If the agent has no stored auth we return a
+    structured 401 so the desktop UI pops the Connect screen.
+    """
+    _require_audible_pkg()
+    cache_key = f"{agent.user_id}:{agent.agent_id}"
     cached = _CLIENT_CACHE.get(cache_key)
     if cached is not None:
         return cached
-    if os.path.exists(_AUTH_FILE):
-        try:
-            authenticator = Authenticator.from_file(_AUTH_FILE)
-            client = audible_api.Client(auth=authenticator)
-            _CLIENT_CACHE[cache_key] = client
-            return client
-        except Exception as exc:
-            logging.warning("audible: cached auth invalid (%s); needs re-login", exc)
+    authenticator = _authenticator_from_agent(agent)
+    if authenticator is None:
+        # Differentiate "never connected" from "stored auth corrupt"
+        # because the user-facing copy + server-side error class differ.
+        if _read_auth_dict_from_agent(agent) is None:
             raise HTTPException(
                 status_code=401,
                 detail={
                     "code": "audible_auth_required",
                     "message": (
-                        "Your Audible session has expired. Open the Audible "
-                        "page in the AGiXT desktop sidebar and click Connect "
-                        "to sign in again."
+                        "Not connected to Audible. Open the Audible page in "
+                        "the AGiXT desktop sidebar and click Connect to "
+                        "sign in with your Amazon account."
                     ),
                 },
             )
-    raise HTTPException(
-        status_code=401,
-        detail={
-            "code": "audible_auth_required",
-            "message": (
-                "Not connected to Audible. Open the Audible page in the AGiXT "
-                "desktop sidebar and click Connect to sign in with your "
-                "Amazon account."
-            ),
-        },
-    )
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "audible_auth_required",
+                "message": (
+                    "Your Audible session has expired. Open the Audible "
+                    "page in the AGiXT desktop sidebar and click Connect "
+                    "to sign in again."
+                ),
+            },
+        )
+    client = audible_api.Client(auth=authenticator)
+    _CLIENT_CACHE[cache_key] = client
+    return client
 
 
-def _gc_pending_logins() -> None:
-    cutoff = time.time() - _PENDING_TTL_SECONDS
-    for k, v in list(_PENDING_LOGINS.items()):
-        if v.get("created_at", 0) < cutoff:
-            _PENDING_LOGINS.pop(k, None)
+def _invalidate_client_cache_for_agent(agent) -> None:
+    cache_key = f"{agent.user_id}:{agent.agent_id}"
+    _CLIENT_CACHE.pop(cache_key, None)
+
+
+def _pending_signing_key() -> str:
+    """The HS256 secret used to sign pending-login state.
+
+    AGIXT_API_KEY is the same secret AGiXT uses for everything else
+    encrypted at rest, so re-using it keeps the threat model identical
+    and avoids inventing a new key.
+    """
+    return getenv("AGIXT_API_KEY") or "agixt-fallback-pending-key"
+
+
+def _encode_pending_login(state: Dict[str, Any]) -> str:
+    """Pack PKCE state into a signed token that any worker can decode.
+
+    `code_verifier` is bytes; `jwt` only handles JSON-serializable
+    payloads, so we base64-encode it on the way in and decode on the
+    way out. `exp` enforces a one-hour TTL.
+    """
+    payload = {
+        "locale_code": state["locale_code"],
+        "domain": state["domain"],
+        "market_place_id": state["market_place_id"],
+        "code_verifier": base64.urlsafe_b64encode(state["code_verifier"]).decode(
+            "ascii"
+        ),
+        "serial": state["serial"],
+        "with_username": bool(state["with_username"]),
+        "exp": int(time.time()) + _PENDING_TTL_SECONDS,
+    }
+    return jwt.encode(payload, _pending_signing_key(), algorithm="HS256")
+
+
+def _decode_pending_login(token: str) -> Optional[Dict[str, Any]]:
+    """Unpack a token from `_encode_pending_login` or return None if it
+    was tampered with / expired / malformed."""
+    try:
+        payload = jwt.decode(token, _pending_signing_key(), algorithms=["HS256"])
+    except Exception as exc:
+        logging.info("audible: pending token rejected (%s)", exc)
+        return None
+    try:
+        return {
+            "locale_code": payload["locale_code"],
+            "domain": payload["domain"],
+            "market_place_id": payload["market_place_id"],
+            "code_verifier": base64.urlsafe_b64decode(payload["code_verifier"]),
+            "serial": payload["serial"],
+            "with_username": bool(payload.get("with_username", False)),
+        }
+    except Exception as exc:
+        logging.warning("audible: pending payload malformed (%s)", exc)
+        return None
 
 
 def _make_locale(locale_code: str):
@@ -141,10 +243,10 @@ def _start_audible_login(
 ) -> Dict[str, Any]:
     """Generate the Amazon OAuth URL the user needs to visit in a browser.
 
-    Returns `pending_id` so the desktop client can call `/auth/complete`
-    later with the redirect URL.
+    Returns a signed `pending_id` token that any worker can decode on
+    the way back to `/auth/complete` — no in-memory or shared-cache
+    state required.
     """
-    _gc_pending_logins()
     locale = _make_locale(locale_code)
     code_verifier = create_code_verifier()
     oauth_url, serial = build_oauth_url(
@@ -154,27 +256,33 @@ def _start_audible_login(
         code_verifier=code_verifier,
         with_username=with_username,
     )
-    pending_id = secrets.token_urlsafe(24)
-    _PENDING_LOGINS[pending_id] = {
-        "locale_code": locale.country_code,
-        "domain": locale.domain,
-        "market_place_id": locale.market_place_id,
-        "code_verifier": code_verifier,
-        "serial": serial,
-        "with_username": with_username,
-        "created_at": time.time(),
-    }
+    pending_id = _encode_pending_login(
+        {
+            "locale_code": locale.country_code,
+            "domain": locale.domain,
+            "market_place_id": locale.market_place_id,
+            "code_verifier": code_verifier,
+            "serial": serial,
+            "with_username": with_username,
+        }
+    )
     return {"pending_id": pending_id, "login_url": oauth_url}
 
 
-def _complete_audible_login(pending_id: str, redirect_url: str) -> Dict[str, Any]:
-    """Exchange a redirected URL for an Audible auth file on disk."""
+def _complete_audible_login(
+    agent, pending_id: str, redirect_url: str
+) -> Dict[str, Any]:
+    """Exchange a redirected URL for an Audible auth blob and persist it
+    on the supplied agent's settings."""
     _require_audible_pkg()
-    pending = _PENDING_LOGINS.pop(pending_id, None)
+    pending = _decode_pending_login(pending_id)
     if pending is None:
         raise HTTPException(
             status_code=400,
-            detail="Login session expired or not found. Click Connect again.",
+            detail=(
+                "Login session expired or invalid. Click Connect again to "
+                "start a fresh login."
+            ),
         )
     if not redirect_url or "openid.oa2.authorization_code=" not in redirect_url:
         raise HTTPException(
@@ -214,16 +322,13 @@ def _complete_audible_login(pending_id: str, redirect_url: str) -> Dict[str, Any
     auth.locale = _make_locale(pending["locale_code"])
     # `_update_attrs` is the same method the package uses internally
     # after registration — it just setattrs the device tokens onto the
-    # authenticator so to_file() can serialize them.
+    # authenticator so to_dict() returns a complete payload.
     auth._update_attrs(with_username=pending["with_username"], **register_response)
-    os.makedirs(os.path.dirname(_AUTH_FILE), exist_ok=True)
-    auth.to_file(_AUTH_FILE)
 
-    # Wipe any cached client objects that were built against the old
-    # (or missing) auth file so the next API call rebuilds.
-    _CLIENT_CACHE.clear()
+    _write_auth_dict_to_agent(agent, auth.to_dict())
+    _invalidate_client_cache_for_agent(agent)
 
-    return _audible_auth_status()
+    return _audible_auth_status_for_agent(agent)
 
 
 def _audible_browser_dir() -> Path:
@@ -286,10 +391,10 @@ def _amazon_cookies_from_default_browser() -> List[Dict[str, Any]]:
 
 
 async def _auth_auto_playwright(
-    locale_code: str, headless: bool, timeout_seconds: int
+    agent, locale_code: str, headless: bool, timeout_seconds: int
 ) -> Dict[str, Any]:
     """Open the Audible OAuth URL in a Playwright-driven Chromium and
-    capture the redirect.
+    capture the redirect, then store the resulting auth on the agent.
 
     UX note: when `headless` is False (the default) the user sees a real
     browser window. They sign into Amazon there if not already signed in,
@@ -420,57 +525,63 @@ async def _auth_auto_playwright(
     # We now have the redirect URL; finish the flow as if the user had
     # pasted it manually. This re-uses the same exchange code path so
     # behaviour stays consistent across the two entry points.
-    pending_id = secrets.token_urlsafe(16)
-    _PENDING_LOGINS[pending_id] = {
-        "locale_code": locale.country_code,
-        "domain": locale.domain,
-        "market_place_id": locale.market_place_id,
-        "code_verifier": code_verifier,
-        "serial": serial,
-        "with_username": False,
-        "created_at": time.time(),
-    }
-    return _complete_audible_login(pending_id, captured_url["url"])
+    pending_id = _encode_pending_login(
+        {
+            "locale_code": locale.country_code,
+            "domain": locale.domain,
+            "market_place_id": locale.market_place_id,
+            "code_verifier": code_verifier,
+            "serial": serial,
+            "with_username": False,
+        }
+    )
+    return _complete_audible_login(agent, pending_id, captured_url["url"])
 
 
-def _audible_auth_status() -> Dict[str, Any]:
+def _audible_auth_status_for_agent(agent) -> Dict[str, Any]:
+    """Report Audible connection state for a specific agent.
+
+    Mirrors the shape the desktop UI expects (`configured`, `loadable`,
+    `name`, `given_name`, `locale`). The `auth_file` field is preserved
+    for legacy clients but always reads "agent_setting" since we no
+    longer touch disk.
+    """
     if not AUDIBLE_AVAILABLE:
         return {
             "package_installed": False,
             "configured": False,
             "loadable": False,
-            "auth_file": _AUTH_FILE,
+            "auth_file": "agent_setting",
             "error": "audible package not installed",
         }
-    if not os.path.exists(_AUTH_FILE):
+    raw = _read_auth_dict_from_agent(agent)
+    if raw is None:
         return {
             "package_installed": True,
             "configured": False,
             "loadable": False,
-            "auth_file": _AUTH_FILE,
+            "auth_file": "agent_setting",
         }
     try:
-        auth = Authenticator.from_file(_AUTH_FILE)
-        # `customer_info` is set after register and contains the user's
-        # Amazon name/email if available.
-        customer_info = getattr(auth, "customer_info", {}) or {}
-        return {
-            "package_installed": True,
-            "configured": True,
-            "loadable": True,
-            "auth_file": _AUTH_FILE,
-            "name": customer_info.get("name"),
-            "given_name": customer_info.get("given_name"),
-            "locale": getattr(getattr(auth, "locale", None), "country_code", None),
-        }
+        auth = Authenticator.from_dict(raw)
     except Exception as exc:
         return {
             "package_installed": True,
             "configured": True,
             "loadable": False,
-            "auth_file": _AUTH_FILE,
+            "auth_file": "agent_setting",
             "error": str(exc),
         }
+    customer_info = getattr(auth, "customer_info", {}) or {}
+    return {
+        "package_installed": True,
+        "configured": True,
+        "loadable": True,
+        "auth_file": "agent_setting",
+        "name": customer_info.get("name"),
+        "given_name": customer_info.get("given_name"),
+        "locale": getattr(getattr(auth, "locale", None), "country_code", None),
+    }
 
 
 def _book_brief(b: Dict[str, Any]) -> Dict[str, Any]:
@@ -657,14 +768,11 @@ class audible(Extensions):
     CATEGORY = "Productivity"
 
     def __init__(self, **kwargs):
-        # No agent-level settings: marketplace + credentials are baked
-        # into the auth file generated by the OAuth flow. Anything the
-        # constructor still references is left as a no-op default to
-        # avoid AttributeErrors in code paths that haven't been
-        # refactored yet.
-        self.AUDIBLE_LOCALE = "us"
-        self.AUDIBLE_EMAIL = ""
-        self.AUDIBLE_PASSWORD = ""
+        # No agent-level settings UI: credentials are stored as the
+        # `AUDIBLE_AUTH` JSON blob written by the desktop Connect flow.
+        # `Extensions.execute_command()` splats the agent's settings
+        # into kwargs, so we just pluck the blob from there.
+        self._audible_auth_blob = kwargs.get(_AUTH_SETTING_KEY) or ""
         self.auth = None
         self.client = None
         self.WORKING_DIRECTORY = (
@@ -672,8 +780,6 @@ class audible(Extensions):
             if "conversation_directory" in kwargs
             else os.path.join(os.getcwd(), "WORKSPACE")
         )
-        # Auth file shared with the desktop UI router and the CLI helper.
-        self.auth_file = _AUTH_FILE
         self.ApiClient = kwargs.get("ApiClient", None)
         self.commands = {
             "Get Audible Library": self.get_library,
@@ -696,10 +802,9 @@ class audible(Extensions):
     # Desktop UI router — JSON endpoints consumed by
     # extensions/desktop/audible/main.js. Auth is per-request:
     # MagicalAuth(token=authorization) identifies the user, and the
-    # cached Audible auth file at ~/.agixt/audible_auth.json provides
-    # the audiobook account. The `agent_id` query param is used only
-    # to pick a default marketplace locale when starting a fresh
-    # OAuth login.
+    # `AUDIBLE_AUTH` agent setting (JSON blob from the OAuth flow)
+    # provides the audiobook account. The `agent_id` query param picks
+    # which agent's setting to read/write.
     # ------------------------------------------------------------------
 
     def _register_routes(self) -> None:
@@ -714,8 +819,7 @@ class audible(Extensions):
             return ApiAgent(agent_name=None, user=user_email, ApiClient=api_client)
 
         def _client_for(agent) -> Any:
-            cache_key = f"{agent.user_id}:{agent.agent_id}"
-            return _audible_client_for_settings(cache_key)
+            return _audible_client_for_agent(agent)
 
         # ----- Authentication: external-browser OAuth flow -----------
         # Username/password login is too brittle (CAPTCHA, 2FA, MFA
@@ -730,12 +834,14 @@ class audible(Extensions):
         # browser binary is available — falls back to manual paste
         # when not.
 
-        @router.get("/auth/status", summary="Audible auth state on this server")
+        @router.get("/auth/status", summary="Audible auth state for this agent")
         async def auth_status(
             user=Depends(verify_api_key),
             authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
         ):
-            return _audible_auth_status()
+            agent = _resolve_agent(authorization, agent_id, user)
+            return _audible_auth_status_for_agent(agent)
 
         @router.post("/auth/url", summary="Start external-browser Audible login")
         async def auth_url(
@@ -744,23 +850,7 @@ class audible(Extensions):
             agent_id: Optional[str] = Query(None),
             payload: Dict[str, Any] = Body(default_factory=dict),
         ):
-            locale = (payload.get("locale") or "").strip().lower()
-            if not locale:
-                # Default to the agent's configured locale, fall back to "us".
-                try:
-                    agent = _resolve_agent(authorization, agent_id, user)
-                    locale = (
-                        (
-                            (agent.AGENT_CONFIG or {})
-                            .get("settings", {})
-                            .get("AUDIBLE_LOCALE")
-                            or "us"
-                        )
-                        .strip()
-                        .lower()
-                    )
-                except Exception:
-                    locale = "us"
+            locale = (payload.get("locale") or "").strip().lower() or "us"
             with_username = bool(payload.get("with_username", False))
             return _start_audible_login(locale, with_username=with_username)
 
@@ -768,6 +858,7 @@ class audible(Extensions):
         async def auth_complete(
             user=Depends(verify_api_key),
             authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
             payload: Dict[str, Any] = Body(...),
         ):
             pending_id = (payload.get("pending_id") or "").strip()
@@ -776,24 +867,20 @@ class audible(Extensions):
                 raise HTTPException(status_code=400, detail="pending_id is required")
             if not redirect_url:
                 raise HTTPException(status_code=400, detail="redirect_url is required")
-            return _complete_audible_login(pending_id, redirect_url)
+            agent = _resolve_agent(authorization, agent_id, user)
+            return _complete_audible_login(agent, pending_id, redirect_url)
 
-        @router.post("/auth/disconnect", summary="Forget cached Audible auth")
+        @router.post("/auth/disconnect", summary="Forget the agent's Audible auth")
         async def auth_disconnect(
             user=Depends(verify_api_key),
             authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
         ):
-            removed = False
-            try:
-                if os.path.exists(_AUTH_FILE):
-                    os.remove(_AUTH_FILE)
-                    removed = True
-            except Exception as exc:
-                raise HTTPException(
-                    status_code=500, detail=f"could not remove auth file: {exc}"
-                )
-            _CLIENT_CACHE.clear()
-            return {"removed": removed, "auth_file": _AUTH_FILE}
+            agent = _resolve_agent(authorization, agent_id, user)
+            had = _read_auth_dict_from_agent(agent) is not None
+            _write_auth_dict_to_agent(agent, None)
+            _invalidate_client_cache_for_agent(agent)
+            return {"removed": had, "auth_file": "agent_setting"}
 
         @router.post(
             "/auth/auto",
@@ -809,25 +896,11 @@ class audible(Extensions):
             agent_id: Optional[str] = Query(None),
             payload: Dict[str, Any] = Body(default_factory=dict),
         ):
-            locale = (payload.get("locale") or "").strip().lower()
+            locale = (payload.get("locale") or "").strip().lower() or "us"
             headless = bool(payload.get("headless", False))
             timeout_seconds = int(payload.get("timeout_seconds") or 300)
-            if not locale:
-                try:
-                    agent = _resolve_agent(authorization, agent_id, user)
-                    locale = (
-                        (
-                            (agent.AGENT_CONFIG or {})
-                            .get("settings", {})
-                            .get("AUDIBLE_LOCALE")
-                            or "us"
-                        )
-                        .strip()
-                        .lower()
-                    )
-                except Exception:
-                    locale = "us"
-            return await _auth_auto_playwright(locale, headless, timeout_seconds)
+            agent = _resolve_agent(authorization, agent_id, user)
+            return await _auth_auto_playwright(agent, locale, headless, timeout_seconds)
 
         @router.get("/library", summary="List the user's Audible library")
         async def list_library(
@@ -1236,12 +1309,13 @@ class audible(Extensions):
             return "📖 Not started"
 
     def _ensure_authenticated(self):
-        """Load the Audible auth saved by the desktop Connect flow.
+        """Load the Audible auth blob from this agent's settings.
 
-        Sign-in is driven from the AGiXT desktop client's Audible page;
-        we just read whatever it wrote to disk. Headless username/
-        password login was removed because Amazon's CAPTCHA + 2FA
-        gauntlet made it too unreliable in practice.
+        Sign-in is driven from the AGiXT desktop client's Audible page,
+        which writes the encrypted blob into `agent_setting.AUDIBLE_AUTH`
+        — same store every other extension uses for its credentials.
+        Headless username/password login was removed because Amazon's
+        CAPTCHA + 2FA gauntlet made it too unreliable in practice.
         """
         if not AUDIBLE_AVAILABLE:
             raise ImportError(
@@ -1249,18 +1323,20 @@ class audible(Extensions):
             )
         if self.client is not None:
             return
-        if not os.path.exists(self.auth_file):
+        blob = (self._audible_auth_blob or "").strip()
+        if not blob:
             raise ValueError(
                 "Not connected to Audible. Open the Audible page in the "
                 "AGiXT desktop sidebar and click Connect to sign in with "
                 "your Amazon account, then ask again."
             )
         try:
-            self.auth = Authenticator.from_file(self.auth_file)
+            data = json.loads(blob)
+            self.auth = Authenticator.from_dict(data)
             self.client = audible_api.Client(auth=self.auth)
-            logging.info("Loaded cached Audible authentication")
+            logging.info("Loaded Audible auth from agent settings")
         except Exception as e:
-            logging.error(f"Cached Audible auth invalid: {e}")
+            logging.error(f"Stored Audible auth invalid: {e}")
             raise ValueError(
                 "Your Audible session has expired. Open the Audible page "
                 "in the AGiXT desktop sidebar and click Connect to sign "

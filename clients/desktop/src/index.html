@@ -33,10 +33,10 @@
               </svg>
               <span class="chip-btn-label" id="agent-switcher-label">XT @ Home</span>
             </button>
-            <button class="icon-btn" id="btn-agent-settings" title="Agent settings" aria-label="Agent settings">
+            <button class="icon-btn" id="btn-agent-training" title="Agent training" aria-label="Agent training">
               <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
                 <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                      d="M4 6h10M4 12h6M4 18h13M17 4v4M13 10v4M20 16v4"/>
+                      d="M22 10 12 5 2 10l10 5 10-5zM6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5M22 10v6"/>
               </svg>
             </button>
             <button class="icon-btn" id="btn-collapse" title="Hide (Ctrl+Shift+Space)" aria-label="Hide">×</button>
@@ -206,12 +206,12 @@
             </button>
           </div>
           <div class="sidenav-bottom">
-            <button class="sidenav-btn" data-view="agent-settings" type="button"
-                    role="tab" aria-selected="false" title="Agent settings"
-                    aria-label="Agent settings" data-tooltip="Agent settings">
+            <button class="sidenav-btn" data-view="extensions" type="button"
+                    role="tab" aria-selected="false" title="Extensions"
+                    aria-label="Extensions" data-tooltip="Extensions">
               <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
                 <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
-                      d="M4 6h10M4 12h6M4 18h13M17 4v4M13 10v4M20 16v4"/>
+                      d="M9 3H4a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1zM9 14H4a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1zM17 3a4 4 0 0 0-4 4v0a4 4 0 0 0 4 4M21 17h-3v-3M14 17v3a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1h-3"/>
               </svg>
             </button>
             <button class="sidenav-btn" id="btn-settings" type="button"
@@ -327,15 +327,8 @@
           <div class="view-pane view-pane-agent-settings" data-view="agent-settings" hidden>
             <header class="as-header">
               <div class="as-header-left">
-                <h1 class="as-title">Agent Settings</h1>
-                <div class="as-subtitle" id="as-subtitle">—</div>
+                <h1 class="as-title" id="as-title">Extensions</h1>
               </div>
-              <nav class="as-tabs" role="tablist">
-                <button class="as-tab is-active" id="as-tab-extensions" role="tab"
-                        aria-selected="true" data-tab="extensions">Extensions</button>
-                <button class="as-tab" id="as-tab-training" role="tab"
-                        aria-selected="false" data-tab="training">Training</button>
-              </nav>
             </header>
 
             <main class="as-main">

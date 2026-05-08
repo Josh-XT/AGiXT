@@ -27,11 +27,43 @@
  * agent_id query param so the server picks the right credentials.
  */
 
+// Bumped in lockstep with manifest.json — embedded into the
+// diagnostic placeholder so we can tell from a screenshot whether
+// the user is running the latest main.js or a cached older one.
+const AUD_BUILD_TAG = '0.1.4';
+
 window.AgixtRegisterExtension('audible', {
   mount(container, ctx) {
-    const view = new AudibleView(container, ctx);
-    container._audibleView = view;
-    view.start();
+    // Render a high-visibility placeholder before doing any real work.
+    // If renderShell or downstream code throws, the catch handler
+    // overwrites this with the error text. If THIS placeholder is
+    // what the user sees, mount() is running but start() is throwing
+    // synchronously. If the user sees nothing at all, mount() never
+    // ran and we have a loader/cache issue, not a page bug.
+    container.innerHTML = `
+      <div data-aud-placeholder="${AUD_BUILD_TAG}"
+           style="padding:32px;font:14px/1.5 system-ui,sans-serif;color:#e6edf3;background:#0d1117;height:100%;box-sizing:border-box;">
+        <div style="font-size:1.3rem;font-weight:700;color:#58a6ff;margin-bottom:8px">
+          Audible page (build ${AUD_BUILD_TAG})
+        </div>
+        <div style="opacity:0.75">Loading library…</div>
+      </div>
+    `;
+    try {
+      const view = new AudibleView(container, ctx);
+      container._audibleView = view;
+      view.start();
+    } catch (err) {
+      console.error('audible: mount failed', err);
+      container.innerHTML = `
+        <div style="padding:24px;font:13px/1.55 system-ui,sans-serif;color:#ffb4b4;background:#0d1117;height:100%;box-sizing:border-box;overflow:auto;">
+          <div style="font-weight:600;margin-bottom:6px">Audible page failed to load (build ${AUD_BUILD_TAG}).</div>
+          <pre style="margin:0;white-space:pre-wrap;font-family:inherit;font-size:12px;opacity:0.85">${
+            String(err && err.stack || err || '').replace(/[<>&]/g, (c) => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))
+          }</pre>
+        </div>
+      `;
+    }
   },
   unmount() {
     const root = document.querySelector('.chat-screen-main .view-pane[data-view="audible"]');
@@ -155,24 +187,18 @@ function AudibleView(container, ctx) {
 AudibleView.prototype.start = function () {
   this.injectStyles();
   this.renderShell();
-  // Preflight: if the server doesn't have a usable Audible auth file
-  // we render the Connect screen instead of hammering /library and
-  // showing 401s. Library load happens on a `connected` callback.
-  this.preflightAuth().then((connected) => {
-    if (!connected) return;
-    this.loadLibrary();
-    if (this.currentAsin) this.loadBook(this.currentAsin, { silent: true });
-  });
+  // Server-side manifest gating (`connection_check: ["audible"]`)
+  // means this page only loads when the auth file exists, so we go
+  // straight to library + book restoration. If the file disappears
+  // mid-session the per-call 401 handler surfaces the message.
+  this.loadLibrary();
+  if (this.currentAsin) this.loadBook(this.currentAsin, { silent: true });
 };
 
 AudibleView.prototype.stop = function () {
   if (this.statusPollTimer) {
     clearInterval(this.statusPollTimer);
     this.statusPollTimer = null;
-  }
-  if (this.connectPollTimer) {
-    clearInterval(this.connectPollTimer);
-    this.connectPollTimer = null;
   }
   for (const url of this.coverObjectUrls.values()) {
     try { URL.revokeObjectURL(url); } catch (_) {}
@@ -211,18 +237,17 @@ AudibleView.prototype.fetchJson = async function (path, params, opts) {
   );
   const r = await fetch(url, init);
   if (r.status === 401) {
-    // Backend signals "not authenticated to Audible" with a 401 +
-    // {detail: {code: 'audible_auth_required', message: ...}}. Trigger
-    // the connect screen so the user can fix it without leaving the
-    // page. Other 401s (expired AGiXT JWT etc.) fall through with the
-    // backend's text in the error message.
+    // Server-side manifest gating means this page only loads when the
+    // Audible auth blob is parseable. If we still see a 401 here it's
+    // because the auth went stale mid-session — we surface the message
+    // inline (loadLibrary's error renderer handles it) and let the
+    // ext.refresh poll on the agent settings drawer kick the sidebar
+    // tab back to "Not connected" within a few seconds.
     let body = null;
     try { body = await r.json(); } catch (_) {}
     const detail = body && body.detail;
     if (detail && typeof detail === 'object' && detail.code === 'audible_auth_required') {
-      this.authReason = detail.message || 'Audible login required.';
-      this.showConnect();
-      const e = new Error(this.authReason);
+      const e = new Error(detail.message || 'Audible login required.');
       e.status = 401;
       e.code = 'audible_auth_required';
       throw e;
@@ -643,155 +668,6 @@ AudibleView.prototype.injectStyles = function () {
 }
 .aud-status-banner button:hover { background: var(--aud-accent-hover); }
 .aud-status-banner button:disabled { opacity: 0.5; cursor: wait; }
-
-/* Connect screen */
-.aud-connect {
-  flex: 1;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 60px 24px;
-  overflow-y: auto;
-}
-.aud-connect-card {
-  width: 100%;
-  max-width: 560px;
-  background: var(--aud-surface-solid);
-  border: 1px solid var(--aud-border);
-  border-radius: 10px;
-  padding: 28px 30px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.aud-connect-title {
-  font-size: 1.4rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-.aud-connect-sub {
-  font-size: 0.92rem;
-  color: var(--aud-text-dim);
-  line-height: 1.55;
-}
-.aud-connect-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.aud-connect-row .aud-input {
-  flex: 1;
-  background: var(--aud-bg);
-  border: 1px solid var(--aud-border);
-  border-radius: 6px;
-  padding: 8px 12px;
-  color: var(--aud-text);
-  font-size: 0.88rem;
-  font-family: inherit;
-  outline: none;
-}
-.aud-connect-row .aud-input:focus { border-color: var(--aud-accent); }
-.aud-connect-row select.aud-input {
-  flex: 0 0 90px;
-}
-.aud-btn {
-  background: var(--aud-accent);
-  color: var(--aud-on-accent);
-  border: 1px solid var(--aud-accent-emphasis);
-  padding: 8px 16px;
-  font-size: 0.88rem;
-  font-weight: 600;
-  border-radius: 6px;
-  cursor: pointer;
-  font-family: inherit;
-  white-space: nowrap;
-}
-.aud-btn:hover:not(:disabled) { background: var(--aud-accent-hover); }
-.aud-btn:disabled { opacity: 0.55; cursor: wait; }
-.aud-btn.aud-btn-secondary {
-  background: var(--aud-bg);
-  color: var(--aud-text);
-  border-color: var(--aud-border);
-}
-.aud-btn.aud-btn-secondary:hover:not(:disabled) {
-  border-color: #8b949e;
-  color: var(--aud-accent-hover);
-}
-.aud-btn.aud-btn-danger {
-  background: var(--aud-bg);
-  border-color: rgba(248, 81, 73, 0.5);
-  color: #ffb4b4;
-}
-.aud-btn.aud-btn-danger:hover:not(:disabled) { background: rgba(248, 81, 73, 0.12); }
-.aud-connect-divider {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.74rem;
-  color: var(--aud-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.13em;
-  margin: 4px 0;
-}
-.aud-connect-divider::before,
-.aud-connect-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--aud-border-muted);
-}
-.aud-connect-step {
-  font-size: 0.86rem;
-  color: var(--aud-text-dim);
-  line-height: 1.55;
-  background: var(--aud-bg);
-  border: 1px solid var(--aud-border-muted);
-  border-radius: 6px;
-  padding: 10px 12px;
-}
-.aud-connect-step b { color: var(--aud-text); font-weight: 600; }
-.aud-connect-help {
-  font-size: 0.78rem;
-  color: var(--aud-text-muted);
-  line-height: 1.5;
-}
-.aud-connect-error {
-  background: rgba(248, 81, 73, 0.08);
-  border: 1px solid rgba(248, 81, 73, 0.4);
-  border-radius: 6px;
-  color: #ffb4b4;
-  padding: 8px 12px;
-  font-size: 0.85rem;
-  font-family: monospace;
-  white-space: pre-wrap;
-}
-.aud-connect-ok {
-  background: rgba(63, 185, 80, 0.08);
-  border: 1px solid rgba(63, 185, 80, 0.4);
-  border-radius: 6px;
-  color: #b8e8b8;
-  padding: 8px 12px;
-  font-size: 0.85rem;
-}
-.aud-connect-cmd-row {
-  display: flex;
-  gap: 8px;
-  align-items: stretch;
-}
-.aud-connect-cmd {
-  flex: 1;
-  margin: 0;
-  background: var(--aud-bg);
-  border: 1px solid var(--aud-border);
-  border-radius: 6px;
-  padding: 10px 12px;
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-  font-size: 0.78rem;
-  color: var(--aud-text);
-  white-space: pre-wrap;
-  word-break: break-all;
-  user-select: all;
-}
 
 /* Player bar */
 .aud-player {
@@ -1667,368 +1543,4 @@ AudibleView.prototype.enablePlayer = function (enabled) {
   this.skipBackBtn.disabled = !enabled;
   this.skipFwdBtn.disabled = !enabled;
   this.progressBar.classList.toggle('disabled', !enabled);
-};
-
-/* ===================================================================
- * Audible auth flow (Amazon OAuth via external browser, plus optional
- * Playwright auto-mode that captures the redirect without copy/paste).
- * =================================================================== */
-
-AudibleView.prototype.preflightAuth = async function () {
-  try {
-    const status = await this.fetchJson('/v1/audible/auth/status');
-    this.authStatus = status;
-    if (status && status.loadable) {
-      this.hideConnect();
-      return true;
-    }
-  } catch (err) {
-    console.warn('audible: auth status check failed', err);
-    this.authStatus = null;
-  }
-  this.showConnect();
-  return false;
-};
-
-AudibleView.prototype.openExternal = function (url) {
-  // The Tauri host exposes `ctx.openExternal` (defined in app.js) which
-  // tries `window.__TAURI__.opener.openUrl` first (Tauri v2's opener
-  // plugin), then `window.__TAURI__.shell.open`. We fall back to a
-  // plain window.open for non-Tauri contexts (the page also runs
-  // inside a normal browser when developing against the AGiXT backend
-  // directly).
-  if (this.ctx && typeof this.ctx.openExternal === 'function') {
-    try {
-      const r = this.ctx.openExternal(url);
-      if (r) return;
-    } catch (_) {}
-  }
-  try {
-    const tauri = window.__TAURI__;
-    if (tauri && tauri.opener && typeof tauri.opener.openUrl === 'function') {
-      tauri.opener.openUrl(url);
-      return;
-    }
-    if (tauri && tauri.shell && typeof tauri.shell.open === 'function') {
-      tauri.shell.open(url);
-      return;
-    }
-  } catch (_) {}
-  try {
-    window.open(url, '_blank', 'noopener');
-  } catch (_) {}
-};
-
-AudibleView.prototype.hideConnect = function () {
-  if (this.connectPollTimer) {
-    clearInterval(this.connectPollTimer);
-    this.connectPollTimer = null;
-  }
-  if (this.connectEl && this.connectEl.parentNode) {
-    this.connectEl.parentNode.removeChild(this.connectEl);
-    this.connectEl = null;
-  }
-  if (this.contentEl) this.contentEl.style.display = '';
-  if (this.playerEl) this.playerEl.style.display = '';
-};
-
-AudibleView.prototype.showConnect = function () {
-  if (this.contentEl) this.contentEl.style.display = 'none';
-  if (this.playerEl) this.playerEl.style.display = 'none';
-  if (!this.connectEl) {
-    this.connectEl = el('div', { class: 'aud-connect' });
-    // Insert connect screen between the toolbar and the (now-hidden)
-    // content panel so the toolbar's sidebar/chapters toggles are
-    // still reachable but the player chrome stays out of the way.
-    this.mainEl.insertBefore(this.connectEl, this.contentEl);
-  }
-  this.renderConnect();
-};
-
-AudibleView.prototype.renderConnect = function (state) {
-  if (!this.connectEl) return;
-  state = state || {};
-  this.connectEl.innerHTML = '';
-
-  const card = el('div', { class: 'aud-connect-card' });
-
-  card.appendChild(el('div', { class: 'aud-connect-title' }, 'Connect to Audible'));
-  card.appendChild(el('div', { class: 'aud-connect-sub' },
-    'Amazon\'s OAuth-via-browser is the only sign-in path that reliably ',
-    'survives CAPTCHA + 2FA, so AGiXT does not store your Audible password. ',
-    'Pick a marketplace below, then run the helper script in a terminal — ',
-    'it opens Amazon in your default browser, you sign in, paste the ',
-    'redirect URL back, and the script writes the auth file.'));
-
-  if (this.authReason && !state.connected) {
-    card.appendChild(el('div', { class: 'aud-connect-error' }, this.authReason));
-    this.authReason = null;
-  }
-  if (state.error) {
-    card.appendChild(el('div', { class: 'aud-connect-error' }, state.error));
-  }
-  if (state.success) {
-    card.appendChild(el('div', { class: 'aud-connect-ok' },
-      'Connected as ' + (state.success.name || state.success.given_name || 'your Audible account') + '.'));
-  }
-
-  // Locale picker — defaults to "us". The chosen marketplace flows
-  // into the helper script command and the in-app fallbacks.
-  const localeWrap = el('div', { class: 'aud-connect-row' });
-  localeWrap.appendChild(el('label', { style: 'font-size:0.85rem;color:var(--aud-text-dim);min-width:80px' }, 'Marketplace'));
-  this.connectLocale = el('select', { class: 'aud-input' });
-  for (const code of ['us', 'uk', 'de', 'fr', 'ca', 'au', 'it', 'es', 'in', 'jp', 'br']) {
-    const o = el('option', { value: code }, code.toUpperCase());
-    if ((state.locale || this.authLocale || 'us') === code) o.setAttribute('selected', 'selected');
-    this.connectLocale.appendChild(o);
-  }
-  this.connectLocale.addEventListener('change', () => {
-    if (this.connectCommandEl) {
-      this.connectCommandEl.textContent = this.buildAuthCommand();
-    }
-  });
-  localeWrap.appendChild(this.connectLocale);
-  card.appendChild(localeWrap);
-
-  /* ---- Path 1: helper script (mirrors the kids app) -------------- */
-  card.appendChild(el('div', { class: 'aud-connect-step' },
-    el('b', null, '1. Recommended:'),
-    ' Run this command in a terminal on the machine running AGiXT. ',
-    'Amazon will open in your default browser; sign in, copy the URL ',
-    'from the post-login "page not found" screen (it contains ',
-    el('code', null, 'openid.oa2.authorization_code=…'),
-    '), paste it back into the terminal, and the helper writes ',
-    el('code', null, '~/.agixt/audible_auth.json'), '.'));
-
-  this.connectCommandEl = el('pre', {
-    class: 'aud-connect-cmd',
-  }, this.buildAuthCommand());
-  const cmdRow = el('div', { class: 'aud-connect-cmd-row' });
-  cmdRow.appendChild(this.connectCommandEl);
-  const copyBtn = el('button', {
-    class: 'aud-btn aud-btn-secondary',
-    type: 'button',
-    onclick: async () => {
-      const text = this.buildAuthCommand();
-      let copied = false;
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(text);
-          copied = true;
-        }
-      } catch (_) {}
-      if (!copied) {
-        try {
-          this.connectCommandEl.focus();
-          const range = document.createRange();
-          range.selectNodeContents(this.connectCommandEl);
-          const sel = window.getSelection();
-          sel.removeAllRanges();
-          sel.addRange(range);
-          document.execCommand('copy');
-          sel.removeAllRanges();
-          copied = true;
-        } catch (_) {}
-      }
-      copyBtn.textContent = copied ? 'Copied!' : 'Select all';
-      setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200);
-    },
-  }, 'Copy');
-  cmdRow.appendChild(copyBtn);
-  card.appendChild(cmdRow);
-
-  // Status / poll — start a short poll so the screen flips itself
-  // when the auth file appears, no manual refresh needed.
-  this.connectStatusEl = el('div', { class: 'aud-connect-help' },
-    'Watching for ', el('code', null, '~/.agixt/audible_auth.json'),
-    '. This card will switch to the library automatically once the ',
-    'helper finishes.');
-  card.appendChild(this.connectStatusEl);
-
-  const refreshBtn = el('button', {
-    class: 'aud-btn aud-btn-secondary',
-    type: 'button',
-    onclick: async () => {
-      refreshBtn.disabled = true;
-      refreshBtn.textContent = 'Checking…';
-      const ok = await this.preflightAuth();
-      refreshBtn.disabled = false;
-      refreshBtn.textContent = 'Check connection now';
-      if (ok) this.dismissConnectAndLoad();
-    },
-  }, 'Check connection now');
-  card.appendChild(refreshBtn);
-
-  this.startConnectPoll();
-
-  /* ---- Path 2: paste-the-URL fallback (no terminal) -------------- */
-
-  card.appendChild(el('div', { class: 'aud-connect-divider' }, 'or paste manually'));
-  card.appendChild(el('div', { class: 'aud-connect-step' },
-    el('b', null, '2. No terminal access?'),
-    ' Click ', el('b', null, 'Open Amazon login'), ', sign in, then paste ',
-    'the redirected URL back here — same flow the helper runs but ',
-    'without leaving the desktop client.'));
-
-  const startBtn = el('button', {
-    class: 'aud-btn aud-btn-secondary',
-    type: 'button',
-    onclick: async () => {
-      startBtn.disabled = true;
-      startBtn.textContent = 'Generating login URL…';
-      try {
-        const r = await this.fetchJson('/v1/audible/auth/url', null, {
-          method: 'POST',
-          headers: {
-            Authorization: 'Bearer ' + this.ctx.jwt,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ locale: this.connectLocale.value }),
-        });
-        this.pendingId = r.pending_id;
-        this.pendingLoginUrl = r.login_url;
-        this.openExternal(r.login_url);
-        if (this.pasteInput) {
-          this.pasteInput.disabled = false;
-          this.pasteInput.focus();
-        }
-        if (this.pasteBtn) this.pasteBtn.disabled = false;
-        startBtn.textContent = 'Reopen Amazon login';
-      } catch (err) {
-        this.renderConnect({ error: 'Could not start login: ' + (err.message || err) });
-        return;
-      } finally {
-        startBtn.disabled = false;
-      }
-    },
-  }, 'Open Amazon login');
-
-  this.pasteInput = el('input', {
-    type: 'url',
-    class: 'aud-input',
-    placeholder: 'Paste the redirected URL (contains openid.oa2.authorization_code=…)',
-  });
-  this.pasteInput.disabled = !this.pendingId;
-  this.pasteBtn = el('button', {
-    class: 'aud-btn',
-    type: 'button',
-    onclick: async () => {
-      const url = (this.pasteInput.value || '').trim();
-      if (!this.pendingId) {
-        this.renderConnect({ error: 'Click "Open Amazon login" first to generate a login session.' });
-        return;
-      }
-      if (!url) {
-        this.renderConnect({ error: 'Paste the redirected URL after signing in.' });
-        return;
-      }
-      this.pasteBtn.disabled = true;
-      this.pasteBtn.textContent = 'Verifying…';
-      try {
-        const result = await this.fetchJson('/v1/audible/auth/complete', null, {
-          method: 'POST',
-          headers: {
-            Authorization: 'Bearer ' + this.ctx.jwt,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            pending_id: this.pendingId,
-            redirect_url: url,
-          }),
-        });
-        this.authStatus = result;
-        if (result && result.loadable) {
-          this.renderConnect({ success: result });
-          setTimeout(() => this.dismissConnectAndLoad(), 800);
-        } else {
-          this.renderConnect({ error: 'Verification finished but auth file did not load.' });
-        }
-      } catch (err) {
-        this.renderConnect({ error: (err.message || err) + '' });
-      } finally {
-        this.pasteBtn.disabled = false;
-        this.pasteBtn.textContent = 'Verify & connect';
-      }
-    },
-  }, 'Verify & connect');
-  this.pasteBtn.disabled = !this.pendingId;
-
-  card.appendChild(startBtn);
-  const pasteRow = el('div', { class: 'aud-connect-row' });
-  pasteRow.appendChild(this.pasteInput);
-  pasteRow.appendChild(this.pasteBtn);
-  card.appendChild(pasteRow);
-
-  /* ---- Disconnect (recover from a stale partial auth file) ------ */
-  if (this.authStatus && this.authStatus.configured) {
-    const disconnectBtn = el('button', {
-      class: 'aud-btn aud-btn-danger',
-      type: 'button',
-      onclick: async () => {
-        disconnectBtn.disabled = true;
-        try {
-          await this.fetchJson('/v1/audible/auth/disconnect', null, {
-            method: 'POST',
-            headers: { Authorization: 'Bearer ' + this.ctx.jwt },
-          });
-          this.authStatus = null;
-          this.renderConnect();
-        } catch (err) {
-          this.renderConnect({ error: 'Disconnect failed: ' + (err.message || err) });
-        } finally {
-          disconnectBtn.disabled = false;
-        }
-      },
-    }, 'Forget cached auth file');
-    card.appendChild(el('div', { class: 'aud-connect-help' },
-      'Connected previously but having issues? Forget the cached auth file and start over.'));
-    card.appendChild(disconnectBtn);
-  }
-
-  this.connectEl.appendChild(card);
-};
-
-AudibleView.prototype.buildAuthCommand = function () {
-  // The audible_auth.py file lives next to audible.py in the AGiXT
-  // extensions hub. We hand the user the absolute path to the venv
-  // python so they can paste-and-run regardless of which directory
-  // their terminal is in.
-  const locale = (this.connectLocale && this.connectLocale.value) || 'us';
-  return (
-    '/home/josh/repos/xtsys/.venv/bin/python ' +
-    '/home/josh/repos/xtsys/AGiXT/agixt/extensions/audible_auth.py ' +
-    '--locale ' + locale
-  );
-};
-
-AudibleView.prototype.startConnectPoll = function () {
-  if (this.connectPollTimer) return;
-  // Poll every 4s while the connect screen is visible. We stop
-  // polling either when the screen unmounts (`stop()` clears it) or
-  // when the auth file is detected (`preflightAuth` resolves true).
-  this.connectPollTimer = setInterval(async () => {
-    if (!this.connectEl) {
-      clearInterval(this.connectPollTimer);
-      this.connectPollTimer = null;
-      return;
-    }
-    try {
-      const status = await this.fetchJson('/v1/audible/auth/status');
-      if (status && status.loadable) {
-        clearInterval(this.connectPollTimer);
-        this.connectPollTimer = null;
-        this.authStatus = status;
-        this.renderConnect({ success: status });
-        setTimeout(() => this.dismissConnectAndLoad(), 800);
-      }
-    } catch (_) {
-      // ignore — keep polling.
-    }
-  }, 4000);
-};
-
-AudibleView.prototype.dismissConnectAndLoad = function () {
-  this.hideConnect();
-  this.loadLibrary();
-  if (this.currentAsin) this.loadBook(this.currentAsin, { silent: true });
 };

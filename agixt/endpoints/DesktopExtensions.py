@@ -116,7 +116,68 @@ def _meets_requires(
     if agent_exts and not _agent_has_extension(auth, agent_id, agent_exts):
         return False
 
+    # Per-extension out-of-band connection state. Some extensions
+    # (audible) drive their auth through a Connect button in the agent
+    # settings drawer rather than AGiXT's OAuth provider table. The
+    # sidebar entry should stay hidden until that state is satisfied,
+    # otherwise users land on an empty page wondering what to do. A
+    # check is registered here per extension class name; missing keys
+    # are silently ignored so manifests remain forward-compatible.
+    connection_checks = requires.get("connection_check") or []
+    if isinstance(connection_checks, str):
+        connection_checks = [connection_checks]
+    for name in connection_checks:
+        check = _CONNECTION_CHECKS.get(str(name).lower())
+        if check is None:
+            continue
+        try:
+            if not check(auth, agent_id):
+                return False
+        except Exception as exc:
+            logger.warning(
+                "desktop ext: connection_check %s raised %s — treating as not connected",
+                name,
+                exc,
+            )
+            return False
+
     return True
+
+
+def _audible_is_connected(auth: MagicalAuth, agent_id: Optional[str]) -> bool:
+    """True iff the requested agent has a usable AUDIBLE_AUTH setting.
+
+    Connection state lives on the agent (per-user isolation), not on
+    disk. We pull the agent's settings, JSON-decode the blob, and ask
+    the audible package to materialize an Authenticator from it; any
+    failure means "not connected".
+    """
+    if not agent_id or not auth.email:
+        return False
+    try:
+        from ApiClient import Agent
+
+        agent = Agent(agent_id=agent_id, user=auth.email, ApiClient=None)
+        settings = (agent.AGENT_CONFIG or {}).get("settings") or {}
+        raw = settings.get("AUDIBLE_AUTH")
+        if not raw:
+            return False
+        data = json.loads(raw)
+        from audible import Authenticator  # type: ignore
+
+        Authenticator.from_dict(data)
+        return True
+    except Exception:
+        return False
+
+
+# Map of `requires.connection_check` value (lowercased) -> callable
+# `(auth, agent_id) -> bool` returning True when the extension's
+# external auth is in place. Add new entries here when an extension
+# needs to gate its sidebar visibility on out-of-band state.
+_CONNECTION_CHECKS = {
+    "audible": _audible_is_connected,
+}
 
 
 def _user_has_oauth(auth: MagicalAuth, providers: List[str]) -> bool:
