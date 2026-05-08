@@ -242,11 +242,15 @@ jobs:
           if [ -z "${commit_time}" ]; then
             commit_time="$(git log -1 --format=%ct)"
           fi
-          version="$(TZ="${DESKTOP_BUILD_TIMEZONE}" COMMIT_TIME="${commit_time}" python - <<'PY'
+          python -m pip install --quiet tzdata
+          version="$(DESKTOP_BUILD_TIMEZONE="${DESKTOP_BUILD_TIMEZONE}" COMMIT_TIME="${commit_time}" python - <<'PY'
           import os
           from datetime import datetime
+          from zoneinfo import ZoneInfo
 
-          print(datetime.fromtimestamp(int(os.environ["COMMIT_TIME"])).strftime("%Y%m%d_%H%M%S"))
+          timezone = ZoneInfo(os.environ["DESKTOP_BUILD_TIMEZONE"])
+          timestamp = int(os.environ["COMMIT_TIME"])
+          print(datetime.fromtimestamp(timestamp, timezone).strftime("%Y%m%d_%H%M%S"))
           PY
           )"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
