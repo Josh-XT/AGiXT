@@ -1139,6 +1139,12 @@ details.sub-tool > summary.sub-tool-summary:hover {
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
   min-height: 0;
+  /* Stacking context — needed so absolutely-positioned dropdowns
+     anchored inside the header (e.g. the machines column picker)
+     paint OVER the body's content. Without it the body, being a
+     later sibling, paints over header descendants. */
+  position: relative;
+  z-index: 2;
 }
 .ext-pane-title {
   font-size: 13px;
