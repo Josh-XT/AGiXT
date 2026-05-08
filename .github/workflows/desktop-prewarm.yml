@@ -192,7 +192,7 @@ jobs:
             libasound2-dev \
             libssl-dev \
             patchelf \
-            pkg-config
+            pkg-config \
             xdg-utils
 
       - name: Install Windows desktop dependencies
