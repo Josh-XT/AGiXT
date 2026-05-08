@@ -3803,6 +3803,60 @@ pub fn run() {
                 suppress_blur_hide: Arc::new(AtomicBool::new(false)),
             });
 
+            // Mobile deep links must be declared in config and handled
+            // here. OAuth login lands as `agixt://login?token=<jwt>`;
+            // without this listener Android opens the app but the JWT is
+            // never persisted.
+            use tauri_plugin_deep_link::DeepLinkExt;
+            let handle = app.handle().clone();
+            let dl_handle = handle.clone();
+            handle.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    tracing::info!("deep link received: {}", url);
+                    if url.scheme() != "agixt" {
+                        continue;
+                    }
+                    let action = url.host_str().unwrap_or(url.path()).to_string();
+                    let token = url.query_pairs().find_map(|(k, v)| {
+                        if k == "token" || k == "jwt" {
+                            Some(v.into_owned())
+                        } else {
+                            None
+                        }
+                    });
+                    let provider = url.query_pairs().find_map(|(k, v)| {
+                        if k == "provider" {
+                            Some(v.into_owned())
+                        } else {
+                            None
+                        }
+                    });
+                    let code = url.query_pairs().find_map(|(k, v)| {
+                        if k == "code" {
+                            Some(v.into_owned())
+                        } else {
+                            None
+                        }
+                    });
+                    let app = dl_handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        match action.as_str() {
+                            "login" => {
+                                if let Some(tok) = token {
+                                    handle_deep_link_login(&app, tok).await;
+                                } else {
+                                    tracing::warn!("agixt://login received with no token");
+                                }
+                            }
+                            "oauth-connect" => {
+                                handle_deep_link_oauth_connect(&app, provider, code).await;
+                            }
+                            _ => {}
+                        }
+                    });
+                }
+            });
+
             // Mobile is a single-surface app. Desktop-only secondary
             // windows, especially agent-settings, can otherwise win the
             // initial WebView focus on Android and strand signed-out users

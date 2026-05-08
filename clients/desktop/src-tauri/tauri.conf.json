@@ -61,6 +61,12 @@
   },
   "plugins": {
     "deep-link": {
+      "mobile": [
+        {
+          "scheme": ["agixt"],
+          "appLink": false
+        }
+      ],
       "desktop": {
         "schemes": ["agixt"]
       }

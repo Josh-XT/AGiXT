@@ -4,9 +4,18 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 use std::path::PathBuf;
 
+#[cfg(mobile)]
+const DEFAULT_SERVER_URL: &str = "https://api.agixt.com";
+#[cfg(not(mobile))]
 const DEFAULT_SERVER_URL: &str = "http://localhost:7437";
+#[cfg(mobile)]
+const DEFAULT_WEB_URL: &str = "https://agixt.com";
+#[cfg(not(mobile))]
 const DEFAULT_WEB_URL: &str = "http://localhost:3437";
 const DEFAULT_AGENT_NAME: &str = "XT";
+#[cfg(mobile)]
+const DEFAULT_BRAND: &str = "agixt";
+#[cfg(not(mobile))]
 const DEFAULT_BRAND: &str = "local";
 
 /// Slug for the dedicated "local AGiXT" mode. The login screen probes
