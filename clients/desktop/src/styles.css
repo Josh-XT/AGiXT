@@ -114,7 +114,11 @@ html, body {
   display: flex;
   align-items: stretch;
   gap: 8px;
-  padding: 8px 10px;
+  /* Top padding grows to cover a device status bar / notch when one is
+     reported via env(safe-area-inset-top); on desktop the inset is 0 so
+     the original 8px still applies. Without this the brand mark gets
+     clipped under the system status bar on Android/iOS. */
+  padding: max(8px, env(safe-area-inset-top)) 10px 8px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   cursor: grab;
@@ -1631,29 +1635,6 @@ body.window-mode.chat-collapsed .chat-resize-handle {
 .local-log-stderr { color: #fca5a5; }
 .local-log-ok { color: #86efac; font-weight: 600; }
 .local-log-err { color: #fca5a5; font-weight: 600; }
-
-.auth-paste {
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-.auth-paste summary {
-  cursor: pointer;
-  padding: 8px 10px;
-  user-select: none;
-}
-.auth-paste[open] summary { border-bottom: 1px solid var(--border); }
-.auth-paste textarea {
-  width: 100%;
-  min-height: 70px;
-  margin: 8px 0;
-  font-family: var(--mono);
-  font-size: 11px;
-}
-.auth-paste .btn { margin: 0 10px 10px; }
 
 .auth-status {
   font-size: 11.5px;

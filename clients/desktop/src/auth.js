@@ -1,11 +1,11 @@
 /* Auth screen logic.
  *
  * Handles service selection, email+password login, registration, magic
- * link, paste-a-JWT, and OAuth-via-system-browser flows. Mirrors the
- * field order and method set of the AGiXT NextJS web client login page,
- * adapted for a desktop app with no cookie store — JWTs land in the
- * Rust-side SQLite via the `login_password` / `register_account` /
- * `login_with_jwt` IPCs.
+ * link, and OAuth-via-system-browser flows. Mirrors the field order
+ * and method set of the AGiXT NextJS web client login page, adapted
+ * for a desktop app with no cookie store — JWTs land in the Rust-side
+ * SQLite via the `login_password` / `register_account` IPCs. Magic
+ * links and OAuth callbacks return through `agixt://` deep links.
  *
  * Exposes `window.AgixtAuth.boot({onAuthenticated})` which the app shell
  * calls once on startup. When auth completes, `onAuthenticated()` fires
@@ -48,18 +48,17 @@
     $('service-brand').value = currentBrand.slug;
     $('server-url').value = currentBrand.default_url;
     $('web-url').value = currentBrand.default_web_url || '';
-    // URL fields are only editable in "custom" mode. "local" pins to
-    // localhost:7437 because the install flow assumes that port.
-    const editable = currentBrand.slug === 'custom';
-    $('server-url').readOnly = !editable;
-    $('web-url').readOnly = !editable;
-    $('custom-server-field').classList.toggle('readonly', !editable);
-    $('custom-web-field').classList.toggle('readonly', !editable);
-    // Hide the URL inputs entirely for local mode — the user has no
-    // dial to turn there; what they want is the install/connect button.
+    // URL fields are only shown/editable in "custom" mode. Every other
+    // brand has a known server+web pair, so exposing the fields would
+    // just be noise — and "local" pins to localhost:7437 anyway.
+    const isCustom = currentBrand.slug === 'custom';
+    $('server-url').readOnly = !isCustom;
+    $('web-url').readOnly = !isCustom;
+    $('custom-server-field').classList.toggle('readonly', !isCustom);
+    $('custom-web-field').classList.toggle('readonly', !isCustom);
+    $('custom-server-field').hidden = !isCustom;
+    $('custom-web-field').hidden = !isCustom;
     const isLocal = currentBrand.slug === 'local';
-    $('custom-server-field').hidden = isLocal;
-    $('custom-web-field').hidden = isLocal;
     $('local-pane').hidden = !isLocal;
     applyBrandIdentity(currentBrand.slug);
     if (isLocal) {
@@ -258,12 +257,9 @@
       window.open(result.url, '_blank', 'noopener');
     }
     setStatus(
-      'After authorizing, copy the magic-link URL or JWT from the browser back here and paste it below.',
+      'After authorizing in your browser, you will be returned here automatically.',
       'info',
     );
-    // Auto-expand the paste section so the user sees where to put it.
-    const det = document.querySelector('.auth-paste');
-    if (det) det.open = true;
   }
 
   $('service-brand').addEventListener('change', async () => {
@@ -329,30 +325,9 @@
     try {
       await invoke('request_magic_link', { args: { server_url: activeServerUrl(), email } });
       setStatus(
-        `Sent. Check ${email} for a sign-in link, then paste the URL below.`,
+        `Sent. Check ${email} for a sign-in link — clicking it will sign you in here.`,
         'success',
       );
-      const det = document.querySelector('.auth-paste');
-      if (det) det.open = true;
-    } catch (e) {
-      setStatus(prettyError(e), 'error');
-    }
-  });
-
-  // ----- Paste-a-token fallback (covers magic links + OAuth callbacks) ----
-
-  $('btn-paste-jwt').addEventListener('click', async () => {
-    const raw = $('paste-jwt').value.trim();
-    if (!raw) {
-      setStatus('Paste a magic-link URL or JWT first.', 'error');
-      return;
-    }
-    setStatus('Verifying token…');
-    try {
-      await invoke('login_with_jwt', { serverUrl: activeServerUrl(), raw });
-      await persistBrand();
-      setStatus('Signed in.', 'success');
-      finish();
     } catch (e) {
       setStatus(prettyError(e), 'error');
     }

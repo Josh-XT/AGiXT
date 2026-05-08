@@ -201,6 +201,21 @@ pub struct ServiceBrand {
 fn list_service_brands() -> Vec<ServiceBrand> {
     config::SERVICE_BRANDS
         .iter()
+        .filter(|(slug, _, _, _)| {
+            // The "local" brand probes localhost:7437 and offers a
+            // one-click installer. Neither makes sense on Android/iOS
+            // where the user can't run an AGiXT backend on-device, so
+            // it's hidden on mobile builds.
+            #[cfg(mobile)]
+            {
+                *slug != config::BRAND_LOCAL
+            }
+            #[cfg(not(mobile))]
+            {
+                let _ = slug;
+                true
+            }
+        })
         .map(|(slug, label, url, web)| ServiceBrand {
             slug: (*slug).into(),
             label: (*label).into(),

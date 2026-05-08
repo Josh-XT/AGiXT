@@ -1,19 +1,36 @@
-/* Agent Settings window orchestrator.
+/* Agent Settings orchestrator.
  *
  * Loads the active agent (from desktop settings — chosen via the topbar in
  * the main window), wires the tab switcher, and lazy-initializes each tab's
  * module the first time it's activated. Keeps unused tabs from making API
  * calls until the user actually clicks them.
+ *
+ * Two host modes:
+ *   - Standalone window (`agent-settings.html`, `body.as-body`): auto-boots
+ *     on DOMContentLoaded.
+ *   - Embedded side pane in the main window (`view-pane[data-view=
+ *     "agent-settings"]` inside `index.html`): waits for the host to call
+ *     `window.AgentSettings.mount()` the first time the user activates the
+ *     pane, so the API calls don't fire until they're actually needed.
  */
 (function () {
   const tauri = window.__TAURI__;
   if (!tauri) {
-    document.body.innerHTML = '<div style="padding: 40px; color: #ff8585;">Tauri IPC unavailable.</div>';
+    if (document.body && document.body.classList.contains('as-body')) {
+      document.body.innerHTML = '<div style="padding: 40px; color: #ff8585;">Tauri IPC unavailable.</div>';
+    }
     return;
   }
   const invoke = tauri.core.invoke;
   const event = tauri.event;
   const frontendLog = window.AgixtFrontendLog || function () {};
+
+  // Standalone window puts `.as-body` on <body>; the embedded pane in the
+  // main window does not. Several behaviors only make sense in the
+  // standalone host (auto-boot, full-window auth gate, focus-based
+  // refresh) — we branch on this flag instead of duplicating the file.
+  const isStandalone = document.body && document.body.classList.contains('as-body');
+  let booted = false;
 
   // Connections aren't a separate tab anymore — OAuth providers are
   // surfaced as cards inside their proper Extension category. We still
@@ -143,21 +160,34 @@
   }
 
   async function boot() {
+    if (booted) return;
+    booted = true;
     bindTabs();
     try {
+      // Embedded mode shares cached settings with app.js — refresh once at
+      // mount so we pick up the latest agent the user may have chosen in
+      // the topbar before opening this pane.
+      if (!isStandalone) await window.AgixtApi.refreshSettings();
       const settings = await window.AgixtApi.getSettings();
       if (!settings || !settings.jwt) {
-        renderSignedOut();
+        if (isStandalone) {
+          renderSignedOut();
+        } else {
+          // The host (main window) already gates on auth — if we got
+          // here without a JWT something is off, but rendering an
+          // auth-gate inside the side pane would be redundant.
+          paintHeader(null);
+        }
         return;
       }
       agentId = settings.agent_id || null;
       agentName = settings.agent_name || null;
       paintHeader(settings);
       if (!agentId) {
-        toast('No agent selected. Open the main window and pick an agent first.', 'error');
+        toast('No agent selected. Pick an agent in the topbar first.', 'error');
         ['ext-body', 'conn-body'].forEach((id) => {
           const el = document.getElementById(id);
-          if (el) el.innerHTML = '<div class="as-empty">Pick an agent in the main window to configure it.</div>';
+          if (el) el.innerHTML = '<div class="as-empty">Pick an agent to configure it.</div>';
         });
         return;
       }
@@ -174,35 +204,47 @@
       toast('Failed to load settings: ' + (e.message || e), 'error');
     }
 
-    // The main window can broadcast that the user changed the active agent;
-    // we listen so this window stays in sync without requiring a manual
-    // close/reopen.
+    // The agent switcher lives in the topbar (same window when embedded,
+    // a peer window when standalone). Either way, it broadcasts
+    // `agixt-agent-changed` and we re-fetch.
     if (event && event.listen) {
       event.listen('agixt-agent-changed', async () => {
         try { await reloadActive(); } catch (e) { console.warn('reloadActive', e); }
       });
     }
 
-    // Refresh whenever the window regains focus — covers the case where the
-    // user changed agents in the main window without us getting an event.
-    window.addEventListener('focus', () => {
-      // Cheap: re-read settings; only reload if agent changed.
-      window.AgixtApi.refreshSettings().then(async () => {
-        const s = await window.AgixtApi.getSettings();
-        if ((s.agent_id || null) !== agentId) {
-          await reloadActive();
-        }
-      }).catch(() => { /* ignore */ });
-    });
+    // Standalone window only — refresh whenever it regains focus. Covers
+    // the case where the user changed agents in the main window without
+    // us getting an event. The embedded pane shares the same window so
+    // a focus event there means nothing useful.
+    if (isStandalone) {
+      window.addEventListener('focus', () => {
+        window.AgixtApi.refreshSettings().then(async () => {
+          const s = await window.AgixtApi.getSettings();
+          if ((s.agent_id || null) !== agentId) {
+            await reloadActive();
+          }
+        }).catch(() => { /* ignore */ });
+      });
+    }
   }
 
-  window.AgentSettings = { toast, setActive, reload: reloadActive };
+  window.AgentSettings = {
+    toast,
+    setActive,
+    reload: reloadActive,
+    // Host-callable mount — idempotent. The main window calls this the
+    // first time the user activates the agent-settings pane.
+    mount: boot,
+  };
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot);
-  } else {
-    boot();
+  if (isStandalone) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', boot);
+    } else {
+      boot();
+    }
   }
 
-  frontendLog('info', 'agent-settings.js boot');
+  frontendLog('info', 'agent-settings.js loaded (' + (isStandalone ? 'standalone' : 'embedded') + ')');
 })();

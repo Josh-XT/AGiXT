@@ -2,11 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; img-src 'self' data: blob: https: http:; media-src 'self' data: blob: https: http:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http: https: ws: wss:; font-src 'self' data:;" />
     <title>AGiXT</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="workspace.css" />
+    <link rel="stylesheet" href="agent-settings.css" />
   </head>
   <body class="dock dock-popover">
     <!-- The window is hidden by default and only shown when the user
@@ -154,13 +155,6 @@
             <div class="auth-row" id="oauth-row" hidden>
               <div class="oauth-buttons" id="oauth-buttons"></div>
             </div>
-            <div class="auth-row">
-              <details class="auth-paste">
-                <summary>Have a login URL or JWT? Paste it</summary>
-                <textarea id="paste-jwt" rows="3" placeholder="Paste the magic-link URL from your email, or a raw JWT" spellcheck="false"></textarea>
-                <button class="btn btn-secondary" id="btn-paste-jwt">Use this token</button>
-              </details>
-            </div>
           </div>
 
           <div class="auth-pane" id="pane-register" hidden>
@@ -212,6 +206,14 @@
             </button>
           </div>
           <div class="sidenav-bottom">
+            <button class="sidenav-btn" data-view="agent-settings" type="button"
+                    role="tab" aria-selected="false" title="Agent settings"
+                    aria-label="Agent settings" data-tooltip="Agent settings">
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                      d="M4 6h10M4 12h6M4 18h13M17 4v4M13 10v4M20 16v4"/>
+              </svg>
+            </button>
             <button class="sidenav-btn" id="btn-settings" type="button"
                     title="App settings" aria-label="App settings" data-tooltip="App settings">
               <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
@@ -316,6 +318,95 @@
               </svg>
             </button>
           </div>
+
+          <!-- Agent settings pane — extensions + training. Shares the
+               right side of the chat-screen-main row layout with
+               workspace and server-delivered extension panes. The agent
+               name lives in the topbar already, so the embedded header
+               just carries the tabs. -->
+          <div class="view-pane view-pane-agent-settings" data-view="agent-settings" hidden>
+            <header class="as-header">
+              <div class="as-header-left">
+                <h1 class="as-title">Agent Settings</h1>
+                <div class="as-subtitle" id="as-subtitle">—</div>
+              </div>
+              <nav class="as-tabs" role="tablist">
+                <button class="as-tab is-active" id="as-tab-extensions" role="tab"
+                        aria-selected="true" data-tab="extensions">Extensions</button>
+                <button class="as-tab" id="as-tab-training" role="tab"
+                        aria-selected="false" data-tab="training">Training</button>
+              </nav>
+            </header>
+
+            <main class="as-main">
+              <section class="as-panel is-active" id="as-panel-extensions"
+                       role="tabpanel" aria-labelledby="as-tab-extensions">
+                <div class="as-panel-toolbar">
+                  <div class="as-search-wrap">
+                    <input type="search" id="ext-search" class="as-input"
+                           placeholder="Search extensions…" autocomplete="off" />
+                  </div>
+                  <label class="as-check">
+                    <input type="checkbox" id="ext-only-enabled" />
+                    <span>Show only enabled</span>
+                  </label>
+                  <div class="as-stats" id="ext-stats">—</div>
+                </div>
+                <div class="as-panel-body" id="ext-body">
+                  <div class="as-empty" id="ext-loading">Loading extensions…</div>
+                </div>
+              </section>
+
+              <section class="as-panel" id="as-panel-training" role="tabpanel"
+                       aria-labelledby="as-tab-training" hidden>
+                <div class="as-panel-body" id="train-body">
+                  <section class="as-section">
+                    <h2 class="as-section-title">Mandatory Context</h2>
+                    <p class="as-section-blurb">This text is included with every interaction. Use it to define your agent's personality, knowledge domain, or anything it should always remember.</p>
+                    <textarea id="train-persona" class="as-textarea" rows="6" placeholder="Enter mandatory context…"></textarea>
+                    <div class="as-row as-row-end">
+                      <button class="btn btn-secondary" id="train-persona-cancel" hidden>Cancel</button>
+                      <button class="btn btn-primary" id="train-persona-save" hidden>Save</button>
+                    </div>
+                  </section>
+
+                  <section class="as-section">
+                    <h2 class="as-section-title">Training Documents</h2>
+                    <p class="as-section-blurb">Upload documents to train your agent. Supported: PDF, Word, Text, Markdown, CSV, JSON, Excel.</p>
+                    <div class="as-row">
+                      <input type="file" id="train-file"
+                             accept=".pdf,.doc,.docx,.txt,.md,.csv,.json,.xlsx,.xls" hidden />
+                      <button class="btn btn-secondary" id="train-file-pick">Upload Document</button>
+                      <span class="as-status" id="train-file-status"></span>
+                    </div>
+                    <progress class="as-progress" id="train-file-progress" value="0" max="100" hidden></progress>
+                  </section>
+
+                  <section class="as-section">
+                    <h2 class="as-section-title">Learn from URL</h2>
+                    <p class="as-section-blurb">Train your agent with content from a website or article.</p>
+                    <div class="as-row as-row-tight">
+                      <input type="url" id="train-url" class="as-input" placeholder="https://example.com/article" />
+                      <button class="btn btn-primary" id="train-url-go">Learn</button>
+                    </div>
+                    <span class="as-status" id="train-url-status"></span>
+                  </section>
+
+                  <section class="as-section">
+                    <div class="as-row as-row-between">
+                      <h2 class="as-section-title">Learned Sources</h2>
+                      <input type="search" id="train-source-search" class="as-input as-input-narrow" placeholder="Search sources…" hidden />
+                    </div>
+                    <div id="train-sources" class="as-sources">
+                      <div class="as-empty" id="train-sources-empty">No sources yet.</div>
+                    </div>
+                  </section>
+                </div>
+              </section>
+            </main>
+
+            <div class="as-toast" id="as-toast" hidden></div>
+          </div>
         </div>
       </section>
     </section>
@@ -408,6 +499,12 @@
     <script src="workspace-models.js"></script>
     <script src="workspace.js"></script>
     <script src="desktop-extensions.js"></script>
+    <!-- Agent settings — embedded as a side pane (data-view="agent-settings"). -->
+    <script src="agixt-api.js"></script>
+    <script src="settings-extensions.js"></script>
+    <script src="settings-connections.js"></script>
+    <script src="settings-training.js"></script>
+    <script src="agent-settings.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

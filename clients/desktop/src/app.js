@@ -1442,6 +1442,15 @@
         && window.AgixtWorkspace.isOpen()) {
       window.AgixtWorkspace.close();
     }
+    // Lazy-mount the embedded agent-settings module on first activation
+    // so its API calls don't fire until the user actually opens the pane.
+    if (viewId === 'agent-settings'
+        && window.AgentSettings
+        && typeof window.AgentSettings.mount === 'function') {
+      Promise.resolve(window.AgentSettings.mount()).catch((err) => {
+        console.warn('AgentSettings.mount', err);
+      });
+    }
     syncContentPaneClass();
     refreshWindowMode();
   }
@@ -1709,23 +1718,19 @@
     };
   };
 
-  // The gear next to the agent selector now opens the dedicated Agent
-  // Settings window directly (extensions / connections / training),
-  // skipping the app-settings modal hop. App settings live on the
-  // pinned gear at the bottom of the sidenav.
+  // The gear next to the agent selector activates the embedded Agent
+  // Settings pane (extensions / training) on the right side of the
+  // chat-screen-main row, sharing the layout slot with workspace and
+  // server-delivered extension panes. App settings live on the pinned
+  // gear at the bottom of the sidenav.
   const agentSettingsBtn = $('btn-agent-settings');
   if (agentSettingsBtn) {
-    agentSettingsBtn.addEventListener('click', async () => {
-      try {
-        if (!settings || !settings.jwt) {
-          showScreen('auth');
-          return;
-        }
-        await invoke('open_agent_settings');
-      } catch (err) {
-        console.warn('open_agent_settings', err);
+    agentSettingsBtn.addEventListener('click', () => {
+      if (!settings || !settings.jwt) {
         showScreen('auth');
+        return;
       }
+      setActiveView('agent-settings');
     });
   }
 
@@ -1745,19 +1750,14 @@
   saveSettingsBtn.addEventListener('click', onSaveSettings);
   const openAgentSettingsBtn = $('btn-open-agent-settings');
   if (openAgentSettingsBtn) {
-    openAgentSettingsBtn.addEventListener('click', async () => {
-      try {
-        if (!settings || !settings.jwt) {
-          closeSettings();
-          showScreen('auth');
-          return;
-        }
-        await invoke('open_agent_settings');
+    openAgentSettingsBtn.addEventListener('click', () => {
+      if (!settings || !settings.jwt) {
         closeSettings();
-      } catch (err) {
-        setSettingsStatus(err && err.error ? err.error : String(err), 'error');
         showScreen('auth');
+        return;
       }
+      setActiveView('agent-settings');
+      closeSettings();
     });
   }
   if (sudoAuthBtn) sudoAuthBtn.addEventListener('click', onSudoAuth);
