@@ -24,6 +24,7 @@ pub mod terminal;
 #[cfg(mobile)]
 #[path = "terminal_mobile.rs"]
 pub mod terminal;
+pub mod transcription;
 pub mod updater;
 #[cfg(not(mobile))]
 pub mod voice;
@@ -3773,6 +3774,7 @@ pub fn run() {
             show_chat,
             hide_chat,
             toggle_chat,
+            transcription::audible_transcribe,
             set_dock_mode,
             toggle_dock_mode,
             save_dock_position,
@@ -3996,6 +3998,7 @@ pub fn run() {
             show_chat,
             hide_chat,
             toggle_chat,
+            transcription::audible_transcribe,
             set_dock_mode,
             toggle_dock_mode,
             save_dock_position,

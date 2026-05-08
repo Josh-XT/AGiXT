@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import time
 from datetime import datetime
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
@@ -640,16 +641,15 @@ def _audio_cache_paths(asin: str) -> Tuple[Path, Path]:
 def _find_playable_audio(asin: str) -> Optional[Path]:
     """Return a browser-playable audio file for `asin`, or None.
 
-    Looks for a converted audio file in the AGiXT cache only — anything
-    else (the encrypted .aax, the raw download, or a miniature error
-    response saved as .m4a) gets skipped. The companion `decode_ok`
-    marker is what `_convert_to_playable` writes once ffprobe has
-    confirmed the file actually plays.
+    Prefers the canonical MP3 we produce on conversion (universal
+    browser support, no AAC-in-MP4 quirks like chapter-text tracks
+    confusing WebKit) but still picks up legacy `.m4a` files that
+    were validated under earlier versions of this code.
     """
     base = _AUDIO_CACHE_ROOT / asin
     if not base.is_dir():
         return None
-    for name in ("audio.m4a", "audio.m4b", "audio.mp3", "audio.mp4"):
+    for name in ("audio.mp3", "audio.m4a", "audio.m4b", "audio.mp4"):
         p = base / name
         if not (p.is_file() and p.stat().st_size > 0):
             continue
@@ -859,26 +859,6 @@ async def _convert_to_playable(
     saved as `.m4a` would be treated as success and serve a corrupt
     file the browser refuses.
     """
-    suffix = input_path.suffix.lower()
-    # Already playable — copy/rename and validate. The downloader
-    # may hand us an .m4a/.m4b/.mp3 directly when Audible serves the
-    # streaming-quality variant. We still probe the output below so
-    # an error response written under a `.m4a` URL doesn't slip through.
-    if suffix in {".m4a", ".m4b", ".mp3", ".mp4"}:
-        try:
-            if input_path != output_path:
-                shutil.copyfile(input_path, output_path)
-        except Exception as exc:
-            return False, f"copy failed: {exc}"
-        ok, why = _validate_decoded_audio(output_path)
-        if ok:
-            return True, ""
-        try:
-            output_path.unlink(missing_ok=True)
-        except Exception:
-            pass
-        return False, f"copy validate: {why}"
-
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         return False, (
@@ -896,6 +876,7 @@ async def _convert_to_playable(
         or _activation_bytes_from_auth(auth)
     )
 
+    suffix = input_path.suffix.lower()
     # The on-disk filename / URL extension lies — Audible serves AAXC
     # content through `.aax`-suffixed URLs all the time. Sniff the
     # MPEG-4 `ftyp` brand instead so we pick the right decryption key
@@ -903,23 +884,37 @@ async def _convert_to_playable(
     # unreadable, which is how older `.aax` files behave.
     detected_brand = _detect_aax_format(input_path)
     if detected_brand is None:
-        detected_brand = "aax" if suffix == ".aax" else "aaxc"
+        if suffix == ".aax":
+            detected_brand = "aax"
+        elif suffix in {".m4a", ".m4b", ".mp3", ".mp4"}:
+            # Already-playable streaming variant; no DRM to remove.
+            detected_brand = "passthrough"
+        else:
+            detected_brand = "aaxc"
 
-    # Stream-copy the existing AAC audio out of the AAX/AAXC container
-    # into a clean MP4 container. Once ffmpeg has the right key
-    # material it can read the audio frames directly without re-
-    # encoding — re-encoding HE-AAC at 96 kbps takes 30+ minutes at
-    # 100% CPU for a 1-hour book vs ~1 second for stream copy.
-    # `-map 0:a:0` grabs only the first audio stream — Audible files
-    # also carry a `bin_data` metadata stream (chapter titles) that
-    # confuses the mp4 muxer if we try to copy it through.
-    base_args = [
+    # We always re-encode to mono MP3 at low bitrate. Stream-copying
+    # AAC out of an AAX/AAXC wrapper is much faster, but the resulting
+    # m4a often carries a chapter-text reference track that WebKit
+    # (the engine inside Tauri's webview on Linux) refuses with
+    # `MEDIA_ERR_SRC_NOT_SUPPORTED`. MP3 has no track-association
+    # quirks, plays in every browser, encodes ~5x realtime on CPU,
+    # and at 48 kbps mono an audiobook still sounds clear.
+    encode_args = [
+        "-vn",
         "-map",
         "0:a:0",
-        "-c",
-        "copy",
-        "-movflags",
-        "+faststart",
+        "-map_chapters",
+        "-1",
+        "-map_metadata",
+        "-1",
+        "-ac",
+        "1",
+        "-ar",
+        "22050",
+        "-c:a",
+        "libmp3lame",
+        "-b:a",
+        "48k",
     ]
     attempts: List[List[str]] = []
     if detected_brand == "aaxc" and key and iv and _ffmpeg_supports_aaxc(ffmpeg):
@@ -935,7 +930,7 @@ async def _convert_to_playable(
                 iv,
                 "-i",
                 str(input_path),
-                *base_args,
+                *encode_args,
                 str(output_path),
             ]
         )
@@ -950,7 +945,21 @@ async def _convert_to_playable(
                 activation_bytes,
                 "-i",
                 str(input_path),
-                *base_args,
+                *encode_args,
+                str(output_path),
+            ]
+        )
+    if detected_brand == "passthrough":
+        # The downloaded file was already in a playable format. Re-
+        # encode anyway so we end up with the same MP3 layout the
+        # browser expects from every other book.
+        attempts.append(
+            [
+                ffmpeg,
+                "-y",
+                "-i",
+                str(input_path),
+                *encode_args,
                 str(output_path),
             ]
         )
@@ -986,6 +995,188 @@ async def _convert_to_playable(
         except Exception:
             pass
     return False, last_err
+
+
+def _normalize_transcript_text(text: str) -> str:
+    """Lowercase + strip non-alphanumerics for duplicate detection."""
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def _collapse_repeated_sentences(text: str) -> str:
+    """Drop adjacent identical sentences inside a single segment.
+
+    Whisper occasionally emits "Foo. Foo. Foo." inside one segment when
+    it gets stuck on a phrase. We split on sentence-enders and dedupe.
+    """
+    parts = re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", text or "").strip())
+    collapsed: List[str] = []
+    seen_in_segment: set = set()
+    for part in parts:
+        normalized = _normalize_transcript_text(part)
+        if not normalized:
+            continue
+        if normalized in seen_in_segment:
+            continue
+        if collapsed and normalized == _normalize_transcript_text(collapsed[-1]):
+            continue
+        collapsed.append(part.strip())
+        seen_in_segment.add(normalized)
+    return " ".join(collapsed).strip()
+
+
+def _sort_transcript_segments(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return sorted(
+        segments or [],
+        key=lambda s: (float(s.get("start") or 0), float(s.get("end") or 0)),
+    )
+
+
+def _clean_transcript_segments(
+    segments: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    """Strip Whisper's hallucinated loops and chunk-overlap duplicates.
+
+    Ported from `kids/api.py::_clean_audiobook_transcript_segments`.
+    Whisper-base on long uniform speech (audiobooks especially) loves
+    to lock onto a phrase and emit it 100+ times back-to-back; this
+    leaves only the first occurrence. Also drops segments whose word
+    rate is implausibly fast (>16 words/sec for ≥8-word segments)
+    and any near-duplicate (≥0.94 SequenceMatcher) within a 2-minute
+    window of each other.
+    """
+    cleaned: List[Dict[str, Any]] = []
+    recent_exact: Dict[str, float] = {}
+    stats = {
+        "input_segments": len(segments or []),
+        "output_segments": 0,
+        "dropped_empty": 0,
+        "dropped_special_token": 0,
+        "dropped_duplicate": 0,
+        "dropped_near_duplicate": 0,
+        "dropped_unrealistic_rate": 0,
+        "collapsed_repeated_sentences": 0,
+    }
+    # Whisper emits markers like [BLANK_AUDIO], [MUSIC], (silence) when
+    # it can't find speech in a window. They aren't narration and
+    # rendering them in the read-along confuses readers.
+    special_token_re = re.compile(r"^[\[\(][A-Za-z _]+[\]\)]$")
+    for raw in _sort_transcript_segments(segments or []):
+        text = re.sub(r"\s+", " ", raw.get("text") or "").strip()
+        if not text:
+            stats["dropped_empty"] += 1
+            continue
+        if special_token_re.match(text):
+            stats["dropped_special_token"] += 1
+            continue
+
+        original_text = text
+        collapsed_text = _collapse_repeated_sentences(text)
+        if collapsed_text and collapsed_text != text:
+            stats["collapsed_repeated_sentences"] += 1
+            text = collapsed_text
+
+        normalized = _normalize_transcript_text(text)
+        if not normalized:
+            stats["dropped_empty"] += 1
+            continue
+
+        start = float(raw.get("start") or 0)
+        end = float(raw.get("end") or start)
+        if end < start:
+            end = start
+        duration_seconds = max((end - start) / 1000.0, 0.01)
+        word_count = len(normalized.split())
+        if word_count >= 8 and word_count / duration_seconds > 16:
+            stats["dropped_unrealistic_rate"] += 1
+            continue
+
+        if cleaned:
+            prev = cleaned[-1]
+            prev_norm = prev["_normalized"]
+            recent_seconds = abs(start - prev["start"]) / 1000.0
+            if normalized == prev_norm:
+                stats["dropped_duplicate"] += 1
+                continue
+            if recent_seconds < 120:
+                ratio = SequenceMatcher(None, prev_norm, normalized).ratio()
+                if ratio >= 0.94:
+                    stats["dropped_near_duplicate"] += 1
+                    continue
+                if len(normalized) > 40 and (
+                    normalized in prev_norm or prev_norm in normalized
+                ):
+                    stats["dropped_near_duplicate"] += 1
+                    continue
+
+        last_seen = recent_exact.get(normalized)
+        if last_seen is not None and (start - last_seen) < 300_000:
+            stats["dropped_duplicate"] += 1
+            continue
+
+        item: Dict[str, Any] = {
+            "start": int(start),
+            "end": int(end),
+            "text": text,
+            "_normalized": normalized,
+        }
+        if raw.get("words") and text == original_text:
+            item["words"] = raw["words"]
+        cleaned.append(item)
+        recent_exact[normalized] = start
+
+    out = []
+    for item in cleaned:
+        item.pop("_normalized", None)
+        out.append(item)
+    stats["output_segments"] = len(out)
+    stats["dropped_total"] = stats["input_segments"] - stats["output_segments"]
+    return out, stats
+
+
+def _maybe_clean_transcript_file(
+    asin: str, transcript: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Run the dedup pass and persist the result if it changed.
+
+    Called lazily from the GET endpoint so old transcripts (generated
+    before the cleaner existed) get fixed up the next time the user
+    opens the book.
+    """
+    segments = transcript.get("segments") or []
+    if not segments:
+        return transcript
+    cleaned, stats = _clean_transcript_segments(segments)
+    if (
+        stats.get("dropped_total", 0) <= 0
+        and stats.get("collapsed_repeated_sentences", 0) <= 0
+        and stats.get("dropped_special_token", 0) <= 0
+    ):
+        return transcript
+    base = _AUDIO_CACHE_ROOT / asin
+    base.mkdir(parents=True, exist_ok=True)
+    raw_path = base / "transcript.raw.json"
+    final_path = base / "transcript.json"
+    # Keep a pristine copy of whatever the transcriber produced so we
+    # can re-run cleaning with new heuristics later.
+    try:
+        if not raw_path.is_file():
+            raw_path.write_text(json.dumps(transcript), encoding="utf-8")
+    except Exception as exc:
+        logging.warning("audible: could not save raw transcript backup: %s", exc)
+    transcript = dict(transcript)
+    transcript["segments"] = cleaned
+    transcript["cleanup"] = stats
+    try:
+        final_path.write_text(json.dumps(transcript), encoding="utf-8")
+    except Exception as exc:
+        logging.warning("audible: could not write cleaned transcript: %s", exc)
+    logging.info(
+        "audible: cleaned transcript for %s — kept %d / dropped %d segments",
+        asin,
+        stats["output_segments"],
+        stats["dropped_total"],
+    )
+    return transcript
 
 
 def _read_transcript_status(asin: str) -> Dict[str, Any]:
@@ -1031,23 +1222,34 @@ async def _ffmpeg_extract_chunk(
 ) -> bool:
     """Pull a [start_sec, end_sec) slice of `audio_path` to `out_path`.
 
-    Stream-copy when possible (much faster + lossless). Re-encodes to
-    16 kHz mono mp3 when stream-copy fails so the chunk is small enough
-    to upload without choking the transcription server.
+    Re-encodes to 16 kHz mono MP3 (small upload, friendly to whisper
+    servers). The seek is a HYBRID one — fast input-seek to roughly
+    the right keyframe, then sample-accurate output-seek to nail the
+    exact timestamp. Without the output-seek pass each chunk's actual
+    start could drift up to ~500 ms from the requested time, and
+    those drifts accumulate across 7+ chunks until the back half of
+    the book's transcript is seconds out of sync with the audio.
     """
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         return False
     duration = max(1, int(end_sec - start_sec))
+    # Pre-seek a touch before the target (input-seek is keyframe-
+    # aligned and faster than scanning) and let the output-seek do
+    # the precise alignment.
+    pre_seek = max(0.0, start_sec - 5.0)
+    refine = start_sec - pre_seek
     cmd = [
         ffmpeg,
         "-y",
         "-ss",
-        f"{start_sec:.3f}",
-        "-t",
-        f"{duration}",
+        f"{pre_seek:.3f}",
         "-i",
         str(audio_path),
+        "-ss",
+        f"{refine:.3f}",
+        "-t",
+        f"{duration}",
         "-vn",
         "-ac",
         "1",
@@ -1086,7 +1288,7 @@ async def _transcribe_chunk(
                     headers={"Authorization": f"Bearer {api_key}"},
                     files={"file": (chunk_path.name, fh, "audio/mpeg")},
                     data={
-                        "model": getenv("AUDIOBOOK_TRANSCRIPT_MODEL", "base"),
+                        "model": getenv("AUDIOBOOK_TRANSCRIPT_MODEL", "large-v3"),
                         "language": language,
                         "response_format": "verbose_json",
                         "timestamp_granularities[]": "segment",
@@ -1209,12 +1411,12 @@ async def _transcribe_audiobook(asin: str, audio_path: Path) -> Tuple[bool, str]
 
 
 async def _download_audio(client, asin: str) -> Optional[Path]:
-    """License-request + download + decrypt-to-m4a pipeline for `asin`.
+    """License-request + download + decrypt-to-mp3 pipeline for `asin`.
 
-    Mirrors the kids app: try a couple of license-request shapes, fetch
-    the bytes, then hand them to ffmpeg with whichever key material the
-    license / Authenticator provided. On success, leaves a playable
-    `audio.m4a` in the cache directory and the encrypted source as
+    Try a couple of license-request shapes, fetch the bytes, then hand
+    them to ffmpeg with whichever key material the license /
+    Authenticator provided. On success, leaves a browser-playable
+    `audio.mp3` in the cache directory and the encrypted source as
     `audio.<aax|aaxc>` next to it.
     """
     base, _ = _audio_cache_paths(asin)
@@ -1240,7 +1442,7 @@ async def _download_audio(client, asin: str) -> Optional[Path]:
             "num_active_offline_licenses": 1,
         },
     ]
-    out_path = base / "audio.m4a"
+    out_path = base / "audio.mp3"
     err_path = base / "download_error.txt"
     last_err = "no attempts"
 
@@ -1288,17 +1490,23 @@ async def _download_audio(client, asin: str) -> Optional[Path]:
         )
         if ok:
             # Clear any prior error marker; mark this file as decoded so
-            # `_find_playable_audio` can pick it up.
+            # `_find_playable_audio` can pick it up. The marker name
+            # mirrors the actual output filename so future format
+            # changes don't need a separate migration.
             err_path.unlink(missing_ok=True)
-            (base / "audio.m4a.decode_ok").write_text("ok", encoding="utf-8")
-            # Schedule transcription as a separate background task. The
-            # download flag in /status flips to false right now —
-            # audio is playable — and the transcription progress is
-            # reported via the independent `transcript: {…}` block in
-            # the same status payload. Without this split, an hour-long
-            # transcription run would keep the UI saying "Downloading…"
-            # the whole time.
-            if not (base / "transcript.json").is_file():
+            (base / f"{out_path.name}.decode_ok").write_text("ok", encoding="utf-8")
+            # Schedule transcription as a separate background task on
+            # headless / browser-only deploys (where there's no Tauri
+            # desktop client to do the work locally). The desktop
+            # client invokes `audible_transcribe` itself once the
+            # audio is playable and uploads the result via the
+            # `/transcript/upload` endpoint, so we skip the server
+            # path when `AUDIBLE_SERVER_TRANSCRIBE` is explicitly off
+            # (default: opt-in for safety on headless installs).
+            server_should_transcribe = getenv(
+                "AUDIBLE_SERVER_TRANSCRIBE", "true"
+            ).lower() not in {"0", "false", "no", "off"}
+            if server_should_transcribe and not (base / "transcript.json").is_file():
                 try:
                     asyncio.create_task(_transcribe_audiobook(asin, out_path))
                 except Exception as exc:
@@ -1717,11 +1925,18 @@ class audible(Extensions):
                     data = json.loads(tx.read_text(encoding="utf-8"))
                     segs = data.get("segments") or []
                     if isinstance(segs, list):
+                        # Auto-clean transcripts that pre-date the dedup
+                        # logic — Whisper-base regularly emits looped
+                        # phrases like "It is a waste of time" 100+
+                        # times in a row, which derails the read-along
+                        # highlight. The cleaner persists its result
+                        # so this only runs once per book.
+                        data = _maybe_clean_transcript_file(asin, data)
                         return {
                             "asin": asin,
                             "language": data.get("language") or "en",
                             "source": data.get("source") or "agixt",
-                            "segments": segs,
+                            "segments": data.get("segments") or [],
                             "status": status,
                         }
                 except Exception as exc:
@@ -1732,6 +1947,160 @@ class audible(Extensions):
                 "source": None,
                 "segments": [],
                 "status": status,
+            }
+
+        @router.post(
+            "/book/{asin}/transcript/upload",
+            summary="Upload a client-generated transcript (whisper-rs)",
+        )
+        async def book_transcript_upload(
+            asin: str,
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
+            payload: Dict[str, Any] = Body(...),
+        ):
+            """Persist a transcript produced on the user's machine.
+
+            The desktop client transcribes audiobooks locally via
+            whisper-rs and POSTs the result here so every device the
+            user signs into picks it up. Body shape mirrors what the
+            GET endpoint returns: `{language, source, segments}`. We
+            only accept transcripts with at least one segment so a
+            misfire doesn't overwrite a good one with garbage.
+            """
+            asin = _validate_asin(asin)
+            segments = payload.get("segments")
+            if not isinstance(segments, list) or not segments:
+                raise HTTPException(
+                    status_code=400, detail="payload must include non-empty 'segments'"
+                )
+            # Minimal shape validation — segments are `{start, end, text}`
+            # in milliseconds. Reject anything we can't store cleanly.
+            cleaned: List[Dict[str, Any]] = []
+            for s in segments:
+                if not isinstance(s, dict):
+                    continue
+                try:
+                    start = int(float(s.get("start") or 0))
+                    end = int(float(s.get("end") or 0))
+                except (TypeError, ValueError):
+                    continue
+                text = (s.get("text") or "").strip()
+                if not text:
+                    continue
+                cleaned.append({"start": start, "end": end, "text": text})
+            if not cleaned:
+                raise HTTPException(
+                    status_code=400, detail="no usable segments in payload"
+                )
+            # Run the same hallucination-loop cleaner the GET path uses,
+            # so client-side transcribers that produced loopy output
+            # don't dump that into long-term storage.
+            deduped, dedup_stats = _clean_transcript_segments(cleaned)
+            if not deduped:
+                raise HTTPException(
+                    status_code=400,
+                    detail="all segments were dropped as duplicates / unrealistic",
+                )
+            base = _AUDIO_CACHE_ROOT / asin
+            base.mkdir(parents=True, exist_ok=True)
+            language = (payload.get("language") or "en").strip() or "en"
+            source = (
+                payload.get("source") or "agixt-desktop"
+            ).strip() or "agixt-desktop"
+            data = {
+                "language": language,
+                "source": source,
+                "segments": deduped,
+                "cleanup": dedup_stats,
+            }
+            try:
+                (base / "transcript.json").write_text(
+                    json.dumps(data), encoding="utf-8"
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=500, detail=f"could not write transcript: {exc}"
+                )
+            _write_transcript_status(
+                asin,
+                state="ready",
+                chunks_done=1,
+                chunk_count=1,
+                message=f"Transcript uploaded ({len(deduped)} segments).",
+                error=None,
+            )
+            return {
+                "asin": asin,
+                "stored": len(deduped),
+                "received": len(cleaned),
+                "source": source,
+                "language": language,
+            }
+
+        @router.delete(
+            "/book/{asin}/transcript",
+            summary="Discard the cached transcript and re-run transcription",
+        )
+        async def book_transcript_reset(
+            asin: str,
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
+        ):
+            """Delete the cached transcript for `asin` and immediately
+            kick off a fresh server-side transcription if a voice server
+            (ezLocalai) is configured. Returns `server_started=True`
+            when the GPU pipeline picked up the job — desktop clients
+            use that to decide whether to fall back to local whisper-rs.
+            """
+            asin = _validate_asin(asin)
+            base = _AUDIO_CACHE_ROOT / asin
+            removed = []
+            for name in ("transcript.json", "transcript.raw.json"):
+                p = base / name
+                if p.is_file():
+                    try:
+                        p.unlink()
+                        removed.append(name)
+                    except Exception as exc:
+                        logging.warning("audible: could not delete %s: %s", p, exc)
+            audio_path = _find_playable_audio(asin)
+            voice_server = _voice_server_url()
+            server_started = False
+            if audio_path and voice_server:
+                _write_transcript_status(
+                    asin,
+                    state="transcribing",
+                    chunks_done=0,
+                    chunk_count=0,
+                    message="Re-transcribing on the AGiXT voice server…",
+                    error=None,
+                )
+                try:
+                    asyncio.create_task(_transcribe_audiobook(asin, audio_path))
+                    server_started = True
+                except Exception as exc:
+                    logging.warning(
+                        "audible: could not schedule re-transcription for %s: %s",
+                        asin,
+                        exc,
+                    )
+            if not server_started:
+                _write_transcript_status(
+                    asin,
+                    state="idle",
+                    chunks_done=0,
+                    chunk_count=0,
+                    message=("Transcript cleared — will regenerate on next playback."),
+                    error=None,
+                )
+            return {
+                "asin": asin,
+                "removed": removed,
+                "server_started": server_started,
+                "voice_server_configured": bool(voice_server),
             }
 
         @router.get("/cover/{asin}", summary="Cover image (JWT-protected proxy)")

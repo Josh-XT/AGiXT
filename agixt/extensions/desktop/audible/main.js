@@ -200,6 +200,10 @@ AudibleView.prototype.stop = function () {
     clearInterval(this.statusPollTimer);
     this.statusPollTimer = null;
   }
+  if (typeof this.transcriptionUnlisten === 'function') {
+    try { this.transcriptionUnlisten(); } catch (_) {}
+    this.transcriptionUnlisten = null;
+  }
   for (const url of this.coverObjectUrls.values()) {
     try { URL.revokeObjectURL(url); } catch (_) {}
   }
@@ -691,13 +695,35 @@ AudibleView.prototype.injectStyles = function () {
   padding-top: 18px;
   border-top: 1px solid var(--aud-border-muted);
 }
+.aud-transcript-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
 .aud-transcript-title {
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.13em;
   color: var(--aud-accent);
-  margin-bottom: 10px;
+}
+.aud-transcript-redo {
+  background: transparent;
+  color: var(--aud-text-dim);
+  border: 1px solid var(--aud-border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.aud-transcript-redo:hover {
+  background: var(--aud-surface-solid);
+  color: var(--aud-text);
+  border-color: var(--aud-accent);
 }
 .aud-transcript-empty {
   color: var(--aud-text-muted);
@@ -763,6 +789,7 @@ AudibleView.prototype.injectStyles = function () {
   gap: 12px;
   flex-wrap: wrap;
 }
+.aud-status-banner[hidden] { display: none; }
 .aud-status-banner > span {
   flex: 1;
   min-width: 0;
@@ -1537,7 +1564,11 @@ AudibleView.prototype.renderDetail = function (state) {
     this.detailEl.appendChild(el('div', { class: 'aud-detail-desc' }, b.description));
   }
 
-  this.statusBanner = el('div', { class: 'aud-status-banner' }, 'Checking audio status…');
+  // Start the status banner hidden — `renderAudioStatus` will reveal
+  // it only when there's something for the user to act on (download
+  // pending, decode failure, etc). For the common case of a cached
+  // book we never show it.
+  this.statusBanner = el('div', { class: 'aud-status-banner', hidden: '' });
   this.detailEl.appendChild(this.statusBanner);
 
   // Read-along transcript — segment-timed text rendered alongside the
@@ -1559,7 +1590,17 @@ AudibleView.prototype.renderTranscript = function () {
   const t = this.currentTranscript;
   const segs = (t && t.segments) || [];
   const wrap = el('div', { class: 'aud-transcript' });
-  wrap.appendChild(el('div', { class: 'aud-transcript-title' }, 'Read-along'));
+  const titleRow = el('div', { class: 'aud-transcript-title-row' });
+  titleRow.appendChild(el('div', { class: 'aud-transcript-title' }, 'Read-along'));
+  if (segs.length) {
+    titleRow.appendChild(el('button', {
+      class: 'aud-transcript-redo',
+      type: 'button',
+      title: 'Discard this transcript and re-run whisper on the cached audio. Use this if the highlighted words drift out of sync with the audio.',
+      onclick: () => this.resetTranscript(),
+    }, 'Re-transcribe'));
+  }
+  wrap.appendChild(titleRow);
 
   if (!segs.length) {
     const status = (t && t.status) || (this.audioStatus && this.audioStatus.transcript) || { state: 'idle' };
@@ -1571,13 +1612,20 @@ AudibleView.prototype.renderTranscript = function () {
   const body = el('div', { class: 'aud-transcript-body' });
   const segEls = new Array(segs.length);
 
-  // Group segments into paragraphs the same way the kids reader does:
-  // break on sentence-ending punctuation once we've accumulated ~360
-  // chars, or force a break at 700 chars regardless. Without this the
-  // entire 5-hour book renders as one wall of text.
+  // Group segments into paragraphs. Whisper-base segments often don't
+  // terminate at sentence boundaries — base.en cuts on VAD silence,
+  // not on punctuation — so we can't rely on a hard char-count cap
+  // (it would force breaks mid-sentence). Instead:
+  //   * prefer to break at a sentence end after ~360 chars
+  //   * past 700 chars, fall back to any "weak" break (comma, semi-
+  //     colon, em-dash) so paragraphs don't run away
+  //   * only force a break with no punctuation past 1500 chars, as a
+  //     last-resort wall-of-text guard
   const PARAGRAPH_SOFT_BREAK_CHARS = 360;
   const PARAGRAPH_HARD_BREAK_CHARS = 700;
+  const PARAGRAPH_MAX_BREAK_CHARS = 1500;
   const SENTENCE_END_RE = /[.!?]["')\]]?$/;
+  const WEAK_BREAK_RE = /[,;:][\s"')\]]*$|[—–-]\s*$/;
 
   let para = el('p', { class: 'aud-transcript-para' });
   let charCount = 0;
@@ -1601,9 +1649,11 @@ AudibleView.prototype.renderTranscript = function () {
     charCount += text.length + 1;
 
     const endsSentence = SENTENCE_END_RE.test(text);
+    const endsWeakly = WEAK_BREAK_RE.test(text);
     const shouldBreak =
       (endsSentence && charCount >= PARAGRAPH_SOFT_BREAK_CHARS)
-      || charCount >= PARAGRAPH_HARD_BREAK_CHARS;
+      || (charCount >= PARAGRAPH_HARD_BREAK_CHARS && (endsSentence || endsWeakly))
+      || charCount >= PARAGRAPH_MAX_BREAK_CHARS;
     if (shouldBreak) {
       body.appendChild(para);
       para = el('p', { class: 'aud-transcript-para' });
@@ -1782,6 +1832,11 @@ AudibleView.prototype.refreshAudioStatus = async function (opts) {
       if (asin !== this.currentAsin) return;
       this.enablePlayer(!!ok);
     });
+    // Once audio is decoded locally we prefer to run transcription on
+    // the user's machine rather than uploading the file to the AGiXT
+    // voice server. The Tauri-only `audible_transcribe` command
+    // streams progress via the `audible-transcription-progress` event.
+    this.maybeStartLocalTranscription(status);
   } else {
     this.enablePlayer(false);
     if (this.totalDurationMs > 0) this.renderProgressFromVirtual();
@@ -1939,13 +1994,13 @@ AudibleView.prototype.attachAudioStream = async function () {
       if (this.lastPositionMs > 0) {
         try { this.audio.currentTime = this.lastPositionMs / 1000; } catch (_) {}
       }
-      // Banner reverts to the "ready" state once renderAudioStatus is
-      // called again on the next status poll, but flip it now too so
-      // the user isn't stuck staring at "Loading…".
+      // Hide the transient "Loading audio…" banner now that playback
+      // is ready — the player chrome at the bottom is the canonical
+      // ready-indicator. `renderAudioStatus` would do this on the next
+      // status poll anyway; this just avoids the brief flash.
       if (this.statusBanner) {
-        this.statusBanner.className = 'aud-status-banner ok';
+        this.statusBanner.hidden = true;
         this.statusBanner.innerHTML = '';
-        this.statusBanner.appendChild(el('span', null, 'Audio ready — playing from local cache.'));
       }
       resolve(true);
     };
@@ -1974,4 +2029,162 @@ AudibleView.prototype.enablePlayer = function (enabled) {
   this.skipBackBtn.disabled = !enabled;
   this.skipFwdBtn.disabled = !enabled;
   this.progressBar.classList.toggle('disabled', !enabled);
+};
+
+/* ===================================================================
+ * Local transcription (whisper-rs via Tauri command). When running
+ * inside the desktop client we'd rather run whisper on the user's CPU
+ * than ship the whole audio file to a remote voice server. The web
+ * fallback (server-side transcription) still kicks in automatically
+ * when the page is opened in a regular browser.
+ * =================================================================== */
+
+AudibleView.prototype.tauriInvoke = function () {
+  const t = window.__TAURI__;
+  if (!t) return null;
+  // Tauri 2 puts invoke at __TAURI__.core.invoke, but some builds
+  // also re-export it at __TAURI__.invoke for v1 compat.
+  if (t.core && typeof t.core.invoke === 'function') return t.core.invoke;
+  if (typeof t.invoke === 'function') return t.invoke;
+  return null;
+};
+
+AudibleView.prototype.tauriEventListen = function () {
+  const t = window.__TAURI__;
+  if (!t || !t.event || typeof t.event.listen !== 'function') return null;
+  return t.event.listen;
+};
+
+AudibleView.prototype.resetTranscript = async function () {
+  if (!this.currentAsin) return;
+  const asin = this.currentAsin;
+  const ok = window.confirm(
+    'Discard this transcript and re-run transcription on the cached audio?'
+  );
+  if (!ok) return;
+  let result;
+  try {
+    result = await this.fetchJson(
+      '/v1/audible/book/' + encodeURIComponent(asin) + '/transcript',
+      null,
+      { method: 'DELETE' },
+    );
+  } catch (err) {
+    console.warn('audible: transcript reset failed', err);
+    return;
+  }
+  this.currentTranscript = null;
+  this.localTranscribeAsin = null;
+  if (this.audioStatus) {
+    this.audioStatus.transcript = {
+      state: 'transcribing',
+      message: result && result.server_started
+        ? 'Re-transcribing on the AGiXT voice server…'
+        : 'Re-transcribing audio…',
+      chunk_count: 100,
+      chunks_done: 0,
+    };
+  }
+  this.renderTranscript();
+  // The DELETE endpoint kicks off server-side transcription itself
+  // when an ezLocalai voice server is configured. In that case we just
+  // poll the audio status until the transcript lands. Only when there
+  // is no voice server (`server_started` false) do we fall back to
+  // local whisper-rs running on the desktop client's CPU.
+  if (result && result.server_started) {
+    this.startStatusPoll();
+  } else if (this.audioStatus && this.audioStatus.playable) {
+    this.maybeStartLocalTranscription(this.audioStatus);
+  } else {
+    this.refreshAudioStatus();
+  }
+};
+
+AudibleView.prototype.maybeStartLocalTranscription = function (status) {
+  if (!this.currentAsin) return;
+  const asin = this.currentAsin;
+  const invoke = this.tauriInvoke();
+  if (!invoke) return; // Browser context — let the server handle it.
+  // Already have a transcript or an in-flight job — don't double-fire.
+  if (this.currentTranscript && (this.currentTranscript.segments || []).length) return;
+  if (this.localTranscribeAsin === asin) return;
+  // If server-side transcription (ezLocalai on GPU) is already running
+  // or scheduled, defer to it. The voice server is dramatically faster
+  // than CPU-bound whisper-rs so there's no point racing it.
+  const txState = (status && status.transcript && status.transcript.state) || 'idle';
+  if (txState === 'transcribing') return;
+  const playablePath = (status && status.playable_path) || '';
+  if (!playablePath) return;
+  // The Rust side polls `app_cache_dir()/whisper/...`; we need to
+  // hand it the canonical absolute audio path the server already
+  // resolved. Server returns `playable_path` for exactly this reason.
+  this.localTranscribeAsin = asin;
+  this.subscribeToTranscriptionEvents();
+  invoke('audible_transcribe', {
+    req: {
+      asin,
+      audio_path: playablePath,
+      server_url: this.ctx.serverUrl,
+      jwt: this.ctx.jwt,
+      agent_id: this.ctx.agentId || null,
+      // Default to small.en. base.en hallucinates fluent-but-wrong
+      // text at chunk boundaries (we observed "League of Legends"
+      // inserted into Art of War). small.en is ~3x slower on CPU but
+      // mostly eliminates those boundary hallucinations and produces a
+      // transcript actually usable for click-to-seek.
+      model: 'small.en',
+      language: 'en',
+    },
+  })
+    .then((res) => {
+      console.info('audible: local transcription completed', res);
+    })
+    .catch((err) => {
+      console.warn('audible: local transcription failed', err);
+      this.localTranscribeAsin = null;
+      // Surface the error in the read-along section.
+      if (!this.audioStatus) this.audioStatus = {};
+      this.audioStatus.transcript = {
+        state: 'error',
+        error: String(err && err.message || err),
+      };
+      this.renderTranscript();
+    });
+};
+
+AudibleView.prototype.subscribeToTranscriptionEvents = function () {
+  if (this.transcriptionUnlisten) return;
+  const listen = this.tauriEventListen();
+  if (!listen) return;
+  // Keep the listener even across book switches — the active asin
+  // inside each event payload is what we filter on.
+  listen('audible-transcription-progress', (ev) => {
+    const payload = ev && ev.payload;
+    if (!payload) return;
+    if (payload.asin !== this.currentAsin) return;
+    if (!this.audioStatus) this.audioStatus = {};
+    this.audioStatus.transcript = {
+      state: payload.state === 'ready' ? 'ready' : 'transcribing',
+      message: payload.message,
+      // Translate the 0..1 progress into the chunk_count/chunks_done
+      // shape `buildTranscriptStatusBlock` already understands.
+      chunk_count: 100,
+      chunks_done: Math.round(Math.max(0, Math.min(1, payload.progress)) * 100),
+    };
+    if (payload.state === 'ready') {
+      this.audioStatus.transcript.state = 'ready';
+      // Pull the freshly uploaded transcript from the server.
+      this.fetchJson('/v1/audible/book/' + encodeURIComponent(payload.asin) + '/transcript')
+        .then((fresh) => {
+          if (payload.asin !== this.currentAsin) return;
+          this.currentTranscript = fresh;
+          this.renderTranscript();
+        })
+        .catch(() => {});
+    } else {
+      this.renderTranscript();
+    }
+  })
+    .then((unlisten) => { this.transcriptionUnlisten = unlisten; })
+    .catch((err) => { console.warn('audible: cannot listen for events', err); });
 };

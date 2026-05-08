@@ -56,6 +56,13 @@ screenshots = { version = "0.8", optional = true }
 portable-pty = "0.8"
 cpal = "0.15"
 hound = "3.5"
+# Local transcription for the audible reader. `whisper-rs` is a thin
+# safe wrapper over whisper.cpp; the GGML `base` model is ~140MB and
+# runs comfortably on CPU. We pull symphonia for in-process audio
+# decoding so we don't have to shell out to ffmpeg per chunk just to
+# extract PCM samples.
+whisper-rs = { version = "0.13", default-features = false }
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "isomp4", "aac", "wav", "flac"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
