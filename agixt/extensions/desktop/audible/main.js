@@ -1157,6 +1157,13 @@ AudibleView.prototype.buildPlayer = function () {
   this.audio.volume = this.volume;
 
   this.audio.addEventListener('timeupdate', () => this.onTimeUpdate());
+  // `seeked` fires once the browser finishes a seek. Programmatic
+  // assignments to `audio.currentTime` are async (especially while
+  // paused), so without this the UI can stay at 0:00 while audio is
+  // actually positioned at `lastPositionMs` from the user's saved
+  // Audible progress — pressing Play then plays from "later in the
+  // book" while the visible time still reads 0:00.
+  this.audio.addEventListener('seeked', () => this.onTimeUpdate());
   this.audio.addEventListener('durationchange', () => this.onDurationChange());
   this.audio.addEventListener('loadedmetadata', () => this.onDurationChange());
   this.audio.addEventListener('play', () => this.setPlayIcon(true));
@@ -1589,21 +1596,29 @@ AudibleView.prototype.renderTranscript = function () {
 
   const t = this.currentTranscript;
   const segs = (t && t.segments) || [];
+  const status = (t && t.status) || (this.audioStatus && this.audioStatus.transcript) || { state: 'idle' };
+  const txState = status.state || 'idle';
+  const audioPlayable = !!(this.audioStatus && this.audioStatus.playable);
   const wrap = el('div', { class: 'aud-transcript' });
   const titleRow = el('div', { class: 'aud-transcript-title-row' });
   titleRow.appendChild(el('div', { class: 'aud-transcript-title' }, 'Read-along'));
-  if (segs.length) {
+  // Show a transcribe-action button whenever audio is cached AND no
+  // job is in flight — the label depends on whether we already have a
+  // transcript to discard.
+  if (audioPlayable && txState !== 'transcribing') {
+    const hasSegs = segs.length > 0;
     titleRow.appendChild(el('button', {
       class: 'aud-transcript-redo',
       type: 'button',
-      title: 'Discard this transcript and re-run whisper on the cached audio. Use this if the highlighted words drift out of sync with the audio.',
+      title: hasSegs
+        ? 'Discard this transcript and re-run transcription on the cached audio. Use this if the highlighted words drift out of sync with the audio.'
+        : 'Run transcription on the cached audio.',
       onclick: () => this.resetTranscript(),
-    }, 'Re-transcribe'));
+    }, hasSegs ? 'Re-transcribe' : 'Transcribe'));
   }
   wrap.appendChild(titleRow);
 
   if (!segs.length) {
-    const status = (t && t.status) || (this.audioStatus && this.audioStatus.transcript) || { state: 'idle' };
     wrap.appendChild(this.buildTranscriptStatusBlock(status));
     this.detailEl.appendChild(wrap);
     return;
@@ -1991,8 +2006,28 @@ AudibleView.prototype.attachAudioStream = async function () {
       if (settled) return;
       settled = true;
       cleanup();
-      if (this.lastPositionMs > 0) {
-        try { this.audio.currentTime = this.lastPositionMs / 1000; } catch (_) {}
+      // Always set currentTime explicitly. If we don't, an audio
+      // element re-used across book switches can carry over the
+      // previous track's position, leaving the UI at 0:00 while audio
+      // plays from the prior track's resume point.
+      const seekSec = (this.lastPositionMs > 0) ? this.lastPositionMs / 1000 : 0;
+      try { this.audio.currentTime = seekSec; } catch (_) {}
+      // Update the visible time/progress from the seek target
+      // immediately. The browser performs the seek asynchronously, so
+      // the `seeked` listener will sync UI again when it lands, but
+      // this avoids a window where the user sees "0:00" while audio is
+      // actually positioned elsewhere.
+      const durMs = (this.audio && isFinite(this.audio.duration))
+        ? this.audio.duration * 1000
+        : 0;
+      if (this.curTimeEl) this.curTimeEl.textContent = fmtDuration(seekSec * 1000);
+      if (this.totalTimeEl && durMs > 0) {
+        this.totalTimeEl.textContent = fmtDuration(durMs);
+      }
+      if (this.progressFill && this.progressHandle && durMs > 0) {
+        const pct = Math.max(0, Math.min(100, (seekSec * 1000 / durMs) * 100));
+        this.progressFill.style.width = pct + '%';
+        this.progressHandle.style.left = pct + '%';
       }
       // Hide the transient "Loading audio…" banner now that playback
       // is ready — the player chrome at the bottom is the canonical
