@@ -2822,9 +2822,11 @@ def _desktop_candidate_binary_paths() -> list[Path]:
     binary_name = _desktop_binary_name()
     if system == "linux":
         return [
+            _desktop_installed_binary_path(),
             Path("/usr/bin") / binary_name,
             Path("/usr/local/bin") / binary_name,
-            _desktop_installed_binary_path(),
+            Path("/usr/bin") / "agixt",
+            Path("/usr/local/bin") / "agixt",
         ]
     if system == "darwin":
         return [
@@ -2880,35 +2882,74 @@ def _install_desktop_linux_launcher(
 ) -> None:
     applications_dir = Path.home() / ".local" / "share" / "applications"
     applications_dir.mkdir(parents=True, exist_ok=True)
+    icon_name_or_path = None
     if icon_path is None:
         repo_icon_path = DESKTOP_TAURI_DIR / "icons" / "icon.png"
         icon_path = repo_icon_path if repo_icon_path.exists() else None
+    if icon_path is not None and icon_path.exists():
+        hicolor_icon = (
+            Path.home()
+            / ".local"
+            / "share"
+            / "icons"
+            / "hicolor"
+            / "128x128"
+            / "apps"
+            / "agixt.png"
+        )
+        try:
+            hicolor_icon.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(icon_path, hicolor_icon)
+            icon_name_or_path = "agixt"
+        except OSError:
+            icon_name_or_path = str(icon_path)
+
     entries = [
         "[Desktop Entry]",
         "Type=Application",
         "Name=AGiXT Desktop",
         "Comment=Native AGiXT desktop client",
-        f"Exec={binary_path}",
+        f'Exec="{binary_path}" %u',
     ]
-    if icon_path is not None and icon_path.exists():
-        entries.append(f"Icon={icon_path}")
+    if icon_name_or_path:
+        entries.append(f"Icon={icon_name_or_path}")
     entries.extend(
         [
             "Terminal=false",
             "Categories=Utility;Network;",
             "StartupNotify=true",
+            "StartupWMClass=agixt",
+            "MimeType=x-scheme-handler/agixt;",
             "",
         ]
     )
-    desktop_file = applications_dir / "agixt-desktop.desktop"
+    desktop_file = applications_dir / "agixt.desktop"
     desktop_file.write_text(
         "\n".join(entries),
         encoding="utf-8",
     )
     desktop_file.chmod(0o755)
+    legacy_desktop_file = applications_dir / "agixt-desktop.desktop"
+    if legacy_desktop_file.exists():
+        try:
+            legacy_desktop_file.unlink()
+        except OSError:
+            pass
     if shutil.which("update-desktop-database"):
         subprocess.run(
             ["update-desktop-database", str(applications_dir)],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    if shutil.which("gtk-update-icon-cache"):
+        subprocess.run(
+            [
+                "gtk-update-icon-cache",
+                "-f",
+                "-t",
+                str(Path.home() / ".local" / "share" / "icons" / "hicolor"),
+            ],
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -2984,11 +3025,30 @@ def _install_raw_desktop_binary(
 
 def _find_extracted_desktop_binary(root: Path) -> Path:
     binary_name = _desktop_binary_name()
-    for candidate in root.rglob(binary_name):
-        if candidate.is_file():
-            return candidate
-    for candidate in root.rglob("agixt-desktop*"):
-        if candidate.is_file() and candidate.name.lower().endswith((".exe", "desktop")):
+    preferred_names = [
+        binary_name,
+        "agixt",
+        "agixt.exe",
+        "AGiXT Desktop",
+        "AGiXT Desktop.exe",
+    ]
+
+    def is_desktop_binary(candidate: Path) -> bool:
+        if not candidate.is_file():
+            return False
+        name = candidate.name.lower()
+        if "cli" in name or name.endswith((".desktop", ".png", ".ico", ".icns")):
+            return False
+        return name in {item.lower() for item in preferred_names} or name.startswith(
+            "agixt-desktop"
+        )
+
+    for name in preferred_names:
+        for candidate in root.rglob(name):
+            if is_desktop_binary(candidate):
+                return candidate
+    for candidate in root.rglob("agixt*"):
+        if is_desktop_binary(candidate):
             return candidate
     raise CLIError(
         "Downloaded AGiXT Desktop artifact did not contain a runnable binary."
@@ -3200,24 +3260,64 @@ def _desktop_process_is_running() -> bool:
     system = platform.system().lower()
     try:
         if system in {"linux", "darwin"} and shutil.which("pgrep"):
-            result = subprocess.run(
-                ["pgrep", "-x", "agixt-desktop"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-            return result.returncode == 0
+            for process_name in ("agixt-desktop", "agixt"):
+                result = subprocess.run(
+                    ["pgrep", "-x", process_name],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+                if result.returncode == 0:
+                    return True
         if system == "windows":
-            result = subprocess.run(
-                ["tasklist", "/FI", "IMAGENAME eq agixt-desktop.exe", "/NH"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            return "agixt-desktop.exe" in result.stdout.lower()
+            for process_name in ("agixt-desktop.exe", "agixt.exe"):
+                result = subprocess.run(
+                    ["tasklist", "/FI", f"IMAGENAME eq {process_name}", "/NH"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if process_name in result.stdout.lower():
+                    return True
     except (subprocess.SubprocessError, OSError):
         return False
     return False
+
+
+def _desktop_launch_environment(system: str) -> dict[str, str]:
+    env = os.environ.copy()
+    if system != "linux":
+        return env
+
+    # VS Code installed through Snap exports GTK/module/library paths that
+    # point at the snap runtime. A native Tauri binary launched from that
+    # terminal can then load snap core libraries and crash before startup.
+    snap_polluted = any(key.startswith("SNAP") for key in env)
+    original_xdg_data_dirs = env.get("XDG_DATA_DIRS_VSCODE_SNAP_ORIG")
+    original_xdg_config_dirs = env.get("XDG_CONFIG_DIRS_VSCODE_SNAP_ORIG")
+    for key in list(env):
+        if key.startswith("SNAP"):
+            env.pop(key, None)
+        elif key.endswith("_VSCODE_SNAP_ORIG"):
+            env.pop(key, None)
+        elif key in {
+            "GDK_PIXBUF_MODULEDIR",
+            "GDK_PIXBUF_MODULE_FILE",
+            "GTK_EXE_PREFIX",
+            "GTK_IM_MODULE_FILE",
+            "GTK_PATH",
+            "SNAP_LIBRARY_PATH",
+        }:
+            env.pop(key, None)
+
+    if snap_polluted:
+        if original_xdg_data_dirs:
+            env["XDG_DATA_DIRS"] = original_xdg_data_dirs
+        if original_xdg_config_dirs:
+            env["XDG_CONFIG_DIRS"] = original_xdg_config_dirs
+        if "/snap/" in env.get("LD_LIBRARY_PATH", ""):
+            env.pop("LD_LIBRARY_PATH", None)
+    return env
 
 
 def _launch_desktop_app(binary_path: Path) -> None:
@@ -3244,6 +3344,7 @@ def _launch_desktop_app(binary_path: Path) -> None:
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
         "stdin": subprocess.DEVNULL,
+        "env": _desktop_launch_environment(system),
     }
     if system != "windows":
         popen_kwargs["start_new_session"] = True
