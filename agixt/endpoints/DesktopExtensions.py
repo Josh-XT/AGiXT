@@ -148,28 +148,40 @@ def _agent_has_extension(
     auth: MagicalAuth, agent_id: Optional[str], ext_names: List[str]
 ) -> bool:
     """True iff the requested agent has *any* command from one of the
-    listed extension class names enabled. Mirrors the agent-commands
-    update path used by the rest of AGiXT."""
-    if not agent_id:
+    listed extension class names enabled.
+
+    `Agent.get_agent_extensions()` returns the canonical view: a list of
+    extension dicts where each `commands[*].enabled` reflects the
+    agent's saved toggle state. We accept a name match against the
+    extension's class name (e.g. "audible") or its lowercased
+    `friendly_name` (e.g. "github"), which keeps manifest authoring
+    forgiving regardless of the casing/spacing convention an extension
+    chose.
+    """
+    if not agent_id or not auth.email:
         return False
     try:
         from ApiClient import Agent
-        agent = Agent(agent_name=None, user=auth.email, ApiClient=None)
-        # Different deploys expose this differently; use whichever is
-        # available without crashing.
-        if hasattr(agent, "get_commands"):
-            cmds = agent.get_commands(agent_id)
-        else:
-            cmds = []
-        wanted = {n.lower() for n in ext_names if isinstance(n, str)}
-        for cmd in cmds or []:
-            ext = (cmd.get("extension_name") or cmd.get("extension") or "").lower()
-            if ext in wanted and cmd.get("enabled"):
-                return True
-        return False
+
+        agent = Agent(agent_id=agent_id, user=auth.email, ApiClient=None)
+        agent_extensions = agent.get_agent_extensions() or []
     except Exception as exc:
         logger.warning("desktop ext: agent extension lookup failed: %s", exc)
         return False
+
+    wanted = {n.lower() for n in ext_names if isinstance(n, str)}
+    for ext in agent_extensions:
+        names = {
+            str(ext.get("extension_name") or "").lower(),
+            str(ext.get("friendly_name") or "").lower(),
+            str(ext.get("name") or "").lower(),
+        }
+        if not (names & wanted):
+            continue
+        for cmd in ext.get("commands") or []:
+            if cmd.get("enabled"):
+                return True
+    return False
 
 
 def _normalize_entry(item: Dict[str, Any], ext_id: str) -> Dict[str, Any]:
@@ -365,7 +377,8 @@ async def serve_desktop_extension_asset(
         raise HTTPException(status_code=401, detail="Invalid token")
 
     target, media_type, manifest_dir = _resolve_asset(
-        ext_id, "assets/" + asset_path,
+        ext_id,
+        "assets/" + asset_path,
     )
     manifest = _load_manifest(manifest_dir)
     if manifest is None:

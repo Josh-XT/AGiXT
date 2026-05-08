@@ -1,51 +1,670 @@
-import os
+import asyncio
 import json
 import logging
+import os
+import re
+import secrets
+import time
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import parse_qs
+
+import httpx
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
+from fastapi.responses import FileResponse, StreamingResponse
+
+from ApiClient import Agent as ApiAgent, get_api_client, verify_api_key
 from Extensions import Extensions
+from MagicalAuth import MagicalAuth
 
 try:
     import audible as audible_api
     from audible import Authenticator
+    from audible.localization import Locale
+    from audible.login import build_oauth_url, create_code_verifier
+    from audible.register import register as register_device
 
     AUDIBLE_AVAILABLE = True
 except ImportError:
     AUDIBLE_AVAILABLE = False
     audible_api = None
+    Authenticator = None  # type: ignore
+    Locale = None  # type: ignore
+
+
+# ---------------------------------------------------------------------
+# Helpers shared by the LLM-facing commands and the desktop UI router.
+# ---------------------------------------------------------------------
+
+_ASIN_RE = re.compile(r"^[A-Z0-9]{6,16}$")
+_AUDIO_CACHE_ROOT = Path(os.path.expanduser("~/.agixt/audiobooks"))
+_AUTH_FILE = os.path.join(os.path.expanduser("~"), ".agixt", "audible_auth.json")
+_CLIENT_CACHE: Dict[str, Any] = {}  # cache_key -> audible_api.Client
+_DOWNLOAD_TASKS: Dict[str, asyncio.Task] = {}
+
+# In-flight external-browser logins, keyed by an opaque pending_id we
+# hand back to the desktop client. Each entry holds the PKCE code
+# verifier + serial we generated for this login attempt — the user pastes
+# the redirect URL back, we extract the auth code, and exchange it via
+# `audible.register` to mint long-lived tokens. Entries older than one
+# hour are garbage-collected on each new start request.
+_PENDING_LOGINS: Dict[str, Dict[str, Any]] = {}
+_PENDING_TTL_SECONDS = 60 * 60
+
+
+def _validate_asin(asin: str) -> str:
+    asin = (asin or "").strip().upper()
+    if not _ASIN_RE.match(asin):
+        raise HTTPException(status_code=400, detail="invalid asin")
+    return asin
+
+
+def _require_audible_pkg() -> None:
+    if not AUDIBLE_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="The 'audible' python package is not installed on the server.",
+        )
+
+
+def _audible_client_for_settings(cache_key: str):
+    """Return a logged-in `audible_api.Client` from the cached auth file.
+
+    Auth source of truth is `~/.agixt/audible_auth.json`, populated by
+    the desktop Audible page's Connect flow (`/v1/audible/auth/*`).
+    No username/password paths exist on the server side anymore —
+    Amazon CAPTCHA + 2FA make that brittle. If the file is missing or
+    invalid we return a structured 401 so the desktop UI pops the
+    Connect screen.
+    """
+    _require_audible_pkg()
+    cached = _CLIENT_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    if os.path.exists(_AUTH_FILE):
+        try:
+            authenticator = Authenticator.from_file(_AUTH_FILE)
+            client = audible_api.Client(auth=authenticator)
+            _CLIENT_CACHE[cache_key] = client
+            return client
+        except Exception as exc:
+            logging.warning("audible: cached auth invalid (%s); needs re-login", exc)
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "audible_auth_required",
+                    "message": (
+                        "Your Audible session has expired. Open the Audible "
+                        "page in the AGiXT desktop sidebar and click Connect "
+                        "to sign in again."
+                    ),
+                },
+            )
+    raise HTTPException(
+        status_code=401,
+        detail={
+            "code": "audible_auth_required",
+            "message": (
+                "Not connected to Audible. Open the Audible page in the AGiXT "
+                "desktop sidebar and click Connect to sign in with your "
+                "Amazon account."
+            ),
+        },
+    )
+
+
+def _gc_pending_logins() -> None:
+    cutoff = time.time() - _PENDING_TTL_SECONDS
+    for k, v in list(_PENDING_LOGINS.items()):
+        if v.get("created_at", 0) < cutoff:
+            _PENDING_LOGINS.pop(k, None)
+
+
+def _make_locale(locale_code: str):
+    """Resolve a country-code string to an `audible.Locale`.
+
+    The audible package keys these by country code (us/uk/de/fr/au/ca/
+    it/in/es/jp/br). We normalise unknown values to "us" since that's
+    by far the most common store.
+    """
+    _require_audible_pkg()
+    code = (locale_code or "us").strip().lower() or "us"
+    try:
+        return Locale(code)
+    except Exception:
+        return Locale("us")
+
+
+def _start_audible_login(
+    locale_code: str, with_username: bool = False
+) -> Dict[str, Any]:
+    """Generate the Amazon OAuth URL the user needs to visit in a browser.
+
+    Returns `pending_id` so the desktop client can call `/auth/complete`
+    later with the redirect URL.
+    """
+    _gc_pending_logins()
+    locale = _make_locale(locale_code)
+    code_verifier = create_code_verifier()
+    oauth_url, serial = build_oauth_url(
+        country_code=locale.country_code,
+        domain=locale.domain,
+        market_place_id=locale.market_place_id,
+        code_verifier=code_verifier,
+        with_username=with_username,
+    )
+    pending_id = secrets.token_urlsafe(24)
+    _PENDING_LOGINS[pending_id] = {
+        "locale_code": locale.country_code,
+        "domain": locale.domain,
+        "market_place_id": locale.market_place_id,
+        "code_verifier": code_verifier,
+        "serial": serial,
+        "with_username": with_username,
+        "created_at": time.time(),
+    }
+    return {"pending_id": pending_id, "login_url": oauth_url}
+
+
+def _complete_audible_login(pending_id: str, redirect_url: str) -> Dict[str, Any]:
+    """Exchange a redirected URL for an Audible auth file on disk."""
+    _require_audible_pkg()
+    pending = _PENDING_LOGINS.pop(pending_id, None)
+    if pending is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Login session expired or not found. Click Connect again.",
+        )
+    if not redirect_url or "openid.oa2.authorization_code=" not in redirect_url:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "That URL doesn't include the Amazon authorization code. After "
+                "logging in, copy the FULL URL from the 'page not found' screen "
+                "(it should contain openid.oa2.authorization_code=...) and try "
+                "again."
+            ),
+        )
+    try:
+        parsed = httpx.URL(redirect_url)
+        query = parse_qs(parsed.query.decode())
+        authorization_code = query["openid.oa2.authorization_code"][0]
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"Could not parse redirect URL: {exc}"
+        )
+
+    try:
+        register_response = register_device(
+            authorization_code=authorization_code,
+            code_verifier=pending["code_verifier"],
+            domain=pending["domain"],
+            serial=pending["serial"],
+            with_username=pending["with_username"],
+        )
+    except Exception as exc:
+        logging.error("audible: register exchange failed: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Amazon rejected the authorization code: {exc}",
+        )
+
+    auth = Authenticator()
+    auth.locale = _make_locale(pending["locale_code"])
+    # `_update_attrs` is the same method the package uses internally
+    # after registration — it just setattrs the device tokens onto the
+    # authenticator so to_file() can serialize them.
+    auth._update_attrs(with_username=pending["with_username"], **register_response)
+    os.makedirs(os.path.dirname(_AUTH_FILE), exist_ok=True)
+    auth.to_file(_AUTH_FILE)
+
+    # Wipe any cached client objects that were built against the old
+    # (or missing) auth file so the next API call rebuilds.
+    _CLIENT_CACHE.clear()
+
+    return _audible_auth_status()
+
+
+def _audible_browser_dir() -> Path:
+    """Persistent Playwright profile used by `/auth/auto`.
+
+    First time the user runs `/auth/auto` they sign into Amazon in the
+    visible window; cookies are stored in this dir. Subsequent runs
+    bounce straight from the OAuth URL to the auth-code redirect with
+    no human input.
+
+    We don't reach into Chrome/Edge/Brave's actual profile dirs — those
+    are typically locked while the browser is running, and silently
+    cloning a user's primary cookie jar feels invasive. If the user
+    wants single-click reuse of their default-browser session, install
+    `browser_cookie3` and we'll seed this profile from it on first run.
+    """
+    p = Path(os.path.expanduser("~/.agixt/audible_browser"))
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _amazon_cookies_from_default_browser() -> List[Dict[str, Any]]:
+    """Pull `amazon.*` and `audible.*` cookies from the user's default
+    browser, formatted for Playwright's `context.add_cookies()`.
+
+    Requires the optional `browser_cookie3` dependency. Returns an empty
+    list if it isn't installed or if no matching cookies are found —
+    callers should fall back to the visible-login flow in that case.
+    """
+    try:
+        import browser_cookie3  # type: ignore
+    except ImportError:
+        return []
+    cookies: List[Dict[str, Any]] = []
+    for domain_filter in ("amazon.com", "amazon.co.uk", "audible.com", "audible.co.uk"):
+        try:
+            jar = browser_cookie3.load(domain_name=domain_filter)
+        except Exception as exc:
+            logging.debug("audible: browser_cookie3 %s: %s", domain_filter, exc)
+            continue
+        for c in jar:
+            if not c.domain:
+                continue
+            d = c.domain.lower()
+            if "amazon" not in d and "audible" not in d:
+                continue
+            cookies.append(
+                {
+                    "name": c.name,
+                    "value": c.value,
+                    "domain": c.domain,
+                    "path": c.path or "/",
+                    "secure": bool(c.secure),
+                    "httpOnly": bool(getattr(c, "_rest", {}).get("HttpOnly", False)),
+                    "expires": (int(c.expires) if c.expires and c.expires > 0 else -1),
+                    "sameSite": "Lax",
+                }
+            )
+    return cookies
+
+
+async def _auth_auto_playwright(
+    locale_code: str, headless: bool, timeout_seconds: int
+) -> Dict[str, Any]:
+    """Open the Audible OAuth URL in a Playwright-driven Chromium and
+    capture the redirect.
+
+    UX note: when `headless` is False (the default) the user sees a real
+    browser window. They sign into Amazon there if not already signed in,
+    and Playwright captures the post-login redirect URL automatically —
+    no copy/paste step. When `headless` is True we need an existing
+    Amazon session in the profile, otherwise the login form blocks and
+    we time out.
+    """
+    _require_audible_pkg()
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Playwright is not installed on this server. Use the manual "
+                "POST /v1/audible/auth/url + /v1/audible/auth/complete flow "
+                "instead."
+            ),
+        )
+
+    locale = _make_locale(locale_code)
+    code_verifier = create_code_verifier()
+    oauth_url, serial = build_oauth_url(
+        country_code=locale.country_code,
+        domain=locale.domain,
+        market_place_id=locale.market_place_id,
+        code_verifier=code_verifier,
+        with_username=False,
+    )
+
+    user_data_dir = _audible_browser_dir()
+    captured_url: Dict[str, str] = {}
+    timeout_ms = max(30, min(int(timeout_seconds), 1800)) * 1000
+
+    # If the user has `browser_cookie3` installed, seed the Playwright
+    # context with their default-browser amazon cookies on first run so
+    # the OAuth URL bounces straight to the redirect with no human input.
+    seed_cookies = _amazon_cookies_from_default_browser()
+    seeded_marker = user_data_dir / ".cookies_seeded"
+
+    try:
+        async with async_playwright() as pw:
+            try:
+                context = await pw.chromium.launch_persistent_context(
+                    user_data_dir=str(user_data_dir),
+                    headless=headless,
+                    args=["--disable-blink-features=AutomationControlled"],
+                )
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Could not launch the embedded Chromium. Install the "
+                        "Playwright browsers with "
+                        "`/home/josh/repos/xtsys/.venv/bin/playwright install chromium`. "
+                        f"({exc})"
+                    ),
+                )
+
+            if seed_cookies and not seeded_marker.exists():
+                try:
+                    await context.add_cookies(seed_cookies)
+                    seeded_marker.write_text(
+                        f"seeded {len(seed_cookies)} cookies at "
+                        f"{datetime.utcnow().isoformat()}Z\n",
+                        encoding="utf-8",
+                    )
+                    logging.info(
+                        "audible: seeded %d default-browser cookies into "
+                        "Playwright profile",
+                        len(seed_cookies),
+                    )
+                except Exception as exc:
+                    logging.warning("audible: cookie seeding failed: %s", exc)
+
+            page = await context.new_page()
+
+            async def _on_request(request):
+                # Audible's post-login redirect lands at a `/ap/maplanding`
+                # path that includes `openid.oa2.authorization_code=...`
+                # in the query. We capture the first such URL we see and
+                # stop the navigation by closing the page.
+                if "openid.oa2.authorization_code=" in request.url and not captured_url:
+                    captured_url["url"] = request.url
+
+            page.on("request", _on_request)
+
+            try:
+                await page.goto(oauth_url, wait_until="commit", timeout=15000)
+            except Exception as exc:
+                logging.warning("audible: oauth navigation issue: %s", exc)
+
+            # Spin the event loop until either we get the code or the
+            # user closes the page or we time out.
+            deadline = time.time() + (timeout_ms / 1000.0)
+            while time.time() < deadline:
+                if captured_url:
+                    break
+                if page.is_closed():
+                    break
+                cur = page.url or ""
+                if "openid.oa2.authorization_code=" in cur:
+                    captured_url["url"] = cur
+                    break
+                await asyncio.sleep(0.5)
+
+            try:
+                await context.close()
+            except Exception:
+                pass
+
+        if not captured_url:
+            raise HTTPException(
+                status_code=408,
+                detail=(
+                    "Timed out waiting for Amazon login. Try again with "
+                    "`headless=false` so you can complete the sign-in form, "
+                    "or use the paste-the-redirect-URL fallback."
+                ),
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging.error("audible: playwright auth failed: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Playwright login failed: {exc}")
+
+    # We now have the redirect URL; finish the flow as if the user had
+    # pasted it manually. This re-uses the same exchange code path so
+    # behaviour stays consistent across the two entry points.
+    pending_id = secrets.token_urlsafe(16)
+    _PENDING_LOGINS[pending_id] = {
+        "locale_code": locale.country_code,
+        "domain": locale.domain,
+        "market_place_id": locale.market_place_id,
+        "code_verifier": code_verifier,
+        "serial": serial,
+        "with_username": False,
+        "created_at": time.time(),
+    }
+    return _complete_audible_login(pending_id, captured_url["url"])
+
+
+def _audible_auth_status() -> Dict[str, Any]:
+    if not AUDIBLE_AVAILABLE:
+        return {
+            "package_installed": False,
+            "configured": False,
+            "loadable": False,
+            "auth_file": _AUTH_FILE,
+            "error": "audible package not installed",
+        }
+    if not os.path.exists(_AUTH_FILE):
+        return {
+            "package_installed": True,
+            "configured": False,
+            "loadable": False,
+            "auth_file": _AUTH_FILE,
+        }
+    try:
+        auth = Authenticator.from_file(_AUTH_FILE)
+        # `customer_info` is set after register and contains the user's
+        # Amazon name/email if available.
+        customer_info = getattr(auth, "customer_info", {}) or {}
+        return {
+            "package_installed": True,
+            "configured": True,
+            "loadable": True,
+            "auth_file": _AUTH_FILE,
+            "name": customer_info.get("name"),
+            "given_name": customer_info.get("given_name"),
+            "locale": getattr(getattr(auth, "locale", None), "country_code", None),
+        }
+    except Exception as exc:
+        return {
+            "package_installed": True,
+            "configured": True,
+            "loadable": False,
+            "auth_file": _AUTH_FILE,
+            "error": str(exc),
+        }
+
+
+def _book_brief(b: Dict[str, Any]) -> Dict[str, Any]:
+    images = b.get("product_images") or {}
+    series = (b.get("series") or [{}])[0] if b.get("series") else {}
+    return {
+        "asin": b.get("asin"),
+        "title": b.get("title") or "Untitled",
+        "subtitle": b.get("subtitle") or "",
+        "authors": [a.get("name") for a in (b.get("authors") or []) if a.get("name")],
+        "narrators": [
+            n.get("name") for n in (b.get("narrators") or []) if n.get("name")
+        ],
+        "runtime_minutes": b.get("runtime_length_min") or 0,
+        "percent_complete": b.get("percent_complete"),
+        "is_finished": bool(b.get("is_finished")),
+        "release_date": b.get("release_date") or "",
+        "language": b.get("language") or "",
+        "publisher": b.get("publisher_name") or "",
+        "series_title": series.get("title") or "",
+        "series_sequence": series.get("sequence") or "",
+        "cover_url": images.get("500") or images.get("252") or images.get("180") or "",
+    }
+
+
+def _book_full(b: Dict[str, Any]) -> Dict[str, Any]:
+    out = _book_brief(b)
+    rating = (b.get("rating") or {}).get("overall_distribution") or {}
+    categories: List[str] = []
+    for ladder in b.get("category_ladders") or []:
+        for cat in ladder.get("ladder") or []:
+            name = cat.get("name")
+            if name and name not in categories:
+                categories.append(name)
+    desc = b.get("publisher_summary") or ""
+    desc = re.sub(r"<[^>]+>", "", desc).strip()
+    out.update(
+        {
+            "description": desc,
+            "rating_avg": rating.get("display_average_rating"),
+            "rating_count": rating.get("num_ratings") or 0,
+            "categories": categories,
+        }
+    )
+    return out
+
+
+def _audio_cache_paths(asin: str) -> Tuple[Path, Path]:
+    base = _AUDIO_CACHE_ROOT / asin
+    base.mkdir(parents=True, exist_ok=True)
+    return base, base / "audio.aax"
+
+
+def _find_playable_audio(asin: str) -> Optional[Path]:
+    """Return a browser-playable audio file for `asin`, or None.
+
+    Falls back to the kids-app cache directory if no AGiXT-side cache
+    has been populated yet — both stores use the same `<asin>/audio.m4a`
+    layout, so prior downloads are reused for free.
+    """
+    bases = [_AUDIO_CACHE_ROOT / asin]
+    kids_cache = Path("/home/josh/repos/xtsys/kids/data/audiobooks") / asin
+    if kids_cache.is_dir():
+        bases.append(kids_cache)
+    for base in bases:
+        if not base.is_dir():
+            continue
+        for name in ("audio.m4a", "audio.m4b", "audio.mp3", "audio.mp4"):
+            p = base / name
+            if not (p.is_file() and p.stat().st_size > 0):
+                continue
+            err_marker = base / f"{name}.decode_error"
+            ok_marker = base / f"{name}.decode_ok"
+            if err_marker.is_file() and not ok_marker.is_file():
+                continue
+            return p
+    return None
+
+
+def _extract_download_url(license_response: Any) -> Optional[str]:
+    if not isinstance(license_response, dict):
+        return None
+    cl = license_response.get("content_license") or {}
+    cm = cl.get("content_metadata") or {}
+    cu = cm.get("content_url") or {}
+    if isinstance(cu, dict) and cu.get("offline_url"):
+        return cu["offline_url"]
+    for key in ("content_metadata", "content_url", "license_response"):
+        v = cl.get(key)
+        if isinstance(v, dict):
+            for sub in ("content_url", "offline_url", "manifest_url"):
+                u = v.get(sub)
+                if isinstance(u, dict) and u.get("offline_url"):
+                    return u["offline_url"]
+                if isinstance(u, str) and u.startswith("http"):
+                    return u
+        if isinstance(v, str) and v.startswith("http"):
+            return v
+    return None
+
+
+async def _download_audio(client, asin: str) -> Optional[Path]:
+    """Best-effort license-request + download to the AGiXT-side cache."""
+    base, aax_path = _audio_cache_paths(asin)
+    license_bodies = [
+        {
+            "drm_type": "Adrm",
+            "consumption_type": "Download",
+            "quality": "High",
+            "num_active_offline_licenses": 1,
+        },
+        {
+            "quality": "High",
+            "response_groups": (
+                "chapter_info,content_reference,last_position_heard,pdf_url,"
+                "ad_insertion,certificate"
+            ),
+            "consumption_type": "Download",
+            "supported_media_features": {
+                "codecs": ["mp4a.40.2", "mp4a.40.42", "ec+3", "ac-4"],
+                "drm_types": ["Mpeg", "Adrm", "Hls", "Dash"],
+            },
+            "spatial": False,
+            "num_active_offline_licenses": 1,
+        },
+    ]
+    last_err = "no attempts"
+    for body in license_bodies:
+        try:
+            license_resp = await asyncio.to_thread(
+                client.post, f"1.0/content/{asin}/licenserequest", body=body
+            )
+        except Exception as exc:
+            last_err = f"license: {exc}"
+            continue
+        url = _extract_download_url(license_resp)
+        if not url:
+            last_err = "license response had no download URL"
+            continue
+        try:
+            async with httpx.AsyncClient(
+                timeout=None,
+                follow_redirects=True,
+                headers={
+                    "User-Agent": "Audible/3.56.2 iOS/15.0.0",
+                    "Accept": "*/*",
+                },
+            ) as hc:
+                async with hc.stream("GET", url) as r:
+                    if r.status_code >= 400:
+                        body_bytes = await r.aread()
+                        last_err = (
+                            f"download HTTP {r.status_code}: "
+                            f"{body_bytes[:200].decode('utf-8', errors='replace')}"
+                        )
+                        continue
+                    with aax_path.open("wb") as fh:
+                        async for chunk in r.aiter_bytes(chunk_size=65536):
+                            fh.write(chunk)
+            return aax_path
+        except Exception as exc:
+            last_err = f"download: {exc}"
+            continue
+    logging.warning("audible: download failed for %s — %s", asin, last_err)
+    (base / "download_error.txt").write_text(last_err, encoding="utf-8")
+    return None
 
 
 class audible(Extensions):
     """
-    The Audible extension for AGiXT enables you to interact with your Audible audiobook library.
-    It provides access to your reading progress, book details, chapters, and annotations to help
-    the AI understand what books you're reading and where you are in them for better discussions.
+    Browse and listen to your Audible audiobook library straight from
+    AGiXT. Once connected, the assistant can pull up your reading
+    progress, book details, chapters, and notes to ground conversations
+    in what you're actually reading.
 
-    To use this extension:
-    1. You need an Audible account (audible.com, audible.co.uk, etc.)
-    2. Enter your Audible email and password in the extension settings
-    3. Select your marketplace locale (us, uk, de, fr, au, ca, it, in, es, jp)
-
-    Authentication Notes:
-    - First-time login may require solving a CAPTCHA - the extension will use AI vision to solve it
-    - If 2FA/OTP is enabled on your account, you may need to provide the code
-    - After successful login, credentials are cached to avoid repeated authentication
-
-    The audible Python package is an unofficial interface to Audible's internal API.
-    Use responsibly and in accordance with Audible's terms of service.
+    To get started, open the **Audible** page in the AGiXT desktop
+    sidebar and click **Connect**. You'll sign in with your Amazon
+    account in your default browser the same way the Audible app does;
+    no password is stored in AGiXT. The connection persists across
+    restarts — reconnect any time from the same page if you switch
+    Audible accounts or hit a stale-token error.
     """
 
     CATEGORY = "Productivity"
 
-    def __init__(
-        self,
-        AUDIBLE_EMAIL: str = "",
-        AUDIBLE_PASSWORD: str = "",
-        AUDIBLE_LOCALE: str = "us",
-        **kwargs,
-    ):
-        self.AUDIBLE_EMAIL = AUDIBLE_EMAIL
-        self.AUDIBLE_PASSWORD = AUDIBLE_PASSWORD
-        self.AUDIBLE_LOCALE = AUDIBLE_LOCALE.lower()
+    def __init__(self, **kwargs):
+        # No agent-level settings: marketplace + credentials are baked
+        # into the auth file generated by the OAuth flow. Anything the
+        # constructor still references is left as a no-op default to
+        # avoid AttributeErrors in code paths that haven't been
+        # refactored yet.
+        self.AUDIBLE_LOCALE = "us"
+        self.AUDIBLE_EMAIL = ""
+        self.AUDIBLE_PASSWORD = ""
         self.auth = None
         self.client = None
         self.WORKING_DIRECTORY = (
@@ -53,11 +672,8 @@ class audible(Extensions):
             if "conversation_directory" in kwargs
             else os.path.join(os.getcwd(), "WORKSPACE")
         )
-        # Store auth file in a secure location
-        self.auth_file = os.path.join(
-            os.path.expanduser("~"), ".agixt", "audible_auth.json"
-        )
-        # Store ApiBase for potential AI CAPTCHA solving
+        # Auth file shared with the desktop UI router and the CLI helper.
+        self.auth_file = _AUTH_FILE
         self.ApiClient = kwargs.get("ApiClient", None)
         self.commands = {
             "Get Audible Library": self.get_library,
@@ -69,6 +685,534 @@ class audible(Extensions):
             "Get Audible Wishlist": self.get_wishlist,
             "Get Audible Book Annotations": self.get_book_annotations,
         }
+
+        # FastAPI router that powers the desktop "Audible" page extension.
+        # The main app picks this up via Extensions.get_extension_routers()
+        # and mounts it during startup, same flow github.py uses.
+        self.router = APIRouter(prefix="/v1/audible", tags=["Audible"])
+        self._register_routes()
+
+    # ------------------------------------------------------------------
+    # Desktop UI router — JSON endpoints consumed by
+    # extensions/desktop/audible/main.js. Auth is per-request:
+    # MagicalAuth(token=authorization) identifies the user, and the
+    # cached Audible auth file at ~/.agixt/audible_auth.json provides
+    # the audiobook account. The `agent_id` query param is used only
+    # to pick a default marketplace locale when starting a fresh
+    # OAuth login.
+    # ------------------------------------------------------------------
+
+    def _register_routes(self) -> None:
+        router = self.router
+
+        def _resolve_agent(authorization: Optional[str], agent_id: Optional[str], user):
+            api_client = get_api_client(authorization=authorization)
+            if agent_id:
+                return ApiAgent(agent_id=agent_id, user=user, ApiClient=api_client)
+            auth = MagicalAuth(token=authorization)
+            user_email = auth.email if auth.email else user
+            return ApiAgent(agent_name=None, user=user_email, ApiClient=api_client)
+
+        def _client_for(agent) -> Any:
+            cache_key = f"{agent.user_id}:{agent.agent_id}"
+            return _audible_client_for_settings(cache_key)
+
+        # ----- Authentication: external-browser OAuth flow -----------
+        # Username/password login is too brittle (CAPTCHA, 2FA, MFA
+        # forwarding); we drive Amazon's standard OAuth-via-browser
+        # flow instead. Two-phase API:
+        #   POST /auth/url       -> { pending_id, login_url }
+        #   POST /auth/complete  -> { ... auth/status payload ... }
+        # The user opens `login_url` in their default browser, signs
+        # in, lands on Amazon's "page not found" with the auth code
+        # in the address bar, and pastes that URL back to /complete.
+        # `/auth/auto` automates the round trip via Playwright when a
+        # browser binary is available — falls back to manual paste
+        # when not.
+
+        @router.get("/auth/status", summary="Audible auth state on this server")
+        async def auth_status(
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+        ):
+            return _audible_auth_status()
+
+        @router.post("/auth/url", summary="Start external-browser Audible login")
+        async def auth_url(
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
+            payload: Dict[str, Any] = Body(default_factory=dict),
+        ):
+            locale = (payload.get("locale") or "").strip().lower()
+            if not locale:
+                # Default to the agent's configured locale, fall back to "us".
+                try:
+                    agent = _resolve_agent(authorization, agent_id, user)
+                    locale = (
+                        (
+                            (agent.AGENT_CONFIG or {})
+                            .get("settings", {})
+                            .get("AUDIBLE_LOCALE")
+                            or "us"
+                        )
+                        .strip()
+                        .lower()
+                    )
+                except Exception:
+                    locale = "us"
+            with_username = bool(payload.get("with_username", False))
+            return _start_audible_login(locale, with_username=with_username)
+
+        @router.post("/auth/complete", summary="Finish external-browser Audible login")
+        async def auth_complete(
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+            payload: Dict[str, Any] = Body(...),
+        ):
+            pending_id = (payload.get("pending_id") or "").strip()
+            redirect_url = (payload.get("redirect_url") or "").strip()
+            if not pending_id:
+                raise HTTPException(status_code=400, detail="pending_id is required")
+            if not redirect_url:
+                raise HTTPException(status_code=400, detail="redirect_url is required")
+            return _complete_audible_login(pending_id, redirect_url)
+
+        @router.post("/auth/disconnect", summary="Forget cached Audible auth")
+        async def auth_disconnect(
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+        ):
+            removed = False
+            try:
+                if os.path.exists(_AUTH_FILE):
+                    os.remove(_AUTH_FILE)
+                    removed = True
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=500, detail=f"could not remove auth file: {exc}"
+                )
+            _CLIENT_CACHE.clear()
+            return {"removed": removed, "auth_file": _AUTH_FILE}
+
+        @router.post(
+            "/auth/auto",
+            summary=(
+                "Drive the OAuth round-trip end-to-end via Playwright using a "
+                "browser profile (reuses user's signed-in Amazon cookies if "
+                "available)."
+            ),
+        )
+        async def auth_auto(
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
+            payload: Dict[str, Any] = Body(default_factory=dict),
+        ):
+            locale = (payload.get("locale") or "").strip().lower()
+            headless = bool(payload.get("headless", False))
+            timeout_seconds = int(payload.get("timeout_seconds") or 300)
+            if not locale:
+                try:
+                    agent = _resolve_agent(authorization, agent_id, user)
+                    locale = (
+                        (
+                            (agent.AGENT_CONFIG or {})
+                            .get("settings", {})
+                            .get("AUDIBLE_LOCALE")
+                            or "us"
+                        )
+                        .strip()
+                        .lower()
+                    )
+                except Exception:
+                    locale = "us"
+            return await _auth_auto_playwright(locale, headless, timeout_seconds)
+
+        @router.get("/library", summary="List the user's Audible library")
+        async def list_library(
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
+            limit: int = Query(1000, ge=1, le=1000),
+            sort_by: str = Query("-PurchaseDate"),
+            q: Optional[str] = Query(None),
+        ):
+            agent = _resolve_agent(authorization, agent_id, user)
+            client = _client_for(agent)
+            try:
+                resp = await asyncio.to_thread(
+                    client.get,
+                    "1.0/library",
+                    params={
+                        "num_results": limit,
+                        "sort_by": sort_by,
+                        "response_groups": (
+                            "product_attrs,product_desc,contributors,series,rating,"
+                            "media,listening_status,percent_complete,is_finished"
+                        ),
+                    },
+                )
+            except Exception as exc:
+                logging.error("audible: library fetch failed: %s", exc)
+                raise HTTPException(status_code=502, detail=str(exc))
+            items = [_book_brief(b) for b in resp.get("items", []) if b.get("asin")]
+            if q:
+                ql = q.lower()
+                items = [
+                    b
+                    for b in items
+                    if ql in b["title"].lower()
+                    or any(ql in (a or "").lower() for a in b["authors"])
+                    or any(ql in (n or "").lower() for n in b["narrators"])
+                    or ql in (b.get("series_title") or "").lower()
+                ]
+            return {"items": items, "count": len(items)}
+
+        @router.get("/progress", summary="Books currently in progress")
+        async def list_progress(
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
+        ):
+            agent = _resolve_agent(authorization, agent_id, user)
+            client = _client_for(agent)
+            try:
+                resp = await asyncio.to_thread(
+                    client.get,
+                    "1.0/library",
+                    params={
+                        "num_results": 1000,
+                        "response_groups": (
+                            "product_attrs,contributors,series,listening_status,"
+                            "percent_complete,is_finished,media"
+                        ),
+                    },
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=str(exc))
+
+            in_progress = []
+            for b in resp.get("items", []):
+                pc = b.get("percent_complete")
+                if pc and pc > 0 and not b.get("is_finished"):
+                    in_progress.append(_book_brief(b))
+            in_progress.sort(key=lambda x: x.get("percent_complete") or 0, reverse=True)
+            asins = [b["asin"] for b in in_progress if b.get("asin")][:50]
+            positions: Dict[str, int] = {}
+            if asins:
+                try:
+                    pr = await asyncio.to_thread(
+                        client.get,
+                        "1.0/annotations/lastpositions",
+                        params={"asins": ",".join(asins)},
+                    )
+                    for p in pr.get("last_positions", []):
+                        if p.get("asin"):
+                            positions[p["asin"]] = int(p.get("position_ms") or 0)
+                except Exception as exc:
+                    logging.warning("audible: lastpositions failed: %s", exc)
+            for b in in_progress:
+                b["last_position_ms"] = positions.get(b["asin"], 0)
+            return {"items": in_progress, "count": len(in_progress)}
+
+        @router.get("/wishlist", summary="The user's Audible wishlist")
+        async def list_wishlist(
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
+            limit: int = Query(50, ge=1, le=50),
+        ):
+            agent = _resolve_agent(authorization, agent_id, user)
+            client = _client_for(agent)
+            try:
+                resp = await asyncio.to_thread(
+                    client.get,
+                    "1.0/wishlist",
+                    params={
+                        "num_results": limit,
+                        "page": 0,
+                        "response_groups": (
+                            "contributors,product_attrs,product_desc,rating,series,media"
+                        ),
+                        "sort_by": "-DateAdded",
+                    },
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=str(exc))
+            items = [_book_brief(b) for b in resp.get("products", []) if b.get("asin")]
+            return {"items": items, "count": len(items)}
+
+        @router.get("/book/{asin}", summary="Detailed metadata for a single book")
+        async def book_details(
+            asin: str,
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
+        ):
+            asin = _validate_asin(asin)
+            agent = _resolve_agent(authorization, agent_id, user)
+            client = _client_for(agent)
+            try:
+                resp = await asyncio.to_thread(
+                    client.get,
+                    f"1.0/catalog/products/{asin}",
+                    params={
+                        "response_groups": (
+                            "contributors,media,product_attrs,product_desc,"
+                            "product_extended_attrs,product_plan_details,rating,series,"
+                            "reviews,category_ladders"
+                        ),
+                    },
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=str(exc))
+            product = resp.get("product") or resp
+            out = _book_full(product)
+            try:
+                lib = await asyncio.to_thread(
+                    client.get,
+                    f"1.0/library/{asin}",
+                    params={
+                        "response_groups": "listening_status,percent_complete,is_finished",
+                    },
+                )
+                item = lib.get("item") or {}
+                out["percent_complete"] = item.get("percent_complete")
+                out["is_finished"] = bool(item.get("is_finished"))
+                out["owned"] = True
+            except Exception:
+                out["owned"] = False
+            try:
+                pr = await asyncio.to_thread(
+                    client.get,
+                    "1.0/annotations/lastpositions",
+                    params={"asins": asin},
+                )
+                positions = pr.get("last_positions") or []
+                if positions:
+                    out["last_position_ms"] = int(positions[0].get("position_ms") or 0)
+            except Exception:
+                out["last_position_ms"] = 0
+            return out
+
+        @router.get("/book/{asin}/chapters", summary="Chapter timing data")
+        async def book_chapters(
+            asin: str,
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
+        ):
+            asin = _validate_asin(asin)
+            agent = _resolve_agent(authorization, agent_id, user)
+            client = _client_for(agent)
+            try:
+                resp = await asyncio.to_thread(
+                    client.get,
+                    f"1.0/content/{asin}/metadata",
+                    params={
+                        "response_groups": "chapter_info",
+                        "chapter_titles_type": "Tree",
+                    },
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=str(exc))
+            info = (resp.get("content_metadata") or {}).get("chapter_info") or {}
+            chapters_in = info.get("chapters") or []
+            out_chapters = []
+            cumulative = 0
+            for i, ch in enumerate(chapters_in):
+                length_ms = int(ch.get("length_ms") or 0)
+                start_ms = int(ch.get("start_offset_ms") or cumulative)
+                out_chapters.append(
+                    {
+                        "index": i,
+                        "title": ch.get("title") or f"Chapter {i + 1}",
+                        "start_ms": start_ms,
+                        "length_ms": length_ms,
+                    }
+                )
+                cumulative += length_ms
+            last_position_ms = 0
+            try:
+                pr = await asyncio.to_thread(
+                    client.get,
+                    "1.0/annotations/lastpositions",
+                    params={"asins": asin},
+                )
+                positions = pr.get("last_positions") or []
+                if positions:
+                    last_position_ms = int(positions[0].get("position_ms") or 0)
+            except Exception:
+                pass
+            return {
+                "asin": asin,
+                "chapters": out_chapters,
+                "total_ms": cumulative,
+                "last_position_ms": last_position_ms,
+            }
+
+        @router.get("/cover/{asin}", summary="Cover image (JWT-protected proxy)")
+        async def cover_image(
+            asin: str,
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
+            size: int = Query(500),
+        ):
+            asin = _validate_asin(asin)
+            agent = _resolve_agent(authorization, agent_id, user)
+            client = _client_for(agent)
+            cache_dir = _AUDIO_CACHE_ROOT / asin
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cover_path = cache_dir / f"cover_{size}.jpg"
+            if cover_path.is_file() and cover_path.stat().st_size > 0:
+                return FileResponse(str(cover_path), media_type="image/jpeg")
+            try:
+                resp = await asyncio.to_thread(
+                    client.get,
+                    f"1.0/catalog/products/{asin}",
+                    params={
+                        "response_groups": "media,product_attrs",
+                        "image_sizes": str(size),
+                    },
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=str(exc))
+            product = resp.get("product") or resp
+            images = product.get("product_images") or {}
+            url = images.get(str(size)) or images.get("500") or images.get("252")
+            if not url:
+                raise HTTPException(status_code=404, detail="cover not available")
+            try:
+                async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as hc:
+                    r = await hc.get(url)
+                    r.raise_for_status()
+                    cover_path.write_bytes(r.content)
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=502, detail=f"cover fetch failed: {exc}"
+                )
+            return FileResponse(str(cover_path), media_type="image/jpeg")
+
+        @router.get(
+            "/audio/{asin}/status",
+            summary="Cached audio status for an audiobook",
+        )
+        async def audio_status(
+            asin: str,
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
+        ):
+            asin = _validate_asin(asin)
+            playable = _find_playable_audio(asin)
+            base, aax_path = _audio_cache_paths(asin)
+            err_path = base / "download_error.txt"
+            is_downloading = (
+                asin in _DOWNLOAD_TASKS and not _DOWNLOAD_TASKS[asin].done()
+            )
+            return {
+                "asin": asin,
+                "playable": bool(playable),
+                "playable_path": str(playable) if playable else None,
+                "encrypted_only": aax_path.is_file() and not playable,
+                "downloading": is_downloading,
+                "last_error": (
+                    err_path.read_text(encoding="utf-8") if err_path.is_file() else None
+                ),
+            }
+
+        @router.post(
+            "/audio/{asin}/download", summary="Kick off background audio download"
+        )
+        async def audio_download(
+            asin: str,
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
+        ):
+            asin = _validate_asin(asin)
+            if _find_playable_audio(asin):
+                return {"started": False, "reason": "already_cached"}
+            existing = _DOWNLOAD_TASKS.get(asin)
+            if existing and not existing.done():
+                return {"started": False, "reason": "in_progress"}
+            agent = _resolve_agent(authorization, agent_id, user)
+            client = _client_for(agent)
+            task = asyncio.create_task(_download_audio(client, asin))
+            _DOWNLOAD_TASKS[asin] = task
+            return {"started": True}
+
+        @router.get("/audio/{asin}", summary="Stream cached audio bytes")
+        async def audio_stream(
+            asin: str,
+            request: Request,
+            user=Depends(verify_api_key),
+            authorization: str = Header(None),
+            agent_id: Optional[str] = Query(None),
+        ):
+            asin = _validate_asin(asin)
+            playable = _find_playable_audio(asin)
+            if not playable:
+                raise HTTPException(
+                    status_code=404,
+                    detail=(
+                        "Audio not available locally. POST /v1/audible/audio/"
+                        "{asin}/download to attempt fetching it. DRM-protected "
+                        "files may need manual decryption with audible-cli "
+                        "before they become playable."
+                    ),
+                )
+            file_size = playable.stat().st_size
+            range_hdr = request.headers.get("range") or request.headers.get("Range")
+            media_type = "audio/mp4"
+            if playable.suffix.lower() == ".mp3":
+                media_type = "audio/mpeg"
+            if range_hdr and range_hdr.startswith("bytes="):
+                try:
+                    spec = range_hdr.split("=", 1)[1]
+                    start_s, end_s = (spec.split("-", 1) + [""])[:2]
+                    start = int(start_s) if start_s else 0
+                    end = int(end_s) if end_s else file_size - 1
+                    start = max(0, start)
+                    end = min(file_size - 1, end)
+                    if start > end:
+                        raise ValueError("invalid range")
+
+                    def iter_range():
+                        with playable.open("rb") as fh:
+                            fh.seek(start)
+                            remaining = end - start + 1
+                            while remaining > 0:
+                                chunk = fh.read(min(65536, remaining))
+                                if not chunk:
+                                    break
+                                remaining -= len(chunk)
+                                yield chunk
+
+                    headers = {
+                        "Content-Range": f"bytes {start}-{end}/{file_size}",
+                        "Accept-Ranges": "bytes",
+                        "Content-Length": str(end - start + 1),
+                        "Cache-Control": "private, max-age=0",
+                    }
+                    return StreamingResponse(
+                        iter_range(),
+                        status_code=206,
+                        media_type=media_type,
+                        headers=headers,
+                    )
+                except Exception:
+                    pass
+            return FileResponse(
+                str(playable),
+                media_type=media_type,
+                headers={
+                    "Accept-Ranges": "bytes",
+                    "Cache-Control": "private, max-age=0",
+                },
+            )
 
     def _format_duration(self, minutes: int) -> str:
         """Convert minutes to human readable duration."""
@@ -91,141 +1235,37 @@ class audible(Extensions):
         else:
             return "📖 Not started"
 
-    def _solve_captcha(self, captcha_url: str) -> str:
-        """
-        Attempt to solve CAPTCHA using AI vision.
-        Downloads the CAPTCHA image and uses vision to read it.
-        """
-        import requests
-        import base64
-
-        try:
-            # Download the CAPTCHA image
-            response = requests.get(captcha_url, timeout=10)
-            response.raise_for_status()
-
-            # Save the CAPTCHA image for potential manual inspection
-            captcha_path = os.path.join(self.WORKING_DIRECTORY, "audible_captcha.jpg")
-            os.makedirs(self.WORKING_DIRECTORY, exist_ok=True)
-            with open(captcha_path, "wb") as f:
-                f.write(response.content)
-            logging.info(f"CAPTCHA image saved to {captcha_path}")
-
-            # Convert to base64 for AI vision
-            image_base64 = base64.b64encode(response.content).decode("utf-8")
-
-            # TODO: Integrate with AGiXT vision API to solve CAPTCHA
-            # For now, raise an exception with helpful message
-            raise ValueError(
-                f"CAPTCHA required during Audible login. "
-                f"Image saved to: {captcha_path}\n\n"
-                "Amazon is requesting CAPTCHA verification. This typically happens when:\n"
-                "1. First login from a new location/device\n"
-                "2. Too many login attempts\n"
-                "3. Suspicious activity detected\n\n"
-                "Try waiting a few minutes and trying again, or log in via "
-                "the Audible website/app first to verify your device."
-            )
-
-        except ValueError:
-            raise
-        except Exception as e:
-            logging.error(f"Error downloading CAPTCHA: {e}")
-            raise ValueError(f"CAPTCHA required but failed to download: {e}")
-
-    def _handle_otp(self) -> str:
-        """Handle OTP/2FA code request."""
-        raise ValueError(
-            "Two-factor authentication (2FA/OTP) required for this Audible account.\n\n"
-            "To use this extension, please either:\n"
-            "1. Temporarily disable 2FA on your Amazon account\n"
-            "2. Use an app-specific password if available\n"
-            "3. Log in via the Audible app/website first to trust this device"
-        )
-
-    def _handle_cvf(self, cvf_url: str) -> str:
-        """Handle Customer Verification Form (CVF) request."""
-        raise ValueError(
-            f"Amazon Customer Verification required.\n\n"
-            "Amazon is requesting additional verification. This typically happens with:\n"
-            "1. New device/location login\n"
-            "2. Account security verification\n\n"
-            "Please log in to your Amazon account via web browser first to complete "
-            "verification, then try again."
-        )
-
     def _ensure_authenticated(self):
-        """Ensure user is authenticated with Audible."""
+        """Load the Audible auth saved by the desktop Connect flow.
+
+        Sign-in is driven from the AGiXT desktop client's Audible page;
+        we just read whatever it wrote to disk. Headless username/
+        password login was removed because Amazon's CAPTCHA + 2FA
+        gauntlet made it too unreliable in practice.
+        """
         if not AUDIBLE_AVAILABLE:
             raise ImportError(
                 "The 'audible' package is not installed. Please install it with: pip install audible"
             )
-
         if self.client is not None:
             return
-
-        if not self.AUDIBLE_EMAIL or not self.AUDIBLE_PASSWORD:
+        if not os.path.exists(self.auth_file):
             raise ValueError(
-                "Audible email and password are required. "
-                "Please configure them in the extension settings."
+                "Not connected to Audible. Open the Audible page in the "
+                "AGiXT desktop sidebar and click Connect to sign in with "
+                "your Amazon account, then ask again."
             )
-
         try:
-            # First, try to load cached authentication
-            if os.path.exists(self.auth_file):
-                try:
-                    self.auth = Authenticator.from_file(self.auth_file)
-                    self.client = audible_api.Client(auth=self.auth)
-                    logging.info("Loaded cached Audible authentication")
-                    return
-                except Exception as e:
-                    logging.warning(f"Cached auth invalid, re-authenticating: {e}")
-                    try:
-                        os.remove(self.auth_file)
-                    except:
-                        pass
-
-            # Authenticate with username/password
-            logging.info(
-                f"Authenticating with Audible ({self.AUDIBLE_LOCALE} marketplace)..."
-            )
-
-            self.auth = Authenticator.from_login(
-                username=self.AUDIBLE_EMAIL,
-                password=self.AUDIBLE_PASSWORD,
-                locale=self.AUDIBLE_LOCALE,
-                with_username=True,
-                captcha_callback=self._solve_captcha,
-                otp_callback=self._handle_otp,
-                cvf_callback=self._handle_cvf,
-            )
-
-            # Save auth for future use
-            os.makedirs(os.path.dirname(self.auth_file), exist_ok=True)
-            self.auth.to_file(self.auth_file)
-            logging.info(f"Saved Audible authentication to {self.auth_file}")
-
+            self.auth = Authenticator.from_file(self.auth_file)
             self.client = audible_api.Client(auth=self.auth)
-            logging.info("Successfully authenticated with Audible")
-
+            logging.info("Loaded cached Audible authentication")
         except Exception as e:
-            error_msg = str(e)
-            logging.error(f"Error authenticating with Audible: {error_msg}")
-
-            # Provide helpful error messages
-            if "captcha" in error_msg.lower():
-                raise ValueError(
-                    f"CAPTCHA required during login. Error: {error_msg}\n\n"
-                    "Audible may be rate-limiting login attempts. Please try again later."
-                )
-            elif "otp" in error_msg.lower() or "2fa" in error_msg.lower():
-                raise ValueError(
-                    f"Two-factor authentication required. Error: {error_msg}\n\n"
-                    "Please temporarily disable 2FA on your Audible/Amazon account, "
-                    "or use an app-specific password if available."
-                )
-            else:
-                raise ValueError(f"Audible authentication failed: {error_msg}")
+            logging.error(f"Cached Audible auth invalid: {e}")
+            raise ValueError(
+                "Your Audible session has expired. Open the Audible page "
+                "in the AGiXT desktop sidebar and click Connect to sign "
+                "in again."
+            )
 
     async def get_library(
         self,

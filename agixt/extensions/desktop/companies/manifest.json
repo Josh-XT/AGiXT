@@ -1,0 +1,9 @@
+{
+  "id": "companies",
+  "label": "Companies",
+  "icon": "companies",
+  "version": "0.1.4",
+  "entry": "main.js",
+  "slot": "admin",
+  "requires": {}
+}

@@ -353,6 +353,38 @@
     'facebook', 'slack',
   ]);
 
+  // Extensions whose "Connect" action is a custom flow that lives in the
+  // sidenav (the desktop extensions hub). The drawer renders a primary
+  // Connect button that switches to the named view rather than the OAuth
+  // handshake. Connection state comes from a backend status probe.
+  const CUSTOM_CONNECT_EXTENSIONS = {
+    audible: {
+      view: 'audible',
+      statusPath: '/v1/audible/auth/status',
+      ctaLabel: 'Connect Audible',
+    },
+  };
+  const customConnectStatus = {};   // raw -> { loadable, configured } | null
+  const customConnectInflight = {}; // raw -> Promise
+
+  function customConnectFor(ext) {
+    return CUSTOM_CONNECT_EXTENSIONS[extensionRawName(ext)] || null;
+  }
+
+  function fetchCustomConnectStatus(raw, cfg) {
+    if (customConnectInflight[raw]) return customConnectInflight[raw];
+    const ctx = window.AgixtAppContext && window.AgixtAppContext();
+    if (!ctx) return Promise.resolve(null);
+    const url = (ctx.serverUrl || '').replace(/\/+$/, '') + cfg.statusPath;
+    const p = fetch(url, { headers: { Authorization: 'Bearer ' + ctx.jwt } })
+      .then((r) => r.ok ? r.json() : null)
+      .then((s) => { customConnectStatus[raw] = s || null; return s; })
+      .catch(() => { customConnectStatus[raw] = null; return null; })
+      .finally(() => { delete customConnectInflight[raw]; });
+    customConnectInflight[raw] = p;
+    return p;
+  }
+
   function extensionRawName(ext) {
     return (ext.extension_name || ext.friendly_name || '').toLowerCase().trim().replace(/\s+/g, '_');
   }
@@ -432,6 +464,15 @@
     if (isOAuthExtension(ext)) {
       return isProviderConnected(findProviderForExtension(ext));
     }
+    const custom = customConnectFor(ext);
+    if (custom) {
+      // Audible-style external auth — connection state lives on the
+      // server (cached audible_auth.json) and is fetched on drawer
+      // open. While the probe is in flight we treat it as not yet
+      // connected to avoid flashing "Configured" first.
+      const status = customConnectStatus[extensionRawName(ext)];
+      return !!(status && status.loadable);
+    }
     const settings = ext.settings || [];
     if (settings.length === 0) return true;   // always-on, no setup needed
     const sensitive = settings.filter(isSensitiveSetting);
@@ -448,7 +489,7 @@
   /** Plain extensions with no settings are always usable; we don't show a
    *  connection state for them so nothing reads as "broken". */
   function extensionHasConnectionState(ext) {
-    return isOAuthExtension(ext) || (ext.settings || []).length > 0;
+    return isOAuthExtension(ext) || !!customConnectFor(ext) || (ext.settings || []).length > 0;
   }
 
   function escape(s) {
@@ -697,6 +738,17 @@
   function openDrawer(ext) {
     drawerExt = ext;
     drawerOpen = true;
+    // For custom-connect extensions, kick off a status probe and re-render
+    // the drawer once it returns so the right CTA + state are shown.
+    const customConnect = customConnectFor(ext);
+    if (customConnect) {
+      const raw = extensionRawName(ext);
+      fetchCustomConnectStatus(raw, customConnect).then(() => {
+        if (drawerOpen && drawerExt && extensionRawName(drawerExt) === raw) {
+          renderDrawer();
+        }
+      });
+    }
     renderDrawer();
     const drawer = document.getElementById('ext-drawer');
     const backdrop = document.getElementById('ext-drawer-backdrop');
@@ -748,8 +800,13 @@
     iconEl.innerHTML = iconHtmlForExtension(ext);
     titleEl.textContent = friendly;
 
+    const customConnect = customConnectFor(ext);
+
     let statusText, statusClass;
     if (isOAuth) {
+      statusText = connected ? 'Connected' : 'Not connected';
+      statusClass = connected ? 'connected' : '';
+    } else if (customConnect) {
       statusText = connected ? 'Connected' : 'Not connected';
       statusClass = connected ? 'connected' : '';
     } else if (hasConnState) {
@@ -783,6 +840,23 @@
       parts.push(`
         <div class="ext-drawer-action ext-drawer-action-primary">
           <button class="btn btn-primary ext-oauth-connect" type="button">Connect ${escape(prettyProviderName(provider.name))}</button>
+        </div>
+      `);
+    }
+
+    // Custom-connect extensions (audible) — primary CTA jumps to the
+    // sidenav view that hosts the actual auth flow. Even when already
+    // connected we surface a "Manage" button so users can disconnect /
+    // re-auth from the same place.
+    if (customConnect) {
+      const label = connected
+        ? `Manage ${escape(friendly)}`
+        : escape(customConnect.ctaLabel || `Connect ${friendly}`);
+      parts.push(`
+        <div class="ext-drawer-action ext-drawer-action-primary">
+          <button class="btn btn-primary ext-custom-connect"
+                  data-view="${escape(customConnect.view)}"
+                  type="button">${label}</button>
         </div>
       `);
     }
@@ -931,6 +1005,32 @@
         disconnectBtn.textContent = 'Disconnecting…';
         try { await window.AgentSettingsConnections.startDisconnect(provider); }
         finally { disconnectBtn.disabled = false; }
+      });
+    }
+
+    // Custom-connect (audible-style) — close the drawer and switch the
+    // active sidenav view to the extension's own page, which hosts
+    // the actual auth flow.
+    const customConnectBtn = bodyDr.querySelector('.ext-custom-connect');
+    if (customConnectBtn) {
+      customConnectBtn.addEventListener('click', () => {
+        const view = customConnectBtn.dataset.view;
+        if (!view) return;
+        closeDrawer();
+        try {
+          // The sidenav button click also runs the lazy-mount path,
+          // which is what we actually want; calling setActiveView
+          // alone wouldn't fire the loader's per-view activate().
+          const escaped = String(view).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+          const btn = document.querySelector(`.sidenav-btn[data-view="${escaped}"]`);
+          if (btn) {
+            btn.click();
+          } else if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
+            window.AgixtSidenav.setActiveView(view);
+          }
+        } catch (err) {
+          console.warn('custom-connect: could not switch view', view, err);
+        }
       });
     }
   }
