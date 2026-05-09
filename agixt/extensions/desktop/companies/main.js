@@ -328,26 +328,43 @@ CompaniesView.prototype.renderListShell = function () {
 
 CompaniesView.prototype.renderHeader = function () {
   if (!this.headerEl) return;
+  if (!this._tools) this._buildTools();
   this.headerEl.innerHTML = '';
-  const row = document.createElement('div'); row.className = 'co-title-row';
-  const title = document.createElement('h2'); title.className = 'co-title'; title.textContent = 'Companies & Teams';
-  row.appendChild(title);
-  const refresh = document.createElement('button');
-  refresh.type = 'button'; refresh.className = 'co-iconbtn'; refresh.title = 'Refresh'; refresh.textContent = '↻';
-  refresh.addEventListener('click', () => this.refresh());
-  row.appendChild(refresh);
-  if (this.roleId === 0 || this.roleId === 1) {
-    const add = document.createElement('button');
-    add.type = 'button'; add.className = 'co-primary'; add.textContent = '+ New company';
-    add.addEventListener('click', () => this.openCreate());
-    row.appendChild(add);
+  if (this.ctx && this.ctx.framed && typeof this.ctx.setHeaderActions === 'function') {
+    if (!this._toolbarMounted) {
+      const order = [this._tools.search, this._tools.refresh];
+      if (this._tools.add) order.push(this._tools.add);
+      this.ctx.setHeaderActions.apply(this.ctx, order);
+      this._toolbarMounted = true;
+    }
+  } else {
+    const row = document.createElement('div'); row.className = 'co-title-row';
+    row.appendChild(this._tools.refresh);
+    if (this._tools.add) row.appendChild(this._tools.add);
+    row.appendChild(this._tools.search);
+    this.headerEl.appendChild(row);
   }
-  const search = document.createElement('input');
-  search.type = 'search'; search.placeholder = 'Search…'; search.value = this.search;
-  search.className = 'co-search';
-  search.addEventListener('input', (e) => { this.search = e.target.value; this.renderTable(); });
-  row.appendChild(search);
-  this.headerEl.appendChild(row);
+};
+
+CompaniesView.prototype._buildTools = function () {
+  const tools = {};
+  tools.refresh = document.createElement('button');
+  tools.refresh.type = 'button'; tools.refresh.className = 'co-iconbtn';
+  tools.refresh.title = 'Refresh'; tools.refresh.textContent = '↻';
+  tools.refresh.addEventListener('click', () => this.refresh());
+
+  if (this.roleId === 0 || this.roleId === 1) {
+    tools.add = document.createElement('button');
+    tools.add.type = 'button'; tools.add.className = 'co-primary'; tools.add.textContent = '+ New company';
+    tools.add.addEventListener('click', () => this.openCreate());
+  }
+
+  tools.search = document.createElement('input');
+  tools.search.type = 'search'; tools.search.placeholder = 'Search…';
+  tools.search.value = this.search; tools.search.className = 'co-search';
+  tools.search.addEventListener('input', (e) => { this.search = e.target.value; this.renderTable(); });
+
+  this._tools = tools;
 };
 
 CompaniesView.prototype.renderTable = function () {

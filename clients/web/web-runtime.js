@@ -1,8 +1,8 @@
 /* Browser runtime for serving the AGiXT Tauri frontend as a web SPA.
  *
  * The desktop frontend is intentionally reused as-is. This file supplies the
- * small Tauri IPC/event surface it expects, backed by localStorage and AGiXT's
- * HTTP/SSE/WebSocket APIs.
+ * small Tauri IPC/event surface it expects, backed by explicit non-secret
+ * localStorage state, runtime-only auth, and AGiXT's HTTP/SSE/WebSocket APIs.
  */
 (function () {
   'use strict';
@@ -12,7 +12,6 @@
   const SETTINGS_KEY = 'agixt.web.settings.v1';
   const OAUTH_FLOW_KEY = 'agixt.web.oauthFlow.v1';
   const CONNECT_FLOW_KEY = 'agixt.web.oauthConnectFlow.v1';
-  const CONNECT_PROVIDER_KEY = 'agixt.web.oauthConnectProvider.v1';
   const streamControllers = new Map();
   const eventListeners = new Map();
   const runtimeAuth = {
@@ -39,10 +38,6 @@
     try { return window.localStorage.getItem(key); } catch (_) { return null; }
   }
 
-  function storageSet(key, value) {
-    try { window.localStorage.setItem(key, value); } catch (_) {}
-  }
-
   function storageRemove(key) {
     try { window.localStorage.removeItem(key); } catch (_) {}
   }
@@ -53,13 +48,54 @@
     try { return JSON.parse(raw); } catch (_) { return null; }
   }
 
-  function storageSetJson(key, value) {
-    storageSet(key, JSON.stringify(value));
+  function persistableSettings(settings) {
+    const source = settings || {};
+    return {
+      server_url: trimSlash(source.server_url || currentServerUrl()),
+      web_url: trimSlash(source.web_url || currentWebUrl()),
+      service_brand: safeSlug(source.service_brand || 'web', 'web'),
+      agent_id: nullableText(source.agent_id),
+      agent_name: nullableText(source.agent_name || 'XT'),
+      company_id: nullableText(source.company_id),
+      company_name: nullableText(source.company_name),
+      conversation_id: nullableText(source.conversation_id),
+      conversation_name: nullableText(source.conversation_name),
+      voice_enabled: !!source.voice_enabled,
+      desktop_auto_update: !!source.desktop_auto_update,
+      sidebar_open: source.sidebar_open !== false,
+      allow_client_commands: !!source.allow_client_commands,
+      dock_pos_x: finiteNumberOrNull(source.dock_pos_x),
+      dock_pos_y: finiteNumberOrNull(source.dock_pos_y),
+    };
   }
 
-  function persistableSettings(settings) {
-    const { jwt: _jwt, token: _token, ...copy } = settings || {};
-    return copy;
+  function nullableText(value) {
+    if (value == null || value === '') return null;
+    return String(value).slice(0, 512);
+  }
+
+  function finiteNumberOrNull(value) {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  }
+
+  function safeSlug(value, fallback) {
+    const slug = String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80);
+    return slug || fallback || 'web';
+  }
+
+  function storedFlowUrl(value, fallback) {
+    try {
+      const parsed = new URL(value || fallback || origin, origin);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return trimSlash(parsed.href);
+      }
+    } catch (_) {}
+    return trimSlash(fallback || origin);
   }
 
   function rememberRuntimeAuth(settings) {
@@ -114,11 +150,16 @@
 
   function saveSettings(settings) {
     rememberRuntimeAuth(settings);
-    const next = { ...defaults(), ...(settings || {}) };
+    const persisted = persistableSettings(settings || {});
+    const next = { ...defaults(), ...persisted };
     next.server_url = trimSlash(next.server_url || currentServerUrl());
     next.web_url = trimSlash(next.web_url || currentWebUrl());
-    storageSet(SETTINGS_KEY, JSON.stringify(persistableSettings(next)));
-    return next;
+    persisted.server_url = next.server_url;
+    persisted.web_url = next.web_url;
+    try {
+      window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(persisted));
+    } catch (_) {}
+    return attachRuntimeAuth(next);
   }
 
   function toolError(message) {
@@ -308,18 +349,18 @@
     return webMatch ? webMatch.slug : 'custom';
   }
 
-  function rememberOAuthFlow(args, provider, redirectUri, connectFlow) {
+  function rememberOAuthFlow(args, connectFlow) {
     const serverUrl = trimSlash(args.server_url || currentServerUrl());
     const webUrl = trimSlash(args.web_url || currentWebUrl());
-    storageSetJson(OAUTH_FLOW_KEY, {
-      server_url: serverUrl,
-      web_url: webUrl,
-      service_brand: serviceBrandForUrls(serverUrl, webUrl),
-      provider: provider.name || redirectSlugFor(provider.name),
-      redirect_uri: redirectUri,
-      connect: !!connectFlow,
-      started_at: Date.now(),
-    });
+    try {
+      window.localStorage.setItem(OAUTH_FLOW_KEY, JSON.stringify({
+        server_url: storedFlowUrl(serverUrl, currentServerUrl()),
+        web_url: storedFlowUrl(webUrl, currentWebUrl()),
+        service_brand: safeSlug(serviceBrandForUrls(serverUrl, webUrl), 'custom'),
+        connect: !!connectFlow,
+        started_at: Date.now(),
+      }));
+    } catch (_) {}
   }
 
   function pendingOAuthFlow() {
@@ -328,13 +369,20 @@
       storageRemove(OAUTH_FLOW_KEY);
       return null;
     }
-    return flow;
+    const serverUrl = storedFlowUrl(flow.server_url, currentServerUrl());
+    const webUrl = storedFlowUrl(flow.web_url, currentWebUrl());
+    return {
+      server_url: serverUrl,
+      web_url: webUrl,
+      service_brand: safeSlug(flow.service_brand || serviceBrandForUrls(serverUrl, webUrl), 'custom'),
+      connect: !!flow.connect,
+      started_at: Number(flow.started_at),
+    };
   }
 
   function clearOAuthFlow() {
     storageRemove(OAUTH_FLOW_KEY);
     storageRemove(CONNECT_FLOW_KEY);
-    storageRemove(CONNECT_PROVIDER_KEY);
   }
 
   function normalizeArrayOrKeyedObject(value, keyName) {
@@ -610,10 +658,9 @@
       params.access_type = 'offline';
     }
     if (connectFlow) {
-      storageSet(CONNECT_FLOW_KEY, String(Date.now()));
-      storageSet(CONNECT_PROVIDER_KEY, provider.name || slug);
+      try { window.localStorage.setItem(CONNECT_FLOW_KEY, String(Date.now())); } catch (_) {}
     }
-    rememberOAuthFlow(args, provider, redirectUri, connectFlow);
+    rememberOAuthFlow(args, connectFlow);
     return { url: appendQuery(provider.authorize, params), redirect_uri: redirectUri };
   }
 
@@ -1019,16 +1066,12 @@
     const connectStarted = Number(storageGet(CONNECT_FLOW_KEY) || '0');
     const isConnect = !!callbackSettings.jwt
       && ((oauthFlow && oauthFlow.connect) || (connectStarted && Date.now() - connectStarted < 300000));
-    const providerForPost = isConnect
-      ? redirectSlugFor(storageGet(CONNECT_PROVIDER_KEY) || (oauthFlow && oauthFlow.provider) || providerFromPath)
-      : providerFromPath;
+    const providerForPost = providerFromPath;
     const headers = { 'Content-Type': 'application/json' };
     if (isConnect && callbackSettings.jwt) Object.assign(headers, authHeader(callbackSettings));
     const body = {
       code,
-      referrer: oauthFlow && oauthFlow.redirect_uri
-        ? oauthFlow.redirect_uri
-        : `${trimSlash(callbackSettings.web_url || currentWebUrl())}/user/close/${providerFromPath}`,
+      referrer: `${trimSlash(callbackSettings.web_url || currentWebUrl())}/user/close/${providerFromPath}`,
     };
     if (params.get('state')) body.state = params.get('state');
     try {

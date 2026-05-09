@@ -1417,6 +1417,9 @@
     serverUrl = opts.serverUrl || serverUrl;
     jwt = opts.jwt || jwt;
     conversationId = opts.conversationId || conversationId;
+    if (md && typeof md.setTrustedMediaOrigins === 'function') {
+      md.setTrustedMediaOrigins(Array.from(trustedWorkspaceOrigins()));
+    }
     if (opts.reconnect !== false) connect();
   }
 

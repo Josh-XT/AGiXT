@@ -10,7 +10,9 @@
   const VIDEO_EXT = /\.(mp4|webm|mov|m4v|ogv)(\?[^\s)]*)?$/i;
   const AUDIO_EXT = /\.(mp3|wav|ogg|m4a|flac|aac)(\?[^\s)]*)?$/i;
   const GIF_HOST = /(tenor\.com|giphy\.com|media\.tenor\.|media\.giphy\.)/i;
-  const SAFE_DATA_MEDIA = /^data:(image\/(?:png|jpe?g|gif|webp|avif|bmp)|video\/(?:mp4|webm|ogg)|audio\/(?:mpeg|mp3|wav|ogg|mp4|m4a|flac|aac));base64,[a-z0-9+/=\s]+$/i;
+  const TRUSTED_MEDIA_PREFIXES = ['/outputs/', '/workspace/', '/api/workspace/', '/assets/'];
+  const EXTERNAL_LINK_HREF = '#agixt-external-link';
+  const trustedMediaOriginPrefixes = new Set();
 
   function escapeHtml(s) {
     return String(s)
@@ -24,9 +26,7 @@
   function normalizeSafeUrl(url, media) {
     const raw = String(url || '').trim();
     if (!raw || /[\u0000-\u001f\u007f]/.test(raw)) return '';
-    if (/^data:/i.test(raw)) {
-      return media && SAFE_DATA_MEDIA.test(raw) ? raw.replace(/\s+/g, '') : '';
-    }
+    if (/^data:/i.test(raw)) return '';
     if (media && raw.startsWith('/') && !raw.startsWith('//')) {
       return encodeURI(raw);
     }
@@ -56,12 +56,63 @@
     return normalizeSafeUrl(url, media);
   }
 
+  function sameOriginPrefix() {
+    try {
+      const base = (typeof window !== 'undefined' && window.location && window.location.origin) || '';
+      return base ? `${base}/` : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function setTrustedMediaOrigins(origins) {
+    trustedMediaOriginPrefixes.clear();
+    (origins || []).forEach((origin) => {
+      try {
+        const parsed = new URL(origin);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+          trustedMediaOriginPrefixes.add(`${parsed.origin}/`);
+        }
+      } catch (_) {}
+    });
+  }
+
+  function setTrustedUrlAttribute(node, attr, value) {
+    const safe = String(value || '');
+    for (const prefix of TRUSTED_MEDIA_PREFIXES) {
+      if (safe.startsWith(prefix)) {
+        node.setAttribute(attr, safe);
+        return true;
+      }
+    }
+    for (const prefix of trustedMediaOriginPrefixes) {
+      if (prefix && safe.startsWith(prefix)) {
+        node.setAttribute(attr, safe);
+        return true;
+      }
+    }
+    const originPrefix = sameOriginPrefix();
+    if (originPrefix && safe.startsWith(originPrefix)) {
+      node.setAttribute(attr, safe);
+      return true;
+    }
+    return false;
+  }
+
+  function openExternalUrl(url) {
+    const href = safeUrl(url, false);
+    if (!href) return;
+    const tauri = window.__TAURI__ || {};
+    const opener = tauri.opener || tauri.shell || {};
+    const open = opener.openUrl || opener.open;
+    if (typeof open === 'function') {
+      Promise.resolve(open(href)).catch(() => {});
+    }
+  }
+
   function classifyMedia(url) {
     const clean = String(url || '').split('#')[0];
     if (!safeUrl(clean, true)) return null;
-    if (/^data:image\//i.test(clean)) return 'image';
-    if (/^data:video\//i.test(clean)) return 'video';
-    if (/^data:audio\//i.test(clean)) return 'audio';
     if (VIDEO_EXT.test(clean)) return 'video';
     if (AUDIO_EXT.test(clean)) return 'audio';
     if (IMG_EXT.test(clean) || GIF_HOST.test(clean)) return 'image';
@@ -79,6 +130,7 @@
   function mediaNode(kind, url, alt) {
     const src = safeUrl(url, true);
     if (!src) return textNode(alt || url || '');
+    const fallback = linkNode(alt || url || '', url, true);
     let node;
     if (kind === 'video') {
       node = document.createElement('video');
@@ -90,17 +142,15 @@
       node.setAttribute('preload', 'metadata');
     } else {
       node = document.createElement('img');
-      node.setAttribute('src', src);
       node.setAttribute('alt', alt || '');
       node.setAttribute('loading', 'lazy');
-      return node;
+      return setTrustedUrlAttribute(node, 'src', src) ? node : fallback;
     }
-    node.setAttribute('src', src);
     if (alt && kind !== 'image') node.setAttribute('aria-label', alt);
-    return node;
+    return setTrustedUrlAttribute(node, 'src', src) ? node : fallback;
   }
 
-  function linkNode(label, url) {
+  function linkNode(label, url, plainLabel) {
     const href = safeUrl(url, false);
     if (!href) {
       const span = document.createElement('span');
@@ -108,10 +158,18 @@
       return span;
     }
     const a = document.createElement('a');
-    a.setAttribute('href', href);
+    if (!setTrustedUrlAttribute(a, 'href', href)) {
+      a.setAttribute('href', EXTERNAL_LINK_HREF);
+      a.dataset.externalUrl = href;
+      a.addEventListener('click', (event) => {
+        event.preventDefault();
+        openExternalUrl(href);
+      });
+    }
     a.setAttribute('target', '_blank');
     a.setAttribute('rel', 'noreferrer noopener');
-    appendInline(a, label);
+    if (plainLabel) a.textContent = label || href;
+    else appendInline(a, label);
     return a;
   }
 
@@ -189,7 +247,14 @@
           const href = safeUrl(url, false);
           if (href) {
             const a = document.createElement('a');
-            a.setAttribute('href', href);
+            if (!setTrustedUrlAttribute(a, 'href', href)) {
+              a.setAttribute('href', EXTERNAL_LINK_HREF);
+              a.dataset.externalUrl = href;
+              a.addEventListener('click', (event) => {
+                event.preventDefault();
+                openExternalUrl(href);
+              });
+            }
             a.setAttribute('target', '_blank');
             a.setAttribute('rel', 'noreferrer noopener');
             a.textContent = url;
@@ -347,5 +412,6 @@
     renderInto,
     escapeHtml,
     classifyMedia,
+    setTrustedMediaOrigins,
   };
 })();

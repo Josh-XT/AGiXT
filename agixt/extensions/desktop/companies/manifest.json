@@ -1,8 +1,9 @@
 {
   "id": "companies",
-  "label": "Companies",
+  "label": "Companies & Teams",
   "icon": "companies",
-  "version": "0.1.5",
+  "layout": "framed",
+  "version": "0.1.6",
   "entry": "main.js",
   "slot": "admin",
   "requires": {}

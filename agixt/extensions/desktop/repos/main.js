@@ -42,6 +42,27 @@ const STYLE_CSS = `
   .repos-btn:hover { background: #2ea043; }
   .repos-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
+  /* Icon-style refresh + search input — match the toolbar look across
+     contacts/machines/tickets so the GitHub dashboard reads as part of
+     the same family when its toolbar moves into the host pane chrome. */
+  .repos-iconbtn {
+    width: 30px; height: 30px; border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text-dim);
+    cursor: pointer; font-size: 14px;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .repos-iconbtn:hover { background: var(--panel); color: var(--text); }
+  .repos-iconbtn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .repos-search-input {
+    flex: 1 1 280px; max-width: 420px;
+    padding: 7px 12px; font-size: 13px;
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+  }
+  .repos-search-input:focus { outline: none; border-color: var(--accent); }
+
   .repos-summary { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
   .repos-summary-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; flex: 1; min-width: 140px; }
   .repos-summary-card .label { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
@@ -413,14 +434,51 @@ class ReposView {
     `;
 
     const root = this.container;
-    root.querySelector('[data-role="refresh"]').addEventListener('click', () => this.loadData(true));
-    root.querySelector('[data-role="search"]').addEventListener('input', (e) => {
+    // Cache live refs — when the framed-layout migration below moves
+    // these nodes into the host pane chrome they're no longer
+    // descendants of `this.container`, so subsequent querySelector
+    // lookups would miss them.
+    this._refreshBtn = root.querySelector('[data-role="refresh"]');
+    this._searchInput = root.querySelector('[data-role="search"]');
+    this._lastUpdatedEl = root.querySelector('[data-role="last-updated"]');
+    this._refreshBtn.addEventListener('click', () => this.loadData(true));
+    this._searchInput.addEventListener('input', (e) => {
       this.searchTerm = e.target.value.toLowerCase();
       this.renderTable();
     });
+    this._migrateToolbarToHostHeader(root);
     root.querySelectorAll('.repos-filter-btn').forEach((btn) => {
       btn.addEventListener('click', () => this.setOwnerFilter(btn.dataset.filter, btn));
     });
+  }
+
+  // Move refresh / last-updated / search out of the body's repos-header
+  // strip and into the host pane chrome (manifest.layout="framed"). The
+  // body header collapses, the now-empty filters row keeps the
+  // owner-filter chips. Re-skin refresh as an icon button so it reads
+  // the same as the toolbars on machines / contacts / tickets / etc.
+  _migrateToolbarToHostHeader(root) {
+    const ctx = this.ctx;
+    if (!ctx || !ctx.framed || typeof ctx.setHeaderActions !== 'function') return;
+
+    const refresh = this._refreshBtn;
+    const lastUpdated = this._lastUpdatedEl;
+    const search = this._searchInput;
+    if (refresh) {
+      refresh.className = 'repos-iconbtn';
+      refresh.textContent = '↻';
+      refresh.title = 'Refresh';
+    }
+    if (search) {
+      search.classList.remove('search');
+      search.classList.add('repos-search-input');
+    }
+    ctx.setHeaderActions(search, lastUpdated, refresh);
+
+    // The body's old header strip is now empty; hide it. The filters
+    // row still hosts the owner chips, so leave that visible.
+    const header = root.querySelector('.repos-header');
+    if (header) header.style.display = 'none';
   }
 
   setLoading(loading) {
@@ -428,9 +486,15 @@ class ReposView {
     if (loading) {
       content.innerHTML = '<div class="repos-loading"><div class="spinner"></div>Loading repos from GitHub…</div>';
     }
-    const btn = this.container.querySelector('[data-role="refresh"]');
+    const btn = this._refreshBtn;
+    if (!btn) return;
     btn.disabled = !!loading;
-    btn.textContent = loading ? 'Refreshing…' : 'Refresh';
+    // Icon-mode refresh keeps the chevron and conveys the loading
+    // state via the disabled attribute (and an opacity rule). Text-mode
+    // refresh swaps the label so the user knows something is happening.
+    if (!btn.classList.contains('repos-iconbtn')) {
+      btn.textContent = loading ? 'Refreshing…' : 'Refresh';
+    }
   }
 
   renderError(err) {
@@ -449,10 +513,9 @@ class ReposView {
     root.querySelector('[data-role="summary"]').style.display = 'flex';
     root.querySelector('[data-role="filters"]').style.display = 'flex';
 
-    if (this.lastUpdated) {
+    if (this.lastUpdated && this._lastUpdatedEl) {
       const d = new Date(this.lastUpdated);
-      root.querySelector('[data-role="last-updated"]').textContent =
-        'Updated: ' + d.toLocaleTimeString();
+      this._lastUpdatedEl.textContent = 'Updated: ' + d.toLocaleTimeString();
     }
 
     this.buildOwnerFilters();

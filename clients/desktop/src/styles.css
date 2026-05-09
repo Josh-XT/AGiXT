@@ -34,12 +34,14 @@
   --accent: #6b7bff;
   --accent-2: #9a6cff;
   --accent-soft: rgba(107, 123, 255, 0.18);
-  /* Third accent — a clean blue distinct from the primary purple-blue
-     accent. Used for chapter/heading foregrounds in markdown and as
-     the blue stop in the user-bubble gradient. Tracks each theme so
-     the same role reads consistently across light / dark / gray. */
+  /* Third accent — used for small details that benefit from a
+     distinct blue (link hover, sort arrow, info badge, spinner ring).
+     Headings/titles inherit --text instead. */
   --accent-blue: #5b8eff;
-  --user-bubble: linear-gradient(135deg, #4a5dff 0%, #7a4dff 100%);
+  /* User bubble shares --accent so it visually matches the rest of
+     the accent surfaces (send button, audio play / progress / volume,
+     1x-2x-3x toggle, etc.). One color across every "blue" surface. */
+  --user-bubble: var(--accent);
   --assistant-bubble: rgba(36, 41, 56, 0.95);
   --activity: rgba(60, 80, 130, 0.30);
   --activity-thought: rgba(120, 90, 200, 0.22);
@@ -77,13 +79,15 @@
   --text: #cccccc;
   --text-dim: #9d9d9d;
   --text-faint: #6e6e6e;
-  --accent: #6b7bff;
+  /* Muted blue accent that sits naturally on the neutral gray chrome.
+     Far less saturated than the dark theme's blue-purple — that one
+     bloomed against #1f1f1f. Carries every accent surface (send btn,
+     play/volume/progress in audible, 1x-2x-3x toggle, user bubble). */
+  --accent: #4d8acb;
   --accent-2: #9a6cff;
-  --accent-soft: rgba(107, 123, 255, 0.18);
-  /* Muted GitHub-y blue. Sits comfortably between --text (#cccccc) and
-     the brighter VSCode link-blue without glowing on the gray panels. */
+  --accent-soft: rgba(77, 138, 203, 0.20);
   --accent-blue: #4a7eba;
-  --user-bubble: linear-gradient(135deg, #4a5dff 0%, #7a4dff 100%);
+  --user-bubble: var(--accent);
   --assistant-bubble: #2a2a2a;
   --activity: rgba(60, 80, 130, 0.22);
   --activity-thought: rgba(120, 90, 200, 0.18);
@@ -119,9 +123,7 @@
   /* Darker blue so it stays readable against the white panel
      backgrounds without bloom. Same hue family as GitHub's link blue. */
   --accent-blue: #1f6feb;
-  /* Keep the user bubble gradient (it's a brand-y cue and reads well on
-     both backgrounds since the bubble's text is white). */
-  --user-bubble: linear-gradient(135deg, #4a5dff 0%, #7a4dff 100%);
+  --user-bubble: var(--accent);
   --assistant-bubble: #ffffff;
   --activity: rgba(60, 80, 130, 0.08);
   --activity-thought: rgba(120, 90, 200, 0.10);
@@ -832,12 +834,13 @@ details.sub-tool > summary.sub-tool-summary:hover {
 
 .md p { margin: 0 0 8px; }
 .md p:last-child { margin-bottom: 0; }
-/* Chapter / section titles in agent responses pick up the third
-   accent (--accent-blue). Themed per scheme so the hue stays
-   readable on each background — VSCode-y blue on the gray chrome,
-   GitHub-y darker blue on the light scheme, etc. */
+/* Chapter / section titles in agent responses inherit the body text
+   color (--text), which reads as white on dark/gray and as near-black
+   on light. Earlier we colored these with --accent-blue, but on the
+   gray theme that bloomed against the muted chrome — the user
+   preferred a plain bold heading. --accent-blue is still available
+   for small accents (links, sort arrows, info badges). */
 .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
-  color: var(--accent-blue);
   margin: 14px 0 6px;
   line-height: 1.25;
 }
@@ -849,15 +852,9 @@ details.sub-tool > summary.sub-tool-summary:hover {
 .md > h2:first-child,
 .md > h3:first-child,
 .md > h4:first-child { margin-top: 0; }
-/* Inside the user bubble the gradient already carries the blue cue and
-   the bubble text is white — recoloring headings blue there would
-   reduce contrast. Force them back to inherit the bubble's white. */
-.message-user .md h1,
-.message-user .md h2,
-.message-user .md h3,
-.message-user .md h4,
-.message-user .md h5,
-.message-user .md h6,
+/* Bubble text is white (or whatever the accent's foreground reads as);
+   force markdown links inside it to inherit so they don't drop to the
+   global --accent color and lose contrast on the bubble background. */
 .message-user .md a { color: inherit; }
 .md code {
   font-family: var(--mono);
@@ -1168,6 +1165,15 @@ details.sub-tool > summary.sub-tool-summary:hover {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  /* Flex column so extensions can rely on `height: 100%` / `flex: 1`
+     children resolving against a definite parent. The list view in
+     machines uses `min-height: 100%` (single child grows to fill +
+     content beyond scrolls); the detail / remote views use
+     `height: 100%` with their OWN inner overflow:auto on the detail
+     body — that pattern needs the parent to be a flex container with
+     a definite height, otherwise the child collapses. */
+  display: flex;
+  flex-direction: column;
 }
 
 /* Host-side polish overlay — improves the default look-and-feel of

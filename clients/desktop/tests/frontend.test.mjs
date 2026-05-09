@@ -22,6 +22,7 @@ import { JSDOM } from 'jsdom';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(__dirname, '..', 'src');
+const WEB = path.join(__dirname, '..', '..', 'web');
 
 function loadFrontend({ ipc, WebSocketClass } = {}) {
   const dom = new JSDOM(
@@ -63,6 +64,21 @@ function loadFrontend({ ipc, WebSocketClass } = {}) {
   evalIn('client-actions.js');
   evalIn('chat.js');
   return { window, calls };
+}
+
+function loadWebRuntime(url = 'http://localhost/') {
+  const dom = new JSDOM('<!doctype html><html><body><div id="oauth-status"><h1></h1><p></p></div></body></html>', {
+    runScripts: 'outside-only',
+    url,
+  });
+  const { window } = dom;
+  window.AGIXT_WEB_CONFIG = {
+    serverUrl: 'http://localhost:7437',
+    webUrl: 'http://localhost:3437',
+  };
+  const code = fs.readFileSync(path.join(WEB, 'web-runtime.js'), 'utf8');
+  vm.runInContext(code, dom.getInternalVMContext(), { filename: 'web-runtime.js' });
+  return { window };
 }
 
 function loadFullApp({ ipc } = {}) {
@@ -171,20 +187,36 @@ test('markdown: code fence preserves whitespace', () => {
 
 test('markdown: image URL becomes <img>', () => {
   const { window } = loadFrontend();
-  const html = window.AgixtMarkdown.render('![cat](https://example.com/cat.png)');
-  assert.match(html, /<img[^>]+src="https:\/\/example\.com\/cat\.png"[^>]+alt="cat"/);
+  const html = window.AgixtMarkdown.render('![cat](/outputs/cat.png)');
+  assert.match(html, /<img[^>]+alt="cat"[^>]+src="\/outputs\/cat\.png"/);
 });
 
 test('markdown: video URL becomes <video controls>', () => {
   const { window } = loadFrontend();
-  const html = window.AgixtMarkdown.render('Watch: https://example.com/clip.mp4');
-  assert.match(html, /<video[^>]+controls[^>]+src="https:\/\/example\.com\/clip\.mp4"/);
+  const html = window.AgixtMarkdown.render('![clip](/outputs/clip.mp4)');
+  assert.match(html, /<video[^>]+controls[^>]+src="\/outputs\/clip\.mp4"/);
 });
 
 test('markdown: audio URL becomes <audio controls>', () => {
   const { window } = loadFrontend();
-  const html = window.AgixtMarkdown.render('Listen: https://example.com/voice.mp3');
-  assert.match(html, /<audio[^>]+controls[^>]+src="https:\/\/example\.com\/voice\.mp3"/);
+  const html = window.AgixtMarkdown.render('![voice](/outputs/voice.mp3)');
+  assert.match(html, /<audio[^>]+controls[^>]+src="\/outputs\/voice\.mp3"/);
+});
+
+test('markdown: external URLs do not become direct navigation attributes', () => {
+  const { window } = loadFrontend();
+  const target = window.document.createElement('div');
+  window.AgixtMarkdown.renderInto(
+    target,
+    '[site](https://example.com/page.html) https://example.com/clip.mp4',
+  );
+  assert.equal(target.querySelector('a[href^="https://"]'), null);
+  assert.equal(target.querySelector('img[src^="https://"], video[src^="https://"], audio[src^="https://"]'), null);
+  const links = target.querySelectorAll('a[data-external-url]');
+  assert.equal(links.length, 2);
+  assert.equal(links[0].getAttribute('href'), '#agixt-external-link');
+  assert.equal(links[0].dataset.externalUrl, 'https://example.com/page.html');
+  assert.equal(links[1].dataset.externalUrl, 'https://example.com/clip.mp4');
 });
 
 test('markdown: untrusted html and unsafe URLs stay inert', () => {
@@ -215,6 +247,54 @@ test('markdown: classifyMedia distinguishes images, videos, audio', () => {
   assert.equal(c('https://x.com/a.wav'), 'audio');
   assert.equal(c('https://tenor.com/somegif'), 'image');
   assert.equal(c('https://example.com/page.html'), null);
+});
+
+test('web runtime: localStorage settings omit runtime auth fields', async () => {
+  const { window } = loadWebRuntime();
+  const saved = await window.__TAURI__.core.invoke('save_settings', {
+    settings: {
+      server_url: 'http://localhost:7437',
+      web_url: 'http://localhost:3437',
+      service_brand: 'web',
+      jwt: 'secret.jwt',
+      token: 'secret.token',
+      user_email: 'test@example.com',
+      agent_name: 'XT',
+    },
+  });
+  assert.equal(saved.jwt, 'secret.jwt');
+  const stored = JSON.parse(window.localStorage.getItem('agixt.web.settings.v1'));
+  assert.equal(stored.jwt, undefined);
+  assert.equal(stored.token, undefined);
+  assert.equal(stored.user_email, undefined);
+  assert.equal(stored.server_url, 'http://localhost:7437');
+
+  const reloaded = await window.__TAURI__.core.invoke('get_settings');
+  assert.equal(reloaded.jwt, 'secret.jwt');
+  assert.equal(reloaded.user_email, 'test@example.com');
+});
+
+test('web runtime: OAuth flow storage keeps only callback state', async () => {
+  const { window } = loadWebRuntime();
+  const result = await window.__TAURI__.core.invoke('build_oauth_connect_url', {
+    args: {
+      server_url: 'http://localhost:7437',
+      web_url: 'http://localhost:3437',
+      provider: {
+        name: 'Google SSO',
+        authorize: 'https://accounts.google.com/o/oauth2/auth',
+        client_id: 'client-id',
+        scopes: 'openid email',
+      },
+    },
+  });
+  assert.match(result.url, /^https:\/\/accounts\.google\.com\/o\/oauth2\/auth\?/);
+  const stored = JSON.parse(window.localStorage.getItem('agixt.web.oauthFlow.v1'));
+  assert.deepEqual(Object.keys(stored).sort(), ['connect', 'server_url', 'service_brand', 'started_at', 'web_url']);
+  assert.equal(stored.connect, true);
+  assert.equal(stored.provider, undefined);
+  assert.equal(stored.redirect_uri, undefined);
+  assert.equal(stored.client_id, undefined);
 });
 
 test('chat: classifyActivity tags activities by content', () => {
@@ -258,10 +338,12 @@ test('chat: workspace media auth only attaches to configured AGiXT origins', asy
     [...window.document.querySelectorAll('#messages img')]
       .map((img) => [img.getAttribute('alt'), img.getAttribute('src')]),
   );
-  assert.equal(byAlt.evil, 'https://evil.example/outputs/leak.png');
+  assert.equal(byAlt.evil, undefined);
   assert.equal(byAlt.relative, 'http://localhost:7437/outputs/local.png?auth=secret.jwt');
   assert.equal(byAlt.same, 'http://localhost:7437/outputs/same.png?auth=secret.jwt');
   assert.equal(byAlt.loopback, 'http://127.0.0.1:7437/outputs/loop.png?auth=secret.jwt');
+  const evilLink = window.document.querySelector('#messages a[data-external-url="https://evil.example/outputs/leak.png"]');
+  assert.equal(evilLink && evilLink.textContent, 'evil');
   window.AgixtChat.disconnect();
 });
 
