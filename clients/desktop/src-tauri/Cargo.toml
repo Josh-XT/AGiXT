@@ -19,6 +19,10 @@ path = "src/main.rs"
 name = "agixt-cli"
 path = "src/bin/cli.rs"
 
+[[bin]]
+name = "agixt-desktop"
+path = "src/bin/agixt-desktop.rs"
+
 [build-dependencies]
 tauri-build = { version = "2.6.1", features = [] }
 
