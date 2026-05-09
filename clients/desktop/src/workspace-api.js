@@ -88,11 +88,11 @@
     });
   }
 
-  /** DELETE /v1/conversation/{id}/workspace
+  /** DELETE /v1/conversation/{id}/workspace/item
    *  body: { path }
    */
   async function deleteItem(cfg, conversationId, path) {
-    const url = `${trimSlash(cfg.serverUrl)}/v1/conversation/${encodeURIComponent(conversationId)}/workspace`;
+    const url = `${trimSlash(cfg.serverUrl)}/v1/conversation/${encodeURIComponent(conversationId)}/workspace/item`;
     return jsonFetch(url, {
       method: 'DELETE',
       headers: authHeaders(cfg.jwt, { 'Content-Type': 'application/json' }),
@@ -100,11 +100,11 @@
     });
   }
 
-  /** PUT /v1/conversation/{id}/workspace
+  /** PUT /v1/conversation/{id}/workspace/item
    *  body: { source_path, destination_path }
    */
   async function moveItem(cfg, conversationId, sourcePath, destinationPath) {
-    const url = `${trimSlash(cfg.serverUrl)}/v1/conversation/${encodeURIComponent(conversationId)}/workspace`;
+    const url = `${trimSlash(cfg.serverUrl)}/v1/conversation/${encodeURIComponent(conversationId)}/workspace/item`;
     return jsonFetch(url, {
       method: 'PUT',
       headers: authHeaders(cfg.jwt, { 'Content-Type': 'application/json' }),

@@ -6,6 +6,7 @@
  *
  * Server sends JSON envelopes:
  *   { type: "connected" | "heartbeat" | "pong" }
+ *   { type: "initial_data", data: [{ id, role, message, timestamp }, ...] }
  *   { type: "initial_message" | "message_added", data: { id, role, message, timestamp } }
  *   { type: "message_updated", data: { ... } }
  *   { type: "messages_deleted" }
@@ -978,6 +979,11 @@
       case 'connected':
       case 'heartbeat':
       case 'pong':
+        return;
+      case 'initial_data':
+        if (Array.isArray(env.data)) {
+          env.data.forEach((msg) => ingest(msg, true));
+        }
         return;
       case 'initial_message':
       case 'message_added':
