@@ -641,19 +641,6 @@
       el('span', { html: ICONS.upload }),
       { kind: 'ghost', onclick: handleImportSteps, title: 'Replace steps from JSON', ariaLabel: 'Import steps' }
     );
-    // Prompt Library shortcut — chains' Prompt-step dropdown reads from
-    // the same library, so we surface it here instead of as a separate
-    // sidenav item. Routes through AgixtSidenav.setActiveView so the
-    // prompts pane is lazy-mounted on first open.
-    const promptLibBtn = btn(
-      el('span', { html: ICONS.book }),
-      {
-        kind: 'ghost',
-        onclick: handleOpenPromptLibrary,
-        title: 'Prompt Library — manage the prompts your chain steps reuse',
-        ariaLabel: 'Open Prompt Library',
-      }
-    );
 
     // Help button — toggles the toolbar reference banner.
     const helpBtn = btn(
@@ -678,7 +665,7 @@
       el('div', { class: 'cn-editor-actions' }, [
         saveAllBtn, autosaveToggle, runBtn,
         renderAbilityControl(),
-        promptLibBtn, exportBtn, importBtn, helpBtn, deleteBtn,
+        exportBtn, importBtn, helpBtn, deleteBtn,
       ]),
     ]);
   }
@@ -1873,6 +1860,13 @@
     }
     const newBtn = $('#cn-new-chain');
     if (newBtn) newBtn.addEventListener('click', handleCreateChain);
+
+    // Prompt Library — surfaced in the always-visible main header so
+    // users can reach it regardless of whether a chain is selected.
+    // Routes through AgixtSidenav.setActiveView('prompts') so the
+    // prompts pane is lazy-mounted on first activation.
+    const openPromptsBtn = $('#cn-open-prompts');
+    if (openPromptsBtn) openPromptsBtn.addEventListener('click', handleOpenPromptLibrary);
 
     // Collapse / re-expand the chain list panel. The chevron in the
     // list header tucks the panel away; clicking the thin strip on the
