@@ -5,23 +5,19 @@ description = "AGiXT Desktop client - persistent always-on-top sidebar chat with
 authors = ["XT Systems"]
 edition = "2021"
 rust-version = "1.77"
-default-run = "agixt"
+default-run = "agixt-desktop"
 
 [lib]
 name = "agixt_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
-name = "agixt"
+name = "agixt-desktop"
 path = "src/main.rs"
 
 [[bin]]
 name = "agixt-cli"
 path = "src/bin/cli.rs"
-
-[[bin]]
-name = "agixt-desktop"
-path = "src/bin/agixt-desktop.rs"
 
 [build-dependencies]
 tauri-build = { version = "2.6.1", features = [] }
