@@ -1537,6 +1537,25 @@
         console.warn('UserSettings.mount', err);
       });
     }
+    // Automation Chains pane — vanilla-JS port of the web's
+    // /settings/chains route. Lazy-mounted on first activation so the
+    // chain/agent/prompt API calls don't fire until the pane is opened.
+    if (targetPane === 'chains'
+        && window.AgixtChains
+        && typeof window.AgixtChains.mount === 'function') {
+      Promise.resolve(window.AgixtChains.mount()).catch((err) => {
+        console.warn('AgixtChains.mount', err);
+      });
+    }
+    // Prompt Library pane — vanilla-JS port of the web's
+    // /settings/prompts route. Same lazy-mount pattern as chains.
+    if (targetPane === 'prompts'
+        && window.AgixtPrompts
+        && typeof window.AgixtPrompts.mount === 'function') {
+      Promise.resolve(window.AgixtPrompts.mount()).catch((err) => {
+        console.warn('AgixtPrompts.mount', err);
+      });
+    }
     syncContentPaneClass();
     refreshWindowMode();
     // Let the overflow-aware sidenav re-stamp its "active hidden" dot

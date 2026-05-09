@@ -152,11 +152,12 @@ function loadFullApp({ ipc } = {}) {
   // user-settings.js + agixt-api.js own the gear-button side pane that
   // replaced the legacy settings modal. They have to be loaded *before*
   // app.js so window.UserSettings exists by the time app.js's
-  // setActiveView lazy-mounts the pane on first activation.
+  // setActiveView lazy-mounts the pane on first activation. chains.js
+  // and prompts.js own their own side panes and follow the same pattern.
   for (const name of [
     'markdown.js', 'audio.js', 'client-actions.js', 'chat.js',
     'notifications.js', 'auth.js', 'dock.js',
-    'agixt-api.js', 'user-settings.js',
+    'agixt-api.js', 'user-settings.js', 'chains.js', 'prompts.js',
     'app.js',
   ]) {
     const code = fs.readFileSync(path.join(SRC, name), 'utf8');
@@ -1598,6 +1599,160 @@ test('chat: EXECUTION subactivity collapses body behind a click', async () => {
   const inline = subs[2].querySelector('details.sub-exec');
   assert.equal(inline, null, 'single-line EXECUTION should render inline, no <details>');
   assert.match(subs[2].textContent, /Generating audio response\./);
+
+  window.AgixtChat.disconnect();
+});
+
+test('chains: pane lists chains and renders editor on selection', async () => {
+  // Mock the AGiXT REST surface that chains.js hits. The module loads via
+  // loadFullApp's IIFE flow but only fires API calls once the user
+  // activates the pane, so we wire fetch responses keyed by URL suffix
+  // and trigger mount via the sidenav button.
+  const fetchLog = [];
+  const fakeChain = {
+    id: 'chain-1',
+    name: 'Demo Chain',
+    description: 'Two-step demo',
+  };
+  const fakeChainDetail = {
+    'Demo Chain': {
+      description: 'Two-step demo',
+      steps: [
+        { step: 1, agent_name: 'XT', prompt_type: 'Prompt',
+          prompt: { prompt_name: 'Think About It', prompt_category: 'Default' } },
+        { step: 2, agent_name: 'XT', prompt_type: 'Command',
+          prompt: { command_name: 'Search Grokipedia' } },
+      ],
+    },
+  };
+
+  const { window } = loadFullApp();
+  window.fetch = async (url, init) => {
+    fetchLog.push({ url: String(url), method: (init && init.method) || 'GET' });
+    const path = String(url).replace(/^https?:\/\/[^/]+/, '');
+    if (path === '/v1/chains') {
+      return new Response(JSON.stringify([{ id: fakeChain.id, chainName: fakeChain.name, description: fakeChain.description }]), { status: 200 });
+    }
+    if (path === `/v1/chain/${fakeChain.id}`) {
+      return new Response(JSON.stringify(fakeChainDetail), { status: 200 });
+    }
+    if (path === '/v1/agent') {
+      return new Response(JSON.stringify([{ id: 'agent-id', name: 'XT' }]), { status: 200 });
+    }
+    if (path.startsWith('/v1/prompts')) {
+      return new Response(JSON.stringify({ prompts: [{ id: 'p1', name: 'Think About It' }] }), { status: 200 });
+    }
+    if (path.endsWith('/extensions')) {
+      return new Response(JSON.stringify({ extensions: [] }), { status: 200 });
+    }
+    if (path.endsWith('/args')) {
+      return new Response(JSON.stringify([]), { status: 200 });
+    }
+    return new Response('{}', { status: 200 });
+  };
+  window.Response = Response;
+
+  await new Promise((r) => setTimeout(r, 20));
+
+  // Click the chains sidenav button — this triggers setActiveView('chains')
+  // which lazy-mounts AgixtChains.
+  const chainsBtn = window.document.querySelector('.sidenav-btn[data-view="chains"]');
+  assert.ok(chainsBtn, 'chains sidenav button should be present');
+  chainsBtn.click();
+  await new Promise((r) => setTimeout(r, 40));
+
+  // Pane should be visible (not hidden) and list should have one item.
+  const pane = window.document.querySelector('.view-pane[data-view="chains"]');
+  assert.equal(pane.hidden, false, 'chains pane should be revealed');
+  const items = window.document.querySelectorAll('.cn-list-item');
+  assert.equal(items.length, 1, 'one chain in the list');
+  assert.match(items[0].textContent, /Demo Chain/);
+
+  // Selecting the chain renders the editor with the chain title.
+  items[0].click();
+  await new Promise((r) => setTimeout(r, 40));
+  const titleInput = window.document.querySelector('.cn-editor-title');
+  assert.ok(titleInput, 'editor header rendered');
+  assert.equal(titleInput.value, 'Demo Chain');
+
+  // Two step cards appear with badges matching their type.
+  const cards = window.document.querySelectorAll('.cn-step');
+  assert.equal(cards.length, 2);
+  assert.ok(cards[0].querySelector('.cn-step-badge.is-prompt'), 'first step is a Prompt');
+  assert.ok(cards[1].querySelector('.cn-step-badge.is-command'), 'second step is a Command');
+
+  // Verify the API was hit.
+  assert.ok(fetchLog.some((c) => c.url.endsWith('/v1/chains')), 'chains list fetched');
+  assert.ok(fetchLog.some((c) => c.url.endsWith(`/v1/chain/${fakeChain.id}`)), 'chain detail fetched');
+
+  window.AgixtChat.disconnect();
+});
+
+test('prompts: pane lists prompts and renders editor on selection', async () => {
+  const fakePrompt = {
+    id: 'p1',
+    name: 'Think About It',
+    content: 'Carefully consider the following question:\n\n{user_input}\n\nProvide a thoughtful response in {style} style.',
+  };
+  const { window } = loadFullApp();
+  window.fetch = async (url) => {
+    const path = String(url).replace(/^https?:\/\/[^/]+/, '');
+    if (path.startsWith('/v1/prompts')) {
+      return new Response(JSON.stringify({ prompts: [fakePrompt] }), { status: 200 });
+    }
+    if (path === `/v1/prompt/${fakePrompt.id}`) {
+      return new Response(JSON.stringify(fakePrompt), { status: 200 });
+    }
+    return new Response('{}', { status: 200 });
+  };
+  window.Response = Response;
+
+  await new Promise((r) => setTimeout(r, 20));
+
+  // Prompts is reached from the chains editor, not a top-level sidenav
+  // item. Activate the view directly via the AgixtSidenav shim — that's
+  // the same path the chains "Prompt Library" toolbar button takes.
+  assert.ok(
+    !window.document.querySelector('.sidenav-btn[data-view="prompts"]'),
+    'prompts should not have its own sidenav item',
+  );
+  window.AgixtSidenav.setActiveView('prompts');
+  await new Promise((r) => setTimeout(r, 40));
+
+  const pane = window.document.querySelector('.view-pane[data-view="prompts"]');
+  assert.equal(pane.hidden, false, 'prompts pane revealed');
+  const items = window.document.querySelectorAll('.pl-list-item');
+  assert.equal(items.length, 1, 'one prompt listed');
+  assert.match(items[0].textContent, /Think About It/);
+
+  items[0].click();
+  await new Promise((r) => setTimeout(r, 40));
+
+  const titleInput = window.document.querySelector('.pl-editor-title');
+  assert.ok(titleInput, 'editor header rendered');
+  assert.equal(titleInput.value, 'Think About It');
+
+  // Edit tab is the default — the textarea should hold the prompt body
+  // and the var sidebar should expose `user_input` and `style` chips.
+  const textarea = window.document.querySelector('.pl-edit-textarea');
+  assert.ok(textarea, 'edit textarea present');
+  assert.match(textarea.value, /Carefully consider/);
+  const chips = window.document.querySelectorAll('.pl-var-chip');
+  const chipNames = [...chips].map((c) => c.textContent.replace(/[^a-z_]/gi, ''));
+  assert.ok(chipNames.includes('user_input'), 'user_input variable detected');
+  assert.ok(chipNames.includes('style'), 'style variable detected');
+
+  // Switch to Test tab — should show input fields for both variables.
+  const tabs = window.document.querySelectorAll('.pl-tab');
+  const testTab = [...tabs].find((t) => /Test/.test(t.textContent));
+  assert.ok(testTab, 'Test tab present');
+  testTab.click();
+  await new Promise((r) => setTimeout(r, 20));
+
+  const fields = window.document.querySelectorAll('.pl-test-field-label');
+  const labels = [...fields].map((f) => f.textContent);
+  assert.ok(labels.includes('user_input'));
+  assert.ok(labels.includes('style'));
 
   window.AgixtChat.disconnect();
 });

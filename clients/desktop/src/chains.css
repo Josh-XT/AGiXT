@@ -1,0 +1,1089 @@
+/* Automation Chains pane.
+ *
+ * Lives inside `.view-pane[data-view="chains"]` in the main window. The pane
+ * is a two-column layout: a chain list on the left (~260px) and an inline
+ * editor on the right with a vertical stack of step cards. We deliberately
+ * skip a full visual flow editor (the web app uses React Flow) — the side
+ * pane is too narrow for free-floating nodes, and a clean vertical sequence
+ * of cards with arrows between them is more readable here anyway.
+ *
+ * Tokens come from styles.css. Keep new colors derived from --accent /
+ * --panel / --border so flipping `data-theme` on <html> recolors everything.
+ */
+
+/* The base `.view-pane` rule in styles.css already provides
+ *   display: flex; flex-direction: column; flex: 1; min-w/h: 0
+ * and toggles to `display: none` when the [hidden] attribute is set,
+ * so we only contribute background + text color here. */
+.view-pane-chains {
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+/* ----- Header ---------------------------------------------------------- */
+
+.cn-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-wrap: wrap;
+}
+.cn-header-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: 0.2px;
+}
+.cn-header-sub {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.cn-header-spacer { flex: 1; }
+
+.cn-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  max-width: 480px;
+  z-index: 9999;
+}
+.cn-toast.success { border-color: rgba(98, 200, 134, 0.5); }
+.cn-toast.error { border-color: rgba(255, 110, 110, 0.55); }
+
+/* ----- Body (two-column layout) ---------------------------------------- */
+
+.cn-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The chain list lives on the *right* edge of the pane (mirroring the
+ * workspace editor's "Files" panel). The editor takes the primary
+ * width on the left; the list collapses to a thin re-expand strip
+ * (`.cn-list-collapsed`) when the user clicks the header chevron. */
+.cn-list {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  min-height: 0;
+  /* Stack above the editor so any oversized step card etc. can't
+     visually leak into the list panel. */
+  position: relative;
+  z-index: 1;
+}
+
+/* Collapsed strip — replaces the list when collapsed. 28px wide with
+   a vertical "Chains" label, click anywhere on it to re-expand. */
+.cn-list-collapsed {
+  flex: 0 0 auto;
+  width: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  background: var(--panel);
+  border: 0;
+  border-left: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s ease;
+}
+.cn-list-collapsed:hover { background: var(--panel-hover); }
+.cn-list-collapsed-icon {
+  /* Chevron points right by default; flip it left so it reads as
+     "expand toward me" from the right edge. */
+  transform: rotate(180deg);
+  opacity: 0.85;
+}
+.cn-list-collapsed-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+/* Header strip at the top of the list — title + new-chain + collapse
+   chevron. Only visible when the list is expanded. */
+.cn-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-muted);
+}
+.cn-list-title {
+  font-size: 11px;
+  opacity: 0.7;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.cn-list-header-actions { display: flex; gap: 2px; align-items: center; }
+.cn-list-collapse-btn { opacity: 0.7; }
+.cn-list-collapse-btn:hover { opacity: 1; }
+
+.cn-list-toolbar {
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-muted);
+}
+.cn-search {
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 12.5px;
+  box-sizing: border-box;
+}
+.cn-search:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+.cn-list-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+}
+.cn-list-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 12.5px;
+}
+
+.cn-list-item {
+  appearance: none;
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 9px 11px 9px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  margin-bottom: 2px;
+  transition: background 0.15s ease, border-color 0.15s ease, padding-left 0.15s ease;
+  position: relative;
+}
+.cn-list-item::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%) scaleY(0);
+  width: 3px;
+  height: 70%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.cn-list-item:hover {
+  background: var(--panel-hover);
+  padding-left: 16px;
+}
+.cn-list-item:hover::before { transform: translateY(-50%) scaleY(0.4); }
+.cn-list-item.is-active {
+  background: var(--accent-soft);
+  border-color: rgba(107, 123, 255, 0.35);
+  padding-left: 16px;
+}
+.cn-list-item.is-active::before { transform: translateY(-50%) scaleY(1); }
+.cn-list-item-name {
+  display: block;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cn-list-item-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cn-list-item-meta {
+  display: block;
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+/* ----- Editor pane (right column) -------------------------------------- */
+
+.cn-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cn-editor-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  padding: 40px 24px;
+  text-align: center;
+  gap: 14px;
+}
+.cn-editor-empty-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 30% 20%, var(--accent-soft) 0%, transparent 65%),
+    var(--panel);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.cn-editor-empty-title {
+  font-size: 17px;
+  font-weight: 650;
+  color: var(--text);
+  letter-spacing: 0.1px;
+}
+.cn-editor-empty-body { font-size: 13px; max-width: 400px; line-height: 1.55; }
+
+.cn-empty-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cn-empty-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+.cn-empty-chip-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+.cn-empty-chip-icon svg { width: 11px; height: 11px; }
+.cn-empty-chip.is-prompt {
+  background: rgba(91, 142, 255, 0.10);
+  color: #a3bbff;
+  border: 1px solid rgba(91, 142, 255, 0.25);
+}
+.cn-empty-chip.is-prompt .cn-empty-chip-icon { background: #5b8eff; }
+.cn-empty-chip.is-command {
+  background: rgba(98, 200, 134, 0.10);
+  color: #95d8af;
+  border: 1px solid rgba(98, 200, 134, 0.25);
+}
+.cn-empty-chip.is-command .cn-empty-chip-icon { background: #62c886; }
+.cn-empty-chip.is-chain {
+  background: rgba(154, 108, 255, 0.10);
+  color: #c8b2f5;
+  border: 1px solid rgba(154, 108, 255, 0.25);
+}
+.cn-empty-chip.is-chain .cn-empty-chip-icon { background: #b095f0; }
+
+.cn-editor-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-wrap: wrap;
+}
+.cn-editor-titlewrap { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 4px; }
+.cn-editor-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.cn-editor-title:hover { background: var(--panel-hover); }
+.cn-editor-title:focus {
+  outline: none;
+  background: var(--panel-2);
+  border-color: var(--accent);
+}
+.cn-editor-desc {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  line-height: 1.5;
+}
+.cn-editor-desc:hover { background: var(--panel-hover); }
+.cn-editor-desc:focus {
+  outline: none;
+  background: var(--panel-2);
+  border-color: var(--accent);
+}
+.cn-editor-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ----- Steps stack ----------------------------------------------------- */
+
+.cn-steps-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px;
+}
+.cn-steps {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+/* ----- Type tokens ----------------------------------------------------- *
+ * Each step card pulls its accent palette via CSS custom properties so a
+ * single set of rules can render the Prompt/Command/Chain variants — the
+ * `.is-{type}` class on the card swaps the variables. This mirrors the
+ * gradient + accent-color treatment the web UI applies via Tailwind's
+ * from-{color}/20 utilities, without committing us to one set of rules
+ * per type. */
+.cn-step.is-prompt {
+  --cn-step-accent: #5b8eff;
+  --cn-step-accent-glow: rgba(91, 142, 255, 0.35);
+  --cn-step-tint-strong: rgba(91, 142, 255, 0.18);
+  --cn-step-tint-soft: rgba(91, 142, 255, 0.06);
+  --cn-step-border: rgba(91, 142, 255, 0.32);
+}
+.cn-step.is-command {
+  --cn-step-accent: #62c886;
+  --cn-step-accent-glow: rgba(98, 200, 134, 0.32);
+  --cn-step-tint-strong: rgba(98, 200, 134, 0.16);
+  --cn-step-tint-soft: rgba(98, 200, 134, 0.05);
+  --cn-step-border: rgba(98, 200, 134, 0.30);
+}
+.cn-step.is-chain {
+  --cn-step-accent: #b095f0;
+  --cn-step-accent-glow: rgba(154, 108, 255, 0.36);
+  --cn-step-tint-strong: rgba(154, 108, 255, 0.20);
+  --cn-step-tint-soft: rgba(154, 108, 255, 0.07);
+  --cn-step-border: rgba(154, 108, 255, 0.32);
+}
+
+/* ----- Connector lines (animated dashed gradient between cards) -------- *
+ * Two stacked layers: a solid gradient line as the base + a dashed
+ * overlay that animates downward, giving the same "flow direction" cue
+ * the web UI achieves with React Flow's animated bezier edges. The whole
+ * thing is purely decorative — no JS needed to maintain. */
+.cn-step-arrow {
+  position: relative;
+  height: 28px;
+  margin: 0 auto;
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    var(--cn-step-accent-prev, var(--accent)) 0%,
+    var(--cn-step-accent-next, var(--accent)) 100%
+  );
+  border-radius: 1px;
+  opacity: 0.35;
+  overflow: hidden;
+}
+.cn-step-arrow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 4px,
+    var(--cn-step-accent-next, var(--accent)) 4px,
+    var(--cn-step-accent-next, var(--accent)) 8px
+  );
+  background-size: 100% 8px;
+  animation: cn-flow 0.9s linear infinite;
+  opacity: 0.7;
+}
+.cn-step-arrow::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--cn-step-accent-next, var(--accent));
+  border-bottom: 2px solid var(--cn-step-accent-next, var(--accent));
+  opacity: 0.85;
+}
+@keyframes cn-flow {
+  from { background-position: 0 0; }
+  to { background-position: 0 8px; }
+}
+
+.cn-step-add-between {
+  display: flex;
+  justify-content: center;
+  margin: -12px 0;
+  position: relative;
+  height: 0;
+  overflow: visible;
+  z-index: 2;
+}
+.cn-step-add-btn {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+.cn-step-add-between:hover .cn-step-add-btn,
+.cn-step-add-btn:focus-visible {
+  opacity: 1;
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  transform: scale(1.15);
+  box-shadow: 0 4px 12px var(--accent-soft);
+}
+
+/* Always-visible "add step" tail at the end of the list. */
+.cn-step-add-tail {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0 8px;
+}
+.cn-step-add-tail .btn {
+  border-style: dashed;
+  border-width: 1.5px;
+  transition: all 0.18s ease;
+}
+.cn-step-add-tail .btn:hover {
+  border-style: solid;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--accent-soft);
+}
+
+/* ----- Step card ------------------------------------------------------- *
+ * The card pulls --cn-step-* tokens from its `.is-{type}` class. Layers
+ * stack: tinted gradient background + solid border + colored ring (when
+ * modified) + hover lift + expanded shadow. */
+.cn-step {
+  position: relative;
+  border: 1px solid var(--cn-step-border, var(--border));
+  border-radius: var(--radius);
+  background: linear-gradient(
+    180deg,
+    var(--cn-step-tint-strong, var(--panel)) 0%,
+    var(--cn-step-tint-soft, var(--panel-2)) 100%
+  );
+  overflow: hidden;
+  transition:
+    transform 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.cn-step::before {
+  /* Subtle inner highlight at the top edge — picks up the tint without
+     making the whole card feel "frosted." Mirrors how shadcn's Card
+     gradients fade. */
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--cn-step-accent, var(--accent)) 50%,
+    transparent 100%
+  );
+  opacity: 0.4;
+  pointer-events: none;
+}
+.cn-step:hover {
+  border-color: var(--cn-step-accent, var(--border-strong));
+  box-shadow:
+    0 8px 22px rgba(0, 0, 0, 0.22),
+    0 0 0 1px var(--cn-step-accent-glow, transparent);
+  transform: translateY(-1px);
+}
+.cn-step.is-modified {
+  border-color: rgba(255, 184, 80, 0.55);
+  box-shadow:
+    0 0 0 2px rgba(255, 184, 80, 0.18),
+    0 4px 14px rgba(0, 0, 0, 0.16);
+}
+.cn-step.is-expanded {
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.28),
+    0 0 0 1px var(--cn-step-accent-glow, transparent);
+}
+
+.cn-step-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  cursor: pointer;
+  user-select: none;
+  background:
+    linear-gradient(90deg,
+      rgba(20, 24, 36, 0.55) 0%,
+      rgba(20, 24, 36, 0.40) 100%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+:root[data-theme="light"] .cn-step-header {
+  background:
+    linear-gradient(90deg,
+      rgba(255, 255, 255, 0.65) 0%,
+      rgba(255, 255, 255, 0.45) 100%);
+}
+.cn-step.is-expanded .cn-step-header {
+  border-bottom-color: var(--cn-step-border, var(--border-muted));
+}
+
+.cn-step-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--cn-step-accent, var(--accent));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow:
+    0 2px 6px var(--cn-step-accent-glow, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s ease;
+}
+.cn-step:hover .cn-step-badge {
+  transform: scale(1.06) rotate(-3deg);
+  box-shadow:
+    0 4px 12px var(--cn-step-accent-glow, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+/* Legacy alias — the JS still toggles is-prompt/is-command/is-chain on
+   the badge directly. The colors now come from the parent `.cn-step`
+   tokens via inheritance, so these rules just fall through. */
+.cn-step-badge.is-prompt,
+.cn-step-badge.is-command,
+.cn-step-badge.is-chain { /* tokens come from the card */ }
+
+.cn-step-meta { flex: 1; min-width: 0; }
+.cn-step-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-faint);
+  font-weight: 500;
+}
+.cn-step-meta-pill {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--cn-step-tint-strong, var(--panel-2));
+  border: 1px solid var(--cn-step-border, var(--border));
+  color: var(--cn-step-accent, var(--text-dim));
+  font-size: 9.5px;
+  font-weight: 600;
+}
+.cn-step-meta-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+  text-transform: none;
+  letter-spacing: 0.2px;
+  font-size: 10.5px;
+  font-weight: 400;
+}
+.cn-step-meta-agent::before {
+  content: "·";
+  color: var(--text-faint);
+  margin-right: 2px;
+}
+.cn-step-modified {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: rgba(255, 184, 80, 1);
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+.cn-step-modified-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 184, 80, 1);
+  box-shadow: 0 0 0 3px rgba(255, 184, 80, 0.18);
+  animation: cn-pulse 1.6s ease-in-out infinite;
+}
+@keyframes cn-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(255, 184, 80, 0.18); }
+  50% { box-shadow: 0 0 0 5px rgba(255, 184, 80, 0.32); }
+}
+
+.cn-step-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.1px;
+}
+.cn-step-title.is-empty {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+.cn-step-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.cn-icon-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  padding: 0;
+}
+.cn-icon-btn:hover { background: var(--panel-hover); color: var(--text); }
+.cn-icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.cn-icon-btn.is-save { color: rgba(255, 184, 80, 1); }
+.cn-icon-btn.is-save:disabled { color: var(--text-faint); opacity: 0.4; }
+.cn-icon-btn.is-danger:hover { color: #ff6e6e; background: rgba(255, 110, 110, 0.1); }
+
+.cn-step-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 14px;
+  padding: 16px;
+  background:
+    linear-gradient(180deg,
+      rgba(15, 17, 24, 0.32) 0%,
+      rgba(15, 17, 24, 0.18) 100%);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  animation: cn-body-in 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+:root[data-theme="light"] .cn-step-body {
+  background:
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.55) 0%,
+      rgba(255, 255, 255, 0.30) 100%);
+}
+@keyframes cn-body-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cn-step-body.is-collapsed { display: none; }
+.cn-step-body-full { grid-column: 1 / -1; }
+
+.cn-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cn-field-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-faint);
+  font-weight: 500;
+}
+.cn-input,
+.cn-select,
+.cn-textarea {
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 12.5px;
+  box-sizing: border-box;
+}
+.cn-textarea {
+  resize: vertical;
+  min-height: 40px;
+  max-height: 200px;
+  line-height: 1.5;
+}
+.cn-input:focus,
+.cn-select:focus,
+.cn-textarea:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+.cn-input:disabled,
+.cn-select:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.cn-args-section {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border-muted);
+  padding-top: 12px;
+  margin-top: 4px;
+}
+.cn-args-section .cn-field-label { margin-bottom: 6px; display: block; }
+.cn-args-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+}
+.cn-args-empty {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  font-style: italic;
+}
+.cn-args-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 4px 0;
+}
+.cn-args-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: cn-spin 0.7s linear infinite;
+}
+@keyframes cn-spin { to { transform: rotate(360deg); } }
+
+.cn-arg-bool {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+}
+.cn-arg-bool .cn-field-label { margin: 0; text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--text); font-weight: 400; }
+
+.cn-switch {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.cn-switch input { opacity: 0; width: 0; height: 0; }
+.cn-switch-track {
+  position: absolute;
+  inset: 0;
+  background: var(--border-strong);
+  border-radius: 999px;
+  transition: background 0.15s ease;
+  cursor: pointer;
+}
+.cn-switch-track::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+}
+.cn-switch input:checked + .cn-switch-track { background: var(--accent); }
+.cn-switch input:checked + .cn-switch-track::before { transform: translateX(14px); }
+
+/* ----- Autosave toggle (inline header pill) --------------------------- */
+
+.cn-autosave {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.cn-autosave:hover { color: var(--text); border-color: var(--border-strong); }
+.cn-autosave.is-on {
+  background: var(--accent-soft);
+  border-color: rgba(107, 123, 255, 0.45);
+  color: var(--accent);
+}
+.cn-autosave input { display: none; }
+.cn-autosave .cn-switch-track {
+  position: relative;
+  width: 26px;
+  height: 14px;
+  background: var(--border-strong);
+  border-radius: 999px;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+.cn-autosave .cn-switch-track::before {
+  content: "";
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+}
+.cn-autosave.is-on .cn-switch-track { background: var(--accent); }
+.cn-autosave.is-on .cn-switch-track::before { transform: translateX(12px); }
+.cn-autosave-label { white-space: nowrap; }
+
+/* ----- Help banner (toolbar reference + chain concepts) --------------- */
+
+.cn-help-banner {
+  margin: 16px 24px 0;
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 24px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  animation: cn-body-in 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.cn-help-section { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.cn-help-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-faint);
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+.cn-help-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.cn-help-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.cn-help-row strong { color: var(--text); font-weight: 600; }
+.cn-help-line { margin: 0; color: var(--text-dim); font-size: 12.5px; line-height: 1.55; }
+.cn-help-line strong { color: var(--text); font-weight: 600; }
+.cn-help-token {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+@media (max-width: 900px) {
+  .cn-help-banner { grid-template-columns: 1fr; }
+}
+
+/* ----- Run dialog ------------------------------------------------------ */
+
+.cn-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9998;
+  padding: 24px;
+}
+.cn-modal {
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cn-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.cn-modal-title { font-size: 15px; font-weight: 600; margin: 0; }
+.cn-modal-close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  font-size: 18px;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cn-modal-close:hover { background: var(--panel-hover); color: var(--text); }
+.cn-modal-body {
+  padding: 16px 18px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cn-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.cn-run-result {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  white-space: pre-wrap;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* ----- Tight responsive layout (when chat is open beside) -------------- */
+@media (max-width: 900px) {
+  .cn-list { width: 220px; }
+  .cn-step-body { grid-template-columns: 1fr; }
+  .cn-args-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .cn-body { flex-direction: column; }
+  .cn-list {
+    width: 100%;
+    max-height: 200px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}

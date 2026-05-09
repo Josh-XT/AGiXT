@@ -2211,7 +2211,10 @@ body.window-mode.chat-collapsed .chat-resize-handle {
   padding: 18px 22px 28px;
   flex-direction: column;
   gap: 14px;
-  max-width: 720px;
+  /* No max-width: settings sections should span the full width of the
+     view-pane container so wide tables (members, tokens, webhooks) get
+     room to breathe rather than being pinned at 720px. */
+  width: 100%;
 }
 .us-panel.is-active { display: flex; }
 .us-panel[hidden] { display: none !important; }

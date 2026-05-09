@@ -8,6 +8,8 @@
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="workspace.css" />
     <link rel="stylesheet" href="agent-settings.css" />
+    <link rel="stylesheet" href="chains.css" />
+    <link rel="stylesheet" href="prompts.css" />
     <!-- Theme bootstrap. Runs before any CSS is applied to the body so
          a light-mode user never sees a dark flash on launch. The script
          reads the cached preference from localStorage (the Tauri
@@ -240,6 +242,14 @@
             </div>
           </div>
           <div class="sidenav-bottom">
+            <button class="sidenav-btn" data-view="chains" type="button"
+                    role="tab" aria-selected="false" title="Automation Chains"
+                    aria-label="Automation Chains" data-tooltip="Automation Chains">
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                      d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+              </svg>
+            </button>
             <button class="sidenav-btn" data-view="extensions" type="button"
                     role="tab" aria-selected="false" title="Extensions"
                     aria-label="Extensions" data-tooltip="Extensions">
@@ -379,6 +389,8 @@
                         data-us-tab="companies" aria-selected="false">Companies</button>
                 <button class="us-tab" type="button" role="tab"
                         data-us-tab="teams" aria-selected="false">Teams</button>
+                <button class="us-tab" type="button" role="tab"
+                        data-us-tab="webhooks" aria-selected="false">Webhooks</button>
               </nav>
             </header>
             <main class="us-main">
@@ -389,6 +401,7 @@
               <section class="us-panel" data-us-panel="billing" role="tabpanel" hidden></section>
               <section class="us-panel" data-us-panel="companies" role="tabpanel" hidden></section>
               <section class="us-panel" data-us-panel="teams" role="tabpanel" hidden></section>
+              <section class="us-panel" data-us-panel="webhooks" role="tabpanel" hidden></section>
             </main>
             <div class="us-toast" id="us-toast" hidden></div>
           </div>
@@ -490,6 +503,128 @@
 
             <div class="as-toast" id="as-toast" hidden></div>
           </div>
+
+          <!-- Automation Chains pane — vanilla-JS port of
+               web/app/settings/chains/page.tsx, scoped to user-level
+               chains. Two-column layout: chain list on the left, vertical
+               step editor on the right. Lazy-mounted by app.js the first
+               time the user opens the pane. -->
+          <div class="view-pane view-pane-chains" data-view="chains" hidden>
+            <header class="cn-header">
+              <div>
+                <h1 class="cn-header-title">Automation Chains</h1>
+                <div class="cn-header-sub">Sequence agent steps — Prompts, Commands, and other Chains — into a reusable workflow.</div>
+              </div>
+              <div class="cn-header-spacer"></div>
+            </header>
+
+            <!-- Body row: editor (left, primary) + collapsible chain list
+                 (right). Mirrors the workspace editor's "files panel"
+                 layout — the list starts open and can be collapsed to a
+                 thin re-expand strip. State persists across mounts via
+                 localStorage. -->
+            <div class="cn-body">
+              <main id="cn-editor" class="cn-editor"></main>
+
+              <aside id="cn-list" class="cn-list" aria-label="Chains list">
+                <div class="cn-list-header">
+                  <span class="cn-list-title">Chains</span>
+                  <div class="cn-list-header-actions">
+                    <button type="button" id="cn-new-chain"
+                            class="cn-icon-btn"
+                            title="Create or import chain"
+                            aria-label="Create or import chain">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 5v14M5 12h14"/>
+                      </svg>
+                    </button>
+                    <button type="button" id="cn-list-collapse"
+                            class="cn-icon-btn cn-list-collapse-btn"
+                            title="Collapse chains panel"
+                            aria-label="Collapse chains panel">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="m9 6 6 6-6 6"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="cn-list-toolbar">
+                  <input type="search" id="cn-search" class="cn-search"
+                         placeholder="Search chains…" autocomplete="off" />
+                </div>
+                <div id="cn-list-scroll" class="cn-list-scroll">
+                  <div class="cn-list-empty">Loading chains…</div>
+                </div>
+              </aside>
+
+              <!-- Re-expand strip — replaces the chain list when the
+                   user collapses it. Click anywhere on the strip to
+                   bring the list back. -->
+              <button id="cn-list-collapsed" class="cn-list-collapsed"
+                      type="button"
+                      title="Show chains" aria-label="Show chains">
+                <svg class="cn-list-collapsed-icon" width="14" height="14"
+                     viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round"
+                        d="m9 6 6 6-6 6"/>
+                </svg>
+                <span class="cn-list-collapsed-label">Chains</span>
+              </button>
+            </div>
+
+            <div class="cn-toast" id="cn-toast" hidden></div>
+          </div>
+
+          <!-- Prompt Library pane — vanilla-JS port of
+               web/app/settings/prompts/page.tsx, scoped to user-level
+               prompts in the "Default" category. Two-column layout:
+               searchable list on the left, Edit/Test-tabbed editor on
+               the right. Lazy-mounted by app.js on first activation. -->
+          <div class="view-pane view-pane-prompts" data-view="prompts" hidden>
+            <header class="pl-header">
+              <button type="button" id="pl-back-to-chains"
+                      class="cn-icon-btn"
+                      style="margin-right:4px"
+                      title="Back to Automation Chains"
+                      aria-label="Back to Automation Chains">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                     stroke-linejoin="round" aria-hidden="true">
+                  <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+              </button>
+              <div>
+                <h1 class="pl-header-title">Prompt Library</h1>
+                <div class="pl-header-sub">Reusable prompt templates with named variables — feeds Prompt-type chain steps and the agent test panel.</div>
+              </div>
+              <div class="pl-header-spacer"></div>
+            </header>
+
+            <div class="pl-body">
+              <aside class="pl-list" aria-label="Prompts list">
+                <div class="pl-list-toolbar">
+                  <input type="search" id="pl-search" class="pl-search"
+                         placeholder="Search prompts…" autocomplete="off" />
+                  <button type="button" id="pl-new-prompt" class="btn btn-primary">
+                    <span style="display:inline-flex;align-items:center;gap:6px">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 5v14M5 12h14"/>
+                      </svg>
+                      New prompt
+                    </span>
+                  </button>
+                </div>
+                <div id="pl-list-scroll" class="pl-list-scroll">
+                  <div class="pl-list-empty">Loading prompts…</div>
+                </div>
+              </aside>
+
+              <main id="pl-editor" class="pl-editor"></main>
+            </div>
+
+            <div class="pl-toast" id="pl-toast" hidden></div>
+          </div>
         </div>
       </section>
     </section>
@@ -532,6 +667,12 @@
          pane that mirrors the web's /user/manage, /user/settings,
          /user/developer, /billing, /companies, /team pages. -->
     <script src="user-settings.js"></script>
+    <!-- Automation Chains pane — vanilla-JS port of the web's
+         /settings/chains route. Lazy-mounted by app.js. -->
+    <script src="chains.js"></script>
+    <!-- Prompt Library pane — vanilla-JS port of the web's
+         /settings/prompts route. Lazy-mounted by app.js. -->
+    <script src="prompts.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

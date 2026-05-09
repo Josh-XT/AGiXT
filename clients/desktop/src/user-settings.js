@@ -219,6 +219,7 @@
     billing: renderBilling,
     companies: renderCompanies,
     teams: renderTeams,
+    webhooks: renderWebhooks,
   };
 
   function setActiveTab(name) {
@@ -1546,6 +1547,253 @@
     }
 
     refreshBody();
+  }
+
+  // ─── Webhooks tab ────────────────────────────────────────────────────
+
+  async function renderWebhooks(panel) {
+    panel.innerHTML = '';
+    panel.appendChild(emptyState('Loading webhooks…'));
+    let outgoing, incoming, eventTypes;
+    try {
+      [outgoing, incoming, eventTypes] = await Promise.all([
+        api.listOutgoingWebhooks().catch(() => []),
+        api.listIncomingWebhooks().catch(() => []),
+        api.getWebhookEventTypes().catch(() => []),
+      ]);
+    } catch (err) {
+      panel.innerHTML = '';
+      panel.appendChild(section('Webhooks', null, [el('p', { class: 'us-hint error' }, errMsg(err))]));
+      return;
+    }
+    panel.innerHTML = '';
+
+    const stats = el('div', { class: 'us-grid-2', style: 'grid-template-columns:repeat(4,1fr);gap:12px;' }, [
+      statCard('Outgoing', outgoing.length, outgoing.filter((w) => w && w.active).length + ' active'),
+      statCard('Incoming', incoming.length, incoming.filter((w) => w && w.active).length + ' active'),
+      statCard('Event subscriptions',
+        outgoing.reduce((acc, w) => acc + ((w && w.event_types && w.event_types.length) || 0), 0),
+        'Across outgoing webhooks'),
+      statCard('Active integrations',
+        outgoing.filter((w) => w && w.active).length + incoming.filter((w) => w && w.active).length,
+        'Live now'),
+    ]);
+    panel.appendChild(stats);
+
+    // Outgoing webhooks.
+    const outgoingHeaderActions = btn('+ New outgoing webhook', { kind: 'primary',
+      onclick: () => openWebhookForm(panel, 'outgoing', null, eventTypes),
+    });
+    const outgoingSection = section('Outgoing webhooks',
+      'Send HTTP POST requests to external URLs when conversation, message, or task events fire.',
+      [
+        el('div', { class: 'us-section-row end' }, [outgoingHeaderActions]),
+      ]);
+    panel.appendChild(outgoingSection);
+    if (!outgoing.length) {
+      outgoingSection.appendChild(emptyState('No outgoing webhooks yet.'));
+    } else {
+      const list = el('div', { class: 'us-row-list' });
+      outgoing.forEach((w) => list.appendChild(buildOutgoingWebhookRow(w, panel, eventTypes)));
+      outgoingSection.appendChild(list);
+    }
+
+    // Incoming webhooks.
+    const incomingHeaderActions = btn('+ New incoming webhook', { kind: 'primary',
+      onclick: () => openWebhookForm(panel, 'incoming', null, eventTypes),
+    });
+    const incomingSection = section('Incoming webhooks',
+      'Expose URLs that trigger agent actions when external services POST to them.',
+      [
+        el('div', { class: 'us-section-row end' }, [incomingHeaderActions]),
+      ]);
+    panel.appendChild(incomingSection);
+    if (!incoming.length) {
+      incomingSection.appendChild(emptyState('No incoming webhooks yet.'));
+    } else {
+      const list = el('div', { class: 'us-row-list' });
+      incoming.forEach((w) => list.appendChild(buildIncomingWebhookRow(w, panel)));
+      incomingSection.appendChild(list);
+    }
+  }
+
+  function statCard(title, value, sub) {
+    return el('div', { class: 'us-section', style: 'padding:12px;gap:4px;' }, [
+      el('p', { class: 'us-section-blurb', style: 'margin:0;font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-faint);' }, title),
+      el('p', { style: 'margin:0;font-size:22px;font-weight:700;color:var(--text);' }, String(value)),
+      el('p', { class: 'us-section-blurb', style: 'margin:0;font-size:11px;' }, sub || ''),
+    ]);
+  }
+
+  function buildOutgoingWebhookRow(w, panel, eventTypes) {
+    const events = Array.isArray(w.event_types) ? w.event_types : [];
+    return el('div', { class: 'us-list-item' }, [
+      el('div', { class: 'us-list-item-grow' }, [
+        el('p', { class: 'us-list-item-title' }, [
+          w.name || '(unnamed)', ' ',
+          w.active ? badge('Active', 'success') : badge('Disabled'),
+        ]),
+        el('p', { class: 'us-list-item-meta' }, w.target_url || ''),
+        events.length ? el('p', { class: 'us-list-item-meta' },
+          'Events: ' + events.slice(0, 6).join(', ') + (events.length > 6 ? ` (+${events.length - 6})` : '')) : null,
+        w.description ? el('p', { class: 'us-list-item-meta' }, w.description) : null,
+      ]),
+      el('div', { class: 'us-list-item-actions' }, [
+        btn('Test', { onclick: async () => {
+          try {
+            const result = await api.testOutgoingWebhook(w.id);
+            toast('Test fired: ' + (result && (result.message || result.status_code || 'sent')), 'success');
+          } catch (err) { toast(errMsg(err), 'error'); }
+        } }),
+        btn('Edit', { onclick: () => openWebhookForm(panel, 'outgoing', w, eventTypes) }),
+        btn('Delete', { kind: 'danger', onclick: async () => {
+          if (!confirm('Delete webhook "' + (w.name || w.id) + '"?')) return;
+          try { await api.deleteOutgoingWebhook(w.id); toast('Deleted', 'success'); renderWebhooks(panel); }
+          catch (err) { toast(errMsg(err), 'error'); }
+        } }),
+      ]),
+    ]);
+  }
+
+  function buildIncomingWebhookRow(w, panel) {
+    return el('div', { class: 'us-list-item' }, [
+      el('div', { class: 'us-list-item-grow' }, [
+        el('p', { class: 'us-list-item-title' }, [
+          w.name || '(unnamed)', ' ',
+          w.active ? badge('Active', 'success') : badge('Disabled'),
+        ]),
+        w.url || w.endpoint_url ? el('p', { class: 'us-list-item-meta' },
+          el('code', { class: 'us-mono' }, w.url || w.endpoint_url)) : null,
+        w.agent_id ? el('p', { class: 'us-list-item-meta' }, 'Agent: ' + w.agent_id) : null,
+        w.description ? el('p', { class: 'us-list-item-meta' }, w.description) : null,
+      ]),
+      el('div', { class: 'us-list-item-actions' }, [
+        btn('Edit', { onclick: () => openWebhookForm(panel, 'incoming', w, null) }),
+        btn('Delete', { kind: 'danger', onclick: async () => {
+          if (!confirm('Delete webhook "' + (w.name || w.id) + '"?')) return;
+          try { await api.deleteIncomingWebhook(w.id); toast('Deleted', 'success'); renderWebhooks(panel); }
+          catch (err) { toast(errMsg(err), 'error'); }
+        } }),
+      ]),
+    ]);
+  }
+
+  function openWebhookForm(panel, kind, existing, eventTypes) {
+    panel.querySelectorAll('[data-webhook-form]').forEach((n) => n.remove());
+    const wrap = el('section', { class: 'us-section', dataset: { webhookForm: '1' } });
+    wrap.appendChild(el('h2', { class: 'us-section-title' },
+      (existing ? 'Edit ' : 'New ') + (kind === 'outgoing' ? 'outgoing' : 'incoming') + ' webhook'));
+
+    const name = el('input', { class: 'us-input', value: (existing && existing.name) || '' });
+    const description = el('textarea', { class: 'us-textarea', rows: 2 });
+    description.value = (existing && existing.description) || '';
+    const active = el('input', { type: 'checkbox' });
+    active.checked = existing ? !!existing.active : true;
+
+    wrap.appendChild(field('Name', name));
+    wrap.appendChild(field('Description', description));
+
+    let collectExtras;
+
+    if (kind === 'outgoing') {
+      const targetUrl = el('input', { class: 'us-input', type: 'url',
+        placeholder: 'https://example.com/webhook',
+        value: (existing && existing.target_url) || '' });
+      const secret = el('input', { class: 'us-input', type: 'text',
+        placeholder: 'optional shared secret',
+        value: (existing && existing.secret) || '' });
+
+      // Event-type selector. The endpoint returns [{type, description}, ...].
+      const selectedEvents = new Set((existing && existing.event_types) || []);
+      const eventList = el('div', { class: 'us-scope-list' });
+      const types = Array.isArray(eventTypes) ? eventTypes : [];
+      if (!types.length) {
+        eventList.appendChild(emptyState('No event types reported by the server.'));
+      } else {
+        types.forEach((evt) => {
+          const t = evt.type || evt.name || String(evt);
+          const chk = el('input', { type: 'checkbox' });
+          chk.checked = selectedEvents.has(t);
+          chk.addEventListener('change', () => { chk.checked ? selectedEvents.add(t) : selectedEvents.delete(t); });
+          eventList.appendChild(el('label', { class: 'us-scope-row' }, [
+            chk,
+            el('div', null, [
+              el('code', null, t),
+              evt.description ? el('div', { class: 'us-scope-row-desc' }, evt.description) : null,
+            ]),
+          ]));
+        });
+      }
+
+      wrap.appendChild(field('Target URL', targetUrl));
+      wrap.appendChild(field('Secret', secret, 'Optional. Sent as `X-Webhook-Secret` header for verification.'));
+      wrap.appendChild(el('div', { class: 'us-section-blurb' }, 'Subscribe to events:'));
+      wrap.appendChild(eventList);
+      collectExtras = () => ({
+        target_url: targetUrl.value.trim(),
+        secret: secret.value.trim() || undefined,
+        event_types: Array.from(selectedEvents),
+      });
+    } else {
+      // Incoming — needs an agent_id. Pull from cached user companies.
+      const agents = [];
+      if (cache.user && Array.isArray(cache.user.companies)) {
+        cache.user.companies.forEach((c) => {
+          (c.agents || []).forEach((a) => agents.push({ id: a.id, label: a.name + ' @ ' + (c.name || '') }));
+        });
+      }
+      const agentSelect = el('select', { class: 'us-select' }, agents.map((a) =>
+        el('option', { value: a.id }, a.label)));
+      if (existing && existing.agent_id) agentSelect.value = existing.agent_id;
+      const rateLimit = el('input', { class: 'us-input', type: 'number', min: 0,
+        value: (existing && existing.rate_limit) || '' });
+      const allowedIps = el('input', { class: 'us-input', type: 'text',
+        placeholder: 'comma-separated IPs (optional)',
+        value: (existing && Array.isArray(existing.allowed_ips)) ? existing.allowed_ips.join(', ') : '' });
+      wrap.appendChild(field('Agent', agentSelect));
+      wrap.appendChild(field('Rate limit (req/min)', rateLimit, 'Leave blank for unlimited.'));
+      wrap.appendChild(field('Allowed IPs', allowedIps));
+      collectExtras = () => ({
+        agent_id: agentSelect.value,
+        rate_limit: rateLimit.value ? Number(rateLimit.value) : undefined,
+        allowed_ips: allowedIps.value
+          ? allowedIps.value.split(',').map((s) => s.trim()).filter(Boolean)
+          : undefined,
+      });
+    }
+
+    wrap.appendChild(el('label', { class: 'us-check' }, [active, el('span', null, 'Active')]));
+
+    const status = el('span', { class: 'us-status-line' }, '');
+    const cancelBtn = btn('Cancel', { onclick: () => wrap.remove() });
+    const saveBtn = btn(existing ? 'Save changes' : 'Create', { kind: 'primary', onclick: async () => {
+      if (!name.value.trim()) { status.textContent = 'Name is required.'; status.className = 'us-status-line error'; return; }
+      const payload = {
+        name: name.value.trim(),
+        description: description.value.trim() || undefined,
+        active: active.checked,
+        ...collectExtras(),
+      };
+      saveBtn.disabled = true;
+      try {
+        if (kind === 'outgoing') {
+          if (existing) await api.updateOutgoingWebhook(existing.id, payload);
+          else await api.createOutgoingWebhook(payload);
+        } else {
+          if (existing) await api.updateIncomingWebhook(existing.id, payload);
+          else await api.createIncomingWebhook(payload);
+        }
+        toast('Saved', 'success');
+        wrap.remove();
+        renderWebhooks(panel);
+      } catch (err) {
+        status.textContent = errMsg(err); status.className = 'us-status-line error';
+        saveBtn.disabled = false;
+      }
+    } });
+    wrap.appendChild(status);
+    wrap.appendChild(el('div', { class: 'us-section-row end' }, [cancelBtn, saveBtn]));
+    panel.insertBefore(wrap, panel.firstChild);
   }
 
   // ─── Mount ───────────────────────────────────────────────────────────
