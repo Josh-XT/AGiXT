@@ -152,6 +152,17 @@
       agentTrainingBtn,
     ].forEach((b) => { if (b) b.disabled = auth; });
     closeMenus();
+    // The sidenav has zero height while #chat-screen is hidden, so any
+    // overflow measurement made before login is meaningless. Re-run it
+    // once the chat screen becomes visible so the More button appears
+    // correctly on first paint.
+    if (!auth
+        && window.AgixtDesktopExtensions
+        && typeof window.AgixtDesktopExtensions.reflowSidenav === 'function') {
+      setTimeout(() => {
+        try { window.AgixtDesktopExtensions.reflowSidenav(); } catch (_) {}
+      }, 0);
+    }
   }
 
   // ----- Settings load / save ---------------------------------------------
@@ -1518,6 +1529,13 @@
     }
     syncContentPaneClass();
     refreshWindowMode();
+    // Let the overflow-aware sidenav re-stamp its "active hidden" dot
+    // when the active view is one of the items currently behind the
+    // More menu. No-op if the loader hasn't initialised yet.
+    if (window.AgixtDesktopExtensions
+        && typeof window.AgixtDesktopExtensions.reflowSidenav === 'function') {
+      try { window.AgixtDesktopExtensions.reflowSidenav(); } catch (_) {}
+    }
   }
   document.querySelectorAll('.sidenav-btn[data-view]').forEach((btn) => {
     btn.addEventListener('click', () => setActiveView(btn.dataset.view));

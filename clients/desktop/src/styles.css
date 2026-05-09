@@ -1544,6 +1544,115 @@ body.window-mode.chat-collapsed .chat-resize-handle {
   box-shadow: inset 0 -2px 0 var(--accent);
 }
 
+/* Overflow handling — when the sidenav can't fit every middle-group
+   button, the tail items get `is-overflow-hidden` (display:none) and a
+   `.sidenav-more-btn` appears as the last visible row. Clicking the
+   More button opens a `.sidenav-more-popover` listing the hidden items;
+   each row activates that view on click and can be dragged into the
+   visible rail to pin it. */
+.sidenav-btn.is-overflow-hidden {
+  display: none;
+}
+.sidenav-more-btn .more-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  margin: 0 1px;
+}
+.sidenav-more-btn[aria-expanded="true"] {
+  color: var(--sidenav-icon-active);
+  background: var(--sidenav-hover-bg);
+}
+.sidenav-more-btn.has-active-hidden::after {
+  /* small dot in the corner indicating an active view is hiding */
+  /* `::after` is already used by [data-tooltip], so use a separate
+     dot element rendered via a child instead — see .more-active-dot. */
+}
+.more-active-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.sidenav-more-popover {
+  position: fixed;
+  z-index: 60;
+  min-width: 180px;
+  max-width: 280px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sidenav-more-popover[hidden] { display: none; }
+.sidenav-more-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  width: 100%;
+}
+.sidenav-more-row:hover,
+.sidenav-more-row:focus-visible {
+  background: var(--sidenav-hover-bg);
+  outline: none;
+}
+.sidenav-more-row.is-active {
+  color: var(--sidenav-icon-active);
+}
+.sidenav-more-row.is-active::before {
+  content: "";
+  width: 2px;
+  align-self: stretch;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
+  margin-left: -8px;
+  margin-right: 2px;
+}
+.sidenav-more-row.is-dragging {
+  opacity: 0.35;
+  cursor: grabbing;
+}
+.sidenav-more-row .more-row-icon {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--sidenav-icon);
+}
+.sidenav-more-row.is-active .more-row-icon {
+  color: var(--sidenav-icon-active);
+}
+.sidenav-more-row .more-row-label {
+  flex: 1 1 auto;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Notification dot — used by the bottom gear when an action (e.g. a
    downloaded desktop update) is waiting for the user. Subtle so it
    doesn't compete with other UI. */

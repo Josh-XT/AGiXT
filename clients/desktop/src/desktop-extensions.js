@@ -358,6 +358,251 @@
     saveSidenavOrder(ids);
   }
 
+  // ----- Overflow handling ------------------------------------------------
+  // When the window is too short to show every middle-group button, hide
+  // the tail items (`.is-overflow-hidden`) and surface a "More" button
+  // (`···`) as the last visible row. Clicking it opens a popover with the
+  // hidden items; each row activates its view on click and can be dragged
+  // back into the visible rail to pin it.
+  let _morePopover = null;
+  let _moreCloseTimer = null;
+
+  function ensureMoreBtn(top) {
+    let btn = top.querySelector('.sidenav-more-btn');
+    if (btn) return btn;
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'sidenav-btn sidenav-more-btn';
+    btn.title = 'More';
+    btn.setAttribute('aria-label', 'More extensions');
+    btn.setAttribute('data-tooltip', 'More');
+    btn.setAttribute('aria-haspopup', 'menu');
+    btn.setAttribute('aria-expanded', 'false');
+    // Three dots — vertically stacked since the rail is vertical, but
+    // horizontal "···" reads more universally as overflow. Use horizontal.
+    for (let i = 0; i < 3; i++) {
+      const dot = document.createElement('span');
+      dot.className = 'more-dot';
+      btn.appendChild(dot);
+    }
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleMorePopover(btn);
+    });
+    return btn;
+  }
+
+  function reflowSidenavOverflow() {
+    const top = document.querySelector('.sidenav-top');
+    if (!top) return;
+    const all = Array.from(top.querySelectorAll('.sidenav-btn[data-view]'));
+    // Reset state.
+    all.forEach((b) => b.classList.remove('is-overflow-hidden'));
+    let moreBtn = top.querySelector('.sidenav-more-btn');
+    if (moreBtn) {
+      moreBtn.remove();
+      moreBtn = null;
+    }
+    // jsdom and zero-height containers — bail without overflow handling.
+    const containerH = top.clientHeight;
+    if (!containerH) {
+      // Even with no measurable height (e.g. tests), keep DOM clean.
+      closeMorePopover();
+      return;
+    }
+    // No overflow? Done.
+    if (top.scrollHeight <= containerH) {
+      closeMorePopover();
+      return;
+    }
+    // Insert the More button so its height counts toward the overflow
+    // measurement, then hide tail items until everything fits.
+    moreBtn = ensureMoreBtn(top);
+    top.appendChild(moreBtn);
+    for (let i = all.length - 1; i >= 0; i--) {
+      if (top.scrollHeight <= containerH) break;
+      all[i].classList.add('is-overflow-hidden');
+    }
+    // Annotate the More button when an active view is currently hidden.
+    const activeId = currentActiveView();
+    const hasActiveHidden = all.some(
+      (b) => b.classList.contains('is-overflow-hidden') && b.dataset.view === activeId,
+    );
+    let dot = moreBtn.querySelector('.more-active-dot');
+    if (hasActiveHidden) {
+      if (!dot) {
+        dot = document.createElement('span');
+        dot.className = 'more-active-dot';
+        moreBtn.appendChild(dot);
+      }
+    } else if (dot) {
+      dot.remove();
+    }
+    // Refresh the popover content if it's currently open.
+    if (_morePopover && !_morePopover.hidden) {
+      renderMorePopover(moreBtn);
+    }
+  }
+
+  function hiddenSidenavBtns() {
+    const top = document.querySelector('.sidenav-top');
+    if (!top) return [];
+    return Array.from(top.querySelectorAll('.sidenav-btn[data-view].is-overflow-hidden'));
+  }
+
+  function ensureMorePopover() {
+    if (_morePopover) return _morePopover;
+    const el = document.createElement('div');
+    el.className = 'sidenav-more-popover';
+    el.setAttribute('role', 'menu');
+    el.hidden = true;
+    document.body.appendChild(el);
+    _morePopover = el;
+    return el;
+  }
+
+  function closeMorePopover() {
+    if (!_morePopover) return;
+    _morePopover.hidden = true;
+    const moreBtn = document.querySelector('.sidenav-more-btn');
+    if (moreBtn) moreBtn.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('mousedown', onDocMouseDownForMore, true);
+    document.removeEventListener('keydown', onDocKeyDownForMore, true);
+  }
+
+  function onDocMouseDownForMore(e) {
+    if (!_morePopover || _morePopover.hidden) return;
+    if (_morePopover.contains(e.target)) return;
+    const moreBtn = document.querySelector('.sidenav-more-btn');
+    if (moreBtn && moreBtn.contains(e.target)) return;
+    closeMorePopover();
+  }
+
+  function onDocKeyDownForMore(e) {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      closeMorePopover();
+    }
+  }
+
+  function toggleMorePopover(moreBtn) {
+    const pop = ensureMorePopover();
+    if (!pop.hidden) { closeMorePopover(); return; }
+    renderMorePopover(moreBtn);
+    positionMorePopover(moreBtn);
+    pop.hidden = false;
+    moreBtn.setAttribute('aria-expanded', 'true');
+    // Defer listener install so the click that opened us doesn't
+    // immediately close it.
+    setTimeout(() => {
+      document.addEventListener('mousedown', onDocMouseDownForMore, true);
+      document.addEventListener('keydown', onDocKeyDownForMore, true);
+    }, 0);
+  }
+
+  function positionMorePopover(moreBtn) {
+    const pop = _morePopover;
+    if (!pop || !moreBtn) return;
+    const rect = moreBtn.getBoundingClientRect();
+    // Anchor to the right of the rail; align top with the More button,
+    // but flip upward if it would clip the viewport bottom.
+    pop.style.left = `${Math.round(rect.right + 6)}px`;
+    pop.style.top = `${Math.round(rect.top)}px`;
+    // After insertion is visible, measure and clamp.
+    const margin = 8;
+    const phRect = pop.getBoundingClientRect();
+    if (phRect.bottom > window.innerHeight - margin) {
+      const adjusted = Math.max(margin, window.innerHeight - margin - phRect.height);
+      pop.style.top = `${Math.round(adjusted)}px`;
+    }
+  }
+
+  function renderMorePopover(moreBtn) {
+    const pop = ensureMorePopover();
+    pop.innerHTML = '';
+    const hidden = hiddenSidenavBtns();
+    if (!hidden.length) {
+      closeMorePopover();
+      return;
+    }
+    const activeId = currentActiveView();
+    for (const realBtn of hidden) {
+      const id = realBtn.dataset.view;
+      const label = realBtn.getAttribute('data-tooltip')
+        || realBtn.getAttribute('aria-label')
+        || realBtn.title
+        || id;
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'sidenav-more-row';
+      row.dataset.view = id;
+      if (id === activeId) row.classList.add('is-active');
+      row.setAttribute('role', 'menuitem');
+
+      const iconSlot = document.createElement('span');
+      iconSlot.className = 'more-row-icon';
+      const realIcon = realBtn.querySelector('.sidenav-btn-icon, svg');
+      if (realIcon) {
+        // Clone so the live button keeps its glyph.
+        iconSlot.appendChild(realIcon.cloneNode(true));
+      }
+      row.appendChild(iconSlot);
+
+      const labelEl = document.createElement('span');
+      labelEl.className = 'more-row-label';
+      labelEl.textContent = label;
+      row.appendChild(labelEl);
+
+      row.addEventListener('click', () => {
+        if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
+          window.AgixtSidenav.setActiveView(id);
+        }
+        activate(id);
+        // Mark the active row visually but keep the popover open just
+        // long enough for the user to see the activation, then close.
+        clearTimeout(_moreCloseTimer);
+        _moreCloseTimer = setTimeout(closeMorePopover, 120);
+      });
+
+      // Drag-and-drop FROM the popover row INTO the visible rail —
+      // delegates to the underlying real button so existing
+      // wireDragSort drop handlers move it into place. After drop, a
+      // reflow re-evaluates which buttons fit and the moved item
+      // becomes visible.
+      row.draggable = true;
+      row.addEventListener('dragstart', (e) => {
+        try { e.dataTransfer.setData('text/plain', id); } catch (_) {}
+        try { e.dataTransfer.effectAllowed = 'move'; } catch (_) {}
+        realBtn.classList.add('is-dragging');
+        row.classList.add('is-dragging');
+        // Hide the popover so the user can see the visible rail's
+        // drop targets without the menu in the way. Use a flag so
+        // the dragend can re-measure overflow without flicker.
+        if (_morePopover) _morePopover.hidden = true;
+      });
+      row.addEventListener('dragend', () => {
+        realBtn.classList.remove('is-dragging');
+        row.classList.remove('is-dragging');
+        // After the drop landed (or didn't), close cleanly and
+        // re-evaluate overflow so the moved item promotes into view.
+        closeMorePopover();
+        reflowSidenavOverflow();
+      });
+      pop.appendChild(row);
+    }
+  }
+
+  // Re-run overflow handling on window resize. ResizeObserver is more
+  // precise but window resize covers the cases we care about (height
+  // changes), and works in jsdom-equivalent test envs that lack RO.
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('resize', () => {
+      // Coalesce bursts of resize events.
+      clearTimeout(reflowSidenavOverflow._t);
+      reflowSidenavOverflow._t = setTimeout(reflowSidenavOverflow, 50);
+    });
+  }
+
   function wireDragSort(btn) {
     btn.draggable = true;
     btn.addEventListener('dragstart', (e) => {
@@ -395,6 +640,7 @@
       const before = e.clientY < rect.top + rect.height / 2;
       top.insertBefore(dragging, before ? btn : btn.nextSibling);
       captureSidenavOrder();
+      reflowSidenavOverflow();
     });
   }
 
@@ -446,6 +692,7 @@
       // Only middle-group buttons (non-chat, non-admin) are sortable.
       wireDragSort(btn);
       applySidenavOrder();
+      reflowSidenavOverflow();
     }
     return btn;
   }
@@ -622,6 +869,7 @@
     if (pane && pane.parentNode) pane.parentNode.removeChild(pane);
     state.delete(id);
     pendingRegistrations.delete(id);
+    reflowSidenavOverflow();
   }
 
   async function refresh() {
@@ -701,6 +949,7 @@
     start,
     stop,
     refresh,
+    reflowSidenav: reflowSidenavOverflow,
     registerContextProvider,
     unregisterContextProvider,
     getActiveContext,
