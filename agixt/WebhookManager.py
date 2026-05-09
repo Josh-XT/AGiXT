@@ -159,10 +159,14 @@ class WebhookEventEmitter:
         )
         event_id = str(uuid.uuid4())
 
-        # Ensure user_id is a string (convert UUID objects to string)
-        if user_id:
+        # Ensure user_id is always a string for webhook payload validation.
+        # Internal/background events can be emitted without a user context; those
+        # will still be skipped later if they cannot resolve a company.
+        if user_id is not None and user_id != "None":
             logger.debug(f"Converting user_id (type: {type(user_id)}) to string")
             user_id = str(user_id)
+        else:
+            user_id = "system"
 
         # Ensure agent_id is a string (convert UUID objects to string)
         if agent_id:
