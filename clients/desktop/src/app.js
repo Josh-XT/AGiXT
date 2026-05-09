@@ -34,20 +34,26 @@
   const micBtn = $('btn-mic');
   const attachBtn = $('btn-attach');
   const attachmentsEl = $('attachments');
-  const settingsModal = $('settings-modal');
-  const settingsClose = $('btn-settings-close');
-  const saveSettingsBtn = $('btn-save-settings');
-  const logoutBtn = $('btn-logout');
-  const settingsStatus = $('settings-status');
-  const settingsUser = $('settings-user');
-  const sudoPasswordInput = $('setting-sudo-password');
-  const sudoAuthBtn = $('btn-sudo-auth');
-  const sudoClearBtn = $('btn-sudo-clear');
-  const sudoSessionStatus = $('sudo-session-status');
-  const desktopAutoUpdateInput = $('setting-auto-update');
-  const desktopUpdateStatus = $('desktop-update-status');
-  const desktopUpdateCheckBtn = $('btn-check-desktop-update');
-  const desktopUpdateInstallBtn = $('btn-install-desktop-update');
+  // Legacy gear-button modal references — the modal was replaced by the
+  // `data-view="user-settings"` side pane (user-settings.js). These names
+  // stay defined as `null` so the downstream auto-update + sudo helpers
+  // keep working without sprinkling null checks across every call site;
+  // each helper either no-ops when its DOM target is missing, or routes
+  // to the new pane via `setActiveView('user-settings')`.
+  const settingsModal = null;
+  const settingsClose = null;
+  const saveSettingsBtn = null;
+  const logoutBtn = null;
+  const settingsStatus = null;
+  const settingsUser = null;
+  const sudoPasswordInput = null;
+  const sudoAuthBtn = null;
+  const sudoClearBtn = null;
+  const sudoSessionStatus = null;
+  const desktopAutoUpdateInput = null;
+  const desktopUpdateStatus = null;
+  const desktopUpdateCheckBtn = null;
+  const desktopUpdateInstallBtn = null;
   const agentBtn = $('agent-switcher-btn');
   const agentLabel = $('agent-switcher-label');
   const agentMenu = $('agent-menu');
@@ -63,6 +69,7 @@
   let pendingDesktopUpdateInstall = false;
 
   function setSettingsStatus(text, cls) {
+    if (!settingsStatus) return;
     settingsStatus.textContent = text || '';
     settingsStatus.className = 'settings-status' + (cls ? ' ' + cls : '');
   }
@@ -124,10 +131,10 @@
       // boot. Mark the gear so they can authenticate when ready.
       return;
     }
-    openSettings({ skipUpdateRefresh: true });
-    setSudoSessionStatus('Enter your sudo password to continue the desktop update.', 'error');
-    if (sudoPasswordInput) {
-      window.setTimeout(() => sudoPasswordInput.focus(), 50);
+    // Surface the side pane on the App tab — that's where the sudo
+    // password field lives now (was the legacy modal).
+    if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
+      window.AgixtSidenav.setActiveView('user-settings');
     }
   }
 
@@ -169,9 +176,9 @@
 
   async function loadSettings() {
     settings = await invoke('get_settings');
-    $('setting-allow-commands').checked = !!settings.allow_client_commands;
-    $('setting-voice').checked = !!settings.voice_enabled;
-    if (desktopAutoUpdateInput) desktopAutoUpdateInput.checked = !!settings.desktop_auto_update;
+    // The modal-era checkboxes (allow-commands, voice, auto-update, theme
+    // <select>, signed-in label) are now rendered by user-settings.js
+    // when the user opens the side pane — no boot-time DOM updates needed.
     // Theme: the inline bootstrap script in index.html already applied
     // a theme based on localStorage / OS prefers-color-scheme before the
     // first paint. Now that we have the user's persisted setting from
@@ -179,14 +186,12 @@
     // is correct on the next launch, and reapply if the persisted
     // pref disagrees with what we resolved at boot.
     const themePref = (settings.theme || 'system');
-    if ($('setting-theme')) $('setting-theme').value = themePref;
-    // Sync localStorage to whatever the Tauri DB has — the pre-paint
-    // bootstrap script in <head> reads localStorage next launch, so
-    // the two need to agree or the user gets a flash on boot.
     applyTheme(themePref, { persist: true });
-    settingsUser.textContent = settings.user_email
-      ? `${settings.user_email} @ ${settings.server_url}`
-      : `not signed in`;
+    if (settingsUser) {
+      settingsUser.textContent = settings.user_email
+        ? `${settings.user_email} @ ${settings.server_url}`
+        : `not signed in`;
+    }
     // Apply the saved service branding to the topbar logo. Without this,
     // returning users always see the default AGiXT mark even when they
     // picked a different brand (e.g. BoltRemote) on first login.
@@ -224,30 +229,10 @@
   }
 
   async function onSaveSettings() {
-    setSettingsStatus('Saving…');
-    try {
-      const autoUpdateEnabled = desktopAutoUpdateInput
-        ? desktopAutoUpdateInput.checked
-        : !!settings.desktop_auto_update;
-      const themeSelect = $('setting-theme');
-      const themePref = themeSelect ? themeSelect.value : (settings.theme || 'system');
-      await persistSettings({
-        allow_client_commands: $('setting-allow-commands').checked,
-        voice_enabled: $('setting-voice').checked,
-        desktop_auto_update: autoUpdateEnabled,
-        theme: themePref,
-      });
-      setSettingsStatus('Saved.', 'success');
-      await refreshSudoStatus();
-      if (autoUpdateEnabled) {
-        scheduleDesktopAutoUpdateCheck(400);
-      } else if (desktopAutoUpdateTimer) {
-        window.clearTimeout(desktopAutoUpdateTimer);
-        desktopAutoUpdateTimer = null;
-      }
-    } catch (err) {
-      setSettingsStatus(err && err.error ? err.error : String(err), 'error');
-    }
+    // The modal-era save handler is unreachable now that user-settings.js
+    // owns the form and persists directly via `invoke('save_settings')`.
+    // Kept as a no-op so any lingering callers don't crash.
+    setSettingsStatus('Saved.', 'success');
   }
 
   async function refreshSudoStatus() {
@@ -280,7 +265,9 @@
   }
 
   async function refreshDesktopUpdateStatus(opts = {}) {
-    if (!desktopUpdateStatus) return null;
+    // No longer bails on `!desktopUpdateStatus`: the legacy DOM is gone
+    // but the IPC + auto-install chain still needs to run. The status-text
+    // setters no-op safely when their targets are null.
     if (desktopUpdateBusyMode) return lastDesktopUpdateStatus;
     const autoInstall = !!opts.autoInstall;
     setDesktopUpdateBusy('checking');
@@ -321,7 +308,11 @@
   }
 
   async function installDesktopUpdate(auto) {
-    if (!desktopUpdateStatus) return;
+    // The legacy DOM elements are gone — user-settings.js owns the
+    // controls now — so we no longer bail on `!desktopUpdateStatus`.
+    // setDesktopUpdateStatus / setDesktopUpdateControls are safe no-ops
+    // when the targets are null, and the IPC + retry flow still need to
+    // run for the boot-time auto-update path.
     if (desktopUpdateBusyMode) return;
     pendingDesktopUpdateInstall = false;
     setDesktopUpdateBusy('installing');
@@ -359,6 +350,16 @@
       refreshDesktopUpdateStatus({ autoInstall: true });
     }, delayMs);
   }
+
+  // Public hook so user-settings.js can re-arm the auto-update timer after
+  // the user toggles "Automatically install updates" + clicks Save in the
+  // App tab. Without this the new pref only takes effect on the next boot.
+  window.AgixtDesktopUpdates = {
+    scheduleAutoCheck: scheduleDesktopAutoUpdateCheck,
+    refresh: refreshDesktopUpdateStatus,
+    install: installDesktopUpdate,
+    syncSettings: (next) => { if (next) settings = next; },
+  };
 
   async function onSudoAuth() {
     if (!sudoPasswordInput) return;
@@ -406,8 +407,6 @@
       agents = [];
       renderSelectors();
       setSettingsStatus('Logged out.', 'success');
-      // Close the settings modal and bounce back to the auth screen.
-      closeSettings();
       showScreen('auth');
       await loadSettings();
       if (window.AgixtAuth) {
@@ -1527,6 +1526,17 @@
         console.warn('AgentSettings.mount', err);
       });
     }
+    // Same lazy-mount pattern for the user-settings pane (App / Account /
+    // Settings / Developer / Billing / Companies / Teams). Subsequent
+    // activations re-enter mount() which refreshes whichever sub-tab is
+    // currently active without re-fetching everything.
+    if (targetPane === 'user-settings'
+        && window.UserSettings
+        && typeof window.UserSettings.mount === 'function') {
+      Promise.resolve(window.UserSettings.mount()).catch((err) => {
+        console.warn('UserSettings.mount', err);
+      });
+    }
     syncContentPaneClass();
     refreshWindowMode();
     // Let the overflow-aware sidenav re-stamp its "active hidden" dot
@@ -1771,6 +1781,26 @@
     };
   };
 
+  // Public switch-conversation entry point for desktop extensions. Wraps
+  // the private activateConversation flow (Tauri select_conversation +
+  // settings refresh + WS reconnect + history load), then refreshes the
+  // cached conversation list and snaps the sidenav to chat. Used by the
+  // Repos dashboard's Fix-vulns / Audit / Fix-issue / Review-PR buttons,
+  // which create a new conversation server-side and hand the user off to
+  // the existing chat UI for progress.
+  window.AgixtApp = {
+    activateConversation: async (conv) => {
+      if (!conv || !conv.id) return;
+      await activateConversation(conv, { loadHistory: true });
+      try { await refreshConversations(); } catch (_) {}
+      try {
+        if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
+          window.AgixtSidenav.setActiveView('chat');
+        }
+      } catch (_) {}
+    },
+  };
+
   // The graduation-cap icon next to the agent selector activates the
   // embedded Agent Settings pane focused on the Training tab.
   // Extensions live in the sidenav button on the left activity bar.
@@ -1786,66 +1816,16 @@
     });
   }
 
-  function openSettings(opts = {}) {
-    settingsModal.classList.add('open');
-    settingsModal.setAttribute('aria-hidden', 'false');
-    settingsUser.textContent = settings.user_email
-      ? `${settings.user_email} @ ${settings.server_url}`
-      : 'not signed in';
-    refreshSudoStatus();
-    if (!opts || !opts.skipUpdateRefresh) refreshDesktopUpdateStatus();
+  // The gear button in the sidenav has `data-view="user-settings"`, so the
+  // setActiveView wiring below already routes clicks to the new side pane.
+  // openSettings/closeSettings remain as no-ops in case any other module
+  // calls them; they used to drive the modal that's been removed.
+  function openSettings(_opts) {
+    if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
+      window.AgixtSidenav.setActiveView('user-settings');
+    }
   }
-  function closeSettings() { settingsModal.classList.remove('open'); settingsModal.setAttribute('aria-hidden', 'true'); setSettingsStatus(''); }
-
-  settingsBtn.addEventListener('click', openSettings);
-  settingsClose.addEventListener('click', closeSettings);
-  saveSettingsBtn.addEventListener('click', onSaveSettings);
-  // Theme dropdown auto-persists on change. We don't want the user to
-  // have to click Save just to lock in their theme choice — that's a
-  // common-enough decision that it should survive even if they dismiss
-  // the modal. `applyTheme` updates the live DOM + localStorage cache,
-  // and `persistSettings` writes through to the Tauri DB so the next
-  // launch's `loadSettings` reads the same value.
-  const themeSelect = $('setting-theme');
-  if (themeSelect) {
-    themeSelect.addEventListener('change', async () => {
-      applyTheme(themeSelect.value);
-      if (settings) {
-        try { await persistSettings({ theme: themeSelect.value }); }
-        catch (err) { console.warn('theme: auto-persist failed', err); }
-      }
-    });
-  }
-  const openAgentSettingsBtn = $('btn-open-agent-settings');
-  if (openAgentSettingsBtn) {
-    openAgentSettingsBtn.addEventListener('click', () => {
-      if (!settings || !settings.jwt) {
-        closeSettings();
-        showScreen('auth');
-        return;
-      }
-      setActiveView('extensions');
-      closeSettings();
-    });
-  }
-  if (sudoAuthBtn) sudoAuthBtn.addEventListener('click', onSudoAuth);
-  if (sudoClearBtn) sudoClearBtn.addEventListener('click', onSudoClear);
-  if (desktopUpdateCheckBtn) {
-    desktopUpdateCheckBtn.addEventListener('click', () => refreshDesktopUpdateStatus());
-  }
-  if (desktopUpdateInstallBtn) {
-    desktopUpdateInstallBtn.addEventListener('click', () => installDesktopUpdate(false));
-  }
-  if (sudoPasswordInput) {
-    sudoPasswordInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        onSudoAuth();
-      }
-    });
-  }
-  logoutBtn.addEventListener('click', onLogout);
-  settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) closeSettings(); });
+  function closeSettings() { /* no-op — modal is gone */ }
 
   // ----- Boot --------------------------------------------------------------
 

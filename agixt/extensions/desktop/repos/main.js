@@ -12,10 +12,15 @@
  *   GET    /v1/github/repos/{owner}/{repo}/pulls
  *   GET    /v1/github/repos/{owner}/{repo}/pulls/{n}/files
  *   POST   /v1/github/repos/{owner}/{repo}/pulls/{n}/merge      body: {merge_method}
- *   POST   /v1/github/repos/{owner}/{repo}/issues/{n}/fix       (SSE)
- *   POST   /v1/github/repos/{owner}/{repo}/pulls/{n}/review     (SSE)
- *   POST   /v1/github/repos/{owner}/{repo}/fix-vulns            (SSE)
- *   POST   /v1/github/repos/{owner}/{repo}/security-audit       (SSE)
+ *
+ * Agent-action endpoints (start a new conversation in AGiXT and return
+ * `{conversation_id, conversation_name}`; the extension hands the user
+ * off to the desktop chat view via window.AgixtApp.activateConversation
+ * so progress streams in the existing chat UI instead of inline):
+ *   POST   /v1/github/repos/{owner}/{repo}/issues/{n}/fix
+ *   POST   /v1/github/repos/{owner}/{repo}/pulls/{n}/review
+ *   POST   /v1/github/repos/{owner}/{repo}/fix-vulns
+ *   POST   /v1/github/repos/{owner}/{repo}/security-audit
  */
 window.AgixtRegisterExtension('repos', {
   mount(container, ctx) {
@@ -149,19 +154,6 @@ const STYLE_CSS = `
   .repos-btn-action.success { background: rgba(63,185,80,0.10); color: #3fb950; border-color: rgba(63,185,80,0.4); }
   .repos-btn-action.merged { background: rgba(63,185,80,0.20); color: #3fb950; }
 
-  .repos-agent-log { background: #0a0d12; border: 1px solid var(--border); border-radius: 4px; margin-top: 8px; max-height: 280px; overflow: auto; display: none; }
-  .repos-agent-log.active { display: block; }
-  .repos-agent-log-header { padding: 6px 10px; background: var(--panel-2); border-bottom: 1px solid var(--border); font-size: 11px; color: var(--text-faint); display: flex; justify-content: space-between; align-items: center; }
-  .repos-agent-log-body { padding: 8px 10px; font-family: ui-monospace, monospace; font-size: 11px; line-height: 1.5; white-space: pre-wrap; }
-  .repos-agent-log-line { color: var(--text-faint); }
-  .repos-agent-log-line.activity { color: #d29922; }
-  .repos-agent-log-line.execution { color: var(--accent-blue); }
-  .repos-agent-log-line.error { color: #f85149; }
-  .repos-agent-response { padding: 10px; border-top: 1px solid var(--border); line-height: 1.5; font-size: 13px; }
-  .repos-status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #6e7681; margin-right: 6px; vertical-align: middle; }
-  .repos-status-dot.active { background: #3fb950; box-shadow: 0 0 6px rgba(63,185,80,0.5); animation: repos-pulse 1.2s infinite; }
-  @keyframes repos-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
-
   .repos-diff-container { background: #0a0d12; border: 1px solid var(--border); border-radius: 4px; margin-top: 8px; overflow: hidden; }
   .repos-diff-file { border-bottom: 1px solid #1f242c; }
   .repos-diff-file:last-child { border-bottom: none; }
@@ -202,7 +194,6 @@ class ReposView {
     this.expandedRepos = new Set();
     this.expandedIssues = new Set();
     this.expandedPRs = new Set();
-    this._aborts = new Set();
   }
 
   start() {
@@ -224,10 +215,6 @@ class ReposView {
       try { this.unregisterContextProvider(); } catch (_) {}
       this.unregisterContextProvider = null;
     }
-    for (const a of this._aborts) {
-      try { a.abort(); } catch (_) {}
-    }
-    this._aborts.clear();
   }
 
   getContext() {
@@ -712,7 +699,7 @@ class ReposView {
       'click',
       (e) => {
         e.stopPropagation();
-        this.startAgentStream({
+        this.launchInChat({
           path: `/v1/github/repos/${enc(r.owner)}/${enc(r.name)}/security-audit`,
           host: e.target,
           label: 'Security audit',
@@ -837,13 +824,13 @@ class ReposView {
       });
     });
     container.querySelector('[data-action="fix-vulns"]').addEventListener('click', (e) =>
-      this.startAgentStream({
+      this.launchInChat({
         path: `/v1/github/repos/${enc(r.owner)}/${enc(r.name)}/fix-vulns`,
         host: e.target, label: 'Fixing vulnerabilities',
       }),
     );
     container.querySelector('[data-action="audit"]').addEventListener('click', (e) =>
-      this.startAgentStream({
+      this.launchInChat({
         path: `/v1/github/repos/${enc(r.owner)}/${enc(r.name)}/security-audit`,
         host: e.target, label: 'Security audit',
       }),
@@ -939,7 +926,7 @@ class ReposView {
       </div>
     `;
     card.querySelector('[data-action="fix-issue"]').addEventListener('click', (e) =>
-      this.startAgentStream({
+      this.launchInChat({
         path: `/v1/github/repos/${enc(r.owner)}/${enc(r.name)}/issues/${issue.number}/fix`,
         host: e.target, label: `Fix issue #${issue.number}`,
       }),
@@ -1003,7 +990,7 @@ class ReposView {
       this.toggleDiff(r, pr, e.target, diffHost),
     );
     card.querySelector('[data-action="review"]').addEventListener('click', (e) =>
-      this.startAgentStream({
+      this.launchInChat({
         path: `/v1/github/repos/${enc(r.owner)}/${enc(r.name)}/pulls/${pr.number}/review`,
         host: e.target, label: `Review PR #${pr.number}`,
       }),
@@ -1102,120 +1089,74 @@ class ReposView {
   }
 
   // ------------------------------------------------------------------
-  // SSE agent streaming
+  // Launch agent action in chat
   // ------------------------------------------------------------------
 
-  /** Fetch an SSE endpoint and render activity / response into a panel
-   *  inserted right after the host element. The host is the button the
-   *  user clicked, so each repo / PR / issue gets its own log. */
-  async startAgentStream({ path, host, label }) {
+  /** POST to an agent-action endpoint that creates a new AGiXT
+   *  conversation server-side, then switch the desktop chat view to
+   *  that conversation. The chat UI already renders agent activity
+   *  (subactivities, tool calls, response) via the conversation
+   *  WebSocket, so the user watches progress there instead of inline. */
+  async launchInChat({ path, host, label }) {
     if (!host) return;
     if (host.dataset.agentBusy) return;
     host.dataset.agentBusy = '1';
     const originalText = host.textContent;
     host.disabled = true;
-    host.textContent = '⏳ ' + (label || 'Working…');
+    host.textContent = '⏳ ' + (label || 'Starting…');
 
-    const log = document.createElement('div');
-    log.className = 'repos-agent-log active';
-    log.innerHTML = `
-      <div class="repos-agent-log-header">
-        <span><span class="repos-status-dot active"></span>${escapeHtml(label || 'XT Agent')}</span>
-        <span data-role="log-count"></span>
-      </div>
-      <div class="repos-agent-log-body" data-role="log-body"></div>
-      <div class="repos-agent-response" data-role="response" style="display:none;"></div>
-    `;
-    // Place the log right after the .repos-card or row that hosts the button.
-    const anchor = host.closest('.repos-card') || host.closest('tr') || host.parentElement;
-    if (anchor && anchor.parentElement) {
-      anchor.parentElement.insertBefore(log, anchor.nextSibling);
-    } else {
-      this.container.appendChild(log);
-    }
-    const body = log.querySelector('[data-role="log-body"]');
-    const countEl = log.querySelector('[data-role="log-count"]');
-    const responseEl = log.querySelector('[data-role="response"]');
-    let lineCount = 0;
-    let responseText = '';
-
-    const append = (cls, content) => {
-      const div = document.createElement('div');
-      div.className = 'repos-agent-log-line ' + cls;
-      div.textContent = content;
-      body.appendChild(div);
-      lineCount++;
-      countEl.textContent = `${lineCount} events`;
-      body.scrollTop = body.scrollHeight;
-    };
-
-    const finish = () => {
+    const restoreButton = () => {
       host.dataset.agentBusy = '';
       host.disabled = false;
       host.textContent = originalText;
-      const dot = log.querySelector('.repos-status-dot');
-      if (dot) dot.classList.remove('active');
     };
 
-    const ac = new AbortController();
-    this._aborts.add(ac);
+    let resp;
     try {
-      const resp = await fetch(this.url(path), {
+      resp = await fetch(this.url(path), {
         method: 'POST',
-        headers: this.authHeaders({ 'Content-Type': 'application/json', Accept: 'text/event-stream' }),
+        headers: this.authHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
         body: '{}',
-        signal: ac.signal,
       });
-      if (!resp.ok) {
-        const text = await resp.text();
-        append('error', `HTTP ${resp.status}: ${text.slice(0, 500)}`);
-        finish();
-        return;
-      }
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = '';
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        // Split on SSE event boundary (blank line).
-        let idx;
-        while ((idx = buf.indexOf('\n\n')) !== -1) {
-          const chunk = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          const dataLines = chunk.split('\n').filter((l) => l.startsWith('data: '));
-          for (const dl of dataLines) {
-            const raw = dl.slice(6);
-            if (raw === '[DONE]') break;
-            let evt;
-            try { evt = JSON.parse(raw); } catch (_) { continue; }
-            const t = evt.type || '';
-            const c = evt.content || '';
-            if (t === 'response' && c) {
-              responseText += c;
-              responseEl.style.display = '';
-              responseEl.textContent = responseText;
-            } else if (t === 'activity' || t === 'new_activity') {
-              append('activity', c);
-            } else if (t === 'execution') {
-              append('execution', c.length > 400 ? c.slice(0, 400) + '…' : c);
-            } else if (t === 'error') {
-              append('error', c);
-            } else if (t === 'status') {
-              append('', c);
-            } else if (t === 'done') {
-              // SSE stream finished.
-            }
-          }
-        }
-      }
     } catch (err) {
-      if (err.name !== 'AbortError') append('error', err.message || String(err));
-    } finally {
-      this._aborts.delete(ac);
-      finish();
+      restoreButton();
+      alert(`Failed to start: ${err && err.message ? err.message : err}`);
+      return;
     }
+
+    let data = {};
+    try { data = await resp.json(); } catch (_) {}
+
+    if (!resp.ok || data.error) {
+      restoreButton();
+      const msg = data.error || `HTTP ${resp.status}`;
+      alert(`Failed to start: ${msg}`);
+      return;
+    }
+
+    const convId = data.conversation_id;
+    const convName = data.conversation_name;
+    if (!convId) {
+      restoreButton();
+      alert('Failed to start: no conversation_id returned.');
+      return;
+    }
+
+    host.textContent = '↗ Opened in chat';
+    const app = window.AgixtApp;
+    if (app && typeof app.activateConversation === 'function') {
+      try {
+        await app.activateConversation({ id: convId, name: convName });
+      } catch (err) {
+        console.warn('activateConversation failed', err);
+      }
+    } else {
+      // Out-of-desktop fallback: just tell the user where the work went.
+      alert(`Started "${convName || convId}". Open it from the chat list to view progress.`);
+    }
+    // Leave the button disabled with the "Opened in chat" label so the
+    // user doesn't double-fire the same action while the chat is taking
+    // over the view.
   }
 }
 

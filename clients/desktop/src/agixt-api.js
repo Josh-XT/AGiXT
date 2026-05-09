@@ -296,6 +296,233 @@
     return s.replace(/_/g, '-').replace(/\./g, '-').replace(/\s+/g, '-');
   }
 
+  // ----- User identity / preferences --------------------------------------
+
+  /** GET /v1/user — current user (with companies + preferences). */
+  async function getUser() { return request('GET', '/v1/user'); }
+
+  /** PUT /v1/user — partial update. Field names use snake_case matching
+   *  the AGiXT backend (first_name, last_name, email, username, phone_number,
+   *  timezone, notification_preferences, etc.). */
+  async function updateUser(patch) {
+    return request('PUT', '/v1/user', { body: patch || {} });
+  }
+
+  /** DELETE /v1/user — permanently delete the signed-in account. */
+  async function deleteUserAccount() { return request('DELETE', '/v1/user'); }
+
+  /** POST /v1/user/verify/email — request a verification email or confirm
+   *  if a 6-digit code is supplied. */
+  async function requestEmailVerification(email) {
+    return request('POST', '/v1/user/verify/email', { body: { email } });
+  }
+
+  /** POST /v1/user/password/change. */
+  async function changePassword(currentPassword, newPassword, confirmPassword) {
+    return request('POST', '/v1/user/password/change', {
+      body: {
+        current_password: currentPassword,
+        new_password: newPassword,
+        confirm_password: confirmPassword,
+      },
+    });
+  }
+
+  /** GET /v1/user/mfa/setup — provisioning URI + secret + current state. */
+  async function getMfaSetup() { return request('GET', '/v1/user/mfa/setup'); }
+
+  /** POST /v1/user/mfa/enable — confirm 6-digit code to flip MFA on. */
+  async function enableMfa(token) {
+    return request('POST', '/v1/user/mfa/enable', { body: { mfa_token: token } });
+  }
+
+  /** POST /v1/user/mfa/disable — password + current code to flip MFA off. */
+  async function disableMfa(password, token) {
+    return request('POST', '/v1/user/mfa/disable', { body: { password, mfa_token: token } });
+  }
+
+  /** POST /v1/user/mfa/reset — issues a fresh otp_uri. */
+  async function resetMfa() { return request('POST', '/v1/user/mfa/reset', { body: {} }); }
+
+  // ----- Companies / members / invitations --------------------------------
+
+  /** GET /v1/companies — top-level company list (with users[] when admin). */
+  async function listCompanies() { return request('GET', '/v1/companies'); }
+
+  /** POST /v1/companies — create a new company. */
+  async function createCompany(payload) {
+    return request('POST', '/v1/companies', { body: payload || {} });
+  }
+
+  /** PUT /v1/companies/{id} — rename. */
+  async function renameCompany(companyId, name) {
+    return request('PUT', '/v1/companies/' + encodeURIComponent(companyId), { body: { name } });
+  }
+
+  /** DELETE /v1/companies/{id}. */
+  async function deleteCompany(companyId) {
+    return request('DELETE', '/v1/companies/' + encodeURIComponent(companyId));
+  }
+
+  /** PUT /v1/user/companies/order — body is the array directly, e.g.
+   *  [{company_id, sort_order}, ...]. */
+  async function updateCompanyOrder(order) {
+    return request('PUT', '/v1/user/companies/order', { body: order });
+  }
+
+  /** GET /v1/companies/{id}/members. */
+  async function getCompanyMembers(companyId) {
+    const data = await request('GET', '/v1/companies/' + encodeURIComponent(companyId) + '/members');
+    return (data && data.members) || [];
+  }
+
+  /** DELETE /v1/companies/{id}/users/{user_id}. */
+  async function removeCompanyMember(companyId, userId) {
+    return request(
+      'DELETE',
+      '/v1/companies/' + encodeURIComponent(companyId) + '/users/' + encodeURIComponent(userId),
+    );
+  }
+
+  /** PUT /v1/user/role — change a member's role within a company. */
+  async function updateMemberRole(companyId, userId, roleId) {
+    return request('PUT', '/v1/user/role', {
+      body: { role_id: roleId, company_id: companyId, user_id: userId },
+    });
+  }
+
+  /** GET /v1/invitations[/companyId]. */
+  async function getInvitations(companyId) {
+    const path = companyId
+      ? '/v1/invitations/' + encodeURIComponent(companyId)
+      : '/v1/invitations';
+    const data = await request('GET', path);
+    return (data && data.invitations) || [];
+  }
+
+  /** POST /v1/invitations. */
+  async function createInvitation(payload) {
+    return request('POST', '/v1/invitations', { body: payload || {} });
+  }
+
+  /** DELETE /v1/invitation/{id}. */
+  async function deleteInvitation(invitationId) {
+    return request('DELETE', '/v1/invitation/' + encodeURIComponent(invitationId));
+  }
+
+  /** GET /v1/roles — server-defined default roles + their scopes. */
+  async function listDefaultRoles() {
+    const data = await request('GET', '/v1/roles');
+    return (data && (data.roles || data.default_roles)) || data || [];
+  }
+
+  // ----- Personal Access Tokens ------------------------------------------
+
+  /** GET /v1/api-keys. */
+  async function listPersonalAccessTokens() {
+    const data = await request('GET', '/v1/api-keys');
+    return (data && data.tokens) || [];
+  }
+
+  /** POST /v1/api-keys. */
+  async function createPersonalAccessToken(payload) {
+    return request('POST', '/v1/api-keys', { body: payload || {} });
+  }
+
+  /** DELETE /v1/api-keys/{id}. */
+  async function revokePersonalAccessToken(tokenId) {
+    return request('DELETE', '/v1/api-keys/' + encodeURIComponent(tokenId));
+  }
+
+  /** POST /v1/api-keys/{id}/regenerate. */
+  async function regeneratePersonalAccessToken(tokenId) {
+    return request('POST', '/v1/api-keys/' + encodeURIComponent(tokenId) + '/regenerate', { body: {} });
+  }
+
+  async function getAvailableTokenScopes(companyId) {
+    const path = companyId
+      ? '/v1/api-keys/available/scopes?company_id=' + encodeURIComponent(companyId)
+      : '/v1/api-keys/available/scopes';
+    const data = await request('GET', path);
+    return (data && data.scopes) || [];
+  }
+
+  async function getAvailableTokenAgents() {
+    const data = await request('GET', '/v1/api-keys/available/agents');
+    return (data && data.agents) || [];
+  }
+
+  async function getAvailableTokenCompanies() {
+    const data = await request('GET', '/v1/api-keys/available/companies');
+    return (data && data.companies) || [];
+  }
+
+  // ----- Billing ----------------------------------------------------------
+
+  /** GET /v1/billing/pricing/enabled — true when billing UI should appear. */
+  async function getBillingEnabled() {
+    try { return await request('GET', '/v1/billing/pricing/enabled'); }
+    catch (_) { return { billing_enabled: false }; }
+  }
+
+  /** GET /v1/billing/pricing — pricing model + tiers + addons + topups. */
+  async function getPricingConfig() {
+    try { return await request('GET', '/v1/billing/pricing'); }
+    catch (_) { return null; }
+  }
+
+  /** GET /v1/billing/tokens/balance?company_id=…&sync=… */
+  async function getTokenBalance(companyId, sync) {
+    const qs = '?company_id=' + encodeURIComponent(companyId) + '&sync=' + (sync ? 'true' : 'false');
+    return request('GET', '/v1/billing/tokens/balance' + qs);
+  }
+
+  /** GET /v1/billing/auto-topup?company_id=… (also surfaces tiered-plan
+   *  subscription state). */
+  async function getAutoTopupStatus(companyId) {
+    return request('GET', '/v1/billing/auto-topup?company_id=' + encodeURIComponent(companyId));
+  }
+
+  /** POST /v1/billing/auto-topup. */
+  async function setAutoTopup(companyId, amountUsd) {
+    return request('POST', '/v1/billing/auto-topup', {
+      body: { company_id: companyId, amount_usd: amountUsd },
+    });
+  }
+
+  /** GET /v1/billing/plan/limits?company_id=… */
+  async function getPlanLimits(companyId) {
+    return request('GET', '/v1/billing/plan/limits?company_id=' + encodeURIComponent(companyId));
+  }
+
+  /** POST /v1/billing/plan/checkout — returns a Stripe checkout URL the
+   *  desktop should open in the user's browser. */
+  async function createPlanCheckout(payload) {
+    return request('POST', '/v1/billing/plan/checkout', { body: payload || {} });
+  }
+
+  /** POST /v1/billing/plan/topup — Stripe checkout URL for token top-up. */
+  async function createPlanTopup(payload) {
+    return request('POST', '/v1/billing/plan/topup', { body: payload || {} });
+  }
+
+  /** POST /v1/billing/tokens/topup/stripe — legacy per-token Stripe topup. */
+  async function createTokenTopupStripe(payload) {
+    return request('POST', '/v1/billing/tokens/topup/stripe', { body: payload || {} });
+  }
+
+  /** GET /v1/billing/transactions — payment history. */
+  async function listBillingTransactions() {
+    return request('GET', '/v1/billing/transactions');
+  }
+
+  /** POST /v1/billing/sync. */
+  async function syncBilling(companyId) {
+    return request('POST', '/v1/billing/sync', {
+      body: companyId ? { company_id: companyId } : {},
+    });
+  }
+
   window.AgixtApi = {
     getSettings,
     refreshSettings,
@@ -314,5 +541,48 @@
     deleteSource,
     readFileAsBase64,
     redirectSlug,
+    // User identity
+    getUser,
+    updateUser,
+    deleteUserAccount,
+    requestEmailVerification,
+    changePassword,
+    getMfaSetup,
+    enableMfa,
+    disableMfa,
+    resetMfa,
+    // Companies
+    listCompanies,
+    createCompany,
+    renameCompany,
+    deleteCompany,
+    updateCompanyOrder,
+    getCompanyMembers,
+    removeCompanyMember,
+    updateMemberRole,
+    getInvitations,
+    createInvitation,
+    deleteInvitation,
+    listDefaultRoles,
+    // Personal Access Tokens
+    listPersonalAccessTokens,
+    createPersonalAccessToken,
+    revokePersonalAccessToken,
+    regeneratePersonalAccessToken,
+    getAvailableTokenScopes,
+    getAvailableTokenAgents,
+    getAvailableTokenCompanies,
+    // Billing
+    getBillingEnabled,
+    getPricingConfig,
+    getTokenBalance,
+    getAutoTopupStatus,
+    setAutoTopup,
+    getPlanLimits,
+    createPlanCheckout,
+    createPlanTopup,
+    createTokenTopupStripe,
+    listBillingTransactions,
+    syncBilling,
   };
 })();

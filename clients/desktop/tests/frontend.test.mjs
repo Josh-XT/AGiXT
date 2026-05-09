@@ -149,7 +149,16 @@ function loadFullApp({ ipc } = {}) {
     };
     window.WebSocket.OPEN = 1;
   }
-  for (const name of ['markdown.js', 'audio.js', 'client-actions.js', 'chat.js', 'notifications.js', 'auth.js', 'dock.js', 'app.js']) {
+  // user-settings.js + agixt-api.js own the gear-button side pane that
+  // replaced the legacy settings modal. They have to be loaded *before*
+  // app.js so window.UserSettings exists by the time app.js's
+  // setActiveView lazy-mounts the pane on first activation.
+  for (const name of [
+    'markdown.js', 'audio.js', 'client-actions.js', 'chat.js',
+    'notifications.js', 'auth.js', 'dock.js',
+    'agixt-api.js', 'user-settings.js',
+    'app.js',
+  ]) {
     const code = fs.readFileSync(path.join(SRC, name), 'utf8');
     vm.runInContext(code, dom.getInternalVMContext(), { filename: name });
   }
@@ -549,18 +558,25 @@ test('app: sudo auth button primes privileged command session', async () => {
   });
   await new Promise((resolve) => setTimeout(resolve, 20));
 
+  // The gear-button modal was replaced by a `data-view="user-settings"`
+  // side pane. Clicking the gear routes through setActiveView, which
+  // lazy-mounts user-settings.js — wait for the App tab to render before
+  // poking at the dynamically-created sudo controls.
   window.document.getElementById('btn-settings').click();
-  await new Promise((resolve) => setTimeout(resolve, 5));
+  await new Promise((resolve) => setTimeout(resolve, 50));
 
-  const input = window.document.getElementById('setting-sudo-password');
+  const input = window.document.querySelector('[data-us-test="sudo-password"]');
   input.value = 'secret';
-  window.document.getElementById('btn-sudo-auth').click();
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  window.document.querySelector('[data-us-test="sudo-auth"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 30));
 
   const authCall = calls.find((c) => c.cmd === 'sudo_auth');
   assert.equal(authCall.args.password, 'secret');
   assert.equal(input.value, '');
-  assert.equal(window.document.getElementById('sudo-session-status').textContent, 'Authenticated and remembered.');
+  assert.equal(
+    window.document.querySelector('[data-us-test="sudo-status"]').textContent,
+    'Authenticated and remembered.',
+  );
   window.AgixtChat.disconnect();
 });
 
@@ -590,11 +606,14 @@ test('app: desktop update install locks controls and asks for sudo auth', async 
   });
   await new Promise((resolve) => setTimeout(resolve, 20));
 
+  // Open the user-settings pane (the App tab is the first one).
   window.document.getElementById('btn-settings').click();
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await new Promise((resolve) => setTimeout(resolve, 60));
 
-  const checkButton = window.document.getElementById('btn-check-desktop-update');
-  const installButton = window.document.getElementById('btn-install-desktop-update');
+  const checkButton = window.document.querySelector('[data-us-test="desktop-update-check"]');
+  const installButton = window.document.querySelector('[data-us-test="desktop-update-install"]');
+  // The initial check fires on render and reports an update is ready, so
+  // the install button should be visible.
   assert.equal(installButton.hidden, false);
 
   installButton.click();
@@ -604,16 +623,25 @@ test('app: desktop update install locks controls and asks for sudo auth', async 
 
   rejectInstall({ error: 'SUDO_AUTH_REQUIRED: Authenticate first.' });
   await new Promise((resolve) => setTimeout(resolve, 80));
-  assert.match(window.document.getElementById('desktop-update-status').textContent, /Authenticate Privileged Commands/);
-  assert.equal(window.document.activeElement, window.document.getElementById('setting-sudo-password'));
+  assert.match(
+    window.document.querySelector('[data-us-test="desktop-update-status"]').textContent,
+    /Authenticate Privileged Commands/,
+  );
+  assert.equal(
+    window.document.activeElement,
+    window.document.querySelector('[data-us-test="sudo-password"]'),
+  );
 
-  const input = window.document.getElementById('setting-sudo-password');
+  const input = window.document.querySelector('[data-us-test="sudo-password"]');
   input.value = 'secret';
-  window.document.getElementById('btn-sudo-auth').click();
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  window.document.querySelector('[data-us-test="sudo-auth"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 60));
 
   assert.equal(installCalls, 2);
-  assert.equal(window.document.getElementById('desktop-update-status').textContent, 'Update installed.');
+  assert.equal(
+    window.document.querySelector('[data-us-test="desktop-update-status"]').textContent,
+    'Update installed.',
+  );
   window.AgixtChat.disconnect();
 });
 
@@ -634,14 +662,17 @@ test('app: enabling automatic desktop updates schedules install', async () => {
   });
   await new Promise((resolve) => setTimeout(resolve, 20));
 
+  // Open the user-settings pane and flip the auto-update toggle on.
   window.document.getElementById('btn-settings').click();
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  window.document.getElementById('setting-auto-update').checked = true;
-  window.document.getElementById('btn-save-settings').click();
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  window.document.querySelector('[data-us-test="auto-update"]').checked = true;
+  window.document.querySelector('[data-us-test="save-behavior"]').click();
+  // The Save handler arms the same scheduleDesktopAutoUpdateCheck timer
+  // that the legacy modal's Save did (via window.AgixtDesktopUpdates),
+  // so after ~500ms the install IPC should have fired.
+  await new Promise((resolve) => setTimeout(resolve, 600));
 
   assert.ok(calls.some((c) => c.cmd === 'desktop_update_install'));
-  assert.equal(window.document.getElementById('desktop-update-status').textContent, 'Update installed.');
   window.AgixtChat.disconnect();
 });
 
@@ -1521,6 +1552,53 @@ test('chat: persisted thought replaces transient stream thinking block', async (
     }),
   });
   assert.equal(countThoughtActivities(), 1);
+  window.AgixtChat.disconnect();
+});
+
+test('chat: EXECUTION subactivity collapses body behind a click', async () => {
+  // AGiXT emits "[SUBACTIVITY][parent_id][EXECUTION] Executing `cmd`.\n```json\n{...}```"
+  // for tool runs. The desktop client should render the first line as a
+  // disclosure summary and tuck the json args behind <details>, instead of
+  // dumping the full payload into the activity feed.
+  const longArgs = JSON.stringify({ url: 'https://example.com/long', body: 'x'.repeat(80) }, null, 2);
+  const execBody = "Executing `web_fetch`.\n```json\n" + longArgs + '\n```';
+  const okBody = '`web_fetch` was executed successfully.\n' + 'output line\n'.repeat(40);
+  const inlineBody = 'Generating audio response.';
+  const { window } = loadFrontend({
+    ipc: {
+      get_conversation_history: async () => [
+        { id: 'a1', role: 'XT', message: '[ACTIVITY] Thinking', timestamp: new Date().toISOString() },
+        { id: 's1', role: 'XT', message: `[SUBACTIVITY][a1][EXECUTION] ${execBody}`, timestamp: new Date().toISOString() },
+        { id: 's2', role: 'XT', message: `[SUBACTIVITY][a1][EXECUTION] ${okBody}`, timestamp: new Date().toISOString() },
+        { id: 's3', role: 'XT', message: `[SUBACTIVITY][a1][EXECUTION] ${inlineBody}`, timestamp: new Date().toISOString() },
+      ],
+    },
+  });
+  window.AgixtChat.configure({
+    serverUrl: 'http://localhost:7437', jwt: 'j', conversationId: 'c', reconnect: false,
+  });
+  await window.AgixtChat.loadHistory('c');
+
+  const subs = window.document.querySelectorAll('.subactivity[data-tag="EXECUTION"]');
+  assert.equal(subs.length, 3, 'three EXECUTION subactivities should render');
+
+  // Multi-line bodies render as <details> with first-line summary, body hidden.
+  const exec = subs[0].querySelector('details.sub-exec');
+  assert.ok(exec, 'multi-line EXECUTION should produce details.sub-exec');
+  assert.equal(exec.hasAttribute('open'), false, 'details should start collapsed');
+  const summary = exec.querySelector('summary.sub-exec-summary');
+  assert.ok(summary, 'summary node present');
+  assert.match(summary.textContent, /Executing/);
+  assert.doesNotMatch(summary.textContent, /long/, 'json args must not leak into the summary');
+  const bodyEl = exec.querySelector('.sub-exec-body');
+  assert.ok(bodyEl, 'body node present');
+  assert.match(bodyEl.textContent, /example\.com\/long/, 'json args live in the collapsed body');
+
+  // Single-line bodies render inline (no disclosure — nothing to expand to).
+  const inline = subs[2].querySelector('details.sub-exec');
+  assert.equal(inline, null, 'single-line EXECUTION should render inline, no <details>');
+  assert.match(subs[2].textContent, /Generating audio response\./);
+
   window.AgixtChat.disconnect();
 });
 

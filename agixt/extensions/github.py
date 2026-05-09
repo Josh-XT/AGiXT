@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 
 from Extensions import Extensions
 from Globals import getenv
@@ -695,7 +695,11 @@ def _fetch_alerts(token: str, owner: str, repo: str) -> List[Dict[str, Any]]:
     return alerts
 
 
-# ---- AI streaming: forward to local /v1/chat/completions over HTTP ----
+# ---- AI launch: kick off a chat-completion in the background and return
+# the new conversation id once AGiXT has created it. The Repos dashboard
+# extension then hands the user off to the desktop chat view, which
+# already renders agent activity (subactivities, tool calls, response)
+# via the conversation WebSocket — no inline log needed.
 
 
 def _agixt_base_url() -> str:
@@ -704,51 +708,65 @@ def _agixt_base_url() -> str:
     return getenv("AGIXT_INTERNAL_URL") or "http://localhost:7437"
 
 
-def _stream_chat_completions(authorization: str, payload: Dict[str, Any]):
-    """Forward an OpenAI-style chat-completions request to the local AGiXT
-    server using the caller's JWT, and pass the SSE stream through
-    untouched. Mirrors the streaming behavior of the standalone Flask app
-    (`_stream_agixt`) without the WS conversation polling — clients that
-    want execution-message live updates can subscribe to
-    `/v1/conversation/{id}/stream` themselves."""
+def _launch_chat_completions(
+    authorization: str,
+    payload: Dict[str, Any],
+    timeout: float = 30.0,
+) -> Dict[str, Any]:
+    """Fire a chat-completion request at the local AGiXT server in a
+    background thread and poll `/api/conversations` for the conversation
+    AGiXT auto-creates from the payload's `user` field (the conversation
+    name). Returns `{conversation_id, conversation_name}` as soon as the
+    conversation appears, or `{error, conversation_name}` on timeout."""
     base = _agixt_base_url()
-    url = f"{base}/v1/chat/completions"
-    headers = {
-        "Authorization": authorization or "",
-        "Content-Type": "application/json",
-    }
+    conversation_name = payload.get("user", "") or ""
+    auth_header = authorization or ""
 
-    def _gen():
+    def _post_in_background():
         try:
             with requests.post(
-                url, headers=headers, json=payload, stream=True, timeout=3600
+                f"{base}/v1/chat/completions",
+                headers={
+                    "Authorization": auth_header,
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                stream=True,
+                timeout=3600,
             ) as resp:
-                if resp.status_code != 200:
-                    logging.warning(
-                        "github: AGiXT chat stream returned %s: %s",
-                        resp.status_code,
-                        resp.text[:500],
-                    )
-                    yield f"data: {json.dumps({'type': 'error', 'content': f'AGiXT returned {resp.status_code}.'})}\n\n"
-                    return
-                for raw in resp.iter_lines(decode_unicode=False):
-                    if raw is None:
-                        continue
-                    line = (
-                        raw.decode("utf-8", errors="replace")
-                        if isinstance(raw, (bytes, bytearray))
-                        else raw
-                    )
-                    if not line:
-                        # Preserve SSE event boundaries (blank line between events).
-                        yield "\n"
-                        continue
-                    yield line + "\n"
-        except Exception as exc:
-            logging.exception("github: AGiXT chat stream proxy failed")
-            yield f"data: {json.dumps({'type': 'error', 'content': 'AGiXT chat stream failed.'})}\n\n"
+                # Drain so AGiXT processes to completion. The user
+                # watches progress in the chat UI, not here.
+                for _ in resp.iter_lines():
+                    pass
+        except Exception:
+            logging.exception("github: launch chat completion failed")
 
-    return _gen()
+    threading.Thread(target=_post_in_background, daemon=True).start()
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            r = requests.get(
+                f"{base}/api/conversations",
+                headers={"Authorization": auth_header},
+                timeout=10,
+            )
+            if r.status_code == 200:
+                convos = (r.json() or {}).get("conversations_with_ids", {}) or {}
+                for conv_id, conv_name in convos.items():
+                    if conv_name == conversation_name:
+                        return {
+                            "conversation_id": str(conv_id),
+                            "conversation_name": conversation_name,
+                        }
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+    return {
+        "error": "Timed out waiting for AGiXT to create the conversation.",
+        "conversation_name": conversation_name,
+    }
 
 
 # ===========================================================================
@@ -1201,7 +1219,7 @@ class github(Extensions):
 
         @router.post(
             "/repos/{owner}/{repo}/issues/{issue_number}/fix",
-            summary="Have the XT agent fix a GitHub issue (SSE)",
+            summary="Have the XT agent fix a GitHub issue",
         )
         async def fix_issue(
             owner: str,
@@ -1290,14 +1308,12 @@ class github(Extensions):
                 "stream": True,
                 "user": conversation_name,
             }
-            return StreamingResponse(
-                _stream_chat_completions(authorization, payload),
-                media_type="text/event-stream",
-            )
+            result = _launch_chat_completions(authorization, payload)
+            return JSONResponse(result, status_code=504 if "error" in result else 200)
 
         @router.post(
             "/repos/{owner}/{repo}/pulls/{pr_number}/review",
-            summary="Have the XT agent review a pull request (SSE)",
+            summary="Have the XT agent review a pull request",
         )
         async def review_pr(
             owner: str,
@@ -1422,14 +1438,12 @@ class github(Extensions):
                 "stream": True,
                 "user": conversation_name,
             }
-            return StreamingResponse(
-                _stream_chat_completions(authorization, payload),
-                media_type="text/event-stream",
-            )
+            result = _launch_chat_completions(authorization, payload)
+            return JSONResponse(result, status_code=504 if "error" in result else 200)
 
         @router.post(
             "/repos/{owner}/{repo}/fix-vulns",
-            summary="Have the XT agent fix all open security alerts (SSE)",
+            summary="Have the XT agent fix all open security alerts",
         )
         async def fix_vulns(
             owner: str,
@@ -1484,14 +1498,12 @@ class github(Extensions):
                 "stream": True,
                 "user": conversation_name,
             }
-            return StreamingResponse(
-                _stream_chat_completions(authorization, payload),
-                media_type="text/event-stream",
-            )
+            result = _launch_chat_completions(authorization, payload)
+            return JSONResponse(result, status_code=504 if "error" in result else 200)
 
         @router.post(
             "/repos/{owner}/{repo}/security-audit",
-            summary="Run a comprehensive AI security audit (SSE)",
+            summary="Run a comprehensive AI security audit",
         )
         async def security_audit(
             owner: str,
@@ -1551,10 +1563,8 @@ class github(Extensions):
                 "stream": True,
                 "user": conversation_name,
             }
-            return StreamingResponse(
-                _stream_chat_completions(authorization, payload),
-                media_type="text/event-stream",
-            )
+            result = _launch_chat_completions(authorization, payload)
+            return JSONResponse(result, status_code=504 if "error" in result else 200)
 
 
 # ---- markdown builders -----------------------------------------------------

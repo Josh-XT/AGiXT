@@ -249,7 +249,9 @@
               </svg>
             </button>
             <button class="sidenav-btn" id="btn-settings" type="button"
-                    title="App settings" aria-label="App settings" data-tooltip="App settings">
+                    data-view="user-settings"
+                    title="Settings" aria-label="Settings" data-tooltip="Settings"
+                    role="tab" aria-selected="false">
               <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
                 <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/>
                 <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
@@ -351,6 +353,44 @@
                       stroke-linecap="round" stroke-linejoin="round" d="m15 18-6-6 6-6"/>
               </svg>
             </button>
+          </div>
+
+          <!-- User settings pane — App / Account / Settings / Developer /
+               Billing / Companies / Teams. Replaces the old gear-button
+               modal. Shares the right side of chat-screen-main with
+               workspace, agent-settings, and server-delivered extensions.
+               Section bodies are populated by user-settings.js the first
+               time the user clicks each tab so unused sections don't fire
+               API calls on boot. -->
+          <div class="view-pane view-pane-user-settings" data-view="user-settings" hidden>
+            <header class="us-header">
+              <nav class="us-tabs" role="tablist" aria-label="Settings sections">
+                <button class="us-tab is-active" type="button" role="tab"
+                        data-us-tab="app" aria-selected="true">App</button>
+                <button class="us-tab" type="button" role="tab"
+                        data-us-tab="account" aria-selected="false">Account</button>
+                <button class="us-tab" type="button" role="tab"
+                        data-us-tab="settings" aria-selected="false">Settings</button>
+                <button class="us-tab" type="button" role="tab"
+                        data-us-tab="developer" aria-selected="false">Developer</button>
+                <button class="us-tab" type="button" role="tab"
+                        data-us-tab="billing" aria-selected="false" hidden>Billing</button>
+                <button class="us-tab" type="button" role="tab"
+                        data-us-tab="companies" aria-selected="false">Companies</button>
+                <button class="us-tab" type="button" role="tab"
+                        data-us-tab="teams" aria-selected="false">Teams</button>
+              </nav>
+            </header>
+            <main class="us-main">
+              <section class="us-panel is-active" data-us-panel="app" role="tabpanel"></section>
+              <section class="us-panel" data-us-panel="account" role="tabpanel" hidden></section>
+              <section class="us-panel" data-us-panel="settings" role="tabpanel" hidden></section>
+              <section class="us-panel" data-us-panel="developer" role="tabpanel" hidden></section>
+              <section class="us-panel" data-us-panel="billing" role="tabpanel" hidden></section>
+              <section class="us-panel" data-us-panel="companies" role="tabpanel" hidden></section>
+              <section class="us-panel" data-us-panel="teams" role="tabpanel" hidden></section>
+            </main>
+            <div class="us-toast" id="us-toast" hidden></div>
           </div>
 
           <!-- Agent settings pane — extensions + training. Shares the
@@ -462,76 +502,6 @@
     <div class="resize-handle resize-handle-br" data-tauri-drag-region="false" aria-hidden="true"></div>
     <div class="resize-handle resize-handle-bl" data-tauri-drag-region="false" aria-hidden="true"></div>
 
-    <!-- Settings modal -->
-    <div class="modal" id="settings-modal" aria-hidden="true">
-      <div class="modal-card">
-        <div class="modal-header">
-          <h2>Settings</h2>
-          <button class="icon-btn" id="btn-settings-close" aria-label="Close">×</button>
-        </div>
-        <div class="modal-body">
-          <div class="field">
-            <span class="field-label">Signed in as</span>
-            <div id="settings-user" class="settings-user">—</div>
-          </div>
-          <div class="field-actions">
-            <!-- Opens the dedicated Agent Settings window (extensions,
-                 connections, training). The desktop client's own settings
-                 (sudo, voice, etc) stay below in this modal. -->
-            <button class="btn btn-secondary" id="btn-open-agent-settings" type="button">Configure Agent…</button>
-          </div>
-          <label class="field">
-            <span class="field-label">Theme</span>
-            <select id="setting-theme">
-              <option value="system">Match system</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-              <option value="gray">Dark gray</option>
-            </select>
-            <span class="field-hint">"Match system" follows your OS and updates live when you switch.</span>
-          </label>
-          <label class="field check">
-            <input type="checkbox" id="setting-allow-commands" />
-            <span>Allow this agent to control my desktop (screenshot, click, type, files)</span>
-          </label>
-          <label class="field check">
-            <input type="checkbox" id="setting-voice" />
-            <span>Auto-play voice replies when available</span>
-          </label>
-          <label class="field check">
-            <input type="checkbox" id="setting-auto-update" />
-            <span>Automatically install AGiXT Desktop updates when available</span>
-          </label>
-          <div class="field sudo-session">
-            <span class="field-label">Desktop app updates</span>
-            <div class="sudo-session-row sudo-session-actions">
-              <button class="btn btn-secondary" id="btn-check-desktop-update" type="button">Check now</button>
-              <button class="btn btn-primary" id="btn-install-desktop-update" type="button" hidden>Install update</button>
-              <span class="sudo-session-status" id="desktop-update-status">Not checked.</span>
-            </div>
-            <span class="field-hint">Linux updates use the remembered Privileged Commands sudo password to install the downloaded .deb.</span>
-          </div>
-          <div class="field sudo-session">
-            <span class="field-label">Privileged commands</span>
-            <div class="sudo-session-row">
-              <input id="setting-sudo-password" type="password" autocomplete="current-password" placeholder="Sudo password" />
-              <button class="btn btn-primary" id="btn-sudo-auth" type="button">Authenticate</button>
-            </div>
-            <div class="sudo-session-row sudo-session-actions">
-              <button class="btn btn-secondary" id="btn-sudo-clear" type="button">Forget sudo password</button>
-              <span class="sudo-session-status" id="sudo-session-status">Not checked.</span>
-            </div>
-            <span class="field-hint">Saved in your operating system credential store and used only for AGiXT Desktop sudo commands.</span>
-          </div>
-          <div class="field-actions">
-            <button class="btn btn-danger" id="btn-logout">Log out</button>
-            <button class="btn btn-primary" id="btn-save-settings">Save</button>
-          </div>
-          <div class="settings-status" id="settings-status"></div>
-        </div>
-      </div>
-    </div>
-
     <audio id="tts-audio" preload="auto"></audio>
 
     <script src="frontend-log.js"></script>
@@ -558,6 +528,10 @@
     <script src="settings-connections.js"></script>
     <script src="settings-training.js"></script>
     <script src="agent-settings.js"></script>
+    <!-- User settings — replaces the legacy gear-button modal with a side
+         pane that mirrors the web's /user/manage, /user/settings,
+         /user/developer, /billing, /companies, /team pages. -->
+    <script src="user-settings.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

@@ -21,7 +21,7 @@
   // Bumped whenever the activity rendering pipeline changes, so the
   // backend log immediately tells us whether the running webview picked
   // up the latest code or is showing a cached/older bundle.
-  const CHAT_JS_VERSION = 'no-tool-iteration-caps-v24';
+  const CHAT_JS_VERSION = 'execution-collapse-v25';
   if (window.AgixtFrontendLog) {
     window.AgixtFrontendLog('info', `chat.js loaded (${CHAT_JS_VERSION})`);
   }
@@ -271,7 +271,7 @@
     return 'execution';
   }
 
-  const KNOWN_SUB_TAGS = new Set(['THOUGHT', 'INFO', 'ERROR', 'WARNING', 'CLIENT_TOOL', 'REMOTE', 'DIAGRAM']);
+  const KNOWN_SUB_TAGS = new Set(['THOUGHT', 'INFO', 'ERROR', 'WARNING', 'CLIENT_TOOL', 'REMOTE', 'DIAGRAM', 'EXECUTION']);
 
   // Returns { kind, label, body, tag, parentRef }
   function parseMessageEnvelope(raw) {
@@ -284,7 +284,7 @@
     if (text.startsWith('[SUBACTIVITY]')) {
       // Three real-world shapes:
       //   [SUBACTIVITY] body…                                   (no tag, attaches to last activity)
-      //   [SUBACTIVITY][TAG] body…                              (tag form: THOUGHT|INFO|ERROR|WARNING|CLIENT_TOOL|REMOTE|DIAGRAM)
+      //   [SUBACTIVITY][TAG] body…                              (tag form: THOUGHT|INFO|ERROR|WARNING|CLIENT_TOOL|REMOTE|DIAGRAM|EXECUTION)
       //   [SUBACTIVITY][parent_uuid] body…                      (uuid parent ref)
       //   [SUBACTIVITY][parent_uuid][TAG] body…                 (parent ref + tag — strip both, keep tag)
       const stripped = text.replace(/^\[SUBACTIVITY\]\s*/, '');
@@ -410,6 +410,7 @@
     CLIENT_TOOL: { icon: '▶', label: 'Tool' },
     REMOTE:      { icon: '⌘', label: 'Command' },
     DIAGRAM:     { icon: '✎', label: 'Diagram' },
+    EXECUTION:   { icon: '⚙', label: 'Execution' },
   };
 
   function tryParseJson(text) {
@@ -485,6 +486,39 @@
     return det;
   }
 
+  // EXECUTION subactivities carry a single-line summary plus a chunk of
+  // detail (json args, command output, code, etc.). AGiXT emits them like
+  //   "Executing `cmd`.\n```json\n{...}```"
+  //   "`cmd` was executed successfully.\n<long output>"
+  //   "Code interpreter\n```python\n...```"
+  //   "Used tool: foo\n```json\n{...}```"
+  //   "Edited file: path/to/x"
+  // Render the first line as a clickable summary and tuck the rest behind
+  // <details>. Single-line bodies render inline (no disclosure).
+  function renderExecutionBody(text) {
+    const value = text == null ? '' : String(text);
+    const newlineIdx = value.indexOf('\n');
+    const title = (newlineIdx >= 0 ? value.slice(0, newlineIdx) : value).trim();
+    const rest = newlineIdx >= 0 ? value.slice(newlineIdx + 1).trim() : '';
+    if (!rest) {
+      const inline = el('div', 'md');
+      renderMdInto(inline, title || value);
+      return inline;
+    }
+    const det = document.createElement('details');
+    det.className = 'sub-exec';
+    const sum = document.createElement('summary');
+    sum.className = 'sub-exec-summary';
+    const sumMd = el('span', 'sub-exec-title md');
+    renderMdInto(sumMd, title || 'Execution');
+    sum.appendChild(sumMd);
+    det.appendChild(sum);
+    const bodyEl = el('div', 'sub-exec-body md');
+    renderMdInto(bodyEl, rest);
+    det.appendChild(bodyEl);
+    return det;
+  }
+
   // Render a REMOTE / command-result subactivity as a terminal block. AGiXT
   // emits these as `[REMOTE_COMMAND_RESULT] {json}` or as the plain JSON the
   // server stores after submit_remote_command_result. Falls back to markdown.
@@ -538,6 +572,7 @@
     let custom = null;
     if (tag === 'CLIENT_TOOL') custom = renderClientToolBody(text);
     else if (tag === 'REMOTE') custom = renderRemoteBody(text);
+    else if (tag === 'EXECUTION') custom = renderExecutionBody(text);
     if (custom) {
       content.appendChild(custom);
     } else {
@@ -761,8 +796,22 @@
       const titleEl = existing.el.querySelector('.activity-title');
       if (titleEl) titleEl.textContent = parsed.label || parsed.body || existing.text;
     } else if (existing.kind === 'subactivity') {
-      const inner = existing.el.querySelector('.md');
-      if (inner) renderMdInto(inner, parsed.body);
+      // EXECUTION renders as <details><summary class=sub-exec-title>…</summary>
+      // <body class=sub-exec-body>…</body></details>; rebuild the whole node
+      // in place so a streaming update (title may grow, body may grow) lands
+      // in the right slots instead of clobbering the title with the body.
+      if (existing.el.classList.contains('subactivity')
+          && existing.el.getAttribute('data-tag') === 'EXECUTION') {
+        const content = existing.el.querySelector('.sub-content');
+        if (content) {
+          replaceChildren(content, document.createDocumentFragment());
+          const next = renderExecutionBody(parsed.body);
+          if (next) content.appendChild(next);
+        }
+      } else {
+        const inner = existing.el.querySelector('.md');
+        if (inner) renderMdInto(inner, parsed.body);
+      }
     }
     scrollToBottom();
   }
