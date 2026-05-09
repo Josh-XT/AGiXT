@@ -57,10 +57,14 @@ use config::{ConfigStore, DesktopSettings};
 const MAIN_LABEL: &str = "main";
 
 /// Margin (logical px) between the popover window and the tray icon /
-/// screen edge.
+/// screen edge. Retained for the legacy popover positioner that the
+/// full-app desktop no longer invokes.
+#[allow(dead_code)]
 const POPOVER_MARGIN: f64 = 6.0;
-/// Popover size in logical pixels.
+/// Popover size in logical pixels (legacy).
+#[allow(dead_code)]
 const PANEL_WIDTH: f64 = 400.0;
+#[allow(dead_code)]
 const PANEL_HEIGHT: f64 = 800.0;
 
 pub struct AppState {
@@ -2496,6 +2500,7 @@ fn set_gtk_application_id(_: &WebviewWindow) {}
 /// promote our popover to a non-tilable window type. `Utility` is the
 /// closest match — Slack and Discord use the same hint for their popups.
 #[cfg(target_os = "linux")]
+#[allow(dead_code)]
 fn promote_to_utility(win: &WebviewWindow) {
     use gdk::WindowTypeHint;
     use gtk::prelude::*;
@@ -2509,6 +2514,7 @@ fn promote_to_utility(win: &WebviewWindow) {
 }
 
 #[cfg(all(not(mobile), not(target_os = "linux")))]
+#[allow(dead_code)]
 fn promote_to_utility(_: &WebviewWindow) {}
 
 /// Inverse of `promote_to_utility`: turn the popover back into a normal
@@ -2516,6 +2522,7 @@ fn promote_to_utility(_: &WebviewWindow) {}
 /// the user tile it like any other app. We use this when entering the
 /// workspace editor (set_workspace_window_mode(true)).
 #[cfg(target_os = "linux")]
+#[allow(dead_code)]
 fn demote_to_normal(win: &WebviewWindow) {
     use gdk::WindowTypeHint;
     use gtk::prelude::*;
@@ -2537,6 +2544,7 @@ fn demote_to_normal(win: &WebviewWindow) {
 }
 
 #[cfg(all(not(mobile), not(target_os = "linux")))]
+#[allow(dead_code)]
 fn demote_to_normal(win: &WebviewWindow) {
     apply_window_icon(win);
 }
@@ -2711,6 +2719,7 @@ fn is_actually_visible(win: &WebviewWindow) -> bool {
 /// report it) we fall back to the right edge of the primary monitor —
 /// the same place a top-right tray would put us.
 #[cfg(not(mobile))]
+#[allow(dead_code)]
 fn position_popover(
     app: &AppHandle,
     win: &WebviewWindow,
@@ -2840,8 +2849,10 @@ fn show_popover(
     tray_rect: Option<(i32, i32, i32, i32)>,
 ) -> ToolResult<()> {
     tracing::info!("show_popover ENTER tray_rect={:?}", tray_rect);
-    // Show via gtk directly on Linux. We also call Tauri's `show` so
-    // its internal "is_visible" tracking gets updated.
+    let _ = tray_rect; // tray-anchored positioning no longer used — full app window
+    // Desktop now always shows as a regular decorated window; the
+    // popover / utility-window mode was retired in favor of a normal
+    // tiling-friendly app window.
     #[cfg(target_os = "linux")]
     {
         let _ = win.show();
@@ -2854,28 +2865,12 @@ fn show_popover(
         let _ = win.show();
         let _ = win.unminimize();
     }
-    promote_to_utility(win);
     apply_window_icon(win);
-    if let Err(e) = position_popover(app, win, tray_rect) {
-        tracing::warn!("show_popover: position_popover err: {:?}", e);
-    }
+    let _ = win.set_decorations(true);
+    let _ = win.set_skip_taskbar(false);
+    let _ = win.set_always_on_top(false);
     let _ = win.set_focus();
-    let _ = win.set_always_on_top(true);
     tracing::info!("show_popover EXIT");
-    // Re-apply position once on a small delay in case mutter coalesced
-    // the configure-request through the show transition. Use Tauri's
-    // async runtime so this works whether we were called from the
-    // tokio-bound IPC thread or from the GTK main thread (tray menu /
-    // global shortcut handlers).
-    let app_clone = app.clone();
-    let win_clone = win.clone();
-    let tray_clone = tray_rect;
-    tauri::async_runtime::spawn(async move {
-        for delay_ms in [60u64, 200, 500] {
-            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-            let _ = position_popover(&app_clone, &win_clone, tray_clone);
-        }
-    });
     let _ = app.emit("popover-visible", true);
     Ok(())
 }
@@ -2883,8 +2878,6 @@ fn show_popover(
 #[cfg(not(mobile))]
 fn hide_popover(app: &AppHandle, win: &WebviewWindow) {
     tracing::info!("hide_popover called");
-    // Hide first via gtk directly on Linux — Tauri's wrapper has proven
-    // unreliable here. Cross-platform fallback uses Tauri's hide.
     #[cfg(target_os = "linux")]
     {
         if !linux_hide(win) {
@@ -2895,17 +2888,6 @@ fn hide_popover(app: &AppHandle, win: &WebviewWindow) {
     {
         let _ = win.hide();
     }
-    // The user might have hidden the window while the workspace editor
-    // was open (decorated, in-taskbar). Always revert to popover chrome
-    // before the next show, otherwise the tray click would bring back a
-    // decorated window with the workspace pane still rendered. The
-    // `popover-visible:false` emit below is the JS cue to drop the
-    // workspace state class and close the active file. Doing this
-    // after hide() means the user doesn't see the chrome flicker.
-    let _ = win.set_decorations(false);
-    let _ = win.set_skip_taskbar(true);
-    let _ = win.set_always_on_top(true);
-    promote_to_utility(win);
     let _ = app.emit("popover-visible", false);
 }
 
@@ -2986,68 +2968,10 @@ async fn set_sidebar_visible(
 #[tauri::command]
 #[cfg(not(mobile))]
 async fn set_workspace_window_mode(app: AppHandle, enabled: bool) -> ToolResult<()> {
-    let win = app
-        .get_webview_window(MAIN_LABEL)
-        .ok_or_else(|| ToolError {
-            error: "main window missing".into(),
-        })?;
-    if enabled {
-        // Workspace open → regular window. Tauri's `set_decorations` /
-        // `set_skip_taskbar` aren't enough on X11 because the popover's
-        // GTK type hint is `Utility`, which mutter excludes from the
-        // taskbar and from tile-snap. Demote the GTK window to `Normal`
-        // and clear the keep-above / skip-taskbar / skip-pager hints
-        // before flipping the Tauri-level attributes.
-        //
-        // On Linux, mutter only re-reads `_NET_WM_WINDOW_TYPE` when the
-        // window is unmapped, so we hide → demote → show. Brief flicker,
-        // but it's the only way to actually make the window tilable and
-        // taskbar-visible. macOS/Windows pick up the live changes fine.
-        #[cfg(target_os = "linux")]
-        {
-            let _ = win.hide();
-        }
-        demote_to_normal(&win);
-        let _ = win.set_always_on_top(false);
-        let _ = win.set_skip_taskbar(false);
-        let _ = win.set_decorations(true);
-        // The popover anchors to a tray corner; that position is wrong
-        // for a larger decorated window. Resize to a workable default
-        // and center on the current monitor.
-        let _ = win.set_size(LogicalSize::new(1300.0_f64, 800.0_f64));
-        if let Some(monitor) = win.current_monitor().ok().flatten() {
-            let mon_pos = monitor.position();
-            let mon_size = monitor.size();
-            if let Ok(sz) = win.outer_size() {
-                let x = mon_pos.x + ((mon_size.width as i32 - sz.width as i32) / 2);
-                let y = mon_pos.y + ((mon_size.height as i32 - sz.height as i32) / 2);
-                let _ = win.set_position(PhysicalPosition::new(x, y));
-            }
-        }
-        #[cfg(target_os = "linux")]
-        {
-            let _ = win.show();
-            let _ = win.set_focus();
-        }
-    } else {
-        // Workspace closed → revert to popover. Same hide → re-promote
-        // → show dance so the type hint flip lands on Linux.
-        #[cfg(target_os = "linux")]
-        {
-            let _ = win.hide();
-        }
-        let _ = win.set_decorations(false);
-        let _ = win.set_skip_taskbar(true);
-        let _ = win.set_always_on_top(true);
-        promote_to_utility(&win);
-        #[cfg(target_os = "linux")]
-        {
-            let _ = win.show();
-            let _ = win.set_focus();
-        }
-        // The JS caller restores the previous geometry it captured
-        // before opening so the window snaps back to its tray corner.
-    }
+    // The desktop window is always a normal decorated window now; there's
+    // no popover mode to toggle out of. Kept as a no-op for back-compat
+    // with front-end callers (workspace open/close, sidenav switches).
+    let _ = (app, enabled);
     Ok(())
 }
 
@@ -3505,24 +3429,16 @@ pub fn run() {
             if let Some(win) = app.get_webview_window(MAIN_LABEL) {
                 configure_media_capture(&win);
                 apply_window_icon(&win);
-                promote_to_utility(&win);
-                let _ = position_popover(&handle, &win, None);
+                // Desktop opens directly as the full application — a
+                // normal decorated, taskbar-visible window. The popover
+                // / utility-window dance is only used by tray callers
+                // who explicitly ask for it.
+                let _ = win.set_decorations(true);
+                let _ = win.set_skip_taskbar(false);
+                let _ = win.set_always_on_top(false);
                 let _ = win.show();
                 let _ = win.set_focus();
-                // After show() the X11 window is realized, so we can
-                // stamp `_GTK_APPLICATION_ID` for GNOME's window tracker.
                 set_gtk_application_id(&win);
-                // Re-apply position once after the WM has placed it —
-                // mutter sometimes coalesces the first set_position
-                // through the show transition.
-                let win_clone = win.clone();
-                let handle_clone = handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    for delay_ms in [80u64, 250, 600] {
-                        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                        let _ = position_popover(&handle_clone, &win_clone, None);
-                    }
-                });
             }
 
             // Listen for `agixt://` deep links. These come in three flavors:

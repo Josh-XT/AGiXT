@@ -316,7 +316,7 @@ body.auth-mode .topbar-stack {
    conversation chips into the top of the chat pane via the
    `topbar-stack--in-chat` class added by app.js. Saves the ~76px of
    vertical chrome the topbar used to claim. */
-body.window-mode .topbar {
+body.window-mode:not(.auth-mode) .topbar {
   display: none;
 }
 .topbar-stack--in-chat {
@@ -1439,6 +1439,22 @@ body.window-mode.chat-collapsed .chat-resize-handle {
 .sidenav-top { flex: 1 1 auto; }
 .sidenav-bottom { flex: 0 0 auto; }
 
+/* Brand mark slot at the top of the sidenav. Decorative — chat is
+   always present in the application, so the brand replaces what used
+   to be a redundant Chat nav button. */
+.sidenav-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+}
+.sidenav-brand .brand-mark {
+  width: 28px;
+  height: 28px;
+}
 .sidenav-btn {
   width: 32px;
   height: 32px;

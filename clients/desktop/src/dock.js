@@ -27,15 +27,10 @@
   }
 
   function wire() {
-    const collapse = document.getElementById('btn-collapse');
-    if (collapse) collapse.addEventListener('click', () => hide());
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key !== 'Escape') return;
-      if (document.querySelector('.modal.open')) return;
-      hide();
-    });
-
+    // The desktop window is a regular full-app window now — no more
+    // "X to hide" button in the topbar, and Esc no longer dismisses
+    // the whole window. Modals/menus still handle their own Esc
+    // independently.
     wireResizeHandles();
   }
 

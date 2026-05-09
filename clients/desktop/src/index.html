@@ -73,7 +73,6 @@
                       d="M22 10 12 5 2 10l10 5 10-5zM6 12v5c0 1.5 3 3 6 3s6-1.5 6-3v-5M22 10v6"/>
               </svg>
             </button>
-            <button class="icon-btn" id="btn-collapse" title="Hide (Ctrl+Shift+Space)" aria-label="Hide">×</button>
           </div>
           <div class="topbar-row">
             <button class="chip-btn" id="convo-switcher-btn" type="button" aria-haspopup="menu" aria-expanded="false">
@@ -231,13 +230,14 @@
       <section class="chat-screen" id="chat-screen" hidden>
         <nav class="sidenav" aria-label="Sections">
           <div class="sidenav-top" role="tablist">
-            <button class="sidenav-btn is-active" data-view="chat" type="button"
-                    role="tab" aria-selected="true" title="Chat" aria-label="Chat" data-tooltip="Chat">
-              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-                <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
-                      d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-              </svg>
-            </button>
+            <!-- Brand logo as the first sidenav item. Chat is always
+                 present in the application, so it doesn't need its own
+                 nav button — extension panes overlay alongside chat. -->
+            <div class="sidenav-brand" aria-hidden="true" title="AGiXT">
+              <div class="brand-mark" id="sidenav-brand-mark">
+                <img src="assets/brands/agixt.svg" alt="" id="sidenav-brand-mark-img" />
+              </div>
+            </div>
           </div>
           <div class="sidenav-bottom">
             <button class="sidenav-btn" data-view="extensions" type="button"

@@ -1456,7 +1456,7 @@
     }
   });
 
-  collapseBtn.addEventListener('click', async () => {
+  collapseBtn?.addEventListener('click', async () => {
     try { await invoke('set_sidebar_visible', { visible: false }); } catch (_) { /* ignore */ }
   });
 
@@ -1584,7 +1584,10 @@
     try { mutate(); } catch (_) {}
     // After the layout change settles (one frame later) put the
     // viewport back where it was.
-    requestAnimationFrame(() => {
+    const raf = (typeof requestAnimationFrame === 'function')
+      ? requestAnimationFrame
+      : (cb) => setTimeout(cb, 0);
+    raf(() => {
       if (!scroll.isConnected) return;
       if (wasAtBottom) {
         scroll.scrollTop = scroll.scrollHeight;
@@ -1687,64 +1690,31 @@
   window.AgixtSidenav.syncContentPaneClass = syncContentPaneClass;
 
   // ----- Window mode reconciler ------------------------------------------
-  // The popover (borderless, tray-anchored, always-on-top, hidden from
-  // the taskbar) is great for chat-only use, but every other surface —
-  // workspace editor, machines, future extension pages — wants a real
-  // OS window with chrome + tiling. Two things drive that mode flip:
-  //   1. The workspace editor opens/closes (toggle in chat composer).
-  //   2. The active sidenav view becomes anything other than chat.
-  // Both converge through `refreshWindowMode()` so the Rust IPC + body
-  // class + saved geometry stay in lock-step.
+  // The desktop window is always a regular full-app window now (decorated,
+  // taskbar-visible, no longer always-on-top). The legacy popover mode
+  // was retired, so this reconciler just stamps `body.window-mode` on
+  // boot and keeps the topbar-stack relocation in sync. Kept callable
+  // so workspace/extension transitions can re-run layout.
   let _windowDecorated = false;
-  let _preDecoratedGeom = null;
   async function refreshWindowMode() {
-    const wsOpen = !!(window.AgixtWorkspace
-      && typeof window.AgixtWorkspace.isOpen === 'function'
-      && window.AgixtWorkspace.isOpen());
-    // Sticky: once the user has entered window mode, keep it for the
-    // whole show-cycle. The popover only returns when the user
-    // explicitly hides the window (tray X / Esc / hide_chat) — at
-    // which point `popover-visible:false` resets `_windowDecorated`
-    // so the next show comes back as a clean popover.
-    const wantsWindow = wsOpen || (activeView && activeView !== 'chat');
-    const shouldDecorate = _windowDecorated || wantsWindow;
-    if (shouldDecorate === _windowDecorated) return;
-
-    if (shouldDecorate && !_windowDecorated) {
-      // Capture popover geometry before the Rust side resizes/centers
-      // the window so we can put it back exactly where it was.
-      try {
-        const tw = window.__TAURI__ && window.__TAURI__.window;
-        if (tw && typeof tw.getCurrentWindow === 'function') {
-          const win = tw.getCurrentWindow();
-          const [sz, pos] = await Promise.all([win.outerSize(), win.outerPosition()]);
-          _preDecoratedGeom = { width: sz.width, height: sz.height, x: pos.x, y: pos.y };
-        }
-      } catch (_) { _preDecoratedGeom = null; }
+    if (_windowDecorated) {
+      syncContentPaneClass();
+      relocateTopbarStack();
+      return;
     }
-
-    _windowDecorated = shouldDecorate;
-    document.body.classList.toggle('window-mode', shouldDecorate);
+    _windowDecorated = true;
+    document.body.classList.add('window-mode');
     syncContentPaneClass();
     relocateTopbarStack();
-    try { await invoke('set_workspace_window_mode', { enabled: shouldDecorate }); }
-    catch (_) { /* best-effort — Rust falls back to current chrome */ }
-
-    if (!shouldDecorate && _preDecoratedGeom) {
-      try {
-        const tw = window.__TAURI__ && window.__TAURI__.window;
-        if (tw && typeof tw.getCurrentWindow === 'function') {
-          const win = tw.getCurrentWindow();
-          const g = _preDecoratedGeom;
-          if (tw.PhysicalSize) await win.setSize(new tw.PhysicalSize(g.width, g.height));
-          else if (tw.LogicalSize) await win.setSize(new tw.LogicalSize(g.width, g.height));
-          if (tw.PhysicalPosition) await win.setPosition(new tw.PhysicalPosition(g.x, g.y));
-          else if (tw.LogicalPosition) await win.setPosition(new tw.LogicalPosition(g.x, g.y));
-        }
-      } catch (_) {}
-      _preDecoratedGeom = null;
-    }
+    try { await invoke('set_workspace_window_mode', { enabled: true }); }
+    catch (_) { /* best-effort — Rust no-ops in the new full-app model */ }
   }
+  // Stamp window-mode on the body immediately so the boot frame doesn't
+  // render with the legacy popover topbar. The full reconciler runs
+  // asynchronously after first layout so syncContentPaneClass /
+  // requestAnimationFrame plumbing has had a chance to settle.
+  document.body.classList.add('window-mode');
+  setTimeout(() => { refreshWindowMode(); }, 0);
   // Public entrypoint other modules call after they change state that
   // would affect the desired chrome (workspace open/close, OAuth
   // connections becoming live, etc).
