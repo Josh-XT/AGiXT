@@ -478,6 +478,12 @@ class InternalClient:
         )
         return c.get_conversation(limit=limit, page=page)
 
+    def get_conversations_with_ids(self) -> Dict[str, str]:
+        """Get conversation names keyed by conversation ID."""
+        Conversations = self._get_conversations_class()
+        c = Conversations(user=self.user)
+        return c.get_conversations_with_ids()
+
     def delete_conversation(
         self, conversation_name: str = None, conversation_id: str = None
     ) -> Dict[str, Any]:
