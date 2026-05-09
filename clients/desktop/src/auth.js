@@ -91,6 +91,17 @@
     if (img) img.src = id.logo;
     if (title) title.textContent = id.title;
     if (mark) mark.classList.remove('fallback');
+    // Also paint the sidenav brand slot — it's the first item users see
+    // in the activity bar after sign-in, so it has to track the active
+    // service brand the same way the auth-screen mark does.
+    const sideImg = $('sidenav-brand-mark-img');
+    const sideMark = $('sidenav-brand-mark');
+    if (sideImg) sideImg.src = id.logo;
+    if (sideMark) {
+      sideMark.classList.remove('fallback');
+      const slot = sideMark.closest('.sidenav-brand');
+      if (slot) slot.title = id.title;
+    }
   }
 
   // Expose so app.js can apply the saved brand on boot — without this
