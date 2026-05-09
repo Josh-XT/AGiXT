@@ -765,18 +765,32 @@
         currentToolGroup = null;
         activityIdAlias.clear();
       }
-      const r = renderPlain(role, parsed.body, msg.timestamp);
+      const specialToolCalls = isAssistantLike ? extractSpecialProtocolToolCalls(parsed.body, msg.id) : [];
+      const visibleBody = specialToolCalls.length ? stripSpecialProtocolToolMarkup(parsed.body) : parsed.body;
+      if (isAssistantLike && specialToolCalls.length && !visibleBody) {
+        // Some models leak their internal tool-call wire format as normal
+        // assistant text. The live streaming path already converts that into
+        // client-side tool execution; suppress persisted copies so the raw
+        // protocol does not reappear in history or WebSocket replays.
+        messages.set(msg.id, {
+          id: msg.id, role, text: parsed.body, ts: msg.timestamp,
+          kind: 'suppressed-tool-call', el: null,
+        });
+        order.push(msg.id);
+        return;
+      }
+      const r = renderPlain(role, visibleBody, msg.timestamp);
       list.appendChild(r.el);
-      messages.set(msg.id, { id: msg.id, role, text: parsed.body, ts: msg.timestamp, kind: 'plain', el: r.el, content: r.content });
+      messages.set(msg.id, { id: msg.id, role, text: visibleBody, ts: msg.timestamp, kind: 'plain', el: r.el, content: r.content });
       order.push(msg.id);
-      if (isAssistantLike && audio) audio.scanForAudio(parsed.body);
+      if (isAssistantLike && audio) audio.scanForAudio(visibleBody);
       if (isAssistantLike) {
         stopAllSpinners();
         // Final assistant text landed — relabel/collapse the preceding
         // activity blocks. Skip when the body is empty so an empty
         // router message doesn't prematurely collapse a still-running
         // thinking block.
-        if (parsed.body && parsed.body.trim()) {
+        if (visibleBody && visibleBody.trim()) {
           finalizeActivityBlocks();
         }
         if (!isInitial) dispatchFencedClientTools(parsed.body);
@@ -790,6 +804,11 @@
     const existing = messages.get(msg.id);
     if (!existing) return ingest(msg, false);
     const parsed = parseMessageEnvelope(msg.message);
+    if (existing.kind === 'suppressed-tool-call') {
+      messages.delete(msg.id);
+      order = order.filter((x) => x !== msg.id);
+      return ingest(msg, false);
+    }
     if (existing.kind === 'plain' && existing.content) {
       existing.text = parsed.body;
       renderMdInto(existing.content, parsed.body);
@@ -855,16 +874,9 @@
    *  doesn't silently fail. */
   function dispatchFencedClientTools(body) {
     if (!clientActions || !body) return;
-    const fence = /```(client_tool|json)\s*\n([\s\S]*?)```/gi;
-    let match;
-    while ((match = fence.exec(body)) !== null) {
-      const blob = match[2].trim();
-      let obj;
-      try { obj = JSON.parse(blob); } catch (_) { continue; }
-      if (!obj || typeof obj !== 'object') continue;
-      if (!obj.tool_name && !obj.name && !obj.action_type) continue;
-      runClientTool(obj);
-    }
+    extractFencedToolCalls(body).forEach((tc) => {
+      runClientTool({ tool_name: tc.name, tool_args: tc.args, id: tc.id });
+    });
   }
 
   /** Send a tool call through the IPC dispatcher and surface the result
@@ -1350,6 +1362,17 @@
           }
           case 'done': {
             const finalText = ev.data.text || assistantText;
+            const inlineTools = extractInlineClientToolCalls(finalText, streamId);
+            if (inlineTools.length) {
+              inlineTools.forEach((tc) => collectedTools.push(tc));
+              if (placeholder) {
+                placeholder.content.classList.remove('cursor-blink');
+                asstEntry.text = '';
+                renderMdInto(placeholder.content, '');
+              }
+              resolveFinished('tool_calls');
+              break;
+            }
             if (finalText && finalText.trim()) {
               ensurePlaceholder();
               placeholder.content.classList.remove('cursor-blink');
@@ -1466,6 +1489,120 @@
 
   function safeParse(s) {
     try { return JSON.parse(s); } catch (_) { return {}; }
+  }
+
+  function decodeXmlishText(value) {
+    return String(value == null ? '' : value)
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, '&');
+  }
+
+  function parseInlineScalar(value) {
+    const text = decodeXmlishText(value).trim();
+    if (/^(true|false)$/i.test(text)) return text.toLowerCase() === 'true';
+    if (/^-?\d+$/.test(text)) return Number(text);
+    if (/^-?\d+\.\d+$/.test(text)) return Number(text);
+    if (/^[\[{]/.test(text)) {
+      try { return JSON.parse(text); } catch (_) { /* keep as text */ }
+    }
+    return text;
+  }
+
+  function normalizeInlineToolCall(obj, origin, index, streamId) {
+    if (!obj || typeof obj !== 'object') return null;
+    const name = obj.tool_name || obj.name || obj.action_type || obj.tool || '';
+    if (!name) return null;
+    let args = obj.tool_args ?? obj.arguments ?? obj.args ?? obj.input ?? null;
+    if (typeof args === 'string') {
+      try { args = JSON.parse(args); } catch (_) { /* dispatcher also accepts strings */ }
+    }
+    if (args == null || typeof args !== 'object' || Array.isArray(args)) {
+      args = {};
+      Object.keys(obj).forEach((k) => {
+        if (!['id', 'tool_call_id', 'tool_name', 'name', 'action_type', 'tool', 'tool_args', 'arguments', 'args', 'input'].includes(k)) {
+          args[k] = obj[k];
+        }
+      });
+    }
+    const id = obj.id || obj.tool_call_id || `inline-${streamId || Date.now()}-${index}`;
+    return {
+      id: String(id),
+      name: String(name),
+      args,
+      origin,
+    };
+  }
+
+  function parseSpecialToolArgs(raw) {
+    const cleaned = String(raw || '')
+      .replace(/<\|?tool_call_path\|?>/gi, '')
+      .trim();
+    if (!cleaned) return {};
+    if (/^[\[{]/.test(cleaned)) {
+      try { return JSON.parse(cleaned); } catch (_) { /* fall through */ }
+    }
+    const args = {};
+    const tagRe = /<([A-Za-z_][\w.-]*)>([\s\S]*?)<\/\1>/g;
+    let match;
+    while ((match = tagRe.exec(cleaned)) !== null) {
+      args[match[1]] = parseInlineScalar(match[2]);
+    }
+    return args;
+  }
+
+  function extractSpecialProtocolToolCalls(body, streamId) {
+    const text = String(body || '');
+    if (!text.includes('<|tool_call_begin|>')) return [];
+    const calls = [];
+    const callRe = /<\|tool_call_begin\|>\s*([A-Za-z0-9_.:-]+)?\s*([\s\S]*?)<\|tool_call_end\|>/gi;
+    let match;
+    while ((match = callRe.exec(text)) !== null) {
+      const name = (match[1] || '').trim();
+      if (!name) continue;
+      calls.push({
+        id: `special-${streamId || Date.now()}-${calls.length}`,
+        name,
+        args: parseSpecialToolArgs(match[2]),
+        origin: 'inline_special_tool_call',
+      });
+    }
+    return calls;
+  }
+
+  function stripSpecialProtocolToolMarkup(body) {
+    return String(body || '')
+      .replace(/<\|tool_calls_section_begin\|>[\s\S]*?<\|tool_calls_section_end\|>/gi, '')
+      .replace(/<\|tool_call_begin\|>[\s\S]*?<\|tool_call_end\|>/gi, '')
+      .trim();
+  }
+
+  function extractFencedToolCalls(body, streamId) {
+    const calls = [];
+    const fence = /```(client_tool|json)\s*\n([\s\S]*?)```/gi;
+    let match;
+    while ((match = fence.exec(String(body || ''))) !== null) {
+      const blob = match[2].trim();
+      let obj;
+      try { obj = JSON.parse(blob); } catch (_) { continue; }
+      const normalized = normalizeInlineToolCall(
+        obj,
+        match[1].toLowerCase() === 'client_tool' ? 'inline_client_tool_fence' : 'inline_json_tool_fence',
+        calls.length,
+        streamId,
+      );
+      if (normalized) calls.push(normalized);
+    }
+    return calls;
+  }
+
+  function extractInlineClientToolCalls(body, streamId) {
+    return [
+      ...extractSpecialProtocolToolCalls(body, streamId),
+      ...extractFencedToolCalls(body, streamId),
+    ];
   }
 
   function configure(opts) {

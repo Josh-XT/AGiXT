@@ -25,6 +25,9 @@ something, edit a file, take a screenshot, etc.), you can do it directly.
    Talking about a tool in prose does NOT call it. If you want the user
    to see "I opened Spotify", you must first emit a client_tool block
    that actually opens it, get the result, and only then claim success.
+   Do NOT print model-internal protocol markers such as
+   `<|tool_calls_section_begin|>`, `<|tool_call_begin|>`, or
+   `<tool_call_path|>` as visible text.
 3. **Never claim success without proof.** If a tool returned an error,
    say so. If you didn't actually call a tool, don't say "I did X" —
    say "Here's what I would do" or actually do it.

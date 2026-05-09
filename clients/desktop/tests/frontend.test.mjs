@@ -1412,6 +1412,96 @@ test('chat: screenshot tool result is sent back as image content for vision', as
   assert.equal(calls.filter((c) => c.cmd === 'desktop_screenshot').length, 1);
 });
 
+test('chat: leaked special tool-call markup executes as client tool continuation', async () => {
+  const listeners = new Map();
+  const leaked = [
+    '<|tool_calls_section_begin|>',
+    '<|tool_call_begin|>shell_run',
+    '<tool_call_path|><command>du -sh /* 2>/dev/null | sort -hr</command>',
+    '<timeout_ms>30000</timeout_ms>',
+    '<|tool_call_end|>',
+    '<|tool_calls_section_end|>',
+  ].join('\n');
+  const { window, calls } = loadFrontend({
+    ipc: {
+      chat_send: async ({ args }) => {
+        const cb = listeners.get(`chat-stream:${args.stream_id}`);
+        assert.ok(cb, 'listener should be attached before chat_send starts');
+        if (args.messages[0] && args.messages[0].role === 'tool') {
+          assert.match(args.messages[0].tool_call_id, /^special-[0-9a-f-]+-0$/);
+          assert.equal(args.messages[0].name, 'shell_run');
+          assert.match(args.messages[0].content, /"stdout": "disk"/);
+          cb({
+            payload: {
+              event: { kind: 'done', data: { text: 'Disk usage checked.', finish_reason: 'stop' } },
+            },
+          });
+          return args.stream_id;
+        }
+        cb({
+          payload: {
+            event: { kind: 'delta', data: { text: leaked } },
+          },
+        });
+        cb({
+          payload: {
+            event: { kind: 'done', data: { text: leaked, finish_reason: 'stop' } },
+          },
+        });
+        return args.stream_id;
+      },
+      shell_run: async () => ({ stdout: 'disk', stderr: '', exit_code: 0, timed_out: false }),
+    },
+  });
+  window.__TAURI__.event = {
+    listen: async (name, cb) => {
+      listeners.set(name, cb);
+      return () => listeners.delete(name);
+    },
+  };
+  window.AgixtChat.configure({
+    serverUrl: 'http://localhost:7437',
+    jwt: 'jwt',
+    conversationId: 'convo-id',
+    reconnect: false,
+  });
+
+  await window.AgixtChat.send('find what is using disk space', 'desktop-convo');
+
+  assert.equal(calls.filter((c) => c.cmd === 'chat_send').length, 2);
+  assert.equal(calls.filter((c) => c.cmd === 'shell_run').length, 1);
+  const shell = calls.find((c) => c.cmd === 'shell_run');
+  assert.equal(shell.args.command, 'du -sh /* 2>/dev/null | sort -hr');
+  assert.equal(shell.args.timeoutMs, 30000);
+  assert.doesNotMatch(window.document.body.textContent, /tool_calls_section_begin/);
+  assert.match(window.document.body.textContent, /Disk usage checked\./);
+});
+
+test('chat: persisted leaked special tool-call markup is suppressed', async () => {
+  const leaked = [
+    '<|tool_calls_section_begin|>',
+    '<|tool_call_begin|>shell_run',
+    '<tool_call_path|><command>echo ok</command>',
+    '<|tool_call_end|>',
+    '<|tool_calls_section_end|>',
+  ].join('\n');
+  const { window } = loadFrontend({
+    ipc: {
+      get_conversation_history: async () => [
+        { id: 'raw-tool', role: 'XT', message: leaked, timestamp: new Date().toISOString() },
+        { id: 'final', role: 'XT', message: 'Done.', timestamp: new Date().toISOString() },
+      ],
+    },
+  });
+  window.AgixtChat.configure({
+    serverUrl: 'http://localhost:7437', jwt: 'j', conversationId: 'c', reconnect: false,
+  });
+  await window.AgixtChat.loadHistory('c');
+
+  assert.doesNotMatch(window.document.body.textContent, /tool_calls_section_begin/);
+  assert.match(window.document.body.textContent, /Done\./);
+});
+
 test('chat: persisted XT assistant replaces streamed local assistant bubble', async () => {
   const listeners = new Map();
   const sockets = [];

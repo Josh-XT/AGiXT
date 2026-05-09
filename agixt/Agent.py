@@ -4227,7 +4227,15 @@ class Agent:
 
             # First add client-defined tools as a special extension section
             if client_commands:
-                agent_commands += f"\n### Client-Defined Tools\nDescription: These commands are executed on the client's machine (e.g., CLI terminal).\n"
+                agent_commands += (
+                    "\n### Client-Defined Tools\n"
+                    "Description: These commands are executed on the client's machine "
+                    "(e.g., desktop app, mobile app, or CLI terminal). Use exactly the "
+                    "<execute> XML command execution format shown below for these tools. "
+                    "Do not print model-internal tool-call protocol markers such as "
+                    "`<|tool_calls_section_begin|>`, `<|tool_call_begin|>`, or "
+                    "`<tool_call_path|>` in the assistant message.\n"
+                )
                 for command in client_commands:
                     if running_command and command["friendly_name"] == running_command:
                         continue
