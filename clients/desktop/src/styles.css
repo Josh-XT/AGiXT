@@ -1269,11 +1269,27 @@ details.sub-exec > summary.sub-exec-summary:hover {
   font-family: var(--font);
 }
 /* Bump card presence — extensions use varied class prefixes
-   (mx-card, co-card, ct-card, …); target every `*-card` class. */
-.view-pane-extension [class*="-card"] {
+   (mx-card, co-card, ct-card, …); target every outer `-card` class
+   without bleeding into their `-card-*` subelements.
+
+   The previous selector `[class*="-card"]` matched any class string
+   containing "-card" anywhere, which silently also matched
+   `mx-card-head`, `mx-card-title`, `mx-card-body`, `co-card-content`,
+   etc. Each match drew a 1px inset top-highlight, producing visible
+   hairlines next to card titles (the "lines in the table headers"
+   bug reported on /machines).
+
+   The two-clause selector below restricts the match to classes that
+   either *end* with `-card` (the only class on the element) OR are
+   followed by a space (one of multiple classes on the element).
+   `mx-card-head` matches neither, so nested subelements no longer
+   pick up the polish. */
+.view-pane-extension [class$="-card"],
+.view-pane-extension [class*="-card "] {
   position: relative;
 }
-.view-pane-extension [class*="-card"]::before {
+.view-pane-extension [class$="-card"]::before,
+.view-pane-extension [class*="-card "]::before {
   content: "";
   position: absolute;
   inset: 0;
