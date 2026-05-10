@@ -370,7 +370,7 @@
     installUpdateBtn.dataset.usTest = 'desktop-update-install';
     installUpdateBtn.hidden = true;
     panel.appendChild(section('Desktop app updates',
-      'Linux updates use the remembered Privileged Commands sudo password to install the downloaded .deb.',
+      'Linux system installs use the remembered Privileged Commands sudo password to install the downloaded .deb.',
       [
         el('div', { class: 'us-section-row' }, [checkUpdateBtn, installUpdateBtn]),
         updateStatus,

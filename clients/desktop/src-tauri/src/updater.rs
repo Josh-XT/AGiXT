@@ -1,3 +1,5 @@
+#[cfg(target_os = "linux")]
+use std::path::Path;
 use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Context};
@@ -179,8 +181,6 @@ pub async fn install() -> anyhow::Result<DesktopUpdateInstallResult> {
             status.platform
         ));
     }
-    ensure_linux_update_sudo_ready().await?;
-
     let path = download_update(&status).await?;
     install_downloaded_update(&status, path).await
 }
@@ -369,6 +369,13 @@ async fn install_linux_update(path: PathBuf) -> anyhow::Result<DesktopUpdateInst
         });
     }
 
+    #[cfg(target_os = "linux")]
+    if let Some(current_path) = current_linux_user_install_path() {
+        return install_linux_user_deb_update(&path, current_path).await;
+    }
+
+    ensure_linux_update_sudo_ready().await?;
+
     let command = format!(
         "DEBIAN_FRONTEND=noninteractive apt-get install -y {}",
         shell_quote(&path.display().to_string())
@@ -397,6 +404,193 @@ async fn install_linux_update(path: PathBuf) -> anyhow::Result<DesktopUpdateInst
         command: Some(command),
         message: "Update installed. Restart AGiXT Desktop to use the new version.".into(),
     })
+}
+
+#[cfg(target_os = "linux")]
+fn current_linux_user_install_path() -> Option<PathBuf> {
+    let current = std::env::current_exe().ok()?;
+    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+    if is_linux_user_local_binary_path(&current, &home) {
+        Some(current)
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn is_linux_user_local_binary_path(path: &Path, home: &Path) -> bool {
+    let local_bin = home.join(".local").join("bin");
+    let parent_matches = path
+        .parent()
+        .is_some_and(|parent| parent == local_bin.as_path());
+    let name_matches = path
+        .file_name()
+        .and_then(|v| v.to_str())
+        .is_some_and(|name| matches!(name, "agixt-desktop" | "agixt"));
+    parent_matches && name_matches
+}
+
+#[cfg(target_os = "linux")]
+async fn install_linux_user_deb_update(
+    package_path: &Path,
+    install_path: PathBuf,
+) -> anyhow::Result<DesktopUpdateInstallResult> {
+    let extract_dir = std::env::temp_dir().join(format!(
+        "agixt-desktop-update-extract-{}",
+        std::process::id()
+    ));
+    let _ = tokio::fs::remove_dir_all(&extract_dir).await;
+    tokio::fs::create_dir_all(&extract_dir)
+        .await
+        .with_context(|| format!("create {}", extract_dir.display()))?;
+
+    let extract_output = tokio::process::Command::new("dpkg-deb")
+        .arg("-x")
+        .arg(package_path)
+        .arg(&extract_dir)
+        .output()
+        .await
+        .context("extract desktop update .deb with dpkg-deb")?;
+    if !extract_output.status.success() {
+        let detail = String::from_utf8_lossy(if extract_output.stderr.is_empty() {
+            &extract_output.stdout
+        } else {
+            &extract_output.stderr
+        });
+        let _ = tokio::fs::remove_dir_all(&extract_dir).await;
+        return Err(anyhow!(
+            "desktop update extraction failed: {}",
+            detail.trim()
+        ));
+    }
+
+    let binary_path = match find_extracted_desktop_binary(&extract_dir) {
+        Ok(path) => path,
+        Err(err) => {
+            let _ = tokio::fs::remove_dir_all(&extract_dir).await;
+            return Err(err);
+        }
+    };
+
+    let install_dir = install_path
+        .parent()
+        .ok_or_else(|| anyhow!("desktop install path has no parent"))?;
+    tokio::fs::create_dir_all(install_dir)
+        .await
+        .with_context(|| format!("create {}", install_dir.display()))?;
+
+    let tmp_name = install_path
+        .file_name()
+        .and_then(|v| v.to_str())
+        .map(|name| format!(".{name}.update-{}", std::process::id()))
+        .unwrap_or_else(|| format!(".agixt-desktop.update-{}", std::process::id()));
+    let tmp_path = install_path.with_file_name(tmp_name);
+    let _ = tokio::fs::remove_file(&tmp_path).await;
+    tokio::fs::copy(&binary_path, &tmp_path)
+        .await
+        .with_context(|| {
+            format!(
+                "copy desktop update binary {} to {}",
+                binary_path.display(),
+                tmp_path.display()
+            )
+        })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = tokio::fs::metadata(&tmp_path).await?.permissions();
+        perms.set_mode(perms.mode() | 0o755);
+        tokio::fs::set_permissions(&tmp_path, perms).await?;
+    }
+
+    tokio::fs::rename(&tmp_path, &install_path)
+        .await
+        .with_context(|| {
+            format!(
+                "replace desktop binary {} with {}",
+                install_path.display(),
+                tmp_path.display()
+            )
+        })?;
+    let _ = tokio::fs::remove_dir_all(&extract_dir).await;
+
+    Ok(DesktopUpdateInstallResult {
+        installed: true,
+        restart_required: true,
+        downloaded_path: Some(package_path.display().to_string()),
+        command: Some(format!(
+            "dpkg-deb -x {} && install extracted binary to {}",
+            shell_quote(&package_path.display().to_string()),
+            shell_quote(&install_path.display().to_string())
+        )),
+        message: format!(
+            "Update installed to {}. Restart AGiXT Desktop to use the new version.",
+            install_path.display()
+        ),
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn find_extracted_desktop_binary(root: &Path) -> anyhow::Result<PathBuf> {
+    let mut candidates = Vec::new();
+    collect_desktop_binary_candidates(root, &mut candidates)?;
+    candidates.sort_by(|(left_score, left_path), (right_score, right_path)| {
+        left_score
+            .cmp(right_score)
+            .then_with(|| {
+                left_path
+                    .components()
+                    .count()
+                    .cmp(&right_path.components().count())
+            })
+            .then_with(|| left_path.cmp(right_path))
+    });
+    candidates
+        .into_iter()
+        .map(|(_, path)| path)
+        .next()
+        .ok_or_else(|| anyhow!("desktop update package did not contain agixt-desktop"))
+}
+
+#[cfg(target_os = "linux")]
+fn collect_desktop_binary_candidates(
+    dir: &Path,
+    candidates: &mut Vec<(usize, PathBuf)>,
+) -> anyhow::Result<()> {
+    for entry in std::fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
+        let entry = entry?;
+        let path = entry.path();
+        let metadata = entry.metadata()?;
+        if metadata.is_dir() {
+            collect_desktop_binary_candidates(&path, candidates)?;
+        } else if metadata.is_file() {
+            if let Some(score) = desktop_binary_candidate_score(&path) {
+                candidates.push((score, path));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn desktop_binary_candidate_score(path: &Path) -> Option<usize> {
+    let name = path.file_name()?.to_str()?.to_ascii_lowercase();
+    if name.contains("cli")
+        || name.ends_with(".desktop")
+        || name.ends_with(".png")
+        || name.ends_with(".ico")
+        || name.ends_with(".icns")
+    {
+        return None;
+    }
+    match name.as_str() {
+        "agixt-desktop" => Some(0),
+        "agixt" => Some(1),
+        "agixt desktop" => Some(2),
+        _ if name.starts_with("agixt-desktop") => Some(3),
+        _ => None,
+    }
 }
 
 async fn open_installer(
@@ -438,4 +632,58 @@ fn shell_quote(value: &str) -> String {
 
 fn windows_cmd_quote(value: &str) -> String {
     format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_install_path_matches_only_user_local_desktop_binaries() {
+        let home = PathBuf::from("/home/tester");
+
+        assert!(is_linux_user_local_binary_path(
+            &home.join(".local/bin/agixt-desktop"),
+            &home
+        ));
+        assert!(is_linux_user_local_binary_path(
+            &home.join(".local/bin/agixt"),
+            &home
+        ));
+        assert!(!is_linux_user_local_binary_path(
+            &home.join(".local/bin/agixt-cli"),
+            &home
+        ));
+        assert!(!is_linux_user_local_binary_path(
+            Path::new("/usr/bin/agixt-desktop"),
+            &home
+        ));
+    }
+
+    #[test]
+    fn extracted_binary_finder_prefers_desktop_binary() {
+        let dir = tempfile::tempdir().unwrap();
+        let usr_bin = dir.path().join("usr/bin");
+        let usr_share = dir.path().join("usr/share/applications");
+        std::fs::create_dir_all(&usr_bin).unwrap();
+        std::fs::create_dir_all(&usr_share).unwrap();
+        std::fs::write(usr_bin.join("agixt-cli"), b"cli").unwrap();
+        std::fs::write(usr_bin.join("agixt"), b"fallback").unwrap();
+        std::fs::write(usr_bin.join("agixt-desktop"), b"desktop").unwrap();
+        std::fs::write(usr_share.join("agixt.desktop"), b"launcher").unwrap();
+
+        let found = find_extracted_desktop_binary(dir.path()).unwrap();
+        assert_eq!(found, usr_bin.join("agixt-desktop"));
+    }
+
+    #[test]
+    fn extracted_binary_finder_accepts_unified_agixt_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let usr_bin = dir.path().join("usr/bin");
+        std::fs::create_dir_all(&usr_bin).unwrap();
+        std::fs::write(usr_bin.join("agixt"), b"desktop").unwrap();
+
+        let found = find_extracted_desktop_binary(dir.path()).unwrap();
+        assert_eq!(found, usr_bin.join("agixt"));
+    }
 }

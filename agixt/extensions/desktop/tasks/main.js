@@ -735,7 +735,14 @@ TasksView.prototype._buildTools = function () {
 
   tools.add = document.createElement('button');
   tools.add.type = 'button'; tools.add.className = 'tk-primary'; tools.add.textContent = '+ New task';
-  tools.add.addEventListener('click', () => this.openCreate());
+  tools.add.addEventListener('click', () => {
+    Promise.resolve()
+      .then(() => this.openCreate())
+      .catch((err) => {
+        try { window.AgixtFrontendLog && window.AgixtFrontendLog('error', 'tasks: openCreate failed: ' + (err && err.stack || err)); } catch (_) {}
+        this.renderError(err instanceof Error ? err : new Error(String(err)));
+      });
+  });
 
   tools.search = document.createElement('input');
   tools.search.type = 'search'; tools.search.placeholder = 'Search tasks…';
