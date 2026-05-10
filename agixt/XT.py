@@ -5122,18 +5122,13 @@ Rules:
         log_user_input: bool = False,
         **kwargs,
     ):
-        i = 0
         tasks = []
         responses = []
         if user_inputs == []:
             return []
         for user_input in user_inputs:
-            i += 1
-            if i % batch_size == 0:
-                responses += await asyncio.gather(**tasks)
-                tasks = []
             task = asyncio.create_task(
-                await self.inference(
+                self.inference(
                     user_input=user_input,
                     prompt_category=prompt_category,
                     prompt_name=prompt_name,
@@ -5146,7 +5141,11 @@ Rules:
                 )
             )
             tasks.append(task)
-        responses += await asyncio.gather(**tasks)
+            if len(tasks) >= batch_size:
+                responses += await asyncio.gather(*tasks)
+                tasks = []
+        if tasks:
+            responses += await asyncio.gather(*tasks)
         return responses
 
     async def dpo(
@@ -5196,7 +5195,7 @@ Rules:
             )
         memories = [memory["text"] for memory in memories]
         # Get a list of questions about each memory
-        question_list = self.batch_inference(
+        question_list = await self.batch_inference(
             user_inputs=memories,
             batch_size=batch_size,
             prompt_category="Default",
