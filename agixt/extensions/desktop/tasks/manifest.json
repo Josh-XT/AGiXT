@@ -3,7 +3,7 @@
   "label": "Scheduled Tasks",
   "icon": "tasks",
   "layout": "framed",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "entry": "main.js",
   "requires": {}
 }

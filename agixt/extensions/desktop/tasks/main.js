@@ -111,68 +111,54 @@ TasksView.prototype.refresh = async function () {
 
 TasksView.prototype.openCreate = async function () {
   if (!this.agents.length) { this.renderError(new Error('No agents available — create an agent first.')); return; }
-  const agentOpts = this.agents.map((a) => ({ value: a.name, label: a.name }));
-  const tz = (Intl && Intl.DateTimeFormat) ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
-  const values = await window.AgixtFormModal.show({
-    title: 'New scheduled task',
-    description: 'Run a prompt against an agent on a schedule. One-time or recurring.',
-    fields: [
-      { key: 'agent_name', label: 'Agent', type: 'select', options: agentOpts, value: agentOpts[0].value, required: true },
-      { key: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Short, descriptive name' },
-      { key: 'task_description', label: 'Prompt / description', type: 'textarea', rows: 4, required: true,
-        help: 'What should the agent do when this task fires?' },
-      { key: 'recurring', label: 'Recurring task', type: 'checkbox', value: false, help: 'When checked, runs repeatedly between start and end dates.' },
-      { key: 'start_date', label: 'Start date / time', type: 'datetime-local', help: 'For one-time tasks: when to run. For recurring: first run.' },
-      { key: 'end_date', label: 'End date / time (recurring only)', type: 'datetime-local' },
-      { key: 'frequency', label: 'Frequency', type: 'select', value: 'daily',
-        options: [
-          { value: 'daily', label: 'Daily' },
-          { value: 'weekly', label: 'Weekly' },
-          { value: 'monthly', label: 'Monthly' },
-          { value: 'hourly', label: 'Hourly' },
-        ] },
-      { key: 'weekdays', label: 'Weekdays (weekly recurring only)', type: 'text', placeholder: '0,1,2,3,4 (Sun..Sat)' },
-      { key: 'priority', label: 'Priority', type: 'number', value: 1, min: 1, max: 5 },
-      { key: 'timezone', label: 'Timezone', type: 'text', value: tz, help: 'IANA timezone (e.g. America/New_York). Defaults to your local zone.' },
-    ],
-    submitLabel: 'Create task',
-    validate: (v) => {
-      if (v.recurring) {
-        if (!v.start_date) return 'Recurring tasks need a start date.';
-        if (!v.end_date) return 'Recurring tasks need an end date.';
-      }
-      return null;
-    },
+  this.renderError(null);
+  const hasMachines = await this.checkMachinesAvailable();
+  let machines = [];
+  let deployments = [];
+  if (hasMachines) {
+    const [m, d] = await Promise.all([this.fetchMachines(), this.fetchDeployments()]);
+    machines = m; deployments = d;
+  }
+  const values = await this.showTaskDialog({
+    mode: 'create',
+    agents: this.agents,
+    machines,
+    deployments,
+    showDeployment: hasMachines,
   });
   if (!values) return;
   try {
-    const toIso = (s) => {
-      if (!s) return null;
-      const ms = Date.parse(s);
-      return isFinite(ms) ? new Date(ms).toISOString() : null;
-    };
+    const tz = browserTimezoneTk();
     if (values.recurring) {
       await this.fetchJson('/v1/reoccurring_task', { method: 'POST', json: {
         agent_name: values.agent_name,
         title: values.title,
-        task_description: values.task_description,
-        start_date: toIso(values.start_date),
-        end_date: toIso(values.end_date),
+        task_description: values.task_description || null,
+        start_date: values.start_date,
+        end_date: values.end_date,
         frequency: values.frequency || 'daily',
         weekdays: values.weekdays || null,
-        timezone: values.timezone || null,
+        timezone: tz || null,
         priority: Number(values.priority) || 1,
+        task_type: values.task_type,
+        command_script: values.command_script || null,
+        deployment_id: values.deployment_id || null,
+        target_machines: values.target_machines || null,
       }});
     } else {
       const payload = {
         agent_name: values.agent_name,
         title: values.title,
-        task_description: values.task_description,
+        task_description: values.task_description || null,
         priority: Number(values.priority) || 1,
-        timezone: values.timezone || null,
+        timezone: tz || null,
+        task_type: values.task_type,
+        command_script: values.command_script || null,
+        deployment_id: values.deployment_id || null,
+        target_machines: values.target_machines || null,
       };
       if (values.start_date) {
-        payload.start_date = toIso(values.start_date);
+        payload.start_date = values.start_date;
       } else {
         payload.minutes = 60;
       }
@@ -182,30 +168,45 @@ TasksView.prototype.openCreate = async function () {
   } catch (err) { this.renderError(err); }
 };
 
+TasksView.prototype.checkMachinesAvailable = async function () {
+  if (this._machinesAvailable !== undefined) return this._machinesAvailable;
+  try {
+    const data = await this.fetchJson('/v1/desktop/extensions');
+    const exts = (data && data.extensions) || [];
+    this._machinesAvailable = exts.some((e) => e && e.id === 'machines');
+  } catch (_) { this._machinesAvailable = false; }
+  return this._machinesAvailable;
+};
+
+TasksView.prototype.fetchMachines = async function () {
+  try {
+    const data = await this.fetchJson('/v1/machines?status=approved');
+    return Array.isArray(data) ? data : (data && data.machines) || [];
+  } catch (_) { return []; }
+};
+
+TasksView.prototype.fetchDeployments = async function () {
+  try {
+    const data = await this.fetchJson('/v1/deployments');
+    return Array.isArray(data) ? data : (data && data.deployments) || [];
+  } catch (_) { return []; }
+};
+
 TasksView.prototype.modifyTask = async function (t) {
-  const dueValue = t.due_date ? String(t.due_date).slice(0, 16) : '';
-  const values = await window.AgixtFormModal.show({
-    title: 'Edit task',
-    fields: [
-      { key: 'title', label: 'Title', type: 'text', value: t.title || '' },
-      { key: 'description', label: 'Description', type: 'textarea', rows: 3, value: t.description || '' },
-      { key: 'due_date', label: 'Due date / time', type: 'datetime-local', value: dueValue },
-      { key: 'priority', label: 'Priority', type: 'number', value: t.priority || 1, min: 1, max: 5 },
-      { key: 'estimated_hours', label: 'Estimated hours', type: 'number', value: t.estimated_hours || '', step: 0.25 },
-    ],
-    submitLabel: 'Save changes',
+  const values = await this.showTaskDialog({
+    mode: 'edit',
+    task: t,
   });
   if (!values) return;
   try {
     const payload = { task_id: t.id, cancel_task: 'false' };
     if (values.title != null) payload.title = values.title;
     if (values.description != null) payload.description = values.description;
-    if (values.due_date) {
-      const ms = Date.parse(values.due_date);
-      if (isFinite(ms)) payload.due_date = new Date(ms).toISOString();
-    }
+    if (values.due_date) payload.due_date = values.due_date;
     if (values.priority != null) payload.priority = String(values.priority);
-    if (values.estimated_hours != null) payload.estimated_hours = String(values.estimated_hours);
+    if (values.estimated_hours != null && values.estimated_hours !== '') {
+      payload.estimated_hours = String(values.estimated_hours);
+    }
     await this.fetchJson('/v1/task', { method: 'PUT', json: payload });
     await this.refresh();
   } catch (err) { this.renderError(err); }
@@ -224,6 +225,403 @@ TasksView.prototype.cancelTask = async function (t) {
     await this.fetchJson('/v1/task', { method: 'PUT', json: { task_id: t.id, cancel_task: 'true' } });
     await this.refresh();
   } catch (err) { this.renderError(err); }
+};
+
+/* --- create / edit dialog --- */
+
+const WEEKDAY_LABELS_TK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+TasksView.prototype.showTaskDialog = function (opts) {
+  const view = this;
+  return new Promise((resolve) => {
+    ensureFormModalTk(); // shared overlay/modal CSS
+    injectTaskDialogStylesTk();
+    const isEdit = opts.mode === 'edit';
+    const t = opts.task || {};
+    let resolved = false;
+
+    const initialDue = isEdit ? splitIsoLocalTk(t.due_date) : { date: '', time: '' };
+    const state = isEdit ? {
+      title: t.title || '',
+      description: t.description || '',
+      due_date: initialDue.date,
+      due_time: initialDue.time,
+      priority: t.priority || 1,
+      estimated_hours: t.estimated_hours == null ? '' : String(t.estimated_hours),
+    } : {
+      agent_name: opts.agents[0].name,
+      title: '',
+      task_description: '',
+      command_script: '',
+      deployment_id: (opts.deployments && opts.deployments[0]) ? opts.deployments[0].id : '',
+      target_machines: [],
+      task_type: 'prompt',
+      recurring: false,
+      start_date: '',
+      start_time: '',
+      end_date: '',
+      end_time: '',
+      frequency: 'daily',
+      weekdays: [],
+      priority: 1,
+    };
+
+    const overlay = document.createElement('div'); overlay.className = 'xt-modal-overlay';
+    const modal = document.createElement('div'); modal.className = 'xt-modal tk-dialog';
+    const head = document.createElement('div'); head.className = 'xt-modal-head';
+    const tw = document.createElement('div');
+    const title = document.createElement('h2'); title.className = 'xt-modal-title';
+    title.textContent = isEdit ? 'Edit task' : 'New scheduled task';
+    tw.appendChild(title);
+    if (!isEdit) {
+      const desc = document.createElement('p'); desc.className = 'xt-modal-desc';
+      desc.textContent = 'Run a prompt, command, or deployment on a schedule. One-time or recurring.';
+      tw.appendChild(desc);
+    }
+    head.appendChild(tw);
+    const x = document.createElement('button'); x.type = 'button'; x.className = 'xt-modal-x'; x.innerHTML = '&times;';
+    head.appendChild(x);
+    modal.appendChild(head);
+    const body = document.createElement('div'); body.className = 'xt-modal-body';
+    modal.appendChild(body);
+    const errEl = document.createElement('div'); errEl.className = 'xt-modal-error'; errEl.hidden = true;
+    body.appendChild(errEl);
+    const formWrap = document.createElement('div'); formWrap.className = 'tk-dialog-form';
+    body.appendChild(formWrap);
+    const foot = document.createElement('div'); foot.className = 'xt-modal-footer';
+    const cancelBtn = document.createElement('button'); cancelBtn.type = 'button'; cancelBtn.className = 'xt-btn-cancel'; cancelBtn.textContent = 'Cancel';
+    const submitBtn = document.createElement('button'); submitBtn.type = 'button'; submitBtn.className = 'xt-btn-submit'; submitBtn.textContent = isEdit ? 'Save changes' : 'Create task';
+    foot.appendChild(cancelBtn); foot.appendChild(submitBtn);
+    modal.appendChild(foot);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    function close(result) {
+      if (resolved) return;
+      resolved = true;
+      document.removeEventListener('keydown', onKey);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      resolve(result);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); close(null); }
+      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); doSubmit(); }
+    }
+    document.addEventListener('keydown', onKey);
+    x.addEventListener('click', () => close(null));
+    cancelBtn.addEventListener('click', () => close(null));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
+
+    function setState(patch) { Object.assign(state, patch); render(); }
+    function showError(msg) { errEl.textContent = msg; errEl.hidden = false; }
+    function clearError() { errEl.hidden = true; errEl.textContent = ''; }
+
+    function field(label, requiredMark, helpText) {
+      const f = document.createElement('div'); f.className = 'tk-field';
+      if (label) {
+        const lbl = document.createElement('label'); lbl.textContent = label;
+        if (requiredMark) { const star = document.createElement('span'); star.className = 'xt-required'; star.textContent = ' *'; lbl.appendChild(star); }
+        f.appendChild(lbl);
+      }
+      f._pendingHelp = helpText || null;
+      return f;
+    }
+    function attachField(f) {
+      if (f._pendingHelp) {
+        const h = document.createElement('div'); h.className = 'tk-help'; h.textContent = f._pendingHelp;
+        f.appendChild(h);
+        f._pendingHelp = null;
+      }
+      formWrap.append(f);
+    }
+
+    function renderCreate() {
+      // Agent
+      const fAgent = field('Agent', true);
+      const sel = document.createElement('select');
+      for (const a of opts.agents) {
+        const o = document.createElement('option'); o.value = a.name; o.textContent = a.name; sel.appendChild(o);
+      }
+      sel.value = state.agent_name;
+      sel.addEventListener('change', () => { state.agent_name = sel.value; });
+      fAgent.appendChild(sel); attachField(fAgent);
+
+      // Title
+      const fTitle = field('Title', true);
+      const inTitle = document.createElement('input'); inTitle.type = 'text'; inTitle.placeholder = 'Short, descriptive name'; inTitle.value = state.title;
+      inTitle.addEventListener('input', () => { state.title = inTitle.value; });
+      fTitle.appendChild(inTitle); attachField(fTitle);
+
+      // Task type segmented
+      const fType = field('Task type');
+      const seg = document.createElement('div'); seg.className = 'tk-segmented';
+      const types = [
+        { key: 'prompt',     label: 'Prompt',     icon: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' },
+        { key: 'command',    label: 'Command',    icon: 'M4 17l6-6-6-6 M12 19h8' },
+      ];
+      if (opts.showDeployment) {
+        types.push({ key: 'deployment', label: 'Deployment', icon: 'm7.5 4.27 9 5.15 M21 8L12 13 3 8 M3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8z' });
+      }
+      for (const ty of types) {
+        const b = document.createElement('button'); b.type = 'button';
+        b.className = 'tk-seg-btn' + (state.task_type === ty.key ? ' is-active' : '');
+        b.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + ty.icon + '"/></svg><span>' + escapeTk(ty.label) + '</span>';
+        b.addEventListener('click', () => setState({ task_type: ty.key }));
+        seg.appendChild(b);
+      }
+      fType.appendChild(seg); attachField(fType);
+
+      // Type-specific inputs
+      if (state.task_type === 'prompt') {
+        const fPrompt = field('Prompt', true);
+        const ta = document.createElement('textarea'); ta.rows = 4;
+        ta.placeholder = 'What should the agent do when this task fires?';
+        ta.value = state.task_description;
+        ta.addEventListener('input', () => { state.task_description = ta.value; });
+        fPrompt.appendChild(ta); attachField(fPrompt);
+      } else if (state.task_type === 'command') {
+        const fScript = field('Command script', true);
+        const ta = document.createElement('textarea'); ta.rows = 4; ta.className = 'tk-mono';
+        ta.placeholder = 'Shell command or script to execute on the target machines';
+        ta.value = state.command_script;
+        ta.addEventListener('input', () => { state.command_script = ta.value; });
+        fScript.appendChild(ta); attachField(fScript);
+        renderMachinePicker();
+      } else if (state.task_type === 'deployment') {
+        const fDep = field('Deployment', true);
+        if (!opts.deployments || !opts.deployments.length) {
+          const empty = document.createElement('div'); empty.className = 'tk-empty-pick';
+          empty.textContent = 'No deployments available. Create one first.';
+          fDep.appendChild(empty);
+        } else {
+          const dsel = document.createElement('select');
+          for (const d of opts.deployments) {
+            const o = document.createElement('option'); o.value = d.id; o.textContent = d.name || d.id; dsel.appendChild(o);
+          }
+          if (state.deployment_id) dsel.value = state.deployment_id; else state.deployment_id = dsel.value;
+          dsel.addEventListener('change', () => { state.deployment_id = dsel.value; });
+          fDep.appendChild(dsel);
+        }
+        attachField(fDep);
+        renderMachinePicker();
+      }
+
+      // Recurring checkbox
+      const fRec = document.createElement('div'); fRec.className = 'tk-field tk-checkbox-row';
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.id = 'tk-recurring'; cb.checked = !!state.recurring;
+      cb.addEventListener('change', () => setState({ recurring: cb.checked }));
+      fRec.appendChild(cb);
+      const cbLbl = document.createElement('label'); cbLbl.htmlFor = 'tk-recurring';
+      cbLbl.textContent = 'Recurring task';
+      fRec.appendChild(cbLbl);
+      attachField(fRec);
+
+      // Start date + time
+      const startLabel = state.recurring ? 'First run' : 'Run at';
+      attachField(buildDateTimeRow(startLabel, true,
+        state.start_date, state.start_time,
+        (d) => { state.start_date = d; }, (tm) => { state.start_time = tm; },
+        state.recurring ? null : 'Leave blank to run 60 minutes from now.'));
+
+      if (state.recurring) {
+        // End date + time
+        attachField(buildDateTimeRow('End by', true,
+          state.end_date, state.end_time,
+          (d) => { state.end_date = d; }, (tm) => { state.end_time = tm; }));
+
+        // Frequency
+        const fFreq = field('Frequency');
+        const fsel = document.createElement('select');
+        for (const o of [
+          { value: 'hourly', label: 'Hourly' },
+          { value: 'daily', label: 'Daily' },
+          { value: 'weekly', label: 'Weekly' },
+          { value: 'monthly', label: 'Monthly' },
+        ]) {
+          const op = document.createElement('option'); op.value = o.value; op.textContent = o.label; fsel.appendChild(op);
+        }
+        fsel.value = state.frequency;
+        fsel.addEventListener('change', () => setState({ frequency: fsel.value }));
+        fFreq.appendChild(fsel); attachField(fFreq);
+
+        if (state.frequency === 'weekly') {
+          const fW = field('Weekdays', false, 'Click to toggle which days the task runs on.');
+          const wrap = document.createElement('div'); wrap.className = 'tk-weekday-row';
+          for (let i = 0; i < 7; i++) {
+            const wb = document.createElement('button'); wb.type = 'button';
+            wb.className = 'tk-weekday' + (state.weekdays.indexOf(i) >= 0 ? ' is-active' : '');
+            wb.textContent = WEEKDAY_LABELS_TK[i];
+            wb.addEventListener('click', () => {
+              const idx = state.weekdays.indexOf(i);
+              const next = state.weekdays.slice();
+              if (idx >= 0) next.splice(idx, 1); else { next.push(i); next.sort(); }
+              setState({ weekdays: next });
+            });
+            wrap.appendChild(wb);
+          }
+          fW.appendChild(wrap); attachField(fW);
+        }
+      }
+
+      // Priority
+      const fPri = field('Priority');
+      const np = document.createElement('input'); np.type = 'number'; np.min = '1'; np.max = '5'; np.value = String(state.priority || 1);
+      np.addEventListener('input', () => { state.priority = Number(np.value) || 1; });
+      fPri.appendChild(np); attachField(fPri);
+    }
+
+    function renderMachinePicker() {
+      const fM = field('Target machines', true,
+        (opts.machines && opts.machines.length) ? null : 'No approved machines available — register one first.');
+      if (opts.machines && opts.machines.length) {
+        const list = document.createElement('div'); list.className = 'tk-machine-list';
+        for (const m of opts.machines) {
+          const row = document.createElement('label'); row.className = 'tk-machine';
+          const cb = document.createElement('input'); cb.type = 'checkbox';
+          cb.checked = state.target_machines.indexOf(m.id) >= 0;
+          cb.addEventListener('change', () => {
+            const idx = state.target_machines.indexOf(m.id);
+            const next = state.target_machines.slice();
+            if (cb.checked && idx < 0) next.push(m.id);
+            else if (!cb.checked && idx >= 0) next.splice(idx, 1);
+            state.target_machines = next;
+          });
+          const span = document.createElement('span');
+          span.textContent = m.hostname || m.name || m.id;
+          row.appendChild(cb); row.appendChild(span);
+          list.appendChild(row);
+        }
+        fM.appendChild(list);
+      }
+      attachField(fM);
+    }
+
+    function buildDateTimeRow(label, required, dateVal, timeVal, onDate, onTime, helpText) {
+      const f = field(label, required, helpText);
+      const row = document.createElement('div'); row.className = 'tk-datetime-row';
+      const di = document.createElement('input'); di.type = 'date'; di.value = dateVal || '';
+      di.addEventListener('change', () => onDate(di.value));
+      const ti = document.createElement('input'); ti.type = 'time'; ti.value = timeVal || '';
+      ti.addEventListener('change', () => onTime(ti.value));
+      row.appendChild(di); row.appendChild(ti);
+      f.appendChild(row);
+      return f;
+    }
+
+    function renderEdit() {
+      // Title
+      const fTitle = field('Title');
+      const inTitle = document.createElement('input'); inTitle.type = 'text'; inTitle.value = state.title;
+      inTitle.addEventListener('input', () => { state.title = inTitle.value; });
+      fTitle.appendChild(inTitle); attachField(fTitle);
+
+      // Description
+      const fDesc = field('Description');
+      const ta = document.createElement('textarea'); ta.rows = 3; ta.value = state.description;
+      ta.addEventListener('input', () => { state.description = ta.value; });
+      fDesc.appendChild(ta); attachField(fDesc);
+
+      // Due date+time
+      attachField(buildDateTimeRow('Due date / time', false,
+        state.due_date, state.due_time,
+        (d) => { state.due_date = d; }, (tm) => { state.due_time = tm; }));
+
+      // Priority
+      const fPri = field('Priority');
+      const np = document.createElement('input'); np.type = 'number'; np.min = '1'; np.max = '5'; np.value = String(state.priority || 1);
+      np.addEventListener('input', () => { state.priority = Number(np.value) || 1; });
+      fPri.appendChild(np); attachField(fPri);
+
+      // Estimated hours
+      const fEst = field('Estimated hours');
+      const ne = document.createElement('input'); ne.type = 'number'; ne.step = '0.25'; ne.value = state.estimated_hours;
+      ne.addEventListener('input', () => { state.estimated_hours = ne.value; });
+      fEst.appendChild(ne); attachField(fEst);
+    }
+
+    function render() {
+      formWrap.innerHTML = '';
+      if (isEdit) renderEdit(); else renderCreate();
+    }
+
+    function doSubmit() {
+      clearError();
+      if (isEdit) {
+        const result = {
+          title: state.title.trim(),
+          description: state.description,
+          priority: state.priority,
+          estimated_hours: state.estimated_hours,
+        };
+        const iso = combineIsoFromPartsTk(state.due_date, state.due_time);
+        if (state.due_date && !iso) { showError('Due date / time is invalid.'); return; }
+        if (iso) result.due_date = iso;
+        close(result);
+        return;
+      }
+      // Create validation
+      if (!state.title.trim()) { showError('Title is required.'); return; }
+      if (state.task_type === 'prompt') {
+        if (!state.task_description.trim()) { showError('Prompt is required.'); return; }
+      }
+      if (state.task_type === 'command') {
+        if (!state.command_script.trim()) { showError('Command script is required.'); return; }
+        if (!state.target_machines.length) { showError('Pick at least one target machine.'); return; }
+      }
+      if (state.task_type === 'deployment') {
+        if (!state.deployment_id) { showError('Pick a deployment.'); return; }
+        if (!state.target_machines.length) { showError('Pick at least one target machine.'); return; }
+      }
+      const startIso = combineIsoFromPartsTk(state.start_date, state.start_time);
+      if (state.recurring) {
+        if (!startIso) { showError('Recurring tasks need a start date and time.'); return; }
+        const endIso = combineIsoFromPartsTk(state.end_date, state.end_time);
+        if (!endIso) { showError('Recurring tasks need an end date and time.'); return; }
+        if (Date.parse(endIso) <= Date.parse(startIso)) { showError('End must be after start.'); return; }
+      } else if ((state.start_date && !state.start_time) || (!state.start_date && state.start_time)) {
+        showError('Pick both a date and a time, or leave both blank.'); return;
+      }
+
+      const out = {
+        agent_name: state.agent_name,
+        title: state.title.trim(),
+        task_type: state.task_type,
+        priority: state.priority,
+        recurring: state.recurring,
+      };
+      // Description is the prompt for prompt-type, generic description for others.
+      if (state.task_type === 'prompt') {
+        out.task_description = state.task_description;
+      } else if (state.task_description) {
+        out.task_description = state.task_description;
+      }
+      if (state.task_type === 'command') {
+        out.command_script = state.command_script;
+      }
+      if (state.task_type === 'deployment') {
+        out.deployment_id = state.deployment_id;
+      }
+      if (state.task_type !== 'prompt') {
+        out.target_machines = JSON.stringify(state.target_machines);
+      }
+      if (startIso) out.start_date = startIso;
+      if (state.recurring) {
+        out.end_date = combineIsoFromPartsTk(state.end_date, state.end_time);
+        out.frequency = state.frequency || 'daily';
+        if (state.frequency === 'weekly' && state.weekdays.length) {
+          out.weekdays = state.weekdays.join(',');
+        }
+      }
+      close(out);
+    }
+    submitBtn.addEventListener('click', doSubmit);
+
+    render();
+    setTimeout(() => {
+      const first = formWrap.querySelector('input, select, textarea');
+      if (first) try { first.focus(); } catch (_) {}
+    }, 0);
+  });
 };
 
 /* --- predicates / sort --- */
@@ -473,6 +871,72 @@ function formatRelativeTk(iso) {
 }
 function readJsonTk(k, f) { try { const r = window.localStorage.getItem(k); if (!r) return f; const v = JSON.parse(r); return v == null ? f : v; } catch (_) { return f; } }
 function writeJsonTk(k, v) { try { window.localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} }
+function browserTimezoneTk() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (_) { return ''; }
+}
+// Split an ISO timestamp into local-zone date and time strings the
+// `<input type=date>` / `<input type=time>` elements expect. The desktop
+// webview's datetime-local rendering is unreliable, so the dialog uses
+// two paired inputs and recombines them on submit.
+function splitIsoLocalTk(iso) {
+  const empty = { date: '', time: '' };
+  if (!iso) return empty;
+  const ms = Date.parse(iso); if (!isFinite(ms)) return empty;
+  const d = new Date(ms);
+  const pad = (n) => String(n).padStart(2, '0');
+  return {
+    date: d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()),
+    time: pad(d.getHours()) + ':' + pad(d.getMinutes()),
+  };
+}
+function combineIsoFromPartsTk(dateStr, timeStr) {
+  if (!dateStr || !timeStr) return null;
+  const ms = Date.parse(dateStr + 'T' + timeStr);
+  return isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+function injectTaskDialogStylesTk() {
+  if (document.getElementById('tk-dialog-styles')) return;
+  const css = `
+    .tk-dialog { max-width: 580px; }
+    .tk-dialog .xt-modal-body { padding: 16px 20px; }
+    .tk-dialog-form { display: flex; flex-direction: column; gap: 14px; }
+    .tk-dialog .tk-field { display: flex; flex-direction: column; gap: 5px; }
+    .tk-dialog .tk-field > label { font-size: 12px; font-weight: 600; color: var(--text-dim, #aab1be); }
+    .tk-dialog .tk-help { font-size: 11px; color: var(--text-faint, #8b94a3); }
+    .tk-dialog .tk-checkbox-row { flex-direction: row; align-items: center; gap: 10px; }
+    .tk-dialog .tk-checkbox-row input { width: 16px; height: 16px; cursor: pointer; }
+    .tk-dialog .tk-checkbox-row label { font-weight: 500; color: var(--text, #e6e8ee); cursor: pointer; }
+    .tk-dialog input[type=text], .tk-dialog input[type=number], .tk-dialog input[type=date], .tk-dialog input[type=time], .tk-dialog textarea, .tk-dialog select {
+      font-family: inherit; font-size: 13px; background: var(--panel-2, #232730); color: var(--text, #e6e8ee);
+      border: 1px solid var(--border, #2a2e38); border-radius: 6px; padding: 8px 10px; box-sizing: border-box; width: 100%;
+    }
+    .tk-dialog textarea { resize: vertical; min-height: 60px; }
+    .tk-dialog textarea.tk-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .tk-dialog input:focus, .tk-dialog textarea:focus, .tk-dialog select:focus {
+      outline: none; border-color: var(--accent, #6b7bff); box-shadow: 0 0 0 3px rgba(107,123,255,0.18);
+    }
+    .tk-dialog select { appearance: none; -webkit-appearance: none; padding-right: 28px; cursor: pointer;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23a1a7b5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+      background-repeat: no-repeat; background-position: right 10px center; background-size: 10px 10px;
+    }
+    .tk-segmented { display: inline-flex; gap: 0; padding: 3px; background: var(--panel-2, #232730); border: 1px solid var(--border, #2a2e38); border-radius: 8px; align-self: flex-start; }
+    .tk-seg-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; border: 0; background: transparent; color: var(--text-dim, #aab1be); cursor: pointer; font-size: 12.5px; font-weight: 500; }
+    .tk-seg-btn:hover { color: var(--text, #e6e8ee); }
+    .tk-seg-btn.is-active { background: var(--accent, #6b7bff); color: #fff; }
+    .tk-seg-btn svg { stroke: currentColor; }
+    .tk-datetime-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .tk-weekday-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tk-weekday { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border, #2a2e38); background: var(--panel-2, #232730); color: var(--text-dim, #aab1be); cursor: pointer; font-size: 12px; min-width: 44px; }
+    .tk-weekday:hover { color: var(--text, #e6e8ee); }
+    .tk-weekday.is-active { background: var(--accent, #6b7bff); color: #fff; border-color: var(--accent, #6b7bff); }
+    .tk-machine-list { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto; padding: 8px; border: 1px solid var(--border, #2a2e38); border-radius: 6px; background: var(--panel-2, #232730); }
+    .tk-machine { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 13px; color: var(--text, #e6e8ee); }
+    .tk-machine:hover { background: var(--panel, #1c1f26); }
+    .tk-machine input { width: 14px; height: 14px; }
+    .tk-empty-pick { padding: 10px; border-radius: 6px; background: var(--panel-2, #232730); border: 1px dashed var(--border, #2a2e38); color: var(--text-faint, #8b94a3); font-size: 12px; }
+  `;
+  const tag = document.createElement('style'); tag.id = 'tk-dialog-styles'; tag.textContent = css; document.head.appendChild(tag);
+}
 
 /* Shared form modal — see assets/main.js for full documentation. */
 function ensureFormModalTk() {
