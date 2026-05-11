@@ -261,6 +261,11 @@ def invalidate_token_validation_cache(token: str = None):
         shared_cache.delete(f"token_validation:{token_hash}")
 
 
+def invalidate_pat_validation_cache():
+    """Invalidate cached personal access token validation results."""
+    shared_cache.delete_pattern("pat_validation:*")
+
+
 def get_user_id_cached(email: str):
     """Get cached user ID from email if still valid (uses SharedCache)."""
     return shared_cache.get(f"user_id:{email}")
@@ -9234,6 +9239,7 @@ class MagicalAuth:
             token.is_revoked = True
             token.updated_at = datetime.now()
             session.commit()
+            invalidate_pat_validation_cache()
 
             return {"detail": f"Token '{token.name}' has been revoked"}
         except HTTPException:
@@ -9294,6 +9300,7 @@ class MagicalAuth:
             old_token.token_hash = new_token_hash
             old_token.updated_at = datetime.now()
             session.commit()
+            invalidate_pat_validation_cache()
 
             return {
                 "id": str(old_token.id),

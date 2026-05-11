@@ -4255,6 +4255,7 @@ class Conversations:
         # Invalidate cache for both old and new names
         invalidate_conversation_cache(user_id=str(user_id), conversation_name=old_name)
         invalidate_conversation_cache(user_id=str(user_id), conversation_name=new_name)
+        shared_cache.delete(f"conv_name:{conversation_id}:{user_id}")
         return new_name
 
     def update_pin_order(self, conversation_id: str, pin_order: int = None):

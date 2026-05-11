@@ -3041,85 +3041,89 @@ class Agent:
 
         # Get TTS provider from AI Provider Manager
         tts_provider = self.ai_provider_manager.get_provider_for_service("tts")
+        if tts_provider is None:
+            raise HTTPException(
+                status_code=400,
+                detail="No TTS provider configured for this agent.",
+            )
 
-        if tts_provider is not None:
-            if "```" in text:
-                text = re.sub(
-                    r"```[^```]+```",
-                    "See the chat for the full code block.",
-                    text,
-                )
-            # If links are in there, replace them with a placeholder "The link provided in the chat."
-            if "https://" in text:
-                text = re.sub(
-                    r"https://[^\s]+",
-                    "The link provided in the chat.",
-                    text,
-                )
-            if "http://" in text:
-                text = re.sub(
-                    r"http://[^\s]+",
-                    "The link provided in the chat.",
-                    text,
-                )
-            tts_content = await tts_provider.text_to_speech(text=text)
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        if "```" in text:
+            text = re.sub(
+                r"```[^```]+```",
+                "See the chat for the full code block.",
+                text,
+            )
+        # If links are in there, replace them with a placeholder "The link provided in the chat."
+        if "https://" in text:
+            text = re.sub(
+                r"https://[^\s]+",
+                "The link provided in the chat.",
+                text,
+            )
+        if "http://" in text:
+            text = re.sub(
+                r"http://[^\s]+",
+                "The link provided in the chat.",
+                text,
+            )
+        tts_content = await tts_provider.text_to_speech(text=text)
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
-            # CodeQL ultra-safe pattern: Complete data flow isolation
-            import tempfile
-            import shutil
+        # CodeQL ultra-safe pattern: Complete data flow isolation
+        import tempfile
+        import shutil
 
-            # Validate agent_id and conversation_id to prevent path traversal
-            safe_agent_id = Agent.sanitize_path_component(self.agent_id)
-            safe_conversation_id = Agent.sanitize_path_component(conversation_id)
-            # Use hashed agent folder name to match serve_file/_get_local_cache_path
-            agent_hash = hashlib.sha256(str(self.agent_id).encode()).hexdigest()[:16]
-            agent_folder = f"agent_{agent_hash}"
+        # Validate agent_id and conversation_id to prevent path traversal
+        safe_agent_id = Agent.sanitize_path_component(self.agent_id)
+        safe_conversation_id = Agent.sanitize_path_component(conversation_id)
+        # Use hashed agent folder name to match serve_file/_get_local_cache_path
+        agent_hash = hashlib.sha256(str(self.agent_id).encode()).hexdigest()[:16]
+        agent_folder = f"agent_{agent_hash}"
 
-            # Create secure temporary directory completely isolated from user input
-            with tempfile.TemporaryDirectory() as temp_base:
-                # Create secure filename using only system-generated data
-                secure_filename = f"agent_{timestamp}.wav"
+        # Create secure temporary directory completely isolated from user input
+        with tempfile.TemporaryDirectory() as temp_base:
+            # Create secure filename using only system-generated data
+            secure_filename = f"agent_{timestamp}.wav"
 
-                # Write audio data to secure temp file
-                temp_audio_path = f"{temp_base}/{secure_filename}"
-                with open(temp_audio_path, "wb") as f:
-                    f.write(base64.b64decode(tts_content))
+            # Write audio data to secure temp file
+            temp_audio_path = f"{temp_base}/{secure_filename}"
+            with open(temp_audio_path, "wb") as f:
+                f.write(base64.b64decode(tts_content))
 
-                # Create final secure location in workspace using validated paths only
-                workspace_base = os.path.realpath("WORKSPACE")
+            # Create final secure location in workspace using validated paths only
+            workspace_base = os.path.realpath("WORKSPACE")
 
-                # Use a safe path construction helper to isolate tainted data
-                def safe_workspace_path(base: str, *components: str) -> str:
-                    """Construct a safe path within workspace, preventing traversal."""
-                    # Build path from sanitized components only
-                    constructed = os.path.join(base, *components)
-                    resolved = os.path.realpath(constructed)
-                    # Verify resolved path stays within base
-                    if not resolved.startswith(
-                        os.path.realpath(base) + os.sep
-                    ) and resolved != os.path.realpath(base):
-                        raise ValueError("Path traversal attempt blocked")
-                    return resolved
+            # Use a safe path construction helper to isolate tainted data
+            def safe_workspace_path(base: str, *components: str) -> str:
+                """Construct a safe path within workspace, preventing traversal."""
+                # Build path from sanitized components only
+                constructed = os.path.join(base, *components)
+                resolved = os.path.realpath(constructed)
+                # Verify resolved path stays within base
+                if not resolved.startswith(
+                    os.path.realpath(base) + os.sep
+                ) and resolved != os.path.realpath(base):
+                    raise ValueError("Path traversal attempt blocked")
+                return resolved
 
-                # Construct paths using only sanitized components
-                workspace_outputs = safe_workspace_path(
-                    workspace_base, agent_folder, safe_conversation_id
-                )
-                os.makedirs(
-                    workspace_outputs, exist_ok=True
-                )  # nosec B108 - path validated by safe_workspace_path
+            # Construct paths using only sanitized components
+            workspace_outputs = safe_workspace_path(
+                workspace_base, agent_folder, safe_conversation_id
+            )
+            os.makedirs(
+                workspace_outputs, exist_ok=True
+            )  # nosec B108 - path validated by safe_workspace_path
 
-                # Construct final path using only validated components
-                final_audio_path = safe_workspace_path(
-                    workspace_base, agent_folder, safe_conversation_id, secure_filename
-                )
-                shutil.move(
-                    temp_audio_path, final_audio_path
-                )  # nosec B108 - path validated by safe_workspace_path
-                agixt_uri = getenv("AGIXT_URI")
-                output_url = f"{agixt_uri}/outputs/{safe_agent_id}/{safe_conversation_id}/{secure_filename}"
-                return output_url
+            # Construct final path using only validated components
+            final_audio_path = safe_workspace_path(
+                workspace_base, agent_folder, safe_conversation_id, secure_filename
+            )
+            shutil.move(
+                temp_audio_path, final_audio_path
+            )  # nosec B108 - path validated by safe_workspace_path
+            agixt_uri = getenv("AGIXT_URI")
+            output_url = f"{agixt_uri}/outputs/{safe_agent_id}/{safe_conversation_id}/{secure_filename}"
+            return output_url
 
     async def text_to_speech_stream(self, text: str, audio_format: str = "pcm"):
         """

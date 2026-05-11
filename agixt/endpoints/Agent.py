@@ -856,7 +856,9 @@ async def delete_browsed_link_v1(
         user=user,
         ApiClient=ApiClient,
     )
-    await websearch.agent_memory.delete_memories_from_external_source(url=url.url)
+    await websearch.agent_memory.delete_memories_from_external_source(
+        external_source=url.url
+    )
     agent.delete_browsed_link(url=url.url, conversation_id=url.collection_number)
     return {"message": "Browsed links deleted."}
 
@@ -878,9 +880,8 @@ async def text_to_speech_v1(
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
     AGIXT_URI = getenv("AGIXT_URI")
-    if agent.TTS_PROVIDER != None:
-        tts_response = await agent.text_to_speech(text=text.text)
-    else:
+    tts_response = await agent.text_to_speech(text=text.text)
+    if not tts_response:
         raise HTTPException(status_code=400, detail="No TTS provider available")
     if not str(tts_response).startswith("http"):
         import tempfile

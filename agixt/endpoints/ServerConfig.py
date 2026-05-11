@@ -242,6 +242,97 @@ async def get_all_server_config(
 
 
 @app.get(
+    "/v1/server/config/categories",
+    tags=["Server Config"],
+    summary="Get available configuration categories",
+    description="Get a list of all configuration categories for UI organization.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_config_categories(
+    authorization: str = Header(None),
+):
+    """
+    Get a list of all configuration categories.
+    """
+    verify_super_admin(authorization)
+
+    categories = set()
+    for definition in SERVER_CONFIG_DEFINITIONS:
+        categories.add(definition.get("category", "general"))
+
+    # Category metadata for UI
+    category_info = {
+        "app_settings": {
+            "name": "Application Settings",
+            "description": "General application configuration",
+            "icon": "settings",
+        },
+        "uris": {
+            "name": "Server URIs",
+            "description": "API and application endpoint URLs",
+            "icon": "globe",
+        },
+        "ai_providers": {
+            "name": "AI Providers",
+            "description": "API keys and models for AI services",
+            "icon": "brain",
+        },
+        "oauth": {
+            "name": "OAuth Providers",
+            "description": "OAuth client credentials for SSO",
+            "icon": "key",
+        },
+        "storage": {
+            "name": "Storage",
+            "description": "S3, Azure, and other storage backends",
+            "icon": "database",
+        },
+        "billing": {
+            "name": "Billing",
+            "description": "Token pricing and payment settings",
+            "icon": "credit-card",
+        },
+        "extensions": {
+            "name": "Extensions Hub",
+            "description": "Extension repository configuration",
+            "icon": "puzzle",
+        },
+        "notifications": {
+            "name": "Notifications",
+            "description": "Webhook and notification settings",
+            "icon": "bell",
+        },
+        "agent_defaults": {
+            "name": "Agent Defaults",
+            "description": "Default settings for new agents",
+            "icon": "bot",
+        },
+        "features": {
+            "name": "Feature Flags",
+            "description": "Enable/disable UI features",
+            "icon": "toggle-left",
+        },
+    }
+
+    return {
+        "categories": [
+            {
+                "key": cat,
+                **category_info.get(
+                    cat,
+                    {
+                        "name": cat.replace("_", " ").title(),
+                        "description": "",
+                        "icon": "folder",
+                    },
+                ),
+            }
+            for cat in sorted(categories)
+        ]
+    }
+
+
+@app.get(
     "/v1/server/config/{config_name}",
     tags=["Server Config"],
     response_model=ServerConfigItem,
@@ -488,97 +579,6 @@ async def bulk_update_server_config(
         result["extension_reload"] = extension_reload
 
     return result
-
-
-@app.get(
-    "/v1/server/config/categories",
-    tags=["Server Config"],
-    summary="Get available configuration categories",
-    description="Get a list of all configuration categories for UI organization.",
-    dependencies=[Depends(verify_api_key)],
-)
-async def get_config_categories(
-    authorization: str = Header(None),
-):
-    """
-    Get a list of all configuration categories.
-    """
-    verify_super_admin(authorization)
-
-    categories = set()
-    for definition in SERVER_CONFIG_DEFINITIONS:
-        categories.add(definition.get("category", "general"))
-
-    # Category metadata for UI
-    category_info = {
-        "app_settings": {
-            "name": "Application Settings",
-            "description": "General application configuration",
-            "icon": "settings",
-        },
-        "uris": {
-            "name": "Server URIs",
-            "description": "API and application endpoint URLs",
-            "icon": "globe",
-        },
-        "ai_providers": {
-            "name": "AI Providers",
-            "description": "API keys and models for AI services",
-            "icon": "brain",
-        },
-        "oauth": {
-            "name": "OAuth Providers",
-            "description": "OAuth client credentials for SSO",
-            "icon": "key",
-        },
-        "storage": {
-            "name": "Storage",
-            "description": "S3, Azure, and other storage backends",
-            "icon": "database",
-        },
-        "billing": {
-            "name": "Billing",
-            "description": "Token pricing and payment settings",
-            "icon": "credit-card",
-        },
-        "extensions": {
-            "name": "Extensions Hub",
-            "description": "Extension repository configuration",
-            "icon": "puzzle",
-        },
-        "notifications": {
-            "name": "Notifications",
-            "description": "Webhook and notification settings",
-            "icon": "bell",
-        },
-        "agent_defaults": {
-            "name": "Agent Defaults",
-            "description": "Default settings for new agents",
-            "icon": "bot",
-        },
-        "features": {
-            "name": "Feature Flags",
-            "description": "Enable/disable UI features",
-            "icon": "toggle-left",
-        },
-    }
-
-    return {
-        "categories": [
-            {
-                "key": cat,
-                **category_info.get(
-                    cat,
-                    {
-                        "name": cat.replace("_", " ").title(),
-                        "description": "",
-                        "icon": "folder",
-                    },
-                ),
-            }
-            for cat in sorted(categories)
-        ]
-    }
 
 
 # ============================================================================

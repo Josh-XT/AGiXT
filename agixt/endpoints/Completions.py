@@ -941,9 +941,8 @@ async def text_to_speech(
 ):
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=tts.model, user=user, ApiClient=ApiClient)
-    if agent.TTS_PROVIDER != None:
-        audio_data = await agent.text_to_speech(text=tts.input)
-    else:
+    audio_data = await agent.text_to_speech(text=tts.input)
+    if not audio_data:
         raise HTTPException(status_code=400, detail="No TTS provider available")
     return {"url": audio_data}
 
@@ -973,9 +972,6 @@ async def text_to_speech_stream(
     """
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=tts.model, user=user, ApiClient=ApiClient)
-
-    if agent.TTS_PROVIDER is None:
-        raise HTTPException(status_code=400, detail="No TTS provider available")
 
     async def audio_stream_generator():
         async for chunk in agent.text_to_speech_stream(

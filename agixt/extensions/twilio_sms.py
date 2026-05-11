@@ -33,7 +33,7 @@ from DB import (
     UserPreferences,
     Agent as AgentModel,
 )
-from fastapi import APIRouter, HTTPException, Depends, Query, Form, Request
+from fastapi import APIRouter, HTTPException, Depends, Query, Form, Request, Response
 from pydantic import BaseModel
 from MagicalAuth import verify_api_key, get_user_id
 from Globals import DEFAULT_USER
@@ -290,6 +290,20 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
         # Set up FastAPI router for REST endpoints
         self.router = APIRouter(prefix="/twilio", tags=["Twilio SMS"])
         self._setup_routes()
+
+    def _get_request_extension(self, user):
+        """Create a request-scoped extension instance with the authenticated user."""
+        user_id = str(get_user_id(user))
+        return twilio_sms(
+            TWILIO_ACCOUNT_SID=self.account_sid,
+            TWILIO_AUTH_TOKEN=self.auth_token,
+            TWILIO_PHONE_NUMBER=self.twilio_number,
+            user_id=user_id,
+            user_email=user,
+            ApiClient=self.ApiClient,
+            agent_name=self.agent_name,
+            agent_id=self.agent_id,
+        )
 
     def _get_user_phone_number(self) -> Optional[str]:
         """
@@ -606,7 +620,7 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
 
                     # Return empty response (no reply to blocked numbers)
                     resp = MessagingResponse()
-                    return str(resp)
+                    return Response(content=str(resp), media_type="application/xml")
 
                 if conversation_id is None:
                     conversation_id, conversation_workspace = (
@@ -691,19 +705,20 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
                     )
 
                 resp = MessagingResponse()
-                return str(resp)
+                return Response(content=str(resp), media_type="application/xml")
 
             except Exception as e:
                 logging.error(f"Error processing Twilio webhook: {e}")
                 resp = MessagingResponse()
-                return str(resp)
+                return Response(content=str(resp), media_type="application/xml")
 
         @self.router.post("/send")
         async def send_sms_endpoint(
             sms_data: SmsMessageRequest, user=Depends(verify_api_key)
         ):
             """Send an SMS message via REST API"""
-            result = await self.send_sms(
+            ext = self._get_request_extension(user)
+            result = await ext.send_sms(
                 to_number=sms_data.to_number, message=sms_data.message
             )
             result_data = json.loads(result)
@@ -716,7 +731,8 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
             phone_data: PhoneNumberRequest, user=Depends(verify_api_key)
         ):
             """Add a number to whitelist via REST API"""
-            result = await self.add_to_whitelist(
+            ext = self._get_request_extension(user)
+            result = await ext.add_to_whitelist(
                 phone_number=phone_data.phone_number, note=phone_data.note
             )
             result_data = json.loads(result)
@@ -729,7 +745,8 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
             phone_number: str, user=Depends(verify_api_key)
         ):
             """Remove a number from whitelist via REST API"""
-            result = await self.remove_from_whitelist(phone_number=phone_number)
+            ext = self._get_request_extension(user)
+            result = await ext.remove_from_whitelist(phone_number=phone_number)
             result_data = json.loads(result)
             if not result_data.get("success"):
                 raise HTTPException(status_code=400, detail=result_data.get("error"))
@@ -738,7 +755,8 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
         @self.router.get("/whitelist")
         async def list_whitelist_endpoint(user=Depends(verify_api_key)):
             """List all whitelisted numbers via REST API"""
-            result = await self.list_whitelist()
+            ext = self._get_request_extension(user)
+            result = await ext.list_whitelist()
             result_data = json.loads(result)
             if not result_data.get("success"):
                 raise HTTPException(status_code=400, detail=result_data.get("error"))
@@ -749,7 +767,8 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
             phone_data: PhoneNumberRequest, user=Depends(verify_api_key)
         ):
             """Add a number to blacklist via REST API"""
-            result = await self.add_to_blacklist(
+            ext = self._get_request_extension(user)
+            result = await ext.add_to_blacklist(
                 phone_number=phone_data.phone_number, note=phone_data.note
             )
             result_data = json.loads(result)
@@ -762,7 +781,8 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
             phone_number: str, user=Depends(verify_api_key)
         ):
             """Remove a number from blacklist via REST API"""
-            result = await self.remove_from_blacklist(phone_number=phone_number)
+            ext = self._get_request_extension(user)
+            result = await ext.remove_from_blacklist(phone_number=phone_number)
             result_data = json.loads(result)
             if not result_data.get("success"):
                 raise HTTPException(status_code=400, detail=result_data.get("error"))
@@ -771,7 +791,8 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
         @self.router.get("/blacklist")
         async def list_blacklist_endpoint(user=Depends(verify_api_key)):
             """List all blacklisted numbers via REST API"""
-            result = await self.list_blacklist()
+            ext = self._get_request_extension(user)
+            result = await ext.list_blacklist()
             result_data = json.loads(result)
             if not result_data.get("success"):
                 raise HTTPException(status_code=400, detail=result_data.get("error"))
@@ -784,7 +805,8 @@ class twilio_sms(Extensions, ExtensionDatabaseMixin):
             user=Depends(verify_api_key),
         ):
             """Get SMS conversation history via REST API"""
-            result = await self.get_sms_history(phone_number=phone_number, limit=limit)
+            ext = self._get_request_extension(user)
+            result = await ext.get_sms_history(phone_number=phone_number, limit=limit)
             result_data = json.loads(result)
             if not result_data.get("success"):
                 raise HTTPException(status_code=400, detail=result_data.get("error"))

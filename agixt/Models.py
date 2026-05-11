@@ -215,8 +215,8 @@ class ConversationHistoryModel(BaseModel):
 
 
 class RenameConversationModel(BaseModel):
-    agent_name: str
-    conversation_name: str
+    agent_name: Optional[str] = "XT"
+    conversation_name: Optional[str] = "-"
     new_conversation_name: Optional[str] = "-"
 
 

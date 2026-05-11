@@ -1067,11 +1067,12 @@ class Prompts:
                 session.query(Argument).filter(Argument.prompt_id == prompt_id).delete()
                 for arg in self._get_prompt_args_from_content(prompt):
                     session.add(Argument(prompt_id=prompt_id, name=arg))
+            updated_prompt_id = str(prompt_obj.id)
             session.commit()
             session.close()
             # Invalidate all cached prompts for this user
             shared_cache.delete_pattern(f"prompt:{self.user_id}:*")
-            return str(prompt_obj.id)
+            return updated_prompt_id
 
         # Get the source prompt for cloning
         source_content = None
@@ -1679,6 +1680,9 @@ class Prompts:
         if not prompt:
             session.close()
             raise Exception("Company prompt not found")
+        session.query(CompanyPromptArgument).filter(
+            CompanyPromptArgument.prompt_id == prompt_id
+        ).delete()
         session.delete(prompt)
         session.commit()
         session.close()
