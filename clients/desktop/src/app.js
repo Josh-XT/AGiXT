@@ -417,6 +417,52 @@
     }
   }
 
+  let authRecoveryInFlight = null;
+  async function handleAuthExpired(reason) {
+    if (authRecoveryInFlight) return authRecoveryInFlight;
+    authRecoveryInFlight = (async () => {
+      try {
+        console.warn('AGiXT session expired; returning to auth.', reason || {});
+        await invoke('logout');
+      } catch (_) {
+        // Best-effort. The UI must still leave the protected shell.
+      }
+      try { window.AgixtChat.disconnect(); } catch (_) {}
+      try { window.AgixtChat.clear(); } catch (_) {}
+      try { if (window.AgixtNotifications) window.AgixtNotifications.stop(); } catch (_) {}
+      companies = [];
+      agents = [];
+      renderSelectors();
+      showScreen('auth');
+      await loadSettings().catch(() => {});
+      if (window.AgixtAuth) {
+        await window.AgixtAuth.boot({ onAuthenticated });
+      }
+    })().finally(() => { authRecoveryInFlight = null; });
+    return authRecoveryInFlight;
+  }
+
+  async function handlePaymentRequired(reason) {
+    console.warn('AGiXT billing action required.', reason || {});
+    showScreen('chat');
+    try {
+      if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
+        window.AgixtSidenav.setActiveView('user-settings');
+      }
+      if (window.UserSettings && typeof window.UserSettings.setActiveTab === 'function') {
+        window.UserSettings.setActiveTab('billing');
+      }
+    } catch (_) {}
+  }
+
+  async function handleServerIssue(reason) {
+    console.warn('AGiXT server returned an outage/error status.', reason || {});
+    const detail = reason && reason.body && (reason.body.detail || reason.body.error || reason.body.message);
+    if (typeof setSettingsStatus === 'function') {
+      setSettingsStatus(detail || 'AGiXT server is unavailable. Please try again shortly.', 'error');
+    }
+  }
+
   // ----- Agent & company selectors ----------------------------------------
 
   function companyName(companyId) {
@@ -1811,6 +1857,12 @@
       companyName: settings.company_name || null,
       conversationId: settings.conversation_id || null,
       invoke: window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke,
+      fetchJson: (path, opts) => {
+        if (window.AgixtSession && typeof window.AgixtSession.request === 'function') {
+          return window.AgixtSession.request(path, opts || {});
+        }
+        return Promise.reject(new Error('Desktop session helper is unavailable.'));
+      },
       // The Tauri shell plugin's `open()` opens a URL in the user's
       // default browser. Extensions use it for "open in web app"
       // affordances while their desktop counterpart is still in
@@ -1835,6 +1887,9 @@
   // which create a new conversation server-side and hand the user off to
   // the existing chat UI for progress.
   window.AgixtApp = {
+    handleAuthExpired,
+    handlePaymentRequired,
+    handleServerIssue,
     activateConversation: async (conv) => {
       if (!conv || !conv.id) return;
       await activateConversation(conv, { loadHistory: true });
@@ -1877,6 +1932,10 @@
 
   async function onAuthenticated() {
     await loadSettings();
+    if (window.AgixtSession && typeof window.AgixtSession.verifyCurrentSession === 'function') {
+      const ok = await window.AgixtSession.verifyCurrentSession();
+      if (!ok) return;
+    }
     showScreen('chat');
     await refreshAgentsAndCompanies();
     // Pre-populate the conversations list so the chip label can resolve
@@ -1901,6 +1960,13 @@
     frontendLog('info', 'app boot sequence start');
     await loadSettings();
     if (settings.jwt) {
+      if (window.AgixtSession && typeof window.AgixtSession.verifyCurrentSession === 'function') {
+        const ok = await window.AgixtSession.verifyCurrentSession();
+        if (!ok) {
+          frontendLog('info', 'stored session rejected during boot');
+          return;
+        }
+      }
       // Returning user — straight into chat. We still let the user fix
       // anything via the settings modal.
       showScreen('chat');

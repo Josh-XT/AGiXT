@@ -1866,7 +1866,12 @@ CompaniesView.prototype.injectStyles = function () {
       --co-card-bg: var(--panel-2);
     }
     .co-root { display: flex; flex-direction: column; gap: 16px; padding: 16px 20px 32px; min-height: 100%; color: var(--text); }
-    .co-detail-root { gap: 0; padding: 0; height: 100%; display: flex; flex-direction: column; }
+    /* Detail view scrolls within the same container as the list view —
+     * relying on the parent's natural overflow rather than a flex:1 inner
+     * scroll region. The earlier height:100% + flex:1 internal scroll
+     * pattern collapsed when the container didn't enforce a fixed height,
+     * which crushed the page when content exceeded the viewport. */
+    .co-detail-root { gap: 0; padding: 0; display: flex; flex-direction: column; min-height: 100%; color: var(--text); }
     .co-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .co-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; flex: 0 0 auto; }
     .co-iconbtn { width: 30px; height: 30px; border-radius: 6px; border: 1px solid var(--co-border); background: var(--panel-2); color: var(--text-dim); cursor: pointer; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; }
@@ -1903,9 +1908,12 @@ CompaniesView.prototype.injectStyles = function () {
     .co-actions button.danger:hover { background: rgba(220, 60, 80, 0.18); }
     .co-empty { padding: 32px; text-align: center; color: var(--text-faint); }
     .co-team-panel { display: block; }
-    .co-detail-header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; background: var(--panel); border-bottom: 1px solid var(--co-border); }
+    /* Sticky header so the back button + actions stay reachable while the
+     * detail body scrolls. top:0 sticks to the top of the parent scroll
+     * container (the extension framing layout owns that scroll). */
+    .co-detail-header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 14px 20px; background: var(--panel); border-bottom: 1px solid var(--co-border); }
     .co-detail-title { font-weight: 700; font-size: 16px; }
-    .co-detail-body { padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow: auto; flex: 1; min-height: 0; background: var(--bg); }
+    .co-detail-body { padding: 20px; display: flex; flex-direction: column; gap: 16px; background: var(--bg); }
     .co-card { background: var(--co-card-bg); border: 1px solid var(--co-border); border-radius: 10px; overflow: hidden; }
     .co-card-head { padding: 13px 16px; border-bottom: 1px solid var(--co-border); background: var(--border-muted); }
     .co-card-title { font-weight: 600; font-size: 13.5px; }
@@ -1938,8 +1946,9 @@ CompaniesView.prototype.injectStyles = function () {
     .co-chip-action.danger { color: #ffb4ba; border-color: rgba(220,60,80,0.4); }
     .co-chip-action.danger:hover:not(:disabled) { background: rgba(220, 60, 80, 0.18); }
 
-    /* Sticky bulk-action bar */
-    .co-bulk-bar { position: sticky; top: 0; z-index: 4; display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: rgba(107,123,255,0.12); border: 1px solid rgba(107,123,255,0.4); border-radius: 8px; font-size: 12px; flex-wrap: wrap; }
+    /* Bulk-action bar sticks just below the detail page's sticky header
+     * (header is ~57px tall: 14px+14px padding + ~29px content + 1px border). */
+    .co-bulk-bar { position: sticky; top: 57px; z-index: 4; display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: rgba(107,123,255,0.12); border: 1px solid rgba(107,123,255,0.4); border-radius: 8px; font-size: 12px; flex-wrap: wrap; }
     .co-bulk-bar-count { font-weight: 600; color: #c4ccff; flex: 1; min-width: 0; }
 
     /* Search filter row */

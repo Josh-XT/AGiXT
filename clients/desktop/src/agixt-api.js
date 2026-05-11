@@ -109,6 +109,13 @@
 
   async function request(method, path, opts) {
     opts = opts || {};
+    if (window.AgixtSession && typeof window.AgixtSession.request === 'function') {
+      return window.AgixtSession.request(path, {
+        method,
+        headers: opts.headers,
+        json: opts.body,
+      });
+    }
     const base = await apiBase();
     const url = base + path;
     const headers = await authHeaders(opts.headers);
