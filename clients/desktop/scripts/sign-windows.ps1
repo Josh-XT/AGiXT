@@ -193,9 +193,25 @@ if ($files.Count -eq 0) {
     exit 0
 }
 
-$signed = Invoke-ArtifactSigning -Files $files
+$signed = $false
+try {
+    $signed = Invoke-ArtifactSigning -Files $files
+} catch {
+    if ($script:SigningRequired) {
+        throw
+    }
+    Write-Warning "Azure Artifact Signing failed, continuing without a signature because signing is optional: $($_.Exception.Message)"
+}
+
 if (-not $signed) {
-    $signed = Invoke-SignToolSigning -Files $files
+    try {
+        $signed = Invoke-SignToolSigning -Files $files
+    } catch {
+        if ($script:SigningRequired) {
+            throw
+        }
+        Write-Warning "signtool signing failed, continuing without a signature because signing is optional: $($_.Exception.Message)"
+    }
 }
 
 if (-not $signed) {

@@ -108,10 +108,11 @@ WebView2 is bundled with modern Windows; no extra setup.
 
 ### Windows signing for release downloads
 
-Windows release artifacts must be Authenticode signed before upload. The
+Windows release artifacts should be Authenticode signed before upload. The
 `desktop-prewarm.yml` workflow builds the Windows binary without bundling,
 signs `agixt-desktop.exe`, bundles the installer, signs the installer, and
-verifies the selected artifact with `Get-AuthenticodeSignature`.
+verifies the selected artifact with `Get-AuthenticodeSignature` when signing is
+available.
 
 Use one signing path:
 
@@ -124,8 +125,10 @@ Use one signing path:
   `WINDOWS_CERTIFICATE_PASSWORD`, or set `WINDOWS_CERTIFICATE_THUMBPRINT` when
   the cert is already installed on the Windows runner.
 
-`AGIXT_WINDOWS_SIGNING_REQUIRED` defaults to `true` in CI so unsigned Windows
-artifacts fail before they can be uploaded.
+`AGIXT_WINDOWS_SIGNING_REQUIRED` defaults to `false` so Windows builds can
+continue while Azure identity validation or credentials are still pending. Set
+it to `true` after signing is configured to prevent unsigned Windows artifacts
+from being uploaded.
 
 ## Run
 

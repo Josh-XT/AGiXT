@@ -321,7 +321,7 @@ jobs:
         shell: pwsh
         env:
           TAURI_TARGET: ${{ matrix.tauri_target }}
-          AGIXT_WINDOWS_SIGNING_REQUIRED: ${{ vars.AGIXT_WINDOWS_SIGNING_REQUIRED || 'true' }}
+          AGIXT_WINDOWS_SIGNING_REQUIRED: ${{ vars.AGIXT_WINDOWS_SIGNING_REQUIRED || 'false' }}
           AGIXT_WINDOWS_ARTIFACT_SIGNING_ENDPOINT: ${{ vars.AGIXT_WINDOWS_ARTIFACT_SIGNING_ENDPOINT }}
           AGIXT_WINDOWS_ARTIFACT_SIGNING_ACCOUNT: ${{ vars.AGIXT_WINDOWS_ARTIFACT_SIGNING_ACCOUNT }}
           AGIXT_WINDOWS_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AGIXT_WINDOWS_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
@@ -359,7 +359,7 @@ jobs:
         shell: pwsh
         env:
           TAURI_TARGET: ${{ matrix.tauri_target }}
-          AGIXT_WINDOWS_SIGNING_REQUIRED: ${{ vars.AGIXT_WINDOWS_SIGNING_REQUIRED || 'true' }}
+          AGIXT_WINDOWS_SIGNING_REQUIRED: ${{ vars.AGIXT_WINDOWS_SIGNING_REQUIRED || 'false' }}
           AGIXT_WINDOWS_ARTIFACT_SIGNING_ENDPOINT: ${{ vars.AGIXT_WINDOWS_ARTIFACT_SIGNING_ENDPOINT }}
           AGIXT_WINDOWS_ARTIFACT_SIGNING_ACCOUNT: ${{ vars.AGIXT_WINDOWS_ARTIFACT_SIGNING_ACCOUNT }}
           AGIXT_WINDOWS_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AGIXT_WINDOWS_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
@@ -498,7 +498,7 @@ jobs:
         shell: pwsh
         env:
           ARTIFACT_PATH: ${{ steps.artifact.outputs.path }}
-          AGIXT_WINDOWS_SIGNING_REQUIRED: ${{ vars.AGIXT_WINDOWS_SIGNING_REQUIRED || 'true' }}
+          AGIXT_WINDOWS_SIGNING_REQUIRED: ${{ vars.AGIXT_WINDOWS_SIGNING_REQUIRED || 'false' }}
         run: |
           $signature = Get-AuthenticodeSignature -LiteralPath "${env:ARTIFACT_PATH}"
           if ($signature.Status -ne "Valid") {
