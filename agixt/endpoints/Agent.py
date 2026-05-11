@@ -222,8 +222,10 @@ async def think(
     authorization: str = Header(None),
 ):
     if "conversation_name" in agent_prompt.prompt_args:
+        auth = MagicalAuth(token=authorization)
         agent_prompt.conversation_id = get_conversation_id_by_name(
-            conversation_name=agent_prompt.prompt_args["conversation_name"]
+            conversation_name=agent_prompt.prompt_args["conversation_name"],
+            user_id=auth.user_id,
         )
     if "log_user_input" not in agent_prompt.prompt_args:
         agent_prompt.prompt_args["log_user_input"] = False
@@ -246,7 +248,7 @@ async def think(
         agent_prompt.prompt_args["context"] = think_deep
     agent_prompt.prompt_args["user_input"] = agent_prompt.user_input
     ApiClient = get_api_client(authorization=authorization)
-    return ApiClient.prompt_agent(
+    response = ApiClient.prompt_agent(
         agent_name=agent_prompt.agent_name,
         agent_prompt=AgentPrompt(
             prompt_name="Think About It",
@@ -255,6 +257,9 @@ async def think(
         user=user,
         authorization=authorization,
     )
+    if isinstance(response, dict):
+        return response
+    return {"response": str(response or "")}
 
 
 from Providers import get_providers_with_details, get_provider_options
@@ -267,7 +272,7 @@ from Providers import get_providers_with_details, get_provider_options
     dependencies=[Depends(verify_api_key)],
     summary="Get agent providers",
     description="Retrieves the list of providers connected to a specific agent.",
-    response_model=Dict[str, Any],
+    response_model=Dict[str, str],
 )
 async def get_providers_v1(
     agent_id: str,
@@ -434,7 +439,7 @@ async def update_persona_v1(
     dependencies=[Depends(verify_api_key)],
     summary="Get agent persona by ID",
     description="Retrieves the current persona settings for an agent using agent ID.",
-    response_model=Dict[str, str],
+    response_model=Dict[str, Any],
 )
 async def get_persona_v1(
     agent_id: str, user=Depends(verify_api_key), authorization: str = Header(None)
@@ -862,7 +867,7 @@ async def delete_browsed_link_v1(
     dependencies=[Depends(verify_api_key)],
     summary="Convert text to speech by ID",
     description="Converts text to speech using the agent's configured TTS provider using agent ID.",
-    response_model=Dict[str, str],
+    response_model=Dict[str, Any],
 )
 async def text_to_speech_v1(
     agent_id: str,

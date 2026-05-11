@@ -1732,7 +1732,7 @@ Rules:
                     )
                 response = f"{'Learned' if save_to_memory else 'Saved'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
             except Exception as e:
-                logging.error(f"Error reading PowerPoint file: {e}")
+                logging.warning(f"Error reading PowerPoint file: {e}")
                 return f"Failed to read PowerPoint file [{file_name}]({file_url}). Error: {str(e)}"
         if user_input == "":
             user_input = "Describe each stage of this image."
@@ -5164,6 +5164,7 @@ Rules:
             injected_memories=injected_memories,
             log_user_input=False,
             log_output=False,
+            disable_commands=True,
         )
         rejected_async = self.inference(
             user_input=question,
@@ -5171,6 +5172,7 @@ Rules:
             prompt_name="Wrong Answers Only",
             log_user_input=False,
             log_output=False,
+            disable_commands=True,
         )
         chosen = await chosen_async
         rejected = await rejected_async
@@ -5200,6 +5202,8 @@ Rules:
             batch_size=batch_size,
             prompt_category="Default",
             prompt_name="Ask Questions",
+            disable_commands=True,
+            log_output=False,
         )
         for question in question_list:
             # Convert the response to a list of questions

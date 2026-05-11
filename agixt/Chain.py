@@ -2003,6 +2003,49 @@ class Chain:
         if not steps:
             return []
 
+        if chain_type in ("server", "company"):
+            step_ids = {step.id for step in steps}
+            step_arguments = {}
+            if step_ids:
+                all_args = (
+                    session.query(step_arg_model)
+                    .filter(step_arg_model.chain_step_id.in_(step_ids))
+                    .all()
+                )
+                for step_argument in all_args:
+                    if step_argument.chain_step_id not in step_arguments:
+                        step_arguments[step_argument.chain_step_id] = {}
+                    step_arguments[step_argument.chain_step_id][
+                        step_argument.name
+                    ] = step_argument.value
+
+            chain_steps = []
+            for step in steps:
+                prompt = {}
+                prompt_type = (step.prompt_type or "").lower()
+                if prompt_type == "chain":
+                    target_key = "chain_name"
+                elif prompt_type == "command":
+                    target_key = "command_name"
+                else:
+                    target_key = "prompt_name"
+                if step.prompt:
+                    prompt[target_key] = step.prompt
+
+                prompt_args = step_arguments.get(step.id, {})
+                prompt.update(prompt_args)
+
+                chain_steps.append(
+                    {
+                        "step": step.step_number,
+                        "agent_name": step.agent_name or "",
+                        "prompt_type": step.prompt_type or "",
+                        "prompt": prompt,
+                    }
+                )
+
+            return chain_steps
+
         # Batch load all related data to avoid N+1 queries
         agent_ids = {step.agent_id for step in steps if step.agent_id}
         chain_ids = {step.target_chain_id for step in steps if step.target_chain_id}
@@ -2348,15 +2391,73 @@ class Chain:
             step_arg_model = CompanyChainStepArgument
 
         for source_step in source_steps:
+            agent = (
+                session.query(Agent)
+                .filter(
+                    Agent.name == source_step.agent_name,
+                    Agent.user_id == self.user_id,
+                )
+                .first()
+            )
+            if not agent:
+                agent = (
+                    session.query(Agent)
+                    .filter(Agent.name == source_step.agent_name)
+                    .first()
+                )
+            if not agent:
+                session.close()
+                raise Exception(f"Agent {source_step.agent_name} not found")
+
+            target_chain_id = None
+            target_command_id = None
+            target_prompt_id = None
+            prompt_type = source_step.prompt_type or "Prompt"
+            prompt_name = source_step.prompt or ""
+
+            if prompt_type.lower() == "prompt":
+                target = (
+                    session.query(Prompt)
+                    .filter(Prompt.name == prompt_name, Prompt.user_id == self.user_id)
+                    .first()
+                )
+                if not target:
+                    target = (
+                        session.query(Prompt)
+                        .filter(
+                            Prompt.name == prompt_name,
+                            Prompt.user_id == get_default_user_id(),
+                        )
+                        .first()
+                    )
+                if target:
+                    target_prompt_id = target.id
+            elif prompt_type.lower() == "chain":
+                target = (
+                    session.query(ChainDB)
+                    .filter(
+                        ChainDB.name == prompt_name, ChainDB.user_id == self.user_id
+                    )
+                    .first()
+                )
+                if target:
+                    target_chain_id = target.id
+            elif prompt_type.lower() == "command":
+                target = (
+                    session.query(Command).filter(Command.name == prompt_name).first()
+                )
+                if target:
+                    target_command_id = target.id
+
             new_step = ChainStep(
                 chain_id=new_chain.id,
                 step_number=source_step.step_number,
-                agent_id=source_step.agent_id,
-                prompt_type=source_step.prompt_type,
-                prompt=source_step.prompt,
-                target_chain_id=source_step.target_chain_id,
-                target_command_id=source_step.target_command_id,
-                target_prompt_id=source_step.target_prompt_id,
+                agent_id=agent.id,
+                prompt_type=prompt_type,
+                prompt=prompt_name,
+                target_chain_id=target_chain_id,
+                target_command_id=target_command_id,
+                target_prompt_id=target_prompt_id,
             )
             session.add(new_step)
             session.flush()  # Flush to get new_step.id
@@ -2368,9 +2469,16 @@ class Chain:
                 .all()
             )
             for source_arg in source_args:
+                argument = (
+                    session.query(Argument)
+                    .filter(Argument.name == source_arg.name)
+                    .first()
+                )
+                if not argument:
+                    continue
                 new_arg = ChainStepArgument(
                     chain_step_id=new_step.id,
-                    argument_id=source_arg.argument_id,
+                    argument_id=argument.id,
                     value=source_arg.value,
                 )
                 session.add(new_arg)
@@ -2585,12 +2693,9 @@ class Chain:
         step = ServerChainStep(
             chain_id=chain.id,
             step_number=step_number,
-            agent_id=agent.id,
+            agent_name=agent.name,
             prompt_type=prompt_type,
             prompt=prompt.get(argument_key, "") if argument_key else "",
-            target_chain_id=target_chain_id,
-            target_command_id=target_command_id,
-            target_prompt_id=target_prompt_id,
         )
         session.add(step)
         session.commit()
@@ -2601,25 +2706,13 @@ class Chain:
             for k, v in prompt.items()
             if k != argument_key and k != "prompt_category"
         }
-        # Batch-load all arguments by name
-        if prompt_args:
-            arg_objs = (
-                session.query(Argument)
-                .filter(Argument.name.in_(list(prompt_args.keys())))
-                .all()
-            )
-            args_by_name = {a.name: a for a in arg_objs}
-        else:
-            args_by_name = {}
         for arg_name, arg_value in prompt_args.items():
-            argument = args_by_name.get(arg_name)
-            if argument:
-                step_arg = ServerChainStepArgument(
-                    chain_step_id=step.id,
-                    argument_id=argument.id,
-                    value=str(arg_value),
-                )
-                session.add(step_arg)
+            step_arg = ServerChainStepArgument(
+                chain_step_id=step.id,
+                name=arg_name,
+                value=str(arg_value),
+            )
+            session.add(step_arg)
 
         session.commit()
         session.close()
@@ -2831,29 +2924,28 @@ class Chain:
         )
 
         for user_step in user_steps:
+            agent = session.query(Agent).filter(Agent.id == user_step.agent_id).first()
             company_step = CompanyChainStep(
                 chain_id=company_chain.id,
                 step_number=user_step.step_number,
-                agent_id=user_step.agent_id,
+                agent_name=agent.name if agent else "",
                 prompt_type=user_step.prompt_type,
                 prompt=user_step.prompt,
-                target_chain_id=user_step.target_chain_id,
-                target_command_id=user_step.target_command_id,
-                target_prompt_id=user_step.target_prompt_id,
             )
             session.add(company_step)
             session.flush()  # Flush to get company_step.id
 
             # Copy step arguments
             user_args = (
-                session.query(ChainStepArgument)
+                session.query(Argument, ChainStepArgument)
+                .join(ChainStepArgument, ChainStepArgument.argument_id == Argument.id)
                 .filter(ChainStepArgument.chain_step_id == user_step.id)
                 .all()
             )
-            for user_arg in user_args:
+            for argument, user_arg in user_args:
                 company_arg = CompanyChainStepArgument(
                     chain_step_id=company_step.id,
-                    argument_id=user_arg.argument_id,
+                    name=argument.name,
                     value=user_arg.value,
                 )
                 session.add(company_arg)
@@ -2942,12 +3034,9 @@ class Chain:
         step = CompanyChainStep(
             chain_id=chain.id,
             step_number=step_number,
-            agent_id=agent.id,
+            agent_name=agent.name,
             prompt_type=prompt_type,
             prompt=prompt.get(argument_key, "") if argument_key else "",
-            target_chain_id=target_chain_id,
-            target_command_id=target_command_id,
-            target_prompt_id=target_prompt_id,
         )
         session.add(step)
         session.commit()
@@ -2958,25 +3047,13 @@ class Chain:
             for k, v in prompt.items()
             if k != argument_key and k != "prompt_category"
         }
-        # Batch-load all arguments by name
-        if prompt_args:
-            arg_objs = (
-                session.query(Argument)
-                .filter(Argument.name.in_(list(prompt_args.keys())))
-                .all()
-            )
-            args_by_name = {a.name: a for a in arg_objs}
-        else:
-            args_by_name = {}
         for arg_name, arg_value in prompt_args.items():
-            argument = args_by_name.get(arg_name)
-            if argument:
-                step_arg = CompanyChainStepArgument(
-                    chain_step_id=step.id,
-                    argument_id=argument.id,
-                    value=str(arg_value),
-                )
-                session.add(step_arg)
+            step_arg = CompanyChainStepArgument(
+                chain_step_id=step.id,
+                name=arg_name,
+                value=str(arg_value),
+            )
+            session.add(step_arg)
 
         session.commit()
         session.close()

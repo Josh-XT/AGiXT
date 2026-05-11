@@ -20,6 +20,8 @@ import re
 import hashlib
 import hmac
 import json
+import os
+import sys
 from typing import Dict, Optional, List, Any, Set
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
@@ -27,6 +29,24 @@ from enum import Enum
 
 # Try to import github library
 GITHUB_AVAILABLE = False
+_extensions_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "extensions")
+)
+_removed_extension_paths = []
+for _index, _path in list(enumerate(sys.path)):
+    if os.path.abspath(_path or os.getcwd()) == _extensions_path:
+        _removed_extension_paths.append((_index, _path))
+for _, _path in reversed(_removed_extension_paths):
+    sys.path.remove(_path)
+_previous_github_module = sys.modules.get("github")
+_previous_github_file = getattr(_previous_github_module, "__file__", "")
+_shadowed_github_module = bool(
+    _previous_github_file
+    and os.path.abspath(_previous_github_file)
+    == os.path.join(_extensions_path, "github.py")
+)
+if _shadowed_github_module:
+    sys.modules.pop("github", None)
 try:
     from github import Github, GithubIntegration, Auth
     from github.Repository import Repository
@@ -38,8 +58,25 @@ try:
     logging.info("Successfully loaded PyGithub library")
 except ImportError as e:
     logging.warning(f"PyGithub library not installed: {e}")
+    if _shadowed_github_module and "github" not in sys.modules:
+        sys.modules["github"] = _previous_github_module
+    Github = GithubIntegration = Auth = Repository = Issue = PullRequest = object
 
-from DB import get_session, CompanyExtensionSetting, ServerExtensionSetting
+    class GithubException(Exception):
+        status = None
+
+finally:
+    for _index, _path in _removed_extension_paths:
+        sys.path.insert(min(_index, len(sys.path)), _path)
+
+
+from DB import (
+    Company,
+    CompanyExtensionSetting,
+    ServerExtensionSetting,
+    decrypt_config_value,
+    get_session,
+)
 from Globals import getenv
 from MagicalAuth import impersonate_user
 from InternalClient import InternalClient
@@ -1150,6 +1187,12 @@ class GitHubBotManager:
         self._server_bot: Optional[CompanyGitHubBot] = None
         self._started = False
 
+    def _setting_value(self, setting):
+        value = setting.setting_value
+        if getattr(setting, "is_sensitive", False) and value:
+            value = decrypt_config_value(value)
+        return value
+
     @classmethod
     async def get_instance(cls) -> "GitHubBotManager":
         """Get the singleton instance of the GitHub bot manager."""
@@ -1194,7 +1237,7 @@ class GitHubBotManager:
 
             server_config = {}
             for setting in server_settings:
-                server_config[setting.setting_key] = setting.setting_value
+                server_config[setting.setting_key] = self._setting_value(setting)
 
             if server_config.get("github_bot_enabled") == "true":
                 await self._start_server_bot(server_config)
@@ -1211,15 +1254,34 @@ class GitHubBotManager:
             for setting in company_settings:
                 if setting.company_id not in companies:
                     companies[setting.company_id] = {}
-                companies[setting.company_id][
-                    setting.setting_key
-                ] = setting.setting_value
+                companies[setting.company_id][setting.setting_key] = (
+                    self._setting_value(setting)
+                )
 
             for company_id, config in companies.items():
                 if config.get("github_bot_enabled") == "true":
                     company = db.query(Company).filter(Company.id == company_id).first()
                     company_name = company.name if company else company_id
                     await self._start_company_bot(company_id, company_name, config)
+
+    async def _load_company_bot_config(self, company_id: str) -> tuple:
+        """Load a single company's GitHub bot config for on-demand webhooks."""
+        with get_session() as db:
+            company = db.query(Company).filter(Company.id == company_id).first()
+            company_name = company.name if company else company_id
+            settings = (
+                db.query(CompanyExtensionSetting)
+                .filter(
+                    CompanyExtensionSetting.company_id == company_id,
+                    CompanyExtensionSetting.extension_name == "github",
+                )
+                .all()
+            )
+            config = {
+                setting.setting_key: self._setting_value(setting)
+                for setting in settings
+            }
+            return company_name, config
 
     async def _start_server_bot(self, config: dict):
         """Start the server-level GitHub bot."""
@@ -1318,7 +1380,12 @@ class GitHubBotManager:
         if not bot:
             # Try to start the bot on-demand if company_id is provided
             if company_id:
-                await self._start_company_bot(company_id)
+                company_name, config = await self._load_company_bot_config(company_id)
+                enabled = config.get("github_bot_enabled") or config.get(
+                    "GITHUB_BOT_ENABLED"
+                )
+                if str(enabled).lower() == "true":
+                    await self._start_company_bot(company_id, company_name, config)
                 if company_id in self._bots:
                     bot = self._bots[company_id]
 

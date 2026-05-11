@@ -447,13 +447,25 @@ async def run_chain_step_v1(
     chain = Chain(user=user)
     chain_steps = chain.get_chain(chain_name=chain_name)
     try:
-        step = chain_steps["step"][step_number]
+        if isinstance(chain_steps, dict) and isinstance(chain_steps.get("steps"), list):
+            step = next(
+                (
+                    chain_step
+                    for chain_step in chain_steps["steps"]
+                    if str(chain_step.get("step")) == str(step_number)
+                ),
+                None,
+            )
+            if step is None:
+                raise KeyError(step_number)
+        else:
+            step = chain_steps["step"][step_number]
     except Exception as e:
         raise HTTPException(
             status_code=404, detail=f"Step {step_number} not found. {e}"
         )
     agent_name = (
-        user_input.agent_override if user_input.agent_override else step["agent"]
+        user_input.agent_override if user_input.agent_override else step["agent_name"]
     )
     chain_step_response = await AGiXT(
         user=user,

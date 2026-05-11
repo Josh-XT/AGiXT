@@ -125,6 +125,9 @@ class InternalClient:
         prompt_name: str = "Think About It",
         prompt_args: dict = None,
         parent_activity_id: str = None,
+        agent_prompt=None,
+        user: str = None,
+        authorization: str = None,
     ) -> str:
         """
         Send a prompt to an agent directly without HTTP round-trip.
@@ -141,6 +144,17 @@ class InternalClient:
         """
         import asyncio
         from Models import ChatCompletions
+
+        if agent_prompt is not None:
+            prompt_name = getattr(agent_prompt, "prompt_name", prompt_name)
+            prompt_args = getattr(agent_prompt, "prompt_args", prompt_args)
+        if authorization:
+            self.api_key = (
+                str(authorization).replace("Bearer ", "").replace("bearer ", "")
+            )
+            self.headers["Authorization"] = self.api_key
+        if user:
+            self._user = user
 
         if prompt_args is None:
             prompt_args = {}
@@ -233,6 +247,28 @@ class InternalClient:
         if isinstance(response, dict) and "choices" in response:
             return response["choices"][0]["message"]["content"]
         return str(response)
+
+    def chat(
+        self,
+        agent_id: str = None,
+        agent_name: str = None,
+        user_input: str = "",
+        conversation_id: str = None,
+        conversation_name: str = None,
+        context_results: int = 4,
+    ) -> str:
+        """Chat with an agent directly without HTTP round-trips."""
+        return self.prompt_agent(
+            agent_id=agent_id,
+            agent_name=agent_name,
+            prompt_name="Chat",
+            prompt_args={
+                "user_input": user_input,
+                "context_results": context_results,
+                "conversation_name": conversation_name or conversation_id or "-",
+                "disable_memory": True,
+            },
+        )
 
     def add_agent(
         self,
@@ -530,6 +566,105 @@ class InternalClient:
             result = loop.run_until_complete(memory.read_url(url=url))
 
         return {"message": f"URL {url} learned successfully"}
+
+    def _run_async(self, coro):
+        """Run an async AGiXT helper from sync internal-client methods."""
+        import asyncio
+
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        if loop.is_running():
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, coro)
+                return future.result()
+        return loop.run_until_complete(coro)
+
+    def learn_file(
+        self,
+        agent_id: str = None,
+        agent_name: str = None,
+        file_name: str = "",
+        file_content: str = "",
+        collection_number: str = "0",
+    ) -> str:
+        """Learn from file content without making an internal HTTP request."""
+        import base64
+        from datetime import datetime
+
+        if agent_id and not agent_name:
+            agent = self._get_agent(agent_id=agent_id)
+            agent_name = agent.agent_name
+        elif not agent_name:
+            agent_name = "AGiXT"
+
+        AGiXT = self._get_agixt_class()
+        agixt = AGiXT(
+            user=self.user,
+            agent_name=agent_name,
+            api_key=self.api_key,
+            conversation_name=None,
+            collection_id=str(collection_number),
+        )
+
+        safe_file_name = os.path.basename(file_name)
+        file_path = os.path.normpath(
+            os.path.join(agixt.agent_workspace, str(collection_number), safe_file_name)
+        )
+        if not file_path.startswith(agixt.agent_workspace):
+            raise Exception("Path given not allowed")
+
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        try:
+            decoded_content = base64.b64decode(file_content)
+        except Exception:
+            decoded_content = file_content.encode("utf-8")
+
+        with open(file_path, "wb") as file_handle:
+            file_handle.write(decoded_content)
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        response = self._run_async(
+            agixt.learn_from_file(
+                file_url=f"{agixt.outputs}/{collection_number}/{safe_file_name}",
+                file_name=safe_file_name,
+                user_input=f"File {safe_file_name} uploaded on {timestamp}.",
+                collection_id=str(collection_number),
+                save_to_memory=True,
+            )
+        )
+        agixt.conversation.log_interaction(
+            role=agent_name,
+            message=f"File [{safe_file_name}]({agixt.outputs}/{collection_number}/{safe_file_name}) learned on {timestamp} to collection `{collection_number}`.",
+        )
+        return response
+
+    def delete_memory_external_source(
+        self,
+        agent_id: str = None,
+        agent_name: str = None,
+        external_source: str = "",
+        collection_number: str = "0",
+    ) -> str:
+        """Delete memories for an external source without an internal HTTP request."""
+        from Memories import Memories
+
+        agent = self._get_agent(agent_id=agent_id, agent_name=agent_name)
+        self._run_async(
+            Memories(
+                agent_name=agent.agent_name,
+                agent_config=agent.AGENT_CONFIG,
+                collection_number=str(collection_number),
+                ApiClient=self,
+                user=self.user,
+            ).delete_memories_from_external_source(external_source=external_source)
+        )
+        return f"Memories from external source {external_source} for agent {agent.agent_name} deleted."
 
     # ========== Prompt Methods ==========
 

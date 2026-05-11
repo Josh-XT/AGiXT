@@ -5835,19 +5835,21 @@ async def github_webhook(
             raise HTTPException(status_code=404, detail="Company not found")
 
         # Check if GitHub bot is enabled
-        bot_enabled_setting = (
+        bot_enabled_settings = (
             db.query(CompanyExtensionSetting)
             .filter(
                 CompanyExtensionSetting.company_id == company_id,
                 CompanyExtensionSetting.extension_name == "github",
-                CompanyExtensionSetting.setting_key == "GITHUB_BOT_ENABLED",
+                CompanyExtensionSetting.setting_key.in_(
+                    ["github_bot_enabled", "GITHUB_BOT_ENABLED"]
+                ),
             )
-            .first()
+            .all()
         )
 
-        if (
-            not bot_enabled_setting
-            or bot_enabled_setting.setting_value.lower() != "true"
+        if not any(
+            (setting.setting_value or "").lower() == "true"
+            for setting in bot_enabled_settings
         ):
             raise HTTPException(
                 status_code=400, detail="GitHub bot is not enabled for this company"
@@ -5898,9 +5900,9 @@ async def github_webhook(
 
     # Process the webhook event using GitHubBotManager
     try:
-        from GitHubBotManager import GitHubBotManager
+        from GitHubBotManager import get_github_bot_manager
 
-        manager = GitHubBotManager(company_id=company_id)
+        manager = await get_github_bot_manager()
         result = await manager.handle_webhook(
             event_type=event_type,
             payload=payload,

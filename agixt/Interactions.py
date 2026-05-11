@@ -4966,6 +4966,22 @@ Example: If user says "list my files", use:
         _continuation_recovery_feedback = ""
         _continuation_recovery_count = 0
         _last_recovered_answer_hash = None
+        _last_recovered_answer_text = ""
+        _non_exec_continuation_count = 0
+        try:
+            _max_non_exec_continuations = int(
+                getenv("CONTINUATION_MAX_NON_EXEC_ITERATIONS", "40")
+            )
+        except (TypeError, ValueError):
+            _max_non_exec_continuations = 40
+        _max_non_exec_continuations = max(8, _max_non_exec_continuations)
+        try:
+            _max_recovery_attempts = int(
+                getenv("CONTINUATION_MAX_RECOVERY_ATTEMPTS", "12")
+            )
+        except (TypeError, ValueError):
+            _max_recovery_attempts = 12
+        _max_recovery_attempts = max(3, _max_recovery_attempts)
         if not _final_answer_review_enabled:
             logging.info(
                 "[run_stream] Final answer review gate disabled; complete answers "
@@ -5235,6 +5251,7 @@ or
             # re-wrapping the already streamed answer on its own line.
             if has_no_answer and not has_new_execution and answer_content.strip():
                 _recovered_answer_text = answer_content.strip()
+                _last_recovered_answer_text = _recovered_answer_text
                 _recovered_answer_hash = str(hash(_recovered_answer_text))
                 if _recovered_answer_hash == _last_recovered_answer_hash:
                     _continuation_recovery_count += 1
@@ -5273,6 +5290,7 @@ or
                 and answer_content.strip()
             ):
                 _recovered_answer_text = answer_content.strip()
+                _last_recovered_answer_text = _recovered_answer_text
                 _before_recovery = self.response
 
                 if is_inside_top_level_answer(self.response):
@@ -5356,6 +5374,10 @@ or
                 break
 
             continuation_count += 1
+            if has_new_execution:
+                _non_exec_continuation_count = 0
+            else:
+                _non_exec_continuation_count += 1
             # Send keepalive at the start of each iteration to prevent
             # proxy timeouts (e.g. Cloudflare 100s idle timeout) during
             # prompt building and LLM inference startup.
@@ -5370,6 +5392,30 @@ or
                 f"has_new_execution: {has_new_execution}, has_incomplete_answer: {has_incomplete_answer}, "
                 f"has_no_answer: {has_no_answer}. response_len: {len(self.response)}"
             )
+
+            if not has_new_execution and (
+                _non_exec_continuation_count >= _max_non_exec_continuations
+                or _continuation_recovery_count >= _max_recovery_attempts
+            ):
+                logging.warning(
+                    "[run_stream] Non-execution continuation recovery cap reached "
+                    f"at iteration {continuation_count}: "
+                    f"non_exec={_non_exec_continuation_count}/"
+                    f"{_max_non_exec_continuations}, recovery="
+                    f"{_continuation_recovery_count}/{_max_recovery_attempts}. "
+                    "Finalizing from recovered answer text or recovery pass."
+                )
+                if _last_recovered_answer_text:
+                    self.response = _append_recovered_answer_block(
+                        self.response, _last_recovered_answer_text
+                    )
+                    if has_complete_answer(self.response):
+                        break
+                c.log_interaction(
+                    role=self.agent_name,
+                    message="[SUBACTIVITY][CONTINUATION] Recovery cap reached; finalizing response...",
+                )
+                break
 
             # --- Stuck-loop detection ---
             # Only check for stuck loops using NON-EXECUTION iterations.

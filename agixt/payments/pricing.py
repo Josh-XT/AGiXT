@@ -46,6 +46,7 @@ class PriceService:
         self.cache_ttl = timedelta(seconds=cache_ttl_seconds)
         self._cache: Dict[str, Dict[str, Any]] = {}
         self._lock = asyncio.Lock()
+        self.base_price_usd = self._configured_base_price()
 
     def supported_currencies(self) -> Dict[str, Dict[str, Any]]:
         return SUPPORTED_CURRENCIES
@@ -124,6 +125,32 @@ class PriceService:
             "exchange_rate": float(self._quantize(rate, 8)),
             "mint": SUPPORTED_CURRENCIES[symbol].get("mint"),
             "price_per_million_usd": float(usd_quote["price_per_million"]),
+        }
+
+    async def get_quote(self, currency: str, seat_count: int) -> Dict[str, Any]:
+        """Get a seat-based payment quote in the requested currency."""
+        symbol = currency.upper()
+        if symbol not in SUPPORTED_CURRENCIES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported currency '{currency}'. Supported: {', '.join(SUPPORTED_CURRENCIES.keys())}",
+            )
+        if seat_count < 1:
+            raise HTTPException(status_code=400, detail="Seat count must be at least 1")
+
+        amount_usd = self.base_price_usd * Decimal(seat_count)
+        rate = await self._get_rate(symbol)
+        decimals = SUPPORTED_CURRENCIES[symbol]["decimals"]
+        amount_currency = self._quantize(amount_usd / rate, decimals)
+
+        return {
+            "seat_count": seat_count,
+            "currency": symbol,
+            "network": SUPPORTED_CURRENCIES[symbol].get("network"),
+            "amount_usd": float(self._quantize(amount_usd, 2)),
+            "amount_currency": float(amount_currency),
+            "exchange_rate": float(self._quantize(rate, 8)),
+            "mint": SUPPORTED_CURRENCIES[symbol].get("mint"),
         }
 
     async def _get_rate(self, symbol: str) -> Decimal:
@@ -214,6 +241,19 @@ class PriceService:
     def _quantize(value: Decimal, decimals: int) -> Decimal:
         quant = Decimal(1).scaleb(-decimals)
         return value.quantize(quant, rounding=ROUND_UP)
+
+    @staticmethod
+    def _configured_base_price() -> Decimal:
+        for key in ("BASE_PRICE_USD", "MONTHLY_PRICE_USD", "SEAT_PRICE_USD"):
+            value = getenv(key)
+            if value not in (None, "", "None"):
+                try:
+                    price = Decimal(str(value))
+                    if price >= 0:
+                        return price
+                except Exception:
+                    pass
+        return Decimal("50.00")
 
     def get_token_price(self) -> Decimal:
         """Get the current token price per million USD.

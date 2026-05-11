@@ -527,7 +527,8 @@ async def get_dpo_response_v1(
         conversation_name=f"DPO on {timestamp}",
     )
     prompt, chosen, rejected = await agixt.dpo(
-        question=user_input, injected_memories=int(user_input.injected_memories)
+        question=user_input.user_input,
+        injected_memories=int(user_input.injected_memories),
     )
     return {
         "prompt": prompt,
@@ -557,18 +558,20 @@ async def fine_tune_model_v1(
     agent_name = agent.agent_name
 
     asyncio.create_task(
-        fine_tune_llm(
+        asyncio.to_thread(
+            fine_tune_llm,
             agent_name=agent_name,
             dataset_name=dataset_name,
             model_name=finetune.model,
             max_seq_length=finetune.max_seq_length,
             huggingface_output_path=finetune.huggingface_output_path,
             private_repo=finetune.private_repo,
-            ApiClient=ApiClient,
+            user=user,
+            api_key=authorization,
         )
     )
     return ResponseMessage(
-        message=f"Fine-tuning of model {finetune.model_name} started. The agent's status has is now set to True, it will be set to False once the training is complete."
+        message=f"Fine-tuning of model {finetune.model} started. The agent's status has is now set to True, it will be set to False once the training is complete."
     )
 
 
@@ -653,6 +656,8 @@ async def learn_cfile_v1(
 ) -> ResponseMessage:
     auth = MagicalAuth(token=authorization)
     agixt = auth.get_company_agent_session(company_id=company_id)
+    if agixt is None:
+        raise HTTPException(status_code=404, detail="Company not found")
     response = agixt.learn_file(
         agent_name="AGiXT",
         file_name=file.file_name,
