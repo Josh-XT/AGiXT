@@ -150,6 +150,180 @@
     return el('span', { class: 'us-badge' + (kind ? ' ' + kind : '') }, text);
   }
 
+  /** Open an overlay dialog. `opts` accepts `title`, `description`, `body`
+   *  (a DOM node or array of nodes), `footer` (array of buttons), `wide`,
+   *  and `onClose`. Returns a `{ close, root }` handle the caller can use
+   *  to dismiss the dialog programmatically. Captures the previously-focused
+   *  element on open and restores focus to it on every close path (button,
+   *  Escape, backdrop click) so keyboard navigation isn't dropped. */
+  function openModal(opts) {
+    opts = opts || {};
+    const previouslyFocused = document.activeElement;
+    const header = el('div', { class: 'us-modal-header' }, [
+      el('div', null, [
+        el('h3', null, opts.title || ''),
+        opts.description ? el('p', null, opts.description) : null,
+      ].filter(Boolean)),
+      el('button', { class: 'us-modal-close', type: 'button', 'aria-label': 'Close',
+        onclick: () => close() }, '×'),
+    ]);
+    const bodyEl = el('div', { class: 'us-modal-body' });
+    if (opts.body) {
+      (Array.isArray(opts.body) ? opts.body : [opts.body]).forEach((n) => {
+        if (n) bodyEl.appendChild(n);
+      });
+    }
+    const footerChildren = (opts.footer || []).filter(Boolean);
+    const footer = footerChildren.length
+      ? el('div', { class: 'us-modal-footer' }, footerChildren)
+      : null;
+    const card = el('div', { class: 'us-modal-card' + (opts.wide ? ' wide' : '') }, [
+      header, bodyEl, footer,
+    ].filter(Boolean));
+    const root = el('div', { class: 'us-modal-backdrop', role: 'dialog' }, [card]);
+
+    let closed = false;
+    function close() {
+      if (closed) return;
+      closed = true;
+      if (root.parentElement) root.parentElement.removeChild(root);
+      document.removeEventListener('keydown', onKey);
+      // Restore focus *before* firing onClose so the caller's resolve()
+      // path doesn't observe the focus already moved by browser defaults.
+      if (previouslyFocused && typeof previouslyFocused.focus === 'function'
+          && document.contains(previouslyFocused)) {
+        try { previouslyFocused.focus(); } catch (_) {}
+      }
+      if (typeof opts.onClose === 'function') {
+        try { opts.onClose(); } catch (_) {}
+      }
+    }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    root.addEventListener('click', (e) => { if (e.target === root) close(); });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(root);
+    return { close, root, body: bodyEl };
+  }
+
+  /** Auto-focus the first focusable input/textarea in a freshly opened
+   *  modal. Restoration of focus on close is handled inside `openModal`
+   *  itself so every close path (button, Escape, backdrop) restores. */
+  function setupModalFocus(handle, opts) {
+    opts = opts || {};
+    requestAnimationFrame(() => {
+      const root = handle.root;
+      if (!root || !root.parentElement) return;
+      const target = opts.focusSelector
+        ? root.querySelector(opts.focusSelector)
+        : root.querySelector('input:not([type=checkbox]):not([type=hidden]):not([disabled]), textarea:not([disabled])');
+      if (target && typeof target.focus === 'function') {
+        try { target.focus(); if (typeof target.select === 'function') target.select(); } catch (_) {}
+      }
+    });
+    return handle;
+  }
+
+  /** Themed confirm replacement. Returns a Promise<boolean> — resolves
+   *  true on confirm, false on cancel/escape/backdrop click. Use this
+   *  instead of the native confirm() so dialogs match the app theme,
+   *  honor focus management, and can show longer/styled messages. */
+  function confirmDialog(opts) {
+    opts = opts || {};
+    return new Promise((resolve) => {
+      let resolved = false;
+      const finish = (val) => {
+        if (resolved) return;
+        resolved = true;
+        handle.close();
+        resolve(val);
+      };
+      const cancelBtn = btn(opts.cancelLabel || 'Cancel');
+      const confirmBtn = btn(opts.confirmLabel || 'Confirm', {
+        kind: opts.destructive ? 'danger' : 'primary',
+      });
+      cancelBtn.addEventListener('click', () => finish(false));
+      confirmBtn.addEventListener('click', () => finish(true));
+      const handle = openModal({
+        title: opts.title || 'Confirm',
+        description: opts.description || undefined,
+        body: opts.message
+          ? [el('p', { class: 'us-confirm-message' }, opts.message)]
+          : [],
+        footer: [cancelBtn, confirmBtn],
+        onClose: () => finish(false),
+      });
+      setupModalFocus(handle, { focusSelector: opts.destructive
+        ? 'button.btn-secondary'
+        : 'button.btn-primary' });
+    });
+  }
+
+  /** Map a thrown API error to a user-friendly message that calls out
+   *  common failure modes — 402 (billing), 403 (no perms), 409 (already
+   *  exists), 404 (not found). Falls back to `errMsg(err)` otherwise. */
+  function friendlyError(err, context) {
+    const status = err && err.status;
+    const baseMsg = errMsg(err);
+    const ctx = context ? ' ' + context : '';
+    if (status === 402) {
+      return 'User limit reached for this company. Upgrade your plan to add more users.';
+    }
+    if (status === 403) {
+      return baseMsg && baseMsg !== 'HTTP 403'
+        ? baseMsg
+        : 'You don’t have permission to perform this action' + ctx + '.';
+    }
+    if (status === 409) {
+      return baseMsg && baseMsg !== 'HTTP 409'
+        ? baseMsg
+        : 'That item already exists.';
+    }
+    if (status === 404) {
+      return baseMsg && baseMsg !== 'HTTP 404'
+        ? baseMsg
+        : 'Not found.';
+    }
+    return baseMsg;
+  }
+
+  function copyToClipboard(text) {
+    if (!text) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+        return;
+      }
+    } catch (_) { /* fall through */ }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (_) {}
+    document.body.removeChild(ta);
+  }
+
+  function buildInviteLink(invitationId, email) {
+    if (!invitationId || invitationId === 'none') return null;
+    const appUri = (cache.desktopSettings && cache.desktopSettings.app_url)
+      || (cache.desktopSettings && cache.desktopSettings.server_url)
+      || (window.location && window.location.origin)
+      || '';
+    const params = new URLSearchParams();
+    params.set('invitation_id', invitationId);
+    if (email) params.set('email', email);
+    const base = String(appUri).replace(/\/+$/, '');
+    return base + '/?' + params.toString();
+  }
+
+  function parseEmails(raw) {
+    return String(raw || '')
+      .split(/[\s,;]+/)
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+  }
+
   function openExternal(url) {
     if (!url) return;
     try {
@@ -1313,13 +1487,149 @@
 
   // ─── Companies tab ───────────────────────────────────────────────────
 
+  /** Build a tiny labeled-field DOM that mirrors the web app's edit
+   *  company dialog. `opts.type` can be 'text' (default), 'email', 'url',
+   *  'tel', or 'textarea'. */
+  function modalField(labelText, opts) {
+    opts = opts || {};
+    const isArea = opts.type === 'textarea';
+    const input = el(isArea ? 'textarea' : 'input', {
+      class: isArea ? 'us-textarea' : 'us-input',
+      type: isArea ? undefined : (opts.type || 'text'),
+      placeholder: opts.placeholder || '',
+      value: opts.value != null ? opts.value : '',
+    });
+    if (isArea && opts.rows) input.rows = opts.rows;
+    const wrap = el('label', { class: 'us-label' }, [
+      el('span', { class: 'us-label-text' }, labelText),
+      input,
+    ]);
+    return { wrap, input };
+  }
+
+  /** Open the company create/edit dialog. Mirrors the web app's edit
+   *  modal — name, status, contact info, address, notes — and also
+   *  supports `parent_company_id` on create (the backend's POST accepts
+   *  it; PATCH does not, so the field is hidden on edit). Pass
+   *  `{ mode: 'create' }` for a new company, or omit `mode` for edit. */
+  function openCompanyDialog(opts) {
+    opts = opts || {};
+    const mode = opts.mode === 'create' ? 'create' : 'edit';
+    const company = opts.company || {};
+    const allCompanies = opts.allCompanies || [];
+
+    const name = modalField('Company name *', { value: company.name, placeholder: 'Enter company name' });
+    const status = el('select', { class: 'us-select' }, [
+      el('option', { value: 'active' }, 'Active'),
+      el('option', { value: 'inactive' }, 'Inactive'),
+    ]);
+    status.value = (company.status === false ? 'inactive' : 'active');
+    const statusWrap = el('label', { class: 'us-label' }, [
+      el('span', { class: 'us-label-text' }, 'Status'), status,
+    ]);
+    const email = modalField('Email', { type: 'email', value: company.email || '', placeholder: 'company@example.com' });
+    const phone = modalField('Phone', { type: 'tel', value: company.phone_number || '', placeholder: '+1 (555) 123-4567' });
+    const website = modalField('Website', { type: 'url', value: company.website || '', placeholder: 'https://company.com' });
+    const address = modalField('Street address', { value: company.address || '', placeholder: '123 Main Street' });
+    const city = modalField('City', { value: company.city || '', placeholder: 'New York' });
+    const state = modalField('State/Province', { value: company.state || '', placeholder: 'NY' });
+    const zip = modalField('ZIP/Postal code', { value: company.zip_code || '', placeholder: '10001' });
+    const country = modalField('Country', { value: company.country || '', placeholder: 'United States' });
+
+    // Parent company picker — only available on create (PATCH /v1/companies
+    // doesn't accept parent_company_id; POST does).
+    let parentWrap = null;
+    let parentSelect = null;
+    if (mode === 'create' && allCompanies.length) {
+      parentSelect = el('select', { class: 'us-select' });
+      parentSelect.appendChild(el('option', { value: '' }, 'None (top-level company)'));
+      allCompanies.forEach((c) => {
+        if (!c) return;
+        parentSelect.appendChild(el('option', { value: c.id }, c.name || 'Untitled'));
+      });
+      parentWrap = el('label', { class: 'us-label' }, [
+        el('span', { class: 'us-label-text' }, 'Parent company'), parentSelect,
+      ]);
+    }
+
+    const notes = modalField('Notes', { type: 'textarea', value: company.notes || '', placeholder: 'Additional notes about this company…', rows: 3 });
+
+    const submitLabel = mode === 'create' ? 'Create company' : 'Save changes';
+    const submitBtn = btn(submitLabel, { kind: 'primary' });
+    const cancelBtn = btn('Cancel');
+
+    const handle = openModal({
+      title: mode === 'create' ? 'Create company' : 'Edit company',
+      description: mode === 'create'
+        ? 'Spin up a new company. All fields except name are optional and can be edited later.'
+        : 'Update company information and settings for ' + (company.name || ''),
+      wide: true,
+      body: [
+        el('div', { class: 'us-grid-2' }, [name.wrap, statusWrap]),
+        el('div', { class: 'us-grid-2' }, [email.wrap, phone.wrap]),
+        website.wrap,
+        address.wrap,
+        el('div', { class: 'us-grid-2' }, [city.wrap, state.wrap]),
+        el('div', { class: 'us-grid-2' }, [zip.wrap, country.wrap]),
+        parentWrap,
+        notes.wrap,
+      ].filter(Boolean),
+      footer: [cancelBtn, submitBtn],
+    });
+
+    cancelBtn.addEventListener('click', () => handle.close());
+    submitBtn.addEventListener('click', async () => {
+      const finalName = name.input.value.trim();
+      if (!finalName) { toast('Name is required', 'error'); name.input.focus(); return; }
+      const payload = {
+        name: finalName,
+        status: status.value === 'active',
+        address: address.input.value.trim() || null,
+        phone_number: phone.input.value.trim() || null,
+        email: email.input.value.trim() || null,
+        website: website.input.value.trim() || null,
+        city: city.input.value.trim() || null,
+        state: state.input.value.trim() || null,
+        zip_code: zip.input.value.trim() || null,
+        country: country.input.value.trim() || null,
+        notes: notes.input.value.trim() || null,
+      };
+      if (mode === 'create' && parentSelect && parentSelect.value) {
+        payload.parent_company_id = parentSelect.value;
+      }
+      submitBtn.disabled = true;
+      try {
+        if (mode === 'create') {
+          await api.createCompany(payload);
+          toast('Company created', 'success');
+        } else {
+          await api.updateCompany(company.id, payload);
+          toast('Company updated', 'success');
+        }
+        handle.close();
+        if (typeof opts.onSaved === 'function') opts.onSaved();
+      } catch (err) {
+        toast(friendlyError(err), 'error');
+        submitBtn.disabled = false;
+      }
+    });
+    setupModalFocus(handle);
+  }
+
+  function openEditCompanyDialog(company, allCompanies, onSaved) {
+    openCompanyDialog({ mode: 'edit', company, allCompanies, onSaved });
+  }
+  function openCreateCompanyDialog(allCompanies, onSaved) {
+    openCompanyDialog({ mode: 'create', allCompanies, onSaved });
+  }
+
   async function renderCompanies(panel) {
     panel.innerHTML = '';
     panel.appendChild(emptyState('Loading companies…'));
     let user;
     try { user = await loadUser(true); } catch (err) {
       panel.innerHTML = '';
-      panel.appendChild(section('Companies', null, [el('p', { class: 'us-hint error' }, errMsg(err))]));
+      panel.appendChild(section('Companies', null, [el('p', { class: 'us-hint error' }, friendlyError(err))]));
       return;
     }
     if (!user || !user.companies || !user.companies.length) {
@@ -1329,52 +1639,46 @@
     }
     panel.innerHTML = '';
 
-    // Create.
-    const createName = el('input', { class: 'us-input', placeholder: 'New company name' });
-    const createBtn = btn('Create', { kind: 'primary', onclick: async () => {
-      const name = createName.value.trim();
-      if (!name) return;
-      createBtn.disabled = true;
-      try {
-        await api.createCompany({ name });
-        createName.value = '';
+    // Create — opens the full company form so the user can set address /
+    // contact info / parent up-front instead of editing right after.
+    const createBtn = btn('Create company…', { kind: 'primary', onclick: () =>
+      openCreateCompanyDialog(user.companies, () => {
         cache.user = null;
-        toast('Company created', 'success');
         renderCompanies(panel);
-      } catch (err) { toast(errMsg(err), 'error'); }
-      finally { createBtn.disabled = false; }
-    } });
-    panel.appendChild(section('Create a company', null, [
-      el('div', { class: 'us-section-row' }, [createName, createBtn]),
-    ]));
+      }),
+    });
+    panel.appendChild(section('Create a company',
+      'Add a new company to this account. All fields except the name are optional.',
+      [el('div', { class: 'us-section-row' }, [createBtn])]));
 
     // Existing companies.
     const list = el('div', { class: 'us-row-list' });
     user.companies.forEach((c) => {
       const isAdmin = isAdminLikeRole(c.role_id);
-      const renameInput = el('input', { class: 'us-input', value: c.name || '' });
-      const renameBtn = btn('Rename', { onclick: async () => {
-        const next = renameInput.value.trim();
-        if (!next || next === c.name) return;
-        try {
-          await api.renameCompany(c.id, next);
-          cache.user = null;
-          toast('Renamed', 'success');
-          renderCompanies(panel);
-        } catch (err) { toast(errMsg(err), 'error'); }
-      } });
+      const editBtn = btn('Edit', { onclick: () => openEditCompanyDialog(c, user.companies, () => {
+        cache.user = null;
+        renderCompanies(panel);
+      }) });
       const deleteBtn = btn('Delete', { kind: 'danger', onclick: async () => {
-        if (!confirm('Delete "' + c.name + '"? This is permanent.')) return;
+        const ok = await confirmDialog({
+          title: 'Delete company',
+          message: 'Delete "' + (c.name || 'this company') + '"? This permanently removes all members, data, and billing history. This cannot be undone.',
+          confirmLabel: 'Delete forever',
+          destructive: true,
+        });
+        if (!ok) return;
         try {
           await api.deleteCompany(c.id);
           cache.user = null;
           toast('Company deleted', 'success');
           renderCompanies(panel);
-        } catch (err) { toast(errMsg(err), 'error'); }
+        } catch (err) { toast(friendlyError(err), 'error'); }
       } });
       const actions = isAdmin
-        ? el('div', { class: 'us-section-row' }, [renameInput, renameBtn, deleteBtn])
+        ? el('div', { class: 'us-row-actions' }, [editBtn, deleteBtn])
         : null;
+      const addrLine = [c.address, c.city, c.state, c.zip_code, c.country].filter(Boolean).join(', ');
+      const contactLine = [c.phone_number, c.email, c.website].filter(Boolean).join(' · ');
       list.appendChild(el('div', { class: 'us-list-item' }, [
         el('div', { class: 'us-list-item-grow' }, [
           el('p', { class: 'us-list-item-title' }, [
@@ -1382,10 +1686,12 @@
             c.primary ? badge('Primary', 'primary') : null,
             ' ',
             badge('Role: ' + (c.role || 'member')),
-          ].filter(Boolean)),
-          c.address ? el('p', { class: 'us-list-item-meta' }, [c.address, c.city, c.state, c.zip_code, c.country].filter(Boolean).join(', ')) : null,
-          actions,
-        ]),
+            c.status === false ? [' ', badge('Inactive', 'warn')] : null,
+          ].flat().filter(Boolean)),
+          addrLine ? el('p', { class: 'us-list-item-meta' }, addrLine) : null,
+          contactLine ? el('p', { class: 'us-list-item-meta' }, contactLine) : null,
+        ].filter(Boolean)),
+        actions,
       ]));
     });
     panel.appendChild(section('Your companies', null, [list]));
@@ -1393,13 +1699,41 @@
 
   // ─── Teams tab — company-scoped member management ───────────────────
 
+  /** Roles the desktop allows assigning at invite time / role change.
+   *  Mirrors the web app's ASSIGNABLE_DEFAULT_ROLE_IDS — keeps super admin
+   *  (0), tenant admin (1), and child (4) off the picker. */
+  const ASSIGNABLE_ROLE_IDS = [2, 3, 5, 6];
+  /** Fallback labels for when /v1/default-roles isn't reachable. */
+  const FALLBACK_DEFAULT_ROLES = [
+    { id: 2, friendly_name: 'Admin' },
+    { id: 3, friendly_name: 'User' },
+    { id: 5, friendly_name: 'Chat User' },
+    { id: 6, friendly_name: 'Read Only' },
+  ];
+
+  function roleNameLookup(defaultRoles) {
+    const map = {};
+    (Array.isArray(defaultRoles) ? defaultRoles : []).forEach((r) => {
+      if (r && typeof r.id !== 'undefined') {
+        map[r.id] = r.friendly_name || r.name || ('Role ' + r.id);
+      }
+    });
+    // Guarantee labels for any role id the server may surface, including
+    // tenant admin / super admin / child even though they're not assignable.
+    [
+      [0, 'Tenant Admin'], [1, 'Tenant Admin'], [2, 'Admin'],
+      [3, 'User'], [4, 'Child'], [5, 'Chat User'], [6, 'Read Only'],
+    ].forEach(([id, name]) => { if (map[id] == null) map[id] = name; });
+    return map;
+  }
+
   async function renderTeams(panel) {
     panel.innerHTML = '';
     panel.appendChild(emptyState('Loading team…'));
     let user;
     try { user = await loadUser(); } catch (err) {
       panel.innerHTML = '';
-      panel.appendChild(section('Teams', null, [el('p', { class: 'us-hint error' }, errMsg(err))]));
+      panel.appendChild(section('Teams', null, [el('p', { class: 'us-hint error' }, friendlyError(err))]));
       return;
     }
     if (!user || !user.companies || !user.companies.length) {
@@ -1411,18 +1745,43 @@
 
     const settings = await loadDesktopSettings();
     let activeCompanyId = (settings && settings.company_id) || (user.companies.find((c) => c.primary) || user.companies[0]).id;
+    // Search filter survives panel refreshes so the user doesn't lose
+    // their query when they change a role / remove a member, etc.
+    let memberFilter = '';
     const select = el('select', { class: 'us-select' }, user.companies.map((c) => {
       const opt = el('option', { value: c.id }, c.name + (c.primary ? ' (primary)' : ''));
       return opt;
     }));
     select.value = activeCompanyId;
     const body = el('div');
+
+    // Top action row: company selector + management buttons (invite, manage
+    // custom roles). Both buttons are gated on the user being an admin of
+    // the selected company; they update via `syncTopRowControls` below.
+    const inviteUsersBtn = btn('Invite users…', { kind: 'primary' });
+    const manageRolesBtn = btn('Manage custom roles…');
+    function syncTopRowControls() {
+      const company = user.companies.find((c) => c.id === activeCompanyId);
+      const isAdmin = company && isAdminLikeRole(company.role_id);
+      inviteUsersBtn.disabled = !isAdmin;
+      manageRolesBtn.disabled = !isAdmin;
+    }
     select.addEventListener('change', async () => {
       activeCompanyId = select.value;
+      memberFilter = '';
+      syncTopRowControls();
       await refreshBody();
     });
-    panel.appendChild(section('Active company', null, [select]));
+
+    inviteUsersBtn.addEventListener('click', () => openInviteDialog(activeCompanyId, user, refreshBody));
+    manageRolesBtn.addEventListener('click', () => openCustomRolesDialog(activeCompanyId, refreshBody));
+
+    panel.appendChild(section('Active company', null, [
+      el('div', { class: 'us-section-row' }, [select]),
+      el('div', { class: 'us-section-row' }, [inviteUsersBtn, manageRolesBtn]),
+    ]));
     panel.appendChild(body);
+    syncTopRowControls();
 
     async function refreshBody() {
       body.innerHTML = '';
@@ -1435,118 +1794,977 @@
         return;
       }
       body.appendChild(emptyState('Loading members…'));
-      let members, invitations, defaultRoles;
+      let members, invitations, defaultRoles, customRoles;
       try {
-        [members, invitations, defaultRoles] = await Promise.all([
+        [members, invitations, defaultRoles, customRoles] = await Promise.all([
           api.getCompanyMembers(activeCompanyId),
           api.getInvitations(activeCompanyId).catch(() => []),
           (cache.defaultRoles ? Promise.resolve(cache.defaultRoles) : api.listDefaultRoles()).catch(() => []),
+          api.listCustomRoles(activeCompanyId).catch(() => []),
         ]);
         cache.defaultRoles = defaultRoles;
       } catch (err) {
         body.innerHTML = '';
-        body.appendChild(section('Team', null, [el('p', { class: 'us-hint error' }, errMsg(err))]));
+        body.appendChild(section('Team', null, [el('p', { class: 'us-hint error' }, friendlyError(err))]));
         return;
       }
       body.innerHTML = '';
 
-      // Invite form.
-      const inviteEmail = el('input', { class: 'us-input', type: 'email', placeholder: 'name@example.com' });
-      const inviteRole = el('select', { class: 'us-select' });
-      const ASSIGNABLE = [2, 3, 5, 6];
-      const roleOptions = (Array.isArray(defaultRoles) ? defaultRoles : [])
-        .filter((r) => ASSIGNABLE.includes(r.id))
-        .map((r) => el('option', { value: r.id }, r.friendly_name || r.name));
-      if (!roleOptions.length) {
-        // Fallback when /v1/roles isn't reachable — best-effort defaults
-        // matching the web app's resolveRoleId mapping.
-        ['Admin#2', 'User#3', 'Chat User#5', 'Read Only#6'].forEach((s) => {
-          const [n, id] = s.split('#');
-          inviteRole.appendChild(el('option', { value: id }, n));
-        });
-      } else {
-        roleOptions.forEach((o) => inviteRole.appendChild(o));
-      }
-      const inviteBtn = btn('Send invite', { kind: 'primary', onclick: async () => {
-        const target = inviteEmail.value.trim();
-        if (!target) return;
+      const roleNames = roleNameLookup(defaultRoles);
+      const customRoleList = Array.isArray(customRoles) ? customRoles : [];
+      const customRoleById = {};
+      customRoleList.forEach((r) => { if (r && r.id) customRoleById[r.id] = r; });
+
+      // Members are fetched separately from each user's custom-role assignments
+      // so we hydrate them in a single batch — failure on any one user
+      // shouldn't block the rest from rendering.
+      const customRolesPerUser = {};
+      await Promise.all((members || []).map(async (m) => {
         try {
-          await api.createInvitation({
-            email: target,
-            company_id: activeCompanyId,
-            role_id: Number(inviteRole.value),
-          });
-          inviteEmail.value = '';
-          toast('Invite sent', 'success');
-          refreshBody();
-        } catch (err) { toast(errMsg(err), 'error'); }
-      } });
-      body.appendChild(section('Invite a member', null, [
-        el('div', { class: 'us-section-row' }, [inviteEmail, inviteRole, inviteBtn]),
-      ]));
+          const list = await api.getUserCustomRoles(m.id, activeCompanyId);
+          customRolesPerUser[m.id] = Array.isArray(list) ? list : [];
+        } catch (_) { customRolesPerUser[m.id] = []; }
+      }));
 
-      // Pending invitations.
-      if (Array.isArray(invitations) && invitations.length) {
-        const list = el('div', { class: 'us-row-list' });
-        invitations.forEach((inv) => {
-          list.appendChild(el('div', { class: 'us-list-item' }, [
-            el('div', { class: 'us-list-item-grow' }, [
-              el('p', { class: 'us-list-item-title' }, inv.email || inv.invitee_email || '—'),
-              el('p', { class: 'us-list-item-meta' }, 'Role: ' + (inv.role || inv.role_id || '—') +
-                (inv.created_at ? ' · invited ' + formatDate(inv.created_at) : '')),
-            ]),
-            btn('Cancel', { onclick: async () => {
-              try { await api.deleteInvitation(inv.id); toast('Invite cancelled', 'success'); refreshBody(); }
-              catch (err) { toast(errMsg(err), 'error'); }
-            } }),
-          ]));
-        });
-        body.appendChild(section('Pending invitations', null, [list]));
-      }
+      const teamCtx = {
+        company,
+        companyId: activeCompanyId,
+        user,
+        members: members || [],
+        invitations: invitations || [],
+        defaultRoles,
+        roleNames,
+        customRoleList,
+        customRoleById,
+        customRolesPerUser,
+        refreshBody,
+      };
 
-      // Members list.
-      const memberList = el('div', { class: 'us-row-list' });
-      if (!members.length) memberList.appendChild(emptyState('No members yet.'));
-      members.forEach((m) => {
-        const isProtected = m.role_id === 0 || m.role_id === 1 || m.role_id === 4;
-        const roleSelect = el('select', { class: 'us-select' });
-        const opts = Array.isArray(defaultRoles) && defaultRoles.length
-          ? defaultRoles.filter((r) => ASSIGNABLE.includes(r.id))
-          : [{ id: 2, friendly_name: 'Admin' }, { id: 3, friendly_name: 'User' }, { id: 5, friendly_name: 'Chat User' }, { id: 6, friendly_name: 'Read Only' }];
-        opts.forEach((r) => roleSelect.appendChild(el('option', { value: r.id }, r.friendly_name || r.name)));
-        roleSelect.value = String(m.role_id);
-        roleSelect.disabled = isProtected;
-        roleSelect.addEventListener('change', async () => {
-          const next = Number(roleSelect.value);
-          if (next === m.role_id) return;
-          try {
-            await api.updateMemberRole(activeCompanyId, m.id, next);
-            toast('Role updated', 'success');
-            refreshBody();
-          } catch (err) { toast(errMsg(err), 'error'); roleSelect.value = String(m.role_id); }
-        });
-        memberList.appendChild(el('div', { class: 'us-list-item' }, [
-          el('div', { class: 'us-list-item-grow' }, [
-            el('p', { class: 'us-list-item-title' }, [
-              (m.first_name || '') + ' ' + (m.last_name || ''), ' ',
-              isProtected ? badge((m.role || 'system'), 'warn') : null,
-            ].filter(Boolean)),
-            el('p', { class: 'us-list-item-meta' }, m.email),
-          ]),
-          el('div', { class: 'us-list-item-actions' }, [
-            roleSelect,
-            !isProtected && m.id !== user.id ? btn('Remove', { kind: 'danger', onclick: async () => {
-              if (!confirm('Remove ' + m.email + ' from ' + company.name + '?')) return;
-              try { await api.removeCompanyMember(activeCompanyId, m.id); toast('Removed', 'success'); refreshBody(); }
-              catch (err) { toast(errMsg(err), 'error'); }
-            } }) : null,
-          ]),
-        ]));
-      });
-      body.appendChild(section('Members of ' + company.name, null, [memberList]));
+      const inviteSection = buildInvitationsSection(teamCtx);
+      if (inviteSection) body.appendChild(inviteSection);
+      body.appendChild(buildMembersSection(teamCtx, {
+        initialFilter: memberFilter,
+        onFilterChange: (next) => { memberFilter = next; },
+      }));
     }
 
     refreshBody();
+  }
+
+  /** Render the pending-invitations section. Returns null when there are
+   *  no invitations so the caller can skip mounting the section entirely. */
+  function buildInvitationsSection(ctx) {
+    if (!ctx.invitations || !ctx.invitations.length) return null;
+    const list = el('div', { class: 'us-row-list' });
+    ctx.invitations.forEach((inv) => list.appendChild(buildInvitationRow(inv, ctx)));
+    return section('Pending invitations (' + ctx.invitations.length + ')', null, [list]);
+  }
+
+  function buildInvitationRow(inv, ctx) {
+    const roleLabel = ctx.roleNames[inv.role_id]
+      || inv.role
+      || ('Role ' + (inv.role_id != null ? inv.role_id : '—'));
+    const inviteLink = inv.invitation_link
+      || buildInviteLink(inv.id, inv.email || inv.invitee_email);
+    const statusBadge = inv.is_accepted
+      ? badge('Accepted', 'success')
+      : badge('Pending', 'warn');
+    const actions = el('div', { class: 'us-row-actions' });
+    if (inviteLink) {
+      actions.appendChild(btn('Copy link', { onclick: () => {
+        copyToClipboard(inviteLink);
+        toast('Invite link copied', 'success');
+      } }));
+    }
+    if (!inv.is_accepted) {
+      actions.appendChild(btn('Cancel', { kind: 'danger', onclick: async () => {
+        const ok = await confirmDialog({
+          title: 'Cancel invitation',
+          message: 'Cancel the invitation to ' + (inv.email || inv.invitee_email || '?') + '?',
+          confirmLabel: 'Cancel invitation',
+          cancelLabel: 'Keep',
+          destructive: true,
+        });
+        if (!ok) return;
+        try { await api.deleteInvitation(inv.id); toast('Invite cancelled', 'success'); ctx.refreshBody(); }
+        catch (err) { toast(friendlyError(err), 'error'); }
+      } }));
+    }
+    return el('div', { class: 'us-list-item' }, [
+      el('div', { class: 'us-list-item-grow' }, [
+        el('p', { class: 'us-list-item-title' }, [
+          inv.email || inv.invitee_email || '—', ' ', statusBadge,
+        ]),
+        el('p', { class: 'us-list-item-meta' },
+          'Role: ' + roleLabel +
+          (inv.created_at ? ' · invited ' + formatDate(inv.created_at) : '')),
+      ]),
+      actions,
+    ]);
+  }
+
+  /** Render the members section, including the filter bar, role-distribution
+   *  pills, sticky bulk-action bar, and member rows. */
+  function buildMembersSection(ctx, opts) {
+    opts = opts || {};
+    const selectedIds = new Set();
+    const bulkBar = el('div', { class: 'us-bulk-bar', hidden: true });
+    const memberCount = ctx.members.length;
+
+    const exportAllBtn = btn('Export CSV', {
+      onclick: () => exportMembersCsv(ctx.members, ctx.roleNames, ctx.company.name),
+    });
+    exportAllBtn.disabled = memberCount === 0;
+
+    // Role distribution pills — quick at-a-glance team composition.
+    const roleCounts = {};
+    ctx.members.forEach((m) => {
+      roleCounts[m.role_id] = (roleCounts[m.role_id] || 0) + 1;
+    });
+    const statPills = el('div', { class: 'us-stat-pills' },
+      Object.keys(roleCounts).map((id) => {
+        const label = ctx.roleNames[id] || ('Role ' + id);
+        return el('span', { class: 'us-stat-pill' }, roleCounts[id] + ' · ' + label);
+      }),
+    );
+
+    const headerRow = el('div', { class: 'us-section-row between' }, [
+      el('h2', { class: 'us-section-title' },
+        'Members of ' + ctx.company.name + ' (' + memberCount + ')'),
+      exportAllBtn,
+    ]);
+    const memberSection = el('section', { class: 'us-section' }, [headerRow]);
+    if (statPills.children.length) memberSection.appendChild(statPills);
+
+    // Search input — filters by first/last name or email. Re-renders rows
+    // in place; selection state is preserved across filter changes.
+    const searchInput = el('input', {
+      class: 'us-input', type: 'search',
+      placeholder: 'Search members by name or email…',
+      value: opts.initialFilter || '',
+    });
+    let filter = opts.initialFilter || '';
+    searchInput.addEventListener('input', () => {
+      filter = searchInput.value.trim().toLowerCase();
+      if (typeof opts.onFilterChange === 'function') opts.onFilterChange(filter);
+      renderRows();
+    });
+    if (memberCount) {
+      memberSection.appendChild(el('div', { class: 'us-filter-bar' }, [searchInput]));
+    }
+
+    const memberList = el('div', { class: 'us-row-list' });
+
+    function rebuildBulkBar() {
+      bulkBar.innerHTML = '';
+      bulkBar.hidden = selectedIds.size === 0;
+      if (selectedIds.size === 0) return;
+      bulkBar.appendChild(el('span', { class: 'us-bulk-bar-count' },
+        selectedIds.size + ' selected'));
+      ASSIGNABLE_ROLE_IDS.forEach((id) => {
+        const label = ctx.roleNames[id] || ('Role ' + id);
+        bulkBar.appendChild(btn('Set: ' + label, { onclick: async () => {
+          await bulkSetRole(Array.from(selectedIds), id, ctx);
+          selectedIds.clear();
+          ctx.refreshBody();
+        } }));
+      });
+      bulkBar.appendChild(btn('Export selected', { onclick: () => {
+        const subset = ctx.members.filter((m) => selectedIds.has(m.id));
+        exportMembersCsv(subset, ctx.roleNames, ctx.company.name);
+      } }));
+      bulkBar.appendChild(btn('Remove selected', { kind: 'danger', onclick: async () => {
+        const ok = await confirmDialog({
+          title: 'Remove members',
+          message: 'Remove ' + selectedIds.size + ' member(s) from ' + ctx.company.name + '? They’ll lose access immediately.',
+          confirmLabel: 'Remove',
+          destructive: true,
+        });
+        if (!ok) return;
+        await bulkRemoveMembers(Array.from(selectedIds), ctx);
+        selectedIds.clear();
+        ctx.refreshBody();
+      } }));
+    }
+    memberSection.appendChild(bulkBar);
+    memberSection.appendChild(memberList);
+
+    function renderRows() {
+      memberList.innerHTML = '';
+      if (!memberCount) {
+        memberList.appendChild(emptyState('No members yet.'));
+        return;
+      }
+      const filtered = filter
+        ? ctx.members.filter((m) => memberMatchesFilter(m, filter))
+        : ctx.members;
+      if (!filtered.length) {
+        memberList.appendChild(emptyState('No members match "' + filter + '".'));
+        return;
+      }
+      filtered.forEach((m) => {
+        memberList.appendChild(buildMemberRow(m, ctx, {
+          selectedIds, rebuildBulkBar,
+        }));
+      });
+    }
+    renderRows();
+    return memberSection;
+  }
+
+  function memberMatchesFilter(m, filter) {
+    if (!filter) return true;
+    const hay = ((m.first_name || '') + ' ' + (m.last_name || '') + ' ' + (m.email || ''))
+      .toLowerCase();
+    return hay.includes(filter);
+  }
+
+  function buildMemberRow(m, ctx, rowCtx) {
+    const isProtected = m.role_id === 0 || m.role_id === 1 || m.role_id === 4;
+    const isSelf = m.id === ctx.user.id;
+    const canSelect = !isProtected && !isSelf;
+
+    const checkbox = el('input', { type: 'checkbox' });
+    checkbox.disabled = !canSelect;
+    if (rowCtx.selectedIds.has(m.id)) checkbox.checked = true;
+
+    const row = el('div', { class: 'us-list-item' });
+    if (checkbox.checked) row.classList.add('is-selected');
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) rowCtx.selectedIds.add(m.id);
+      else rowCtx.selectedIds.delete(m.id);
+      row.classList.toggle('is-selected', checkbox.checked);
+      rowCtx.rebuildBulkBar();
+    });
+
+    const roleSelect = el('select', { class: 'us-select' });
+    const roleOptions = (Array.isArray(ctx.defaultRoles) && ctx.defaultRoles.length
+      ? ctx.defaultRoles.filter((r) => ASSIGNABLE_ROLE_IDS.includes(r.id))
+      : FALLBACK_DEFAULT_ROLES);
+    roleOptions.forEach((r) => roleSelect.appendChild(
+      el('option', { value: r.id }, r.friendly_name || r.name)));
+    if (isProtected && !roleOptions.find((r) => r.id === m.role_id)) {
+      roleSelect.appendChild(el('option', { value: m.role_id },
+        ctx.roleNames[m.role_id] || m.role || ('Role ' + m.role_id)));
+    }
+    roleSelect.value = String(m.role_id);
+    roleSelect.disabled = isProtected;
+    roleSelect.addEventListener('change', async () => {
+      const next = Number(roleSelect.value);
+      if (next === m.role_id) return;
+      try {
+        await api.updateMemberRole(ctx.companyId, m.id, next);
+        toast('Role updated', 'success');
+        ctx.refreshBody();
+      } catch (err) { toast(friendlyError(err), 'error'); roleSelect.value = String(m.role_id); }
+    });
+
+    // Custom-role chips per member, with a "+ Custom role" button to open
+    // the assignment picker. Empty list collapses to just the add button.
+    const memberCustomRoles = ctx.customRolesPerUser[m.id] || [];
+    const chipRow = el('div', { class: 'us-list-item-meta' });
+    memberCustomRoles.forEach((assignment) => {
+      const role = assignment.custom_role
+        || ctx.customRoleById[assignment.custom_role_id]
+        || null;
+      const customRoleId = (role && role.id) || assignment.custom_role_id;
+      const label = (role && (role.friendly_name || role.name)) || 'Custom role';
+      chipRow.appendChild(el('span', { class: 'us-custom-role-chip' }, [
+        label,
+        el('button', { type: 'button', title: 'Remove role',
+          onclick: async () => {
+            if (!customRoleId) return;
+            try {
+              await api.removeUserCustomRole(ctx.companyId, m.id, customRoleId);
+              toast('Custom role removed', 'success');
+              ctx.refreshBody();
+            } catch (err) { toast(friendlyError(err), 'error'); }
+          } }, '×'),
+      ]));
+    });
+    if (ctx.customRoleList.length) {
+      chipRow.appendChild(el('button', {
+        type: 'button',
+        class: 'us-chip-btn',
+        onclick: () => openAssignCustomRolePicker(
+          ctx.companyId, m, ctx.customRoleList, memberCustomRoles, ctx.refreshBody),
+      }, '+ Custom role'));
+    }
+
+    const displayName = ((m.first_name || '') + ' ' + (m.last_name || '')).trim() || m.email;
+    const detailsBtn = btn('Details', {
+      onclick: () => openMemberDetailsDialog(m, ctx),
+    });
+    const removeBtn = !isProtected && !isSelf
+      ? btn('Remove', { kind: 'danger', onclick: async () => {
+          const ok = await confirmDialog({
+            title: 'Remove member',
+            message: 'Remove ' + (m.email || displayName) + ' from ' + ctx.company.name + '?',
+            confirmLabel: 'Remove',
+            destructive: true,
+          });
+          if (!ok) return;
+          try { await api.removeCompanyMember(ctx.companyId, m.id); toast('Removed', 'success'); ctx.refreshBody(); }
+          catch (err) { toast(friendlyError(err), 'error'); }
+        } })
+      : null;
+
+    row.appendChild(checkbox);
+    row.appendChild(el('div', { class: 'us-list-item-grow' }, [
+      el('p', { class: 'us-list-item-title' }, [
+        displayName, ' ',
+        isProtected ? badge(ctx.roleNames[m.role_id] || m.role || 'system', 'warn') : null,
+        isSelf ? badge('You', 'muted') : null,
+      ].filter(Boolean)),
+      el('p', { class: 'us-list-item-meta' }, m.email),
+      chipRow.childNodes.length ? chipRow : null,
+    ].filter(Boolean)));
+    row.appendChild(el('div', { class: 'us-row-actions' }, [
+      roleSelect, detailsBtn, removeBtn,
+    ].filter(Boolean)));
+    return row;
+  }
+
+  async function bulkSetRole(userIds, roleId, ctx) {
+    const results = await Promise.allSettled(
+      userIds.map((uid) => api.updateMemberRole(ctx.companyId, uid, roleId)),
+    );
+    const ok = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.length - ok;
+    if (failed === 0) toast('Updated ' + ok + ' user(s)', 'success');
+    else toast('Updated ' + ok + ', ' + failed + ' failed', failed === results.length ? 'error' : 'success');
+  }
+
+  async function bulkRemoveMembers(userIds, ctx) {
+    const results = await Promise.allSettled(
+      userIds.map((uid) => api.removeCompanyMember(ctx.companyId, uid)),
+    );
+    const ok = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.length - ok;
+    if (failed === 0) toast('Removed ' + ok + ' user(s)', 'success');
+    else toast('Removed ' + ok + ', ' + failed + ' failed', failed === results.length ? 'error' : 'success');
+  }
+
+  /** Build a CSV blob and trigger download. Mirrors the web app's bulk
+   *  export action: First name, Last name, Email, Role. */
+  function exportMembersCsv(members, roleNames, companyName) {
+    if (!members || !members.length) { toast('Nothing to export', 'error'); return; }
+    const escape = (v) => {
+      const s = v == null ? '' : String(v);
+      if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    };
+    const header = ['First name', 'Last name', 'Email', 'Role'].map(escape).join(',');
+    const rows = members.map((m) => [
+      m.first_name, m.last_name, m.email,
+      (roleNames && roleNames[m.role_id]) || m.role || ('Role ' + m.role_id),
+    ].map(escape).join(','));
+    const csv = [header].concat(rows).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeName = (companyName || 'members').replace(/[^a-z0-9_-]+/gi, '_');
+    a.download = safeName + '-members-' + new Date().toISOString().split('T')[0] + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast('Exported ' + members.length + ' member(s)', 'success');
+  }
+
+  /** Multi-email invite dialog. Mirrors the web's invite form: textarea
+   *  parser that accepts comma/semicolon/whitespace-separated addresses,
+   *  role picker (assignable defaults only), and a skip-email toggle that
+   *  surfaces the resulting invitation link for each address. */
+  function openInviteDialog(companyId, user, onSent) {
+    const company = (user.companies || []).find((c) => c.id === companyId);
+    const defaultRoles = cache.defaultRoles && cache.defaultRoles.length
+      ? cache.defaultRoles
+      : FALLBACK_DEFAULT_ROLES;
+    const assignable = defaultRoles
+      .filter((r) => ASSIGNABLE_ROLE_IDS.includes(r.id))
+      .sort((a, b) => a.id - b.id);
+
+    const emails = el('textarea', { class: 'us-textarea', rows: 4,
+      placeholder: 'user1@example.com user2@example.com\nuser3@example.com' });
+    const emailsWrap = el('label', { class: 'us-label' }, [
+      el('span', { class: 'us-label-text' }, 'Email addresses'),
+      emails,
+      el('span', { class: 'us-hint' }, 'Separate with spaces, commas, or new lines'),
+    ]);
+    const roleSel = el('select', { class: 'us-select' });
+    // `assignable` is already filtered via ASSIGNABLE_ROLE_IDS and falls
+    // back to FALLBACK_DEFAULT_ROLES (which is hardcoded and never empty),
+    // so we don't need a secondary "if children empty" fallback here.
+    assignable.forEach((r) => roleSel.appendChild(
+      el('option', { value: r.id }, r.friendly_name || r.name)));
+    // Default to "User" (role_id=3) to match the web app's invite form.
+    if (Array.from(roleSel.options).some((o) => o.value === '3')) roleSel.value = '3';
+    const roleWrap = el('label', { class: 'us-label' }, [
+      el('span', { class: 'us-label-text' }, 'Assign role'), roleSel,
+    ]);
+
+    const skipEmail = el('input', { type: 'checkbox' });
+    const skipWrap = el('label', { class: 'us-check' }, [
+      skipEmail,
+      el('span', null, 'Create invite link only (don’t send email)'),
+    ]);
+
+    const resultsEl = el('div', { class: 'us-invite-results', hidden: true });
+    const statusLine = el('p', { class: 'us-status-line' });
+
+    const cancelBtn = btn('Close');
+    const sendBtn = btn('Send invitations', { kind: 'primary' });
+
+    // Live email-count preview on the button label so the user can see
+    // how many addresses parsed cleanly before sending.
+    function refreshSendLabel() {
+      const count = parseEmails(emails.value).length;
+      sendBtn.textContent = count
+        ? 'Send ' + count + ' invitation' + (count === 1 ? '' : 's')
+        : 'Send invitations';
+      sendBtn.disabled = count === 0;
+    }
+    emails.addEventListener('input', refreshSendLabel);
+    refreshSendLabel();
+
+    const handle = openModal({
+      title: 'Invite team members',
+      description: 'Inviting to ' + (company ? company.name : 'company') +
+        '. Multiple emails are sent in parallel.',
+      wide: true,
+      body: [emailsWrap, roleWrap, skipWrap, resultsEl, statusLine],
+      footer: [cancelBtn, sendBtn],
+    });
+
+    cancelBtn.addEventListener('click', () => handle.close());
+
+    sendBtn.addEventListener('click', async () => {
+      resultsEl.innerHTML = '';
+      resultsEl.hidden = true;
+      const list = parseEmails(emails.value);
+      if (!list.length) {
+        statusLine.textContent = 'Enter at least one valid email.';
+        statusLine.className = 'us-status-line error';
+        emails.focus();
+        return;
+      }
+      sendBtn.disabled = true;
+      statusLine.textContent = 'Sending ' + list.length + ' invitation(s)…';
+      statusLine.className = 'us-status-line';
+      const results = await Promise.all(list.map(async (addr) => {
+        try {
+          const resp = await api.createInvitation({
+            email: addr,
+            company_id: companyId,
+            role_id: Number(roleSel.value),
+            skip_email: !!skipEmail.checked,
+          });
+          const id = resp && resp.id;
+          const alreadyMember = id === 'none' || (resp && resp.is_accepted === true);
+          const link = alreadyMember ? null : (resp && resp.invitation_link)
+            || buildInviteLink(id, addr);
+          return {
+            email: addr,
+            success: true,
+            alreadyMember,
+            message: alreadyMember
+              ? 'User added to company (already registered)'
+              : (skipEmail.checked ? 'Invite link created' : 'Invitation sent'),
+            link,
+          };
+        } catch (err) {
+          return {
+            email: addr,
+            success: false,
+            status: err && err.status,
+            message: friendlyError(err, 'inviting ' + addr),
+          };
+        }
+      }));
+      // Render result rows.
+      resultsEl.hidden = false;
+      results.forEach((r) => {
+        const row = el('div', { class: 'us-invite-result ' + (r.success ? 'success' : 'error') });
+        row.appendChild(el('div', { class: 'us-invite-result-head' }, [
+          el('span', null, r.success ? '✓' : '✗'),
+          el('strong', null, r.email),
+        ]));
+        if (r.link) {
+          const a = el('a', { href: r.link, target: '_blank', rel: 'noopener noreferrer',
+            onclick: (e) => { e.preventDefault(); openExternal(r.link); } }, r.link);
+          row.appendChild(el('div', { class: 'us-invite-result-link' }, [
+            a,
+            btn('Copy', { onclick: () => { copyToClipboard(r.link); toast('Copied', 'success'); } }),
+          ]));
+        } else {
+          row.appendChild(el('div', { class: 'us-invite-result-msg' + (r.success ? '' : ' error') },
+            r.message));
+        }
+        resultsEl.appendChild(row);
+      });
+      const okCount = results.filter((r) => r.success).length;
+      const failCount = results.length - okCount;
+      const hitBillingLimit = results.some((r) => !r.success && r.status === 402);
+      if (hitBillingLimit) {
+        statusLine.textContent = 'User limit reached — upgrade your plan to invite more.';
+        statusLine.className = 'us-status-line error';
+      } else if (failCount === 0) {
+        statusLine.textContent = 'Sent ' + okCount + ' invitation(s).';
+        statusLine.className = 'us-status-line success';
+        emails.value = '';
+      } else if (okCount === 0) {
+        statusLine.textContent = 'Failed to send ' + failCount + ' invitation(s).';
+        statusLine.className = 'us-status-line error';
+      } else {
+        statusLine.textContent = 'Sent ' + okCount + ', ' + failCount + ' failed.';
+        statusLine.className = 'us-status-line';
+      }
+      refreshSendLabel();
+      if (typeof onSent === 'function') onSent();
+    });
+    setupModalFocus(handle);
+  }
+
+  /** Member details modal — mirrors the web app's /team/[id] page. Shows
+   *  the user's full profile and lets the viewing admin change role and
+   *  manage custom roles inline. Profile fields (first_name, last_name,
+   *  email) are editable when viewing your own profile (calls PUT /v1/user);
+   *  for other users they're read-only because the AGiXT API only allows
+   *  self-edit. */
+  function openMemberDetailsDialog(member, ctx) {
+    const isSelf = member.id === ctx.user.id;
+    const isProtected = member.role_id === 0 || member.role_id === 1 || member.role_id === 4;
+    const displayName = ((member.first_name || '') + ' ' + (member.last_name || '')).trim()
+      || member.email
+      || 'Member';
+
+    function staticField(label, value) {
+      return el('div', { class: 'us-detail-field' }, [
+        el('span', { class: 'us-detail-field-label' }, label),
+        el('div', { class: 'us-detail-field-value readonly' }, value || 'Not provided'),
+      ]);
+    }
+    function editableField(label, key, type) {
+      const input = el('input', { class: 'us-input', type: type || 'text',
+        value: member[key] || '' });
+      return {
+        wrap: el('div', { class: 'us-detail-field' }, [
+          el('span', { class: 'us-detail-field-label' }, label),
+          input,
+        ]),
+        input,
+      };
+    }
+
+    // Profile fields: editable for self, read-only for others.
+    let firstField, lastField, emailField;
+    let profileBlock;
+    if (isSelf) {
+      firstField = editableField('First name', 'first_name');
+      lastField = editableField('Last name', 'last_name');
+      emailField = editableField('Email', 'email', 'email');
+      profileBlock = el('div', { class: 'us-detail-grid' }, [
+        firstField.wrap, lastField.wrap, emailField.wrap,
+      ]);
+    } else {
+      profileBlock = el('div', { class: 'us-detail-grid' }, [
+        staticField('First name', member.first_name),
+        staticField('Last name', member.last_name),
+        staticField('Email', member.email),
+      ]);
+    }
+
+    // Role select — same rules as the inline picker on the members table.
+    const roleSelect = el('select', { class: 'us-select' });
+    const roleOptions = (Array.isArray(ctx.defaultRoles) && ctx.defaultRoles.length
+      ? ctx.defaultRoles.filter((r) => ASSIGNABLE_ROLE_IDS.includes(r.id))
+      : FALLBACK_DEFAULT_ROLES);
+    roleOptions.forEach((r) => roleSelect.appendChild(
+      el('option', { value: r.id }, r.friendly_name || r.name)));
+    if (isProtected && !roleOptions.find((r) => r.id === member.role_id)) {
+      roleSelect.appendChild(el('option', { value: member.role_id },
+        ctx.roleNames[member.role_id] || member.role || ('Role ' + member.role_id)));
+    }
+    roleSelect.value = String(member.role_id);
+    roleSelect.disabled = isProtected;
+    roleSelect.addEventListener('change', async () => {
+      const next = Number(roleSelect.value);
+      if (next === member.role_id) return;
+      try {
+        await api.updateMemberRole(ctx.companyId, member.id, next);
+        toast('Role updated', 'success');
+        member.role_id = next;
+        ctx.refreshBody();
+      } catch (err) { toast(friendlyError(err), 'error'); roleSelect.value = String(member.role_id); }
+    });
+    const roleField = el('div', { class: 'us-detail-field' }, [
+      el('span', { class: 'us-detail-field-label' }, 'Default role'),
+      roleSelect,
+    ]);
+    const createdField = staticField('Joined',
+      member.created_at ? formatDate(member.created_at) : 'Unknown');
+
+    // Custom-role chips inside the modal so the admin can manage them
+    // without backing out of the dialog.
+    const memberCustomRoles = ctx.customRolesPerUser[member.id] || [];
+    const chipBlock = el('div', { class: 'us-list-item-meta' });
+    function renderChips() {
+      chipBlock.innerHTML = '';
+      memberCustomRoles.forEach((assignment) => {
+        const role = assignment.custom_role
+          || ctx.customRoleById[assignment.custom_role_id]
+          || null;
+        const customRoleId = (role && role.id) || assignment.custom_role_id;
+        const label = (role && (role.friendly_name || role.name)) || 'Custom role';
+        chipBlock.appendChild(el('span', { class: 'us-custom-role-chip' }, [
+          label,
+          el('button', { type: 'button', title: 'Remove role',
+            onclick: async () => {
+              if (!customRoleId) return;
+              try {
+                await api.removeUserCustomRole(ctx.companyId, member.id, customRoleId);
+                toast('Custom role removed', 'success');
+                const idx = memberCustomRoles.findIndex((a) =>
+                  ((a.custom_role && a.custom_role.id) || a.custom_role_id) === customRoleId);
+                if (idx >= 0) memberCustomRoles.splice(idx, 1);
+                renderChips();
+                ctx.refreshBody();
+              } catch (err) { toast(friendlyError(err), 'error'); }
+            } }, '×'),
+        ]));
+      });
+      if (ctx.customRoleList.length) {
+        chipBlock.appendChild(el('button', { type: 'button', class: 'us-chip-btn',
+          onclick: () => openAssignCustomRolePicker(
+            ctx.companyId, member, ctx.customRoleList, memberCustomRoles,
+            () => { ctx.refreshBody(); handle.close(); }),
+        }, '+ Custom role'));
+      } else {
+        chipBlock.appendChild(el('span', { class: 'us-hint' },
+          'No custom roles defined. Open "Manage custom roles" to create one.'));
+      }
+    }
+    const customRolesField = el('div', { class: 'us-detail-field' }, [
+      el('span', { class: 'us-detail-field-label' }, 'Custom roles'),
+      chipBlock,
+    ]);
+
+    const footer = [];
+    let saveProfileBtn = null;
+    if (isSelf) {
+      saveProfileBtn = btn('Save profile', { kind: 'primary', onclick: async () => {
+        const patch = {
+          first_name: firstField.input.value.trim(),
+          last_name: lastField.input.value.trim(),
+          email: emailField.input.value.trim(),
+        };
+        saveProfileBtn.disabled = true;
+        try {
+          await api.updateUser(patch);
+          cache.user = null;
+          toast('Profile updated', 'success');
+          ctx.refreshBody();
+          handle.close();
+        } catch (err) { toast(friendlyError(err), 'error'); saveProfileBtn.disabled = false; }
+      } });
+      footer.push(saveProfileBtn);
+    }
+    const closeBtn = btn('Close');
+    footer.unshift(closeBtn);
+
+    const handle = openModal({
+      title: displayName,
+      description: isSelf
+        ? 'Edit your profile, default role, and custom roles.'
+        : 'Profile fields can only be edited by the user themselves. You can change their role and custom roles below.',
+      wide: true,
+      body: [
+        profileBlock,
+        el('div', { class: 'us-detail-grid' }, [roleField, createdField]),
+        customRolesField,
+      ],
+      footer,
+    });
+    closeBtn.addEventListener('click', () => handle.close());
+    renderChips();
+    setupModalFocus(handle, { focusSelector: isSelf ? 'input' : 'select' });
+  }
+
+  /** Picker for assigning a custom role to a user. */
+  function openAssignCustomRolePicker(companyId, member, customRoles, alreadyAssigned, onChanged) {
+    const assigned = new Set(
+      (alreadyAssigned || [])
+        .map((a) => (a.custom_role && a.custom_role.id) || a.custom_role_id)
+        .filter(Boolean),
+    );
+    const available = customRoles.filter((r) => r.is_active !== false && !assigned.has(r.id));
+    if (!available.length) {
+      toast('No more custom roles available to assign', 'error');
+      return;
+    }
+    const list = el('div', { class: 'us-row-list' });
+    available.forEach((r) => {
+      const assignBtn = btn('Assign', { kind: 'primary', onclick: async () => {
+        assignBtn.disabled = true;
+        try {
+          await api.assignUserCustomRole(companyId, member.id, r.id);
+          toast('Role assigned', 'success');
+          handle.close();
+          if (typeof onChanged === 'function') onChanged();
+        } catch (err) { toast(friendlyError(err), 'error'); assignBtn.disabled = false; }
+      } });
+      list.appendChild(el('div', { class: 'us-role-card' }, [
+        el('div', { class: 'us-role-card-grow' }, [
+          el('p', { class: 'us-role-card-title' }, r.friendly_name || r.name),
+          r.description ? el('p', { class: 'us-role-card-desc' }, r.description) : null,
+          el('p', { class: 'us-role-card-desc' }, (r.scopes ? r.scopes.length : 0) + ' permission(s)'),
+        ].filter(Boolean)),
+        el('div', { class: 'us-role-card-actions' }, [assignBtn]),
+      ]));
+    });
+    const closeBtn = btn('Close');
+    const handle = openModal({
+      title: 'Assign custom role',
+      description: 'Assign a custom role to ' + (member.email || member.id),
+      body: [list],
+      footer: [closeBtn],
+    });
+    closeBtn.addEventListener('click', () => handle.close());
+    setupModalFocus(handle, { focusSelector: '.btn-primary' });
+  }
+
+  /** Manage custom roles for a company — list/create/edit/delete. Scope
+   *  selection is grouped by category and pre-filtered to what the caller
+   *  is allowed to grant (the backend rejects privilege escalation). */
+  async function openCustomRolesDialog(companyId, onChanged) {
+    const listEl = el('div', { class: 'us-row-list' });
+    listEl.appendChild(emptyState('Loading roles…'));
+    const createBtn = btn('Create custom role', { kind: 'primary' });
+    const closeBtn = btn('Close');
+    const handle = openModal({
+      title: 'Custom roles',
+      description: 'Custom roles let you bundle scopes into reusable permission sets, then assign them to users on top of their default role.',
+      wide: true,
+      body: [el('div', { class: 'us-section-row end' }, [createBtn]), listEl],
+      footer: [closeBtn],
+    });
+    closeBtn.addEventListener('click', () => handle.close());
+
+    let scopesCache = null;
+    async function loadScopes() {
+      if (!scopesCache) {
+        try { scopesCache = await api.listScopes(); }
+        catch (_) { scopesCache = []; }
+      }
+      return scopesCache;
+    }
+
+    async function refresh() {
+      listEl.innerHTML = '';
+      listEl.appendChild(emptyState('Loading roles…'));
+      let roles;
+      try { roles = await api.listCustomRoles(companyId); }
+      catch (err) {
+        listEl.innerHTML = '';
+        listEl.appendChild(el('p', { class: 'us-hint error' }, friendlyError(err)));
+        return;
+      }
+      listEl.innerHTML = '';
+      if (!roles || !roles.length) {
+        listEl.appendChild(emptyState('No custom roles yet. Click "Create custom role" to add one.'));
+        return;
+      }
+      roles.forEach((r) => {
+        const editBtn = btn('Edit', { onclick: async () =>
+          openRoleEditor(companyId, r, await loadScopes(), async () => { await refresh(); if (onChanged) onChanged(); }) });
+        const delBtn = btn('Delete', { kind: 'danger', onclick: async () => {
+          const ok = await confirmDialog({
+            title: 'Delete custom role',
+            message: 'Delete "' + (r.friendly_name || r.name) + '"? Users assigned to this role lose its permissions immediately.',
+            confirmLabel: 'Delete role',
+            destructive: true,
+          });
+          if (!ok) return;
+          try { await api.deleteCustomRole(r.id); toast('Role deleted', 'success'); refresh(); if (onChanged) onChanged(); }
+          catch (err) { toast(friendlyError(err), 'error'); }
+        } });
+        listEl.appendChild(el('div', { class: 'us-role-card' + (r.is_active === false ? ' inactive' : '') }, [
+          el('div', { class: 'us-role-card-grow' }, [
+            el('p', { class: 'us-role-card-title' }, [
+              r.friendly_name || r.name,
+              r.is_active === false ? [' ', badge('Inactive', 'muted')] : null,
+            ].flat().filter(Boolean)),
+            r.description ? el('p', { class: 'us-role-card-desc' }, r.description) : null,
+            el('p', { class: 'us-role-card-desc' }, [
+              'Slug: ', el('code', null, r.name || ''),
+              ' · Priority: ' + (r.priority == null ? '100' : r.priority),
+              ' · ' + (r.scopes ? r.scopes.length : 0) + ' permission(s)',
+            ]),
+            r.scopes && r.scopes.length ? el('div', { class: 'us-role-card-scopes' },
+              r.scopes.slice(0, 12).map((s) => el('code', null, s.name))) : null,
+          ].filter(Boolean)),
+          el('div', { class: 'us-role-card-actions' }, [editBtn, delBtn]),
+        ]));
+      });
+    }
+
+    createBtn.addEventListener('click', async () => {
+      const scopes = await loadScopes();
+      openRoleEditor(companyId, null, scopes, async () => { await refresh(); if (onChanged) onChanged(); });
+    });
+    setupModalFocus(handle, { focusSelector: '.btn-primary' });
+    refresh();
+  }
+
+  /** Editor for a single custom role. `existing` is null for create. */
+  function openRoleEditor(companyId, existing, allScopes, onSaved) {
+    const isEdit = !!existing;
+    const friendly = modalField('Display name *', {
+      value: existing ? (existing.friendly_name || '') : '',
+      placeholder: 'e.g. Billing Manager' });
+    const slug = modalField('Slug (lowercase, no spaces) *', {
+      value: existing ? (existing.name || '') : '',
+      placeholder: 'e.g. billing_manager' });
+    if (isEdit) slug.input.disabled = true;
+    // Auto-derive slug from the friendly name on create — saves a step and
+    // keeps the slug compliant with the backend's lowercase-snake-case rule.
+    // Tracks whether the user has manually edited the slug so we don't
+    // overwrite their intent.
+    let slugManuallyEdited = isEdit;
+    function slugify(s) {
+      return String(s || '')
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+    }
+    if (!isEdit) {
+      friendly.input.addEventListener('input', () => {
+        if (!slugManuallyEdited) slug.input.value = slugify(friendly.input.value);
+      });
+      slug.input.addEventListener('input', () => { slugManuallyEdited = true; });
+    }
+    const description = modalField('Description', {
+      type: 'textarea', rows: 2,
+      value: existing ? (existing.description || '') : '',
+      placeholder: 'What this role can do' });
+    const priority = modalField('Priority', {
+      value: existing && existing.priority != null ? String(existing.priority) : '100',
+      placeholder: '100' });
+    const active = el('input', { type: 'checkbox' });
+    active.checked = existing ? (existing.is_active !== false) : true;
+    const activeWrap = el('label', { class: 'us-check' }, [
+      active, el('span', null, 'Active'),
+    ]);
+
+    // Group scopes by category.
+    const groups = {};
+    (allScopes || []).forEach((s) => {
+      const cat = s.category || 'Other';
+      (groups[cat] = groups[cat] || []).push(s);
+    });
+    const categoryNames = Object.keys(groups).sort();
+    const selectedScopeIds = new Set(
+      (existing && existing.scopes ? existing.scopes : []).map((s) => s.id));
+    const scopesWrap = el('div', { class: 'us-scope-list' });
+    if (!categoryNames.length) {
+      scopesWrap.appendChild(emptyState('Could not load scopes.'));
+    }
+    // Live counter that updates when checkboxes toggle so users can see
+    // selection state without scrolling back to the field label.
+    const scopesLabel = el('span', { class: 'us-label-text' },
+      'Permissions / scopes (' + selectedScopeIds.size + ' selected)');
+    function refreshScopeCount() {
+      scopesLabel.textContent = 'Permissions / scopes (' + selectedScopeIds.size + ' selected)';
+    }
+    categoryNames.forEach((cat) => {
+      scopesWrap.appendChild(el('div', { class: 'us-scope-cat' }, cat));
+      groups[cat].forEach((s) => {
+        const cb = el('input', { type: 'checkbox' });
+        cb.checked = selectedScopeIds.has(s.id);
+        cb.addEventListener('change', () => {
+          if (cb.checked) selectedScopeIds.add(s.id); else selectedScopeIds.delete(s.id);
+          refreshScopeCount();
+        });
+        scopesWrap.appendChild(el('label', { class: 'us-scope-row' }, [
+          cb,
+          el('div', null, [
+            el('code', null, s.name),
+            s.description ? el('div', { class: 'us-scope-row-desc' }, s.description) : null,
+          ].filter(Boolean)),
+        ]));
+      });
+    });
+    const scopesField = el('label', { class: 'us-label' }, [scopesLabel, scopesWrap]);
+
+    const cancelBtn = btn('Cancel');
+    const saveBtn = btn(isEdit ? 'Save changes' : 'Create role', { kind: 'primary' });
+
+    const handle = openModal({
+      title: isEdit ? 'Edit custom role' : 'Create custom role',
+      description: isEdit
+        ? 'Update the role’s display info and permissions.'
+        : 'Define a new bundle of scopes. The slug must be unique within the company and cannot be changed once created.',
+      wide: true,
+      body: [
+        el('div', { class: 'us-grid-2' }, [friendly.wrap, slug.wrap]),
+        description.wrap,
+        el('div', { class: 'us-grid-2' }, [priority.wrap, activeWrap]),
+        scopesField,
+      ],
+      footer: [cancelBtn, saveBtn],
+    });
+
+    cancelBtn.addEventListener('click', () => handle.close());
+    saveBtn.addEventListener('click', async () => {
+      const friendlyVal = friendly.input.value.trim();
+      const slugVal = slug.input.value.trim();
+      if (!friendlyVal) {
+        toast('Display name is required', 'error');
+        friendly.input.focus(); return;
+      }
+      if (!isEdit && !slugVal) {
+        toast('Slug is required', 'error');
+        slug.input.focus(); return;
+      }
+      if (!isEdit && !/^[a-z0-9_]+$/.test(slugVal)) {
+        toast('Slug must be lowercase letters, numbers, and underscores only', 'error');
+        slug.input.focus(); return;
+      }
+      const priorityNum = priority.input.value.trim()
+        ? Math.max(0, Math.floor(Number(priority.input.value)))
+        : 100;
+      saveBtn.disabled = true;
+      try {
+        if (isEdit) {
+          await api.updateCustomRole(existing.id, {
+            friendly_name: friendlyVal,
+            description: description.input.value.trim() || null,
+            priority: priorityNum,
+            is_active: !!active.checked,
+            scope_ids: Array.from(selectedScopeIds),
+          });
+          toast('Role updated', 'success');
+        } else {
+          await api.createCustomRole(companyId, {
+            name: slugVal,
+            friendly_name: friendlyVal,
+            description: description.input.value.trim() || null,
+            priority: priorityNum,
+            scope_ids: Array.from(selectedScopeIds),
+          });
+          toast('Role created', 'success');
+        }
+        handle.close();
+        if (typeof onSaved === 'function') onSaved();
+      } catch (err) {
+        toast(friendlyError(err), 'error');
+        saveBtn.disabled = false;
+      }
+    });
+    setupModalFocus(handle);
   }
 
   // ─── Webhooks tab ────────────────────────────────────────────────────

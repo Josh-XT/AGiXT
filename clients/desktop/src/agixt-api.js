@@ -359,6 +359,15 @@
     return request('PUT', '/v1/companies/' + encodeURIComponent(companyId), { body: { name } });
   }
 
+  /** PATCH /v1/companies/{id} — update full company details (name, status,
+   *  address, phone_number, email, website, city, state, zip_code, country,
+   *  notes, icon_url). All fields optional; only provided keys are updated. */
+  async function updateCompany(companyId, patch) {
+    return request('PATCH', '/v1/companies/' + encodeURIComponent(companyId), {
+      body: patch || {},
+    });
+  }
+
   /** DELETE /v1/companies/{id}. */
   async function deleteCompany(companyId) {
     return request('DELETE', '/v1/companies/' + encodeURIComponent(companyId));
@@ -410,10 +419,77 @@
     return request('DELETE', '/v1/invitation/' + encodeURIComponent(invitationId));
   }
 
-  /** GET /v1/roles — server-defined default roles + their scopes. */
+  /** GET /v1/default-roles — system default roles with their scope lists. */
   async function listDefaultRoles() {
-    const data = await request('GET', '/v1/roles');
+    const data = await request('GET', '/v1/default-roles');
     return (data && (data.roles || data.default_roles)) || data || [];
+  }
+
+  // ----- Custom roles & scopes ------------------------------------------
+
+  /** GET /v1/scopes — all scopes available in the system. */
+  async function listScopes() {
+    const data = await request('GET', '/v1/scopes');
+    return (data && (data.scopes || data)) || [];
+  }
+
+  /** GET /v1/roles?company_id=... — custom roles for a company. */
+  async function listCustomRoles(companyId) {
+    const path = companyId
+      ? '/v1/roles?company_id=' + encodeURIComponent(companyId)
+      : '/v1/roles';
+    const data = await request('GET', path);
+    return (data && data.roles) || [];
+  }
+
+  /** POST /v1/roles?company_id=... — create a custom role.
+   *  payload: {name, friendly_name, description, priority, scope_ids: [...]}. */
+  async function createCustomRole(companyId, payload) {
+    const path = companyId
+      ? '/v1/roles?company_id=' + encodeURIComponent(companyId)
+      : '/v1/roles';
+    return request('POST', path, { body: payload || {} });
+  }
+
+  /** PUT /v1/roles/{id} — update a custom role.
+   *  payload: {friendly_name?, description?, priority?, is_active?, scope_ids?}. */
+  async function updateCustomRole(roleId, payload) {
+    return request('PUT', '/v1/roles/' + encodeURIComponent(roleId), {
+      body: payload || {},
+    });
+  }
+
+  /** DELETE /v1/roles/{id}. */
+  async function deleteCustomRole(roleId) {
+    return request('DELETE', '/v1/roles/' + encodeURIComponent(roleId));
+  }
+
+  /** GET /v1/user/{user_id}/custom-roles?company_id=...
+   *  Returns the custom roles assigned to a user in a company. */
+  async function getUserCustomRoles(userId, companyId) {
+    const path = '/v1/user/' + encodeURIComponent(userId) + '/custom-roles' +
+      (companyId ? '?company_id=' + encodeURIComponent(companyId) : '');
+    const data = await request('GET', path);
+    return Array.isArray(data) ? data : (data && data.custom_roles) || [];
+  }
+
+  /** POST /v1/user/custom-role?company_id=... — assign a custom role.
+   *  body: {user_id, custom_role_id}. */
+  async function assignUserCustomRole(companyId, userId, customRoleId) {
+    const path = companyId
+      ? '/v1/user/custom-role?company_id=' + encodeURIComponent(companyId)
+      : '/v1/user/custom-role';
+    return request('POST', path, {
+      body: { user_id: userId, custom_role_id: customRoleId },
+    });
+  }
+
+  /** DELETE /v1/user/{user_id}/custom-role/{custom_role_id}?company_id=... */
+  async function removeUserCustomRole(companyId, userId, customRoleId) {
+    const path = '/v1/user/' + encodeURIComponent(userId) +
+      '/custom-role/' + encodeURIComponent(customRoleId) +
+      (companyId ? '?company_id=' + encodeURIComponent(companyId) : '');
+    return request('DELETE', path);
   }
 
   // ----- Personal Access Tokens ------------------------------------------
@@ -861,6 +937,7 @@
     listCompanies,
     createCompany,
     renameCompany,
+    updateCompany,
     deleteCompany,
     updateCompanyOrder,
     getCompanyMembers,
@@ -870,6 +947,14 @@
     createInvitation,
     deleteInvitation,
     listDefaultRoles,
+    listScopes,
+    listCustomRoles,
+    createCustomRole,
+    updateCustomRole,
+    deleteCustomRole,
+    getUserCustomRoles,
+    assignUserCustomRole,
+    removeUserCustomRole,
     // Personal Access Tokens
     listPersonalAccessTokens,
     createPersonalAccessToken,

@@ -2515,6 +2515,319 @@ body.window-mode.chat-collapsed .chat-resize-handle {
 }
 .us-scope-row-desc { font-size: 10.5px; color: var(--text-faint); }
 
+/* User-settings modal: overlay dialog used by the Companies / Teams /
+ * Custom Roles editors. Mirrors the web app's edit/invite dialogs but
+ * scaled for the side pane. Activates by appending to document.body. */
+.us-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 16px;
+}
+.us-modal-card {
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.us-modal-card.wide { max-width: 720px; }
+.us-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.us-modal-header h3 {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 650;
+  letter-spacing: 0.1px;
+}
+.us-modal-header p {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.us-modal-close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  font-size: 18px;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1;
+}
+.us-modal-close:hover { background: var(--panel-2); color: var(--text); }
+.us-modal-body {
+  padding: 14px 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.us-modal-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* Invite-results list (after multi-email invite send). */
+.us-invite-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.us-invite-result {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.us-invite-result:last-child { border-bottom: 0; }
+.us-invite-result.success { background: rgba(94, 210, 143, 0.08); }
+.us-invite-result.error { background: rgba(255, 138, 150, 0.08); }
+.us-invite-result-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.us-invite-result-msg { color: var(--text-dim); padding-left: 18px; word-break: break-word; }
+.us-invite-result-msg.error { color: #ff8a96; }
+.us-invite-result-link {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding-left: 18px;
+}
+.us-invite-result-link a {
+  color: var(--accent);
+  font-size: 11px;
+  word-break: break-all;
+  text-decoration: none;
+}
+.us-invite-result-link a:hover { text-decoration: underline; }
+
+/* Bulk-select row checkboxes on the members list. */
+.us-list-item.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.us-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--accent-soft);
+  border: 1px solid rgba(107, 123, 255, 0.45);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.us-bulk-bar-count {
+  font-weight: 600;
+  color: var(--accent);
+  flex: 1;
+  min-width: 0;
+}
+
+/* Status badges used in the invitations list. */
+.us-badge.muted { background: var(--panel-2); border-color: var(--border); color: var(--text-dim); }
+
+/* Inline action button row used in member rows so the role select plus
+ * Remove plus custom-roles button line up cleanly even on narrow panes. */
+.us-row-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* Custom-roles list inside the manage-roles modal. */
+.us-role-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  flex-wrap: wrap;
+}
+.us-role-card.inactive { opacity: 0.6; }
+.us-role-card-grow { flex: 1; min-width: 0; }
+.us-role-card-title { font-size: 12.5px; font-weight: 600; margin: 0; }
+.us-role-card-desc { font-size: 11px; color: var(--text-dim); margin: 4px 0 0; }
+.us-role-card-scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.us-role-card-scopes code {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  background: var(--code-bg);
+  color: var(--accent-blue);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.us-role-card-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Sticky bulk-action bar so it stays visible while the user scrolls a
+ * long member list. Tooltip context: scroll container is `.us-main`. */
+.us-bulk-bar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+/* Compact chip-style button used on member rows for the "+ Custom role"
+ * affordance. Inline-stylable buttons across the codebase use .btn
+ * variants — this one is small enough to need its own class. */
+.us-chip-btn {
+  appearance: none;
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 8px;
+  line-height: 1.5;
+  cursor: pointer;
+  font-family: inherit;
+}
+.us-chip-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.us-chip-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* Search/filter bar above member or invitation lists. */
+.us-filter-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.us-filter-bar .us-input { flex: 1; min-width: 160px; }
+
+/* Stat pills shown next to a section title — e.g. "5 Admins · 12 Users".
+ * Decorative but useful for quick at-a-glance team composition. */
+.us-stat-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.us-stat-pill {
+  font-size: 10.5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.us-stat-pill.accent { background: var(--accent-soft); border-color: rgba(107, 123, 255, 0.45); color: var(--accent); }
+
+/* Themed confirm dialog message styling. */
+.us-confirm-message {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  margin: 0;
+}
+
+/* Member details modal — small grid layout that mirrors the web's
+ * /team/[id] page. Each field is a label + display/edit control. */
+.us-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 520px) {
+  .us-detail-grid { grid-template-columns: 1fr; }
+}
+.us-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.us-detail-field-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.us-detail-field-value {
+  font-size: 12.5px;
+  color: var(--text);
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  border-radius: var(--radius-sm);
+  min-height: 20px;
+  word-break: break-word;
+}
+.us-detail-field-value.readonly { color: var(--text-dim); }
+
+/* Member custom-role chips (read-only display on member row). */
+.us-custom-role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(107, 123, 255, 0.18);
+  color: var(--accent);
+  border: 1px solid rgba(107, 123, 255, 0.4);
+  margin-right: 4px;
+}
+.us-custom-role-chip button {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+  line-height: 1;
+}
+.us-custom-role-chip button:hover { color: #ff8a96; }
+
 /* Scrollbar */
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
