@@ -556,17 +556,44 @@
   function positionMorePopover(moreBtn) {
     const pop = _morePopover;
     if (!pop || !moreBtn) return;
-    const rect = moreBtn.getBoundingClientRect();
-    // Anchor to the right of the rail; align top with the More button,
-    // but flip upward if it would clip the viewport bottom.
-    pop.style.left = `${Math.round(rect.right + 6)}px`;
-    pop.style.top = `${Math.round(rect.top)}px`;
-    // After insertion is visible, measure and clamp.
     const margin = 8;
-    const phRect = pop.getBoundingClientRect();
-    if (phRect.bottom > window.innerHeight - margin) {
-      const adjusted = Math.max(margin, window.innerHeight - margin - phRect.height);
-      pop.style.top = `${Math.round(adjusted)}px`;
+    const rect = moreBtn.getBoundingClientRect();
+    // Anchor to the right of the rail.
+    pop.style.left = `${Math.round(rect.right + 6)}px`;
+    // Clear any prior max-height/top so we measure the popover's natural
+    // size (capped by the CSS `max-height: 70vh`) before deciding which
+    // direction to grow.
+    pop.style.maxHeight = '';
+    pop.style.top = `${margin}px`;
+    const wh = window.innerHeight;
+    const popH = pop.offsetHeight;
+    // Space we'd have if anchored top-aligned (popover grows downward
+    // from the More button) vs. bottom-aligned (popover grows upward
+    // from the More button). The More button sits at the bottom of the
+    // top rail with many items in the popover, so the downward space
+    // is often too small — we flip upward in that case.
+    const availBelow = wh - rect.top - margin;
+    const availAbove = rect.bottom - margin;
+    if (popH <= availBelow) {
+      // Fits below — align top with the More button.
+      pop.style.top = `${Math.round(rect.top)}px`;
+    } else if (popH <= availAbove) {
+      // Doesn't fit below but fits above — align bottom with the More
+      // button so the popover grows upward into the space above the
+      // rail. This is the typical case when the rail is full of icons.
+      pop.style.top = `${Math.round(rect.bottom - popH)}px`;
+    } else if (availAbove >= availBelow) {
+      // Doesn't fit either way; more headroom above. Pin to the top
+      // edge with a margin and let the popover scroll internally
+      // (`overflow-y: auto` on the popover class) within the remaining
+      // height.
+      pop.style.top = `${margin}px`;
+      pop.style.maxHeight = `${availAbove}px`;
+    } else {
+      // More headroom below; align top with the More button and cap
+      // height to the available space.
+      pop.style.top = `${Math.round(rect.top)}px`;
+      pop.style.maxHeight = `${availBelow}px`;
     }
   }
 
@@ -628,10 +655,11 @@
         try { e.dataTransfer.effectAllowed = 'move'; } catch (_) {}
         realBtn.classList.add('is-dragging');
         row.classList.add('is-dragging');
-        // Hide the popover so the user can see the visible rail's
-        // drop targets without the menu in the way. Use a flag so
-        // the dragend can re-measure overflow without flicker.
-        if (_morePopover) _morePopover.hidden = true;
+        // Leave the popover visible: it's positioned to the right of
+        // the rail so it doesn't cover the drop targets, and keeping
+        // it open lets the user see which row they're dragging and
+        // also drop back onto another popover row to reorder within
+        // the hidden set (see the drag-target wiring below).
       });
       row.addEventListener('dragend', () => {
         realBtn.classList.remove('is-dragging');
@@ -639,6 +667,39 @@
         // After the drop landed (or didn't), close cleanly and
         // re-evaluate overflow so the moved item promotes into view.
         closeMorePopover();
+        reflowSidenavOverflow();
+      });
+      // Drop target on this row so the user can reorder within the
+      // hidden set, or drag a visible rail button here to demote it.
+      // The drop reorders the underlying `realBtn` in `.sidenav-top`,
+      // and the trailing reflow re-evaluates which items fit on the
+      // visible rail vs. which collapse back into the popover.
+      row.addEventListener('dragover', (e) => {
+        const dragging = document.querySelector('.sidenav-btn.is-dragging');
+        if (!dragging) return;
+        e.preventDefault();
+        try { e.dataTransfer.dropEffect = 'move'; } catch (_) {}
+        const r = row.getBoundingClientRect();
+        const before = e.clientY < r.top + r.height / 2;
+        row.classList.toggle('is-drop-above', before);
+        row.classList.toggle('is-drop-below', !before);
+      });
+      row.addEventListener('dragleave', () => {
+        row.classList.remove('is-drop-above');
+        row.classList.remove('is-drop-below');
+      });
+      row.addEventListener('drop', (e) => {
+        e.preventDefault();
+        row.classList.remove('is-drop-above');
+        row.classList.remove('is-drop-below');
+        const dragging = document.querySelector('.sidenav-btn.is-dragging');
+        if (!dragging || dragging === realBtn) return;
+        const top = document.querySelector('.sidenav-top');
+        if (!top) return;
+        const r = row.getBoundingClientRect();
+        const before = e.clientY < r.top + r.height / 2;
+        top.insertBefore(dragging, before ? realBtn : realBtn.nextSibling);
+        captureSidenavOrder();
         reflowSidenavOverflow();
       });
       pop.appendChild(row);
