@@ -10,6 +10,7 @@ from sqlalchemy import (
     Text,
     String,
     Integer,
+    BigInteger,
     ForeignKey,
     DateTime,
     Boolean,
@@ -427,11 +428,11 @@ class Company(Base):
     notes = Column(Text, nullable=True, default=None)
     user_limit = Column(Integer, nullable=True, default=1)
     # Token-based billing fields
-    token_balance = Column(Integer, nullable=False, default=0)  # Tokens remaining
+    token_balance = Column(BigInteger, nullable=False, default=0)  # Tokens remaining
     token_balance_usd = Column(Float, nullable=False, default=0.0)  # USD value
-    tokens_used_total = Column(Integer, nullable=False, default=0)  # Lifetime usage
+    tokens_used_total = Column(BigInteger, nullable=False, default=0)  # Lifetime usage
     last_low_balance_warning = Column(
-        Integer, nullable=True
+        BigInteger, nullable=True
     )  # Last balance when warning shown
     # Auto top-up subscription fields
     auto_topup_enabled = Column(Boolean, nullable=False, default=False)
@@ -472,16 +473,16 @@ class Company(Base):
         Integer, nullable=False, default=0
     )  # Current registered device count
     storage_limit_bytes = Column(
-        Integer, nullable=True, default=None
+        BigInteger, nullable=True, default=None
     )  # Maximum storage in bytes from plan
     storage_used_bytes = Column(
-        Integer, nullable=False, default=0
+        BigInteger, nullable=False, default=0
     )  # Current storage used in bytes
     monthly_token_limit = Column(
-        Integer, nullable=True, default=None
+        BigInteger, nullable=True, default=None
     )  # Tokens included per billing period
     tokens_used_this_period = Column(
-        Integer, nullable=False, default=0
+        BigInteger, nullable=False, default=0
     )  # Tokens used in current billing period
     current_period_start = Column(
         DateTime, nullable=True, default=None
@@ -494,10 +495,10 @@ class Company(Base):
         Integer, nullable=False, default=0
     )  # Additional devices from addons
     addon_tokens = Column(
-        Integer, nullable=False, default=0
+        BigInteger, nullable=False, default=0
     )  # Additional monthly tokens from addons
     addon_storage_bytes = Column(
-        Integer, nullable=False, default=0
+        BigInteger, nullable=False, default=0
     )  # Additional storage from addons in bytes
     # NurseXT bed-based billing
     bed_count = Column(
@@ -3887,13 +3888,13 @@ def migrate_company_table():
                         elif column_name == "user_limit":
                             pg_column_def = "INTEGER DEFAULT 1"
                         elif column_name == "token_balance":
-                            pg_column_def = "INTEGER DEFAULT 0"
+                            pg_column_def = "BIGINT DEFAULT 0"
                         elif column_name == "token_balance_usd":
                             pg_column_def = "DOUBLE PRECISION DEFAULT 0.0"
                         elif column_name == "tokens_used_total":
-                            pg_column_def = "INTEGER DEFAULT 0"
+                            pg_column_def = "BIGINT DEFAULT 0"
                         elif column_name == "last_low_balance_warning":
-                            pg_column_def = "INTEGER"
+                            pg_column_def = "BIGINT"
                         elif column_name == "auto_topup_enabled":
                             pg_column_def = "BOOLEAN DEFAULT false"
                         elif column_name == "auto_topup_amount_usd":
@@ -3909,16 +3910,22 @@ def migrate_company_table():
                             "device_count",
                             "storage_used_bytes",
                             "tokens_used_this_period",
-                            "addon_users",
-                            "addon_devices",
                             "addon_tokens",
                             "addon_storage_bytes",
                         ):
+                            pg_column_def = "BIGINT DEFAULT 0"
+                        elif column_name in (
+                            "addon_users",
+                            "addon_devices",
+                        ):
                             pg_column_def = "INTEGER DEFAULT 0"
                         elif column_name in (
-                            "device_limit",
                             "storage_limit_bytes",
                             "monthly_token_limit",
+                        ):
+                            pg_column_def = "BIGINT"
+                        elif column_name in (
+                            "device_limit",
                             "bed_count",
                             "bed_limit",
                         ):
@@ -3937,6 +3944,61 @@ def migrate_company_table():
 
     except Exception as e:
         logging.warning(f"Company table migration error: {e}", exc_info=True)
+
+
+COMPANY_BIGINT_COLUMNS = (
+    "token_balance",
+    "tokens_used_total",
+    "last_low_balance_warning",
+    "storage_limit_bytes",
+    "storage_used_bytes",
+    "monthly_token_limit",
+    "tokens_used_this_period",
+    "addon_tokens",
+    "addon_storage_bytes",
+)
+
+
+def migrate_company_large_integer_columns():
+    """
+    Widen company billing counters that can exceed 32-bit integers.
+
+    Storage limits are stored in bytes, so even a 10GB plan exceeds a PostgreSQL
+    INTEGER. SQLite INTEGER is already a signed 64-bit value, so only PostgreSQL
+    needs an explicit ALTER COLUMN migration.
+    """
+    if engine is None or DATABASE_TYPE == "sqlite":
+        return
+
+    try:
+        with get_db_session() as session:
+            for column_name in COMPANY_BIGINT_COLUMNS:
+                data_type = session.execute(
+                    text(
+                        """
+                        SELECT data_type
+                        FROM information_schema.columns
+                        WHERE table_name = 'Company'
+                        AND column_name = :column_name
+                        """
+                    ),
+                    {"column_name": column_name},
+                ).scalar()
+                if data_type == "bigint" or data_type is None:
+                    continue
+                session.execute(
+                    text(
+                        f'ALTER TABLE "Company" ALTER COLUMN {column_name} '
+                        f"TYPE BIGINT USING {column_name}::bigint"
+                    )
+                )
+                logging.info(f"Altered Company.{column_name} to BIGINT")
+
+            session.commit()
+    except Exception as e:
+        logging.warning(
+            f"Company large integer column migration error: {e}", exc_info=True
+        )
 
 
 def migrate_payment_transaction_table():
@@ -8813,6 +8875,21 @@ def check_schema_migrations_needed():
                 if not result.fetchone():
                     return True
 
+                for column_name in COMPANY_BIGINT_COLUMNS:
+                    data_type = session.execute(
+                        text(
+                            """
+                            SELECT data_type
+                            FROM information_schema.columns
+                            WHERE table_name = 'Company'
+                            AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    ).scalar()
+                    if data_type != "bigint":
+                        return True
+
             return False
     except Exception as e:
         logging.warning(f"Could not check migration status, will run migrations: {e}")
@@ -8832,6 +8909,7 @@ def run_all_schema_migrations():
 
     # Phase 1: Core table column additions (order matters for FK dependencies)
     migrate_company_table()
+    migrate_company_large_integer_columns()
     migrate_payment_transaction_table()
     migrate_extension_table()
     migrate_user_table()

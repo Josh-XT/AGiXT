@@ -92,6 +92,13 @@ async def initialize_database_schema():
     else:
         startup_timer.section_end("schema_migrations (skipped)", section_start)
 
+    # This migration is intentionally cheap and idempotent. It protects
+    # established Postgres servers where the fast-path may otherwise skip a
+    # type-width fix needed by billing plan limits stored in bytes.
+    section_start = startup_timer.section_start()
+    DB.migrate_company_large_integer_columns()
+    startup_timer.section_end("company_bigint_columns", section_start)
+
     return DB
 
 

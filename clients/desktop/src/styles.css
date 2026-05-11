@@ -1549,6 +1549,15 @@ body.window-mode.chat-collapsed .chat-resize-handle {
 .sidenav-btn {
   width: 32px;
   height: 32px;
+  /* Pin the row height — without this, when `.sidenav-top` is squeezed
+     (min-height: 0 lets it shrink below content size), flex-shrink
+     defaults to 1 and the browser compresses each button down to its
+     min-content size (~20px from the inner SVG). That made the icons
+     read as smashed together and also fooled the overflow reflow into
+     measuring shrunken row heights, so it thought every button fit and
+     never invoked the "···" popover. The brand already pins itself the
+     same way (.sidenav-brand has flex-shrink: 0). */
+  flex-shrink: 0;
   border-radius: 8px;
   border: none;
   background: transparent;
