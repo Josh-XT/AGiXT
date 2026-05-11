@@ -2135,6 +2135,28 @@ body.window-mode.chat-collapsed .chat-resize-handle {
 .modal-header h2 { margin: 0; font-size: 14px; }
 .modal-body { padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 
+.ext-load-error {
+  margin: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(220, 60, 80, 0.45);
+  border-radius: var(--radius-sm);
+  background: rgba(220, 60, 80, 0.14);
+  color: #ffb4ba;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.ext-load-error strong {
+  display: block;
+  color: var(--text);
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.ext-load-error p {
+  margin: 0;
+  color: #ffb4ba;
+  overflow-wrap: anywhere;
+}
+
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
 .field input[type="url"], .field input[type="text"], .field textarea {
   background: var(--panel-2);

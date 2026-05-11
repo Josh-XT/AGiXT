@@ -29,7 +29,7 @@
   const tauri = window.__TAURI__;
   if (!tauri) return;
 
-  // id -> { entry, mounted, ctrl, blobUrl }
+  // id -> { entry, mounted, activating, ctrl, blobUrl }
   const state = new Map();
   // id -> function/object that returns contextual text for the user's
   // current surface inside that extension. Sampled only when the user
@@ -767,6 +767,54 @@
     return pane.querySelector(':scope > .ext-pane-body') || null;
   }
 
+  function showPaneError(pane, entry, title, detail) {
+    const target = mountTargetFor(pane, entry) || pane;
+    if (!target) return;
+    const msg = detail && (detail.message || detail.error || detail.detail || String(detail));
+    target.innerHTML = [
+      '<div class="ext-load-error">',
+      '<strong>' + escapeHtml(title || 'Extension failed to load') + '</strong>',
+      msg ? '<p>' + escapeHtml(msg) + '</p>' : '',
+      '</div>',
+    ].join('');
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  async function ensureCrudHelper() {
+    if (window.AgixtCrudExtension && typeof window.AgixtCrudExtension.register === 'function') return true;
+    let resp;
+    try {
+      resp = await fetch('desktop-crud.js', { cache: 'no-store' });
+    } catch (err) {
+      console.warn('desktop-extensions: crud helper fetch failed', err);
+      return false;
+    }
+    if (!resp || !resp.ok) {
+      console.warn('desktop-extensions: crud helper http', resp && resp.status);
+      return false;
+    }
+    const text = await resp.text();
+    const blob = new Blob([text], { type: 'application/javascript' });
+    const url = URL.createObjectURL(blob);
+    try {
+      await import(url);
+    } catch (err) {
+      console.warn('desktop-extensions: crud helper import failed', err);
+      return false;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    return !!(window.AgixtCrudExtension && typeof window.AgixtCrudExtension.register === 'function');
+  }
+
   // Minimal CSS.escape polyfill — the ids only ever match _ID_RE on the
   // server side ([a-z0-9_-]+), so we don't need a full implementation.
   function cssEscape(s) { return String(s).replace(/[^a-zA-Z0-9_-]/g, '\\$&'); }
@@ -775,15 +823,31 @@
     const rec = state.get(id);
     if (!rec) return;
     if (rec.mounted) return;
+    if (rec.activating) return rec.activating;
+    rec.activating = activateInner(id, rec).finally(() => { rec.activating = null; });
+    return rec.activating;
+  }
+
+  async function activateInner(id, rec) {
     const pane = ensurePane(rec.entry);
     if (!pane) return;
     const c = makeMountContext(id, rec, pane);
-    if (!c) return;
+    if (!c) {
+      showPaneError(pane, rec.entry, 'Sign in required', 'The desktop extension context is not ready yet.');
+      return;
+    }
 
     let blobUrl = rec.blobUrl;
     if (!blobUrl) {
       const text = await fetchModuleText(rec.entry);
-      if (text == null) return;
+      if (text == null) {
+        showPaneError(pane, rec.entry, 'Extension asset failed to load', 'The server did not return the extension JavaScript.');
+        return;
+      }
+      if (/\bAgixtCrudExtension\b/.test(text) && !(await ensureCrudHelper())) {
+        showPaneError(pane, rec.entry, 'Desktop CRUD helper failed to load', 'Reload the desktop app to pick up the latest client assets.');
+        return;
+      }
       const blob = new Blob([text], { type: 'application/javascript' });
       blobUrl = URL.createObjectURL(blob);
       rec.blobUrl = blobUrl;
@@ -797,6 +861,7 @@
       await import(blobUrl);
     } catch (err) {
       console.warn('desktop-extensions: module import failed', id, err);
+      showPaneError(pane, rec.entry, 'Extension module failed to load', err);
       return;
     }
 
@@ -804,16 +869,21 @@
     pendingRegistrations.delete(id);
     if (!ctrl) {
       console.warn('desktop-extensions: module did not register', id);
+      showPaneError(pane, rec.entry, 'Extension did not register', 'The module loaded but did not call AgixtRegisterExtension.');
       return;
     }
     rec.ctrl = ctrl;
     const target = mountTargetFor(pane, rec.entry);
-    if (!target) return;
+    if (!target) {
+      showPaneError(pane, rec.entry, 'Extension pane is not ready', 'The extension layout target was not found.');
+      return;
+    }
     try {
       ctrl.mount(target, c);
       rec.mounted = true;
     } catch (err) {
       console.warn('desktop-extensions: mount failed', id, err);
+      showPaneError(pane, rec.entry, 'Extension mount failed', err);
     }
   }
 
@@ -887,7 +957,7 @@
       ensurePane(entry);
       const existing = state.get(id);
       if (!existing) {
-        state.set(id, { entry, mounted: false, ctrl: null, blobUrl: null, contextUnsubscribe: null });
+        state.set(id, { entry, mounted: false, activating: null, ctrl: null, blobUrl: null, contextUnsubscribe: null });
         continue;
       }
       if (existing.entry.version !== entry.version) {
@@ -916,7 +986,7 @@
           // expects to find.
           if (isFramed(entry)) buildFramedPane(pane, entry);
         }
-        state.set(id, { entry, mounted: false, ctrl: null, blobUrl: null, contextUnsubscribe: null });
+        state.set(id, { entry, mounted: false, activating: null, ctrl: null, blobUrl: null, contextUnsubscribe: null });
       } else {
         existing.entry = entry;
       }
@@ -927,6 +997,8 @@
     for (const id of [...state.keys()]) {
       if (!next.has(id)) unmountAndForget(id);
     }
+    const active = currentActiveView();
+    if (active && active !== 'chat' && state.has(active)) activate(active);
   }
 
   function start({ pollMs = 5 * 60 * 1000 } = {}) {
@@ -949,6 +1021,7 @@
     start,
     stop,
     refresh,
+    activate,
     reflowSidenav: reflowSidenavOverflow,
     registerContextProvider,
     unregisterContextProvider,

@@ -1778,6 +1778,18 @@
         console.warn('AgixtPrompts.mount', err);
       });
     }
+    // Server-delivered desktop extensions are mounted by the extension
+    // loader. Trigger it from the central view switcher too, so panes
+    // opened programmatically or restored from overflow cannot become
+    // visible without their module being evaluated.
+    if (viewId !== 'chat'
+        && targetPane === viewId
+        && window.AgixtDesktopExtensions
+        && typeof window.AgixtDesktopExtensions.activate === 'function') {
+      Promise.resolve(window.AgixtDesktopExtensions.activate(viewId)).catch((err) => {
+        console.warn('AgixtDesktopExtensions.activate', viewId, err);
+      });
+    }
     syncContentPaneClass();
     refreshWindowMode();
     // Let the overflow-aware sidenav re-stamp its "active hidden" dot

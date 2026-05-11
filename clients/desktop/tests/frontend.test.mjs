@@ -183,6 +183,24 @@ function loadDesktopExtensionsOnly() {
   return { window };
 }
 
+function loadCrudExtensionPage(filePath) {
+  const dom = new JSDOM(
+    '<!doctype html><body><div class="chat-screen-main"><div class="view-pane view-pane-extension" data-view="estimates"></div></div></body>',
+    { runScripts: 'outside-only', url: 'http://localhost/' },
+  );
+  const { window } = dom;
+  const registrations = new Map();
+  window.AgixtRegisterExtension = (id, ctrl) => registrations.set(id, ctrl);
+  for (const source of [
+    { name: 'desktop-crud.js', file: path.join(SRC, 'desktop-crud.js') },
+    { name: path.basename(filePath), file: filePath },
+  ]) {
+    const code = fs.readFileSync(source.file, 'utf8');
+    vm.runInContext(code, dom.getInternalVMContext(), { filename: source.name });
+  }
+  return { window, registrations };
+}
+
 test('markdown: paragraph and inline formatting', () => {
   const { window } = loadFrontend();
   const html = window.AgixtMarkdown.render('Hello **bold** and *italic*.');
@@ -396,6 +414,94 @@ test('desktop extensions: active context provider formats hidden page context', 
 
   off();
   assert.equal(window.AgixtDesktopExtensions.getActiveContext(), '');
+});
+
+test('desktop extensions: failed asset load renders an in-pane error', async () => {
+  const { window } = loadDesktopExtensionsOnly();
+  window.fetch = async (url) => {
+    const pathName = new URL(String(url), 'http://localhost').pathname;
+    if (pathName === '/v1/desktop/extensions') {
+      return new Response(JSON.stringify({
+        extensions: [{ id: 'audible', label: 'Audible', version: 'test' }],
+      }), { status: 200 });
+    }
+    return new Response('', { status: 500 });
+  };
+
+  await window.AgixtDesktopExtensions.refresh();
+  await window.AgixtDesktopExtensions.activate('audible');
+
+  const pane = window.document.querySelector('.view-pane[data-view="audible"]');
+  const error = pane.querySelector('.ext-load-error');
+  assert.ok(error, 'extension loader should render a visible error');
+  assert.match(error.textContent, /Extension asset failed to load/);
+});
+
+test('desktop crud: generated extension page mounts and renders records', async () => {
+  const page = path.join(__dirname, '..', '..', '..', '..', 'ultraestimate', 'desktop', 'estimates', 'main.js');
+  const { window, registrations } = loadCrudExtensionPage(page);
+  const ctrl = registrations.get('estimates');
+  assert.ok(ctrl, 'generated estimates page should register itself');
+
+  const headerActions = [];
+  const calls = [];
+  const pane = window.document.querySelector('.view-pane[data-view="estimates"]');
+  ctrl.mount(pane, {
+    serverUrl: 'http://localhost:7437',
+    jwt: 'jwt',
+    companyId: 'company-id',
+    setHeaderActions: (...nodes) => {
+      headerActions.splice(0, headerActions.length, ...nodes);
+      return true;
+    },
+    fetchJson: async (url) => {
+      calls.push(url);
+      return {
+        estimates: [{
+          id: 'estimate-1',
+          estimate_number: 'EST-1001',
+          status: 'draft',
+          grand_total: 1250,
+          updated_at: '2026-05-11T12:00:00Z',
+        }],
+      };
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  assert.ok(pane.querySelector('.dc-root'), 'crud shell should render');
+  assert.ok(headerActions.some((node) => node.textContent === 'Refresh'), 'header actions should render');
+  assert.equal(calls[0], '/v1/ultraestimate/estimates');
+  assert.match(pane.textContent, /EST-1001/);
+  assert.match(pane.textContent, /Records/);
+});
+
+test('app: selecting a server extension activates its module loader', async () => {
+  const { window } = loadFullApp();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const activations = [];
+  window.AgixtDesktopExtensions = {
+    activate: async (id) => { activations.push(id); },
+    reflowSidenav: () => {},
+  };
+  const btn = window.document.createElement('button');
+  btn.className = 'sidenav-btn';
+  btn.dataset.view = 'dashboard';
+  window.document.querySelector('.sidenav-top').appendChild(btn);
+
+  const pane = window.document.createElement('div');
+  pane.className = 'view-pane view-pane-extension';
+  pane.dataset.view = 'dashboard';
+  pane.hidden = true;
+  window.document.querySelector('.chat-screen-main').appendChild(pane);
+
+  window.AgixtSidenav.setActiveView('dashboard');
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  assert.equal(pane.hidden, false, 'extension pane should be visible');
+  assert.deepEqual(activations, ['dashboard']);
+  window.AgixtChat.disconnect();
 });
 
 test('app: extension context is sent hidden from the displayed user message', async () => {
