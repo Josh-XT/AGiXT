@@ -10,16 +10,16 @@ window.AgixtCrudExtension.register({
   searchKeys: ['title', 'message', 'notification_type', 'created_by_email'],
   columns: [
     { key: 'title', label: 'Title' },
-    { key: 'notification_type', label: 'Type' },
+    { key: 'notification_type', label: 'Type', format: 'status' },
     { key: 'created_by_email', label: 'Created By' },
     { key: 'created_at', label: 'Created', format: 'datetime' },
     { key: 'expires_at', label: 'Expires', format: 'datetime' },
     { key: 'is_active', label: 'Active', format: 'bool' },
   ],
   summary: [
-    { label: 'Active', value: (rows) => rows.filter((r) => r.is_active).length },
-    { label: 'Critical', value: (rows) => rows.filter((r) => r.notification_type === 'critical').length },
-    { label: 'Warnings', value: (rows) => rows.filter((r) => r.notification_type === 'warning').length },
+    { label: 'Active', value: (rows) => rows.filter((r) => r.is_active).length, tone: 'good' },
+    { label: 'Critical', value: (rows) => rows.filter((r) => r.notification_type === 'critical').length, tone: 'bad' },
+    { label: 'Warnings', value: (rows) => rows.filter((r) => r.notification_type === 'warning').length, tone: 'warn' },
   ],
   fields: [
     { key: 'title', label: 'Title', required: true },

@@ -444,23 +444,98 @@
 
   async function handlePaymentRequired(reason) {
     console.warn('AGiXT billing action required.', reason || {});
-    showScreen('chat');
-    try {
-      if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
-        window.AgixtSidenav.setActiveView('user-settings');
-      }
-      if (window.UserSettings && typeof window.UserSettings.setActiveTab === 'function') {
-        window.UserSettings.setActiveTab('billing');
-      }
-    } catch (_) {}
+    const detail = (reason && reason.body && (reason.body.detail || reason.body.error || reason.body.message))
+      || 'This account needs a billing top-up or active subscription to continue.';
+    showSessionOverlay({
+      kind: 'payment',
+      title: 'Billing Action Required',
+      body: detail,
+      hint: "We'll take you to Billing so you can resolve it.",
+      actions: [
+        {
+          label: 'Open Billing',
+          primary: true,
+          onClick() {
+            try {
+              if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
+                window.AgixtSidenav.setActiveView('user-settings');
+              }
+              if (window.UserSettings && typeof window.UserSettings.setActiveTab === 'function') {
+                window.UserSettings.setActiveTab('billing');
+              }
+            } catch (_) {}
+          },
+        },
+        { label: 'Dismiss' },
+      ],
+    });
   }
 
   async function handleServerIssue(reason) {
     console.warn('AGiXT server returned an outage/error status.', reason || {});
-    const detail = reason && reason.body && (reason.body.detail || reason.body.error || reason.body.message);
+    const detail = (reason && reason.body && (reason.body.detail || reason.body.error || reason.body.message))
+      || 'AGiXT server is temporarily unavailable. Please try again shortly.';
+    const status = reason && reason.status;
+    showSessionOverlay({
+      kind: 'server-issue',
+      title: status ? `Server Error · ${status}` : 'Connection Issue',
+      body: typeof detail === 'string' ? detail : 'AGiXT server returned an unexpected response.',
+      hint: 'Your work is saved. The connection indicator will turn green when the server recovers.',
+      actions: [
+        { label: 'Retry', primary: true, onClick() { try { window.location.reload(); } catch (_) {} } },
+        { label: 'Dismiss' },
+      ],
+    });
     if (typeof setSettingsStatus === 'function') {
-      setSettingsStatus(detail || 'AGiXT server is unavailable. Please try again shortly.', 'error');
+      setSettingsStatus(detail, 'error');
     }
+  }
+
+  function showSessionOverlay(opts) {
+    const id = 'agixt-session-overlay';
+    const existing = document.getElementById(id);
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.id = id;
+    overlay.className = 'session-overlay';
+    overlay.dataset.kind = opts.kind || 'info';
+    const iconHtml = {
+      payment: '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>',
+      'server-issue': '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.73 18l-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+      auth: '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>',
+    }[opts.kind] || '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+    const actions = (opts.actions || []).map((a, i) => (
+      `<button class="${a.primary ? 'session-overlay-primary' : 'session-overlay-btn'}" data-overlay-idx="${i}">${escapeHtml(a.label || 'OK')}</button>`
+    )).join('');
+    overlay.innerHTML = [
+      '<div class="session-overlay-card" role="alertdialog" aria-modal="true">',
+      '  <div class="session-overlay-icon">' + iconHtml + '</div>',
+      '  <h2 class="session-overlay-title">' + escapeHtml(opts.title || '') + '</h2>',
+      '  <p class="session-overlay-body">' + escapeHtml(opts.body || '') + '</p>',
+      opts.hint ? '  <p class="session-overlay-hint">' + escapeHtml(opts.hint) + '</p>' : '',
+      '  <div class="session-overlay-actions">' + actions + '</div>',
+      '</div>',
+    ].join('');
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    overlay.querySelectorAll('[data-overlay-idx]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const action = (opts.actions || [])[Number(btn.dataset.overlayIdx)];
+        try { if (action && typeof action.onClick === 'function') action.onClick(); } catch (_) {}
+        close();
+      });
+    });
+    requestAnimationFrame(() => overlay.classList.add('is-open'));
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   // ----- Agent & company selectors ----------------------------------------
@@ -1198,19 +1273,24 @@
     modal.innerHTML = [
       '<div class="modal-card share-modal-card" role="dialog" aria-modal="true" aria-labelledby="share-modal-title">',
       '  <div class="modal-header">',
-      '    <h2 id="share-modal-title">Share Conversation</h2>',
-      '    <button class="modal-close" type="button" aria-label="Close">x</button>',
+      '    <div>',
+      '      <h2 id="share-modal-title">Share Conversation</h2>',
+      '      <p class="share-modal-sub">Generate a link or download the transcript.</p>',
+      '    </div>',
+      '    <button class="modal-close" type="button" aria-label="Close">',
+      '      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+      '    </button>',
       '  </div>',
       '  <div class="modal-body share-modal-body">',
-      '    <label class="field"><span>Share type</span><select id="share-type"><option value="public">Public link</option><option value="email">Specific user by email</option></select></label>',
-      '    <label class="field" id="share-email-wrap" hidden><span>Email</span><input type="email" id="share-email" placeholder="user@example.com"></label>',
-      '    <label class="field check"><input type="checkbox" id="share-workspace"><span>Include workspace files</span></label>',
-      '    <label class="field"><span>Expiration</span><input type="datetime-local" id="share-expiry"></label>',
+      '    <label class="field"><span>Share Type</span><select id="share-type"><option value="public">Anyone with the link</option><option value="email">A specific user by email</option></select></label>',
+      '    <label class="field" id="share-email-wrap" hidden><span>Recipient Email</span><input type="email" id="share-email" placeholder="user@example.com"></label>',
+      '    <label class="field check"><input type="checkbox" id="share-workspace"><span>Include workspace files in the share</span></label>',
+      '    <label class="field"><span>Expires (optional)</span><input type="datetime-local" id="share-expiry"></label>',
       '    <div class="settings-status" id="share-status"></div>',
-      '    <label class="field" id="share-result-wrap" hidden><span>Share link</span><input type="text" id="share-result" readonly></label>',
+      '    <label class="field" id="share-result-wrap" hidden><span>Share Link</span><input type="text" id="share-result" readonly></label>',
       '    <div class="field-actions">',
       '      <button class="btn" id="share-export" type="button">Export JSON</button>',
-      '      <div><button class="btn" id="share-cancel" type="button">Cancel</button> <button class="btn btn-primary" id="share-create" type="button">Create link</button></div>',
+      '      <div><button class="btn" id="share-cancel" type="button">Cancel</button> <button class="btn btn-primary" id="share-create" type="button">Create Link</button></div>',
       '    </div>',
       '  </div>',
       '</div>',

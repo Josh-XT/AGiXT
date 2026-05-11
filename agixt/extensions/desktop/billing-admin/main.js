@@ -17,11 +17,13 @@ window.AgixtCrudExtension.register({
         { key: 'companies_no_balance', label: 'No Balance' },
         { key: 'suspended_companies', label: 'Suspended' },
       ],
+      showRecordCount: false,
       summary: [
-        { label: 'Companies', value: 'total_companies' },
-        { label: 'Users', value: 'total_users' },
-        { label: 'USD Balance', value: (rows, raw) => Number(raw && raw.total_usd_balance || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' }) },
-        { label: 'Suspended', value: 'suspended_companies' },
+        { label: 'Companies', value: 'total_companies', tone: 'accent' },
+        { label: 'Users', value: 'total_users', tone: 'accent' },
+        { label: 'USD Balance', value: (rows, raw) => Number(raw && raw.total_usd_balance || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' }), tone: 'good' },
+        { label: 'No Balance', value: 'companies_no_balance', tone: 'warn' },
+        { label: 'Suspended', value: 'suspended_companies', tone: 'bad' },
       ],
       globalActions: [
         {
@@ -74,8 +76,8 @@ window.AgixtCrudExtension.register({
       columns: [
         { key: 'name', label: 'Name' },
         { key: 'email', label: 'Email' },
-        { key: 'users', label: 'Users', render: (value) => Array.isArray(value) ? String(value.length) : '0' },
-        { key: 'token_balance_usd', label: 'USD Balance', format: 'currency' },
+        { key: 'users', label: 'Users', align: 'right', render: (value) => '<span class="dc-num">' + (Array.isArray(value) ? value.length : '0') + '</span>' },
+        { key: 'token_balance_usd', label: 'USD Balance', align: 'right', format: 'currency' },
         { key: 'status', label: 'Active', format: 'bool' },
       ],
       fields: [

@@ -2102,8 +2102,22 @@ body.window-mode.chat-collapsed .chat-resize-handle {
   overflow: hidden;
   box-shadow: var(--shadow);
 }
-.share-modal-card { max-width: 520px; }
+.share-modal-card {
+  max-width: 540px;
+  border-radius: 12px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+  animation: share-modal-pop 0.18s cubic-bezier(.2, .9, .3, 1.2);
+}
+@keyframes share-modal-pop {
+  from { transform: scale(0.96) translateY(8px); opacity: 0; }
+  to { transform: scale(1) translateY(0); opacity: 1; }
+}
 .modal-close {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
   color: var(--text-dim);
@@ -2111,21 +2125,125 @@ body.window-mode.chat-collapsed .chat-resize-handle {
   font: inherit;
   font-size: 16px;
   line-height: 1;
+  border-radius: 6px;
+  transition: background 0.12s, color 0.12s;
 }
-.modal-close:hover { color: var(--text); }
+.modal-close:hover { color: var(--text); background: var(--panel-2); }
+.share-modal-card .modal-header {
+  padding: 16px 18px;
+  background: var(--panel);
+}
+.share-modal-card .modal-header h2 {
+  font-size: 15px;
+  font-weight: 700;
+}
+.share-modal-sub {
+  margin: 4px 0 0;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.share-modal-body { padding: 18px; gap: 14px; }
 .share-modal-body select,
 .share-modal-body input[type="email"],
+.share-modal-body input[type="text"],
 .share-modal-body input[type="datetime-local"] {
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 7px 9px;
+  border-radius: 8px;
+  padding: 9px 11px;
   font-family: inherit;
-  font-size: 12px;
+  font-size: 13px;
+  transition: border-color 0.14s, box-shadow 0.14s;
+}
+.share-modal-body select:focus,
+.share-modal-body input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(107, 123, 255, 0.18);
+}
+.share-modal-body select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23a1a7b5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 10px 10px;
+}
+.share-modal-body .field { gap: 6px; }
+.share-modal-body .field > span:first-child {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+.share-modal-body .field.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.share-modal-body .field.check span {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  padding-top: 0;
+}
+.share-modal-body .field.check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
 }
 .share-modal-body input[readonly] {
   user-select: all;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent-blue);
+  background: var(--panel);
+}
+.share-modal-body .settings-status {
+  font-size: 12px;
+  min-height: 16px;
+  padding: 0 2px;
+}
+.share-modal-body .settings-status.success { color: #9ce0b3; }
+.share-modal-body .settings-status.error { color: #ff8a96; }
+.share-modal-body .field-actions {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-muted);
+}
+.share-modal-card .btn {
+  border-radius: 8px;
+  padding: 9px 14px;
+  font-size: 12.5px;
+  transition: filter 0.14s, background 0.14s, transform 0.08s;
+}
+.share-modal-card .btn:active { transform: translateY(0.5px); }
+.share-modal-card .btn-primary {
+  box-shadow: 0 1px 2px rgba(0,0,0,0.25), 0 1px 0 rgba(255,255,255,0.08) inset;
+}
+.share-modal-card .btn-primary:hover {
+  filter: brightness(1.08);
+  background: var(--accent);
+  box-shadow: 0 2px 6px rgba(107, 123, 255, 0.32), 0 1px 0 rgba(255,255,255,0.12) inset;
+}
+.share-modal-card .btn:not(.btn-primary):not(.btn-danger) {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.share-modal-card .btn:not(.btn-primary):not(.btn-danger):hover {
+  background: var(--panel-hover);
 }
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -2134,6 +2252,116 @@ body.window-mode.chat-collapsed .chat-resize-handle {
 }
 .modal-header h2 { margin: 0; font-size: 14px; }
 .modal-body { padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+
+/* Session overlay — blocking screen for billing/server-issue/auth events.
+   Renders centered above all chrome and dims the rest of the app. */
+.session-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--modal-backdrop);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.session-overlay.is-open { opacity: 1; }
+.session-overlay-card {
+  width: min(440px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px 26px;
+  text-align: center;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255, 255, 255, 0.06) inset;
+  transform: scale(0.96) translateY(8px);
+  opacity: 0;
+  animation: session-pop 0.22s 0.04s cubic-bezier(.2, .9, .3, 1.2) forwards;
+}
+@keyframes session-pop {
+  to { transform: scale(1) translateY(0); opacity: 1; }
+}
+.session-overlay-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.session-overlay[data-kind="payment"] .session-overlay-icon {
+  background: rgba(232, 167, 68, 0.18);
+  color: #ffd28a;
+}
+.session-overlay[data-kind="server-issue"] .session-overlay-icon {
+  background: rgba(220, 60, 80, 0.18);
+  color: #ff8a96;
+}
+.session-overlay[data-kind="auth"] .session-overlay-icon {
+  background: rgba(91, 142, 255, 0.18);
+  color: var(--accent-blue);
+}
+.session-overlay-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.session-overlay-body {
+  margin: 0 0 8px;
+  color: var(--text-dim);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.session-overlay-hint {
+  margin: 0 0 20px;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.session-overlay-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.session-overlay-btn,
+.session-overlay-primary {
+  height: 38px;
+  padding: 0 18px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.14s, filter 0.14s, transform 0.08s, box-shadow 0.14s;
+}
+.session-overlay-btn {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.session-overlay-btn:hover { background: var(--panel-hover); }
+.session-overlay-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25), 0 1px 0 rgba(255, 255, 255, 0.08) inset;
+}
+.session-overlay-primary:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 2px 6px rgba(107, 123, 255, 0.32), 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+}
+.session-overlay-btn:active,
+.session-overlay-primary:active { transform: translateY(0.5px); }
 
 .ext-load-error {
   margin: 16px;

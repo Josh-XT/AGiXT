@@ -411,38 +411,234 @@
     const style = document.createElement('style');
     style.id = 'shared-conversations-styles';
     style.textContent = `
-      .scv-shell { height: 100%; display: flex; flex-direction: column; min-height: 0; background: var(--bg); color: var(--text); }
-      .scv-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
-      .scv-head h1, .scv-conv-head h2, .scv-panel-head h2 { margin: 0; font-size: 16px; }
-      .scv-head p, .scv-conv-head p { margin: 4px 0 0; color: var(--text-dim); font-size: 12px; }
-      .scv-open { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
-      .scv-input { flex: 1; min-width: 0; border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 8px; padding: 9px 10px; font: inherit; }
-      .scv-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 12px; padding: 12px; }
-      .scv-panel { min-height: 0; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
-      .scv-panel-head { padding: 12px; border-bottom: 1px solid var(--border); }
-      .scv-share { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border-muted); }
-      .scv-share span { display: block; color: var(--text-dim); font-size: 11px; margin-top: 3px; }
-      .scv-btn, .scv-primary { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 12px; font-weight: 700; color: var(--text); background: var(--panel-2); cursor: pointer; }
-      .scv-primary { border-color: transparent; color: #fff; background: var(--accent); }
-      .scv-btn:disabled { opacity: .45; cursor: default; }
-      .scv-empty { padding: 18px; color: var(--text-dim); font-size: 13px; }
-      .scv-empty.error { color: #ff8a96; }
-      .scv-conv-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px; border-bottom: 1px solid var(--border); }
-      .scv-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-      .scv-messages { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
-      .scv-message { border: 1px solid var(--border-muted); border-radius: 8px; background: var(--panel-2); padding: 10px; }
-      .scv-message.user { background: var(--accent-soft); }
-      .scv-role { color: var(--text-faint); font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 6px; }
-      .scv-body { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+      .scv-shell {
+        height: 100%; display: flex; flex-direction: column; min-height: 0;
+        background: var(--bg); color: var(--text);
+      }
+      .scv-head {
+        display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+      }
+      .scv-head > div { min-width: 0; }
+      .scv-head h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+      .scv-head p {
+        margin: 6px 0 0; color: var(--text-faint);
+        font-size: 13px; line-height: 1.5; max-width: 540px;
+      }
+      .scv-conv-head h2, .scv-panel-head h2 {
+        margin: 0; font-size: 14px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.06em;
+        color: var(--text-faint);
+      }
+      .scv-conv-head p { margin: 6px 0 0; color: var(--text-dim); font-size: 12.5px; }
+
+      .scv-open {
+        display: flex; gap: 10px; padding: 14px 24px;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel-2);
+      }
+      .scv-input {
+        flex: 1; min-width: 0;
+        border: 1px solid var(--border);
+        background: var(--panel); color: var(--text);
+        border-radius: 8px; padding: 10px 12px;
+        font: inherit; font-size: 13px;
+        transition: border-color 0.14s, box-shadow 0.14s;
+      }
+      .scv-input:focus {
+        outline: none; border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(107, 123, 255, 0.18);
+      }
+
+      .scv-grid {
+        flex: 1; min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+        gap: 16px; padding: 16px 24px 24px;
+      }
+      .scv-panel {
+        min-height: 0; overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel);
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 4px 18px rgba(0, 0, 0, 0.18);
+      }
+      .scv-panel-head {
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel-2);
+      }
+
+      .scv-share {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 10px; padding: 12px 14px;
+        border-bottom: 1px solid var(--border-muted);
+        cursor: pointer;
+        transition: background 0.10s;
+      }
+      .scv-share:hover { background: var(--panel-hover); }
+      .scv-share:last-child { border-bottom: 0; }
+      .scv-share > div { min-width: 0; flex: 1; }
+      .scv-share strong {
+        display: block; font-size: 13.5px; font-weight: 600; color: var(--text);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .scv-share span {
+        display: block; color: var(--text-faint);
+        font-size: 11.5px; margin-top: 4px;
+      }
+
+      .scv-btn, .scv-primary {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 14px;
+        font: inherit; font-size: 12.5px; font-weight: 600;
+        color: var(--text); background: var(--panel-2);
+        cursor: pointer;
+        transition: background 0.14s, border-color 0.14s, color 0.14s, transform 0.08s, box-shadow 0.14s;
+        display: inline-flex; align-items: center; gap: 6px;
+        white-space: nowrap;
+      }
+      .scv-btn:hover { background: var(--panel-hover); }
+      .scv-btn:active, .scv-primary:active { transform: translateY(0.5px); }
+      .scv-primary {
+        border-color: var(--accent);
+        color: #fff; background: var(--accent);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25), 0 1px 0 rgba(255,255,255,0.08) inset;
+      }
+      .scv-primary:hover {
+        filter: brightness(1.08);
+        box-shadow: 0 2px 6px rgba(107, 123, 255, 0.32), 0 1px 0 rgba(255,255,255,0.12) inset;
+      }
+      .scv-btn:disabled, .scv-primary:disabled { opacity: 0.45; cursor: default; transform: none; }
+
+      .scv-empty {
+        padding: 36px 20px; text-align: center;
+        color: var(--text-faint); font-size: 13px;
+        line-height: 1.5;
+      }
+      .scv-empty.error {
+        color: #ff8a96;
+        background: rgba(220, 60, 80, 0.10);
+        border: 1px solid rgba(220, 60, 80, 0.3);
+        border-radius: 10px;
+        margin: 14px;
+        padding: 16px;
+      }
+
+      .scv-conv-head {
+        display: flex; align-items: flex-start; justify-content: space-between;
+        gap: 16px; padding: 18px 20px;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel-2);
+      }
+      .scv-conv-head > div { min-width: 0; flex: 1; }
+      .scv-conv-head h2 {
+        font-size: 18px; font-weight: 700;
+        text-transform: none; letter-spacing: -0.01em;
+        color: var(--text);
+      }
+      .scv-actions {
+        display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px;
+      }
+
+      .scv-messages {
+        padding: 16px; display: flex; flex-direction: column; gap: 12px;
+      }
+      .scv-message {
+        border: 1px solid var(--border-muted);
+        border-radius: 10px;
+        background: var(--panel-2);
+        padding: 12px 14px;
+        transition: border-color 0.12s;
+      }
+      .scv-message:hover { border-color: var(--border); }
+      .scv-message.user {
+        background: var(--accent-soft);
+        border-color: rgba(107, 123, 255, 0.35);
+      }
+      .scv-role {
+        color: var(--text-faint); font-size: 10.5px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px;
+      }
+      .scv-message.user .scv-role { color: var(--accent); }
+      .scv-body { font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
       .scv-body pre { white-space: pre-wrap; margin: 0; font-family: var(--font); }
-      .scv-children { margin-top: 8px; }
-      .scv-workspace { margin: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); }
-      .scv-workspace-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px; border-bottom: 1px solid var(--border); }
+      .scv-body code {
+        background: var(--code-bg); padding: 1px 6px;
+        border-radius: 4px; font-family: var(--mono); font-size: 12px;
+      }
+      .scv-children {
+        margin-top: 10px;
+        border-top: 1px solid var(--border-muted);
+        padding-top: 8px;
+      }
+      .scv-children summary {
+        cursor: pointer;
+        font-size: 11.5px; color: var(--text-faint);
+        text-transform: uppercase; letter-spacing: 0.05em;
+        padding: 4px 0;
+      }
+      .scv-children summary:hover { color: var(--text-dim); }
+
+      .scv-workspace {
+        margin: 16px; border: 1px solid var(--border);
+        border-radius: 10px; background: var(--panel-2);
+        overflow: hidden;
+      }
+      .scv-workspace-head {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 10px; padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+      }
+      .scv-workspace-head strong {
+        font-family: var(--mono); font-size: 12px;
+        color: var(--text-dim);
+      }
+      .scv-workspace-head > div { display: flex; gap: 6px; }
       .scv-files { display: flex; flex-direction: column; }
-      .scv-file { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 10px; align-items: center; border: 0; border-bottom: 1px solid var(--border-muted); background: transparent; color: var(--text); text-align: left; padding: 9px 10px; cursor: pointer; }
-      .scv-file span, .scv-file em { color: var(--text-faint); font-size: 11px; font-style: normal; }
-      .scv-file strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-      @media (max-width: 900px) { .scv-grid { grid-template-columns: 1fr; } }
+      .scv-file {
+        display: grid;
+        grid-template-columns: 70px minmax(0, 1fr) auto;
+        gap: 12px; align-items: center;
+        border: 0; border-bottom: 1px solid var(--border-muted);
+        background: transparent; color: var(--text);
+        text-align: left; padding: 11px 14px;
+        cursor: pointer;
+        font: inherit;
+        transition: background 0.10s;
+      }
+      .scv-file:hover { background: var(--panel-hover); }
+      .scv-file:last-child { border-bottom: 0; }
+      .scv-file span {
+        font-size: 10.5px; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.05em;
+        color: var(--text-faint);
+        padding: 2px 8px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--panel);
+        text-align: center;
+      }
+      .scv-file em {
+        color: var(--text-faint); font-size: 11.5px; font-style: normal;
+        font-variant-numeric: tabular-nums;
+      }
+      .scv-file strong {
+        min-width: 0; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; font-size: 13px;
+      }
+
+      @media (max-width: 900px) {
+        .scv-grid { grid-template-columns: 1fr; padding: 12px 16px 16px; }
+        .scv-head, .scv-open { padding-left: 16px; padding-right: 16px; }
+      }
+
+      :root[data-theme="light"] .scv-empty.error { color: #b3293f; }
+      :root[data-theme="light"] .scv-children summary:hover { color: var(--text); }
     `;
     document.head.appendChild(style);
   }
