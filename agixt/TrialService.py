@@ -405,20 +405,17 @@ class TrialService:
 
             # For tiered_plan pricing, set the trial plan_id from pricing config
             # but only if the company doesn't already have a paid subscription
-            pricing_config = self._get_pricing_config()
-            pricing_model = (
-                pricing_config.get("pricing_model") if pricing_config else "per_token"
-            )
+            pricing_config = self._get_pricing_config() or {}
+            pricing_model = pricing_config.get("pricing_model", "per_token")
+            trial_config = pricing_config.get("trial", {})
+            trial_plan_id = trial_config.get("plan_id", "starter")
             has_paid_subscription = (
                 company.stripe_subscription_id
                 and company.plan_id
-                and company.plan_id
-                != pricing_config.get("trial", {}).get("plan_id", "starter")
+                and company.plan_id != trial_plan_id
             )
 
             if pricing_model == "tiered_plan" and not has_paid_subscription:
-                trial_config = pricing_config.get("trial", {})
-                trial_plan_id = trial_config.get("plan_id", "starter")
                 # Set plan directly on the company object in the same session
                 # instead of calling set_company_plan which opens a new session
                 tier = None
@@ -441,7 +438,6 @@ class TrialService:
                     # Fallback: just set the plan_id
                     company.plan_id = trial_plan_id
             elif pricing_model == "per_bed" and not has_paid_subscription:
-                trial_config = pricing_config.get("trial", {})
                 trial_beds = trial_config.get("units", 5)
                 company.bed_limit = trial_beds
                 company.plan_id = f"per_bed_{trial_beds}"
@@ -458,12 +454,15 @@ class TrialService:
             except Exception as e:
                 logging.warning(f"Could not calculate token amount for trial: {e}")
 
+            # Record the USD trial balance even when token pricing is disabled.
+            # Tiered/bed plan access checks use token_balance_usd as the trial
+            # credit balance, while token_balance is only available when a
+            # per-token price can be converted to token quantity.
+            company.token_balance_usd = (company.token_balance_usd or 0) + credits_usd
+
             # Add tokens directly on the same session to avoid DB locking
             if tokens_granted > 0:
                 company.token_balance = (company.token_balance or 0) + tokens_granted
-                company.token_balance_usd = (
-                    company.token_balance_usd or 0
-                ) + credits_usd
 
             # Reactivate any inactive users in this company
             from DB import User, UserCompany

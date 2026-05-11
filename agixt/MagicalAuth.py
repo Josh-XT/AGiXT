@@ -1883,6 +1883,9 @@ class MagicalAuth:
                 session.commit()
                 return {"error": "Invalid username or password", "status_code": 401}
 
+            payment_required = False
+            payment_context = {}
+
             # Check if user is active
             if not user.is_active:
                 # Check if user's company now has sufficient billing balance
@@ -1897,6 +1900,18 @@ class MagicalAuth:
                 ):
                     user.is_active = True
                     session.commit()
+                elif user_companies:
+                    pricing_config = _get_cached_pricing_config()
+                    pricing_model = (
+                        pricing_config.get("pricing_model")
+                        if pricing_config
+                        else "per_token"
+                    )
+                    payment_required = True
+                    payment_context = {
+                        "pricing_model": pricing_model,
+                        "company_id": str(user_companies[0].company_id),
+                    }
                 else:
                     return {
                         "error": "Account is not active. Please complete payment or contact support.",
@@ -1953,6 +1968,8 @@ class MagicalAuth:
                 "user_id": str(user.id),
                 "email": user.email,
                 "username": user.username,
+                "payment_required": payment_required,
+                **payment_context,
                 "status_code": 200,
             }
 

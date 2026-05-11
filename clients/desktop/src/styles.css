@@ -1516,7 +1516,18 @@ body.window-mode.chat-collapsed .chat-resize-handle {
   width: 100%;
   align-items: center;
 }
-.sidenav-top { flex: 1 1 auto; }
+/* `min-height: 0` lets the top group shrink below its natural content
+   size when the window is short — without it the flex item floors at
+   `min-height: auto` (content size) and pushes the bottom group
+   off-screen. `overflow: hidden` clips any tail buttons before the JS
+   overflow pass swaps them into the "···" popover, and is what makes
+   `scrollHeight > clientHeight` observable so the reflow can detect
+   the overflow in the first place. */
+.sidenav-top {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
 .sidenav-bottom { flex: 0 0 auto; }
 
 /* Brand mark slot at the top of the sidenav. Decorative — chat is

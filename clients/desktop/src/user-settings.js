@@ -1327,26 +1327,39 @@
       panel.appendChild(section('Billing', null, [el('p', { class: 'us-hint' }, 'Billing is disabled for this deployment.')]));
       return;
     }
-    let user;
+    const settings = await loadDesktopSettings(true);
+    let user = null;
+    let userLoadError = null;
     try { user = await loadUser(); } catch (err) {
+      userLoadError = err;
+    }
+
+    let activeCompany = null;
+    let paymentOnly = false;
+    if (user && user.companies && user.companies.length) {
+      // Pick the active / primary company. The user can switch via the topbar
+      // selector before opening this panel.
+      activeCompany = (settings && settings.company_id
+        ? user.companies.find((c) => c.id === settings.company_id)
+        : null) || user.companies.find((c) => c.primary) || user.companies[0];
+    } else if (settings && settings.company_id) {
+      paymentOnly = true;
+      activeCompany = {
+        id: settings.company_id,
+        name: settings.company_name || 'this company',
+      };
+    }
+
+    if (!activeCompany) {
       panel.innerHTML = '';
-      panel.appendChild(section('Billing', null, [el('p', { class: 'us-hint error' }, errMsg(err))]));
+      panel.appendChild(userLoadError
+        ? section('Billing', null, [el('p', { class: 'us-hint error' }, errMsg(userLoadError))])
+        : emptyState('No companies on this account.'));
       return;
     }
-    if (!user || !user.companies || !user.companies.length) {
-      panel.innerHTML = '';
-      panel.appendChild(emptyState('No companies on this account.'));
-      return;
-    }
-    // Pick the active / primary company. The user can switch via the topbar
-    // selector before opening this panel.
-    const settings = await loadDesktopSettings();
-    const activeCompany = (settings && settings.company_id
-      ? user.companies.find((c) => c.id === settings.company_id)
-      : null) || user.companies.find((c) => c.primary) || user.companies[0];
 
     panel.innerHTML = '';
-    if (!userCanAdminCompany(user, activeCompany.id)) {
+    if (!paymentOnly && !userCanAdminCompany(user, activeCompany.id)) {
       panel.appendChild(section('Billing', null, [
         el('p', { class: 'us-hint' },
           'You must be a company admin to view billing for ' + (activeCompany.name || 'this company') + '.'),
@@ -1360,7 +1373,9 @@
     const isTokenBased = !pricing || pricing.pricing_model === 'per_token';
 
     panel.appendChild(section('Billing for ' + (activeCompany.name || 'company'),
-      'Manage your ' + appName + ' subscription, credits, and payment history.',
+      paymentOnly
+        ? 'Complete billing to activate your ' + appName + ' account.'
+        : 'Manage your ' + appName + ' subscription, credits, and payment history.',
       [
         el('p', { class: 'us-hint' },
           'Pricing model: ' + (pricing ? pricing.pricing_model : 'unknown')),

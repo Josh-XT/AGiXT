@@ -276,6 +276,9 @@ async fn login_password(
         s.server_url = args.server_url.clone();
         s.jwt = Some(token.clone());
         s.user_email = Some(args.email.clone());
+        if let Some(company_id) = &resp.company_id {
+            s.company_id = Some(company_id.clone());
+        }
         state.store.save(&s).await.map_err(ToolError::from)?;
     }
     Ok(resp)
@@ -325,6 +328,9 @@ async fn register_account(
         s.server_url = args.server_url.clone();
         s.jwt = Some(token.clone());
         s.user_email = Some(args.email.clone());
+        if let Some(company_id) = &resp.company_id {
+            s.company_id = Some(company_id.clone());
+        }
         state.store.save(&s).await.map_err(ToolError::from)?;
     }
     Ok(resp)

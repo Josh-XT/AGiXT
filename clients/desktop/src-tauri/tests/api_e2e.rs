@@ -435,6 +435,35 @@ async fn login_password_passes_mfa_token_when_provided() {
 }
 
 #[tokio::test]
+async fn login_password_preserves_payment_required_context() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/login"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "detail": "Login successful",
+            "token": "limited-jwt",
+            "email": "trial@example.com",
+            "payment_required": true,
+            "pricing_model": "tiered_plan",
+            "company_id": "company-needs-payment",
+            "user_id": "user-uuid",
+            "username": "trial"
+        })))
+        .mount(&server)
+        .await;
+
+    let resp = api::login_password(&server.uri(), "trial@example.com", "pass", None)
+        .await
+        .unwrap();
+    assert_eq!(resp.token.as_deref(), Some("limited-jwt"));
+    assert_eq!(resp.payment_required, Some(true));
+    assert_eq!(resp.pricing_model.as_deref(), Some("tiered_plan"));
+    assert_eq!(resp.company_id.as_deref(), Some("company-needs-payment"));
+    assert_eq!(resp.user_id.as_deref(), Some("user-uuid"));
+    assert_eq!(resp.username.as_deref(), Some("trial"));
+}
+
+#[tokio::test]
 async fn request_magic_link_posts_email() {
     use wiremock::matchers::body_partial_json;
     let server = MockServer::start().await;

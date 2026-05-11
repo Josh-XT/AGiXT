@@ -528,6 +528,9 @@ async def login(request: Request, login: Login):
             "user_id": result.get("user_id"),
             "email": result.get("email"),
             "username": result.get("username"),
+            "payment_required": result.get("payment_required", False),
+            "pricing_model": result.get("pricing_model"),
+            "company_id": result.get("company_id"),
         },
     )
 

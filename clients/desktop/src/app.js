@@ -446,6 +446,7 @@
     console.warn('AGiXT billing action required.', reason || {});
     const detail = (reason && reason.body && (reason.body.detail || reason.body.error || reason.body.message))
       || 'This account needs a billing top-up or active subscription to continue.';
+    openBillingPane();
     showSessionOverlay({
       kind: 'payment',
       title: 'Billing Action Required',
@@ -455,20 +456,23 @@
         {
           label: 'Open Billing',
           primary: true,
-          onClick() {
-            try {
-              if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
-                window.AgixtSidenav.setActiveView('user-settings');
-              }
-              if (window.UserSettings && typeof window.UserSettings.setActiveTab === 'function') {
-                window.UserSettings.setActiveTab('billing');
-              }
-            } catch (_) {}
-          },
+          onClick() { openBillingPane(); },
         },
         { label: 'Dismiss' },
       ],
     });
+  }
+
+  function openBillingPane() {
+    try {
+      showScreen('chat');
+      if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
+        window.AgixtSidenav.setActiveView('user-settings');
+      }
+      if (window.UserSettings && typeof window.UserSettings.setActiveTab === 'function') {
+        window.UserSettings.setActiveTab('billing');
+      }
+    } catch (_) {}
   }
 
   async function handleServerIssue(reason) {
@@ -2198,11 +2202,26 @@
 
   // ----- Boot --------------------------------------------------------------
 
-  async function onAuthenticated() {
+  async function onAuthenticated(authContext) {
     await loadSettings();
-    if (window.AgixtSession && typeof window.AgixtSession.verifyCurrentSession === 'function') {
+    const paymentRequired = !!(authContext && authContext.payment_required);
+    if (!paymentRequired
+        && window.AgixtSession
+        && typeof window.AgixtSession.verifyCurrentSession === 'function') {
       const ok = await window.AgixtSession.verifyCurrentSession();
       if (!ok) return;
+    }
+    if (paymentRequired) {
+      await handlePaymentRequired({
+        status: 402,
+        body: {
+          detail: 'This account needs a billing top-up or active subscription to continue.',
+          pricing_model: authContext.pricing_model,
+          company_id: authContext.company_id,
+        },
+      });
+      scheduleDesktopAutoUpdateCheck();
+      return;
     }
     showScreen('chat');
     await refreshAgentsAndCompanies();

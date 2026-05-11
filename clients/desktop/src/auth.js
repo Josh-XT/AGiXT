@@ -8,8 +8,9 @@
  * links and OAuth callbacks return through `agixt://` deep links.
  *
  * Exposes `window.AgixtAuth.boot({onAuthenticated})` which the app shell
- * calls once on startup. When auth completes, `onAuthenticated()` fires
- * with no args; the caller swaps the auth screen for the chat screen.
+ * calls once on startup. When auth completes, `onAuthenticated(context)` fires
+ * with the login/register response so the caller can handle limited billing
+ * sessions.
  */
 (function () {
   const tauri = window.__TAURI__;
@@ -317,7 +318,7 @@
       if (resp.token) {
         await persistBrand();
         setStatus('Signed in.', 'success');
-        finish();
+        finish(resp);
         return;
       }
       if (resp.mfa_required) {
@@ -374,7 +375,7 @@
       if (resp.token) {
         await persistBrand();
         setStatus('Account created. Welcome!', 'success');
-        finish();
+        finish(resp);
         return;
       }
       setStatus('Registration completed but no token returned. Try signing in.', 'info');
@@ -394,8 +395,8 @@
     await invoke('save_settings', { settings });
   }
 
-  function finish() {
-    if (typeof onAuthenticatedCb === 'function') onAuthenticatedCb();
+  function finish(context) {
+    if (typeof onAuthenticatedCb === 'function') onAuthenticatedCb(context || null);
   }
 
   function prettyError(e) {

@@ -607,6 +607,22 @@ pub struct LoginResponse {
     /// Bare email echoed back, used to seed the MFA prompt.
     #[serde(default)]
     pub email: Option<String>,
+    /// `true` when the backend issued a limited JWT so the user can reach
+    /// billing while their account is still inactive.
+    #[serde(default)]
+    pub payment_required: Option<bool>,
+    /// Pricing model to choose the right billing action after inactive login.
+    #[serde(default)]
+    pub pricing_model: Option<String>,
+    /// Company that needs payment. Persisted so the billing tab can open even
+    /// if /v1/user is restricted for inactive accounts.
+    #[serde(default)]
+    pub company_id: Option<String>,
+    /// Flat login metadata returned by AGiXT; optional for older servers.
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub username: Option<String>,
 }
 
 pub async fn login_password(
