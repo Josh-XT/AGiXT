@@ -22,7 +22,7 @@
           var KNOWN = { light: 1, dark: 1, gray: 1 };
           var resolve = function (p) {
             if (p && KNOWN[p]) return p;
-            return prefersDark && prefersDark.matches ? 'dark' : 'light';
+            return prefersDark && prefersDark.matches ? 'gray' : 'light';
           };
           document.documentElement.setAttribute('data-theme', resolve(pref));
           if (prefersDark && typeof prefersDark.addEventListener === 'function') {

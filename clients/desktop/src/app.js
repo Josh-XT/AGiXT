@@ -211,7 +211,7 @@
     const choice = KNOWN.indexOf(pref) >= 0 ? pref : 'system';
     const resolved = choice === 'system'
       ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-          ? 'dark'
+          ? 'gray'
           : 'light')
       : choice;
     document.documentElement.setAttribute('data-theme', resolved);

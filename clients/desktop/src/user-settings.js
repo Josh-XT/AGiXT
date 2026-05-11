@@ -290,8 +290,8 @@
     const themeSelect = el('select', { class: 'us-select' }, [
       el('option', { value: 'system' }, 'Match system'),
       el('option', { value: 'light' }, 'Light'),
-      el('option', { value: 'dark' }, 'Dark'),
-      el('option', { value: 'gray' }, 'Dark gray'),
+      el('option', { value: 'gray' }, 'Dark'),
+      el('option', { value: 'dark' }, 'Dark Blue'),
     ]);
     themeSelect.value = settings.theme || 'system';
     themeSelect.addEventListener('change', async () => {
@@ -302,7 +302,7 @@
         // Apply live so the user sees the change immediately. The bootstrap
         // script in index.html mirrors this on next launch via localStorage.
         const resolved = value === 'system'
-          ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'gray' : 'light')
           : value;
         document.documentElement.setAttribute('data-theme', resolved);
         try { window.localStorage.setItem('agixt.theme', value); } catch (_) {}
@@ -839,8 +839,8 @@
     const themeSelect = el('select', { class: 'us-select' }, [
       el('option', { value: 'system' }, 'Match system'),
       el('option', { value: 'light' }, 'Light'),
-      el('option', { value: 'dark' }, 'Dark'),
-      el('option', { value: 'gray' }, 'Dark gray'),
+      el('option', { value: 'gray' }, 'Dark'),
+      el('option', { value: 'dark' }, 'Dark Blue'),
     ]);
     themeSelect.value = settings.theme || 'system';
     themeSelect.addEventListener('change', async () => {
@@ -848,7 +848,7 @@
       await invoke('save_settings', { settings: { ...settings, theme: value } });
       cache.desktopSettings = { ...settings, theme: value };
       const resolved = value === 'system'
-        ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'gray' : 'light')
         : value;
       document.documentElement.setAttribute('data-theme', resolved);
       try { window.localStorage.setItem('agixt.theme', value); } catch (_) {}

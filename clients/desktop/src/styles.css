@@ -63,10 +63,12 @@
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
-/* "Dark gray" — modeled on VSCode Dark Modern. Neutral grayscale chrome
- * (no blue tint) with the brand accent kept intact. Gives users a
- * lower-saturation alternative to the default deep-navy dark theme
- * without flipping to light. */
+/* "Dark" — modeled on VSCode Dark Modern. Neutral grayscale chrome (no
+ * blue tint) with the brand accent kept intact. This is the default dark
+ * variant the app resolves to from `system`; the deep-navy theme below
+ * (`data-theme="dark"`, labeled "Dark Blue" in settings) is an explicit
+ * opt-in for users who want the saturated blue palette. The internal
+ * value stays `gray` so existing saved preferences keep working. */
 :root[data-theme="gray"] {
   color-scheme: dark;
   --bg: #1f1f1f;
