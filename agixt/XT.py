@@ -2299,8 +2299,10 @@ Rules:
         # Run the prompt "Expert Determination" with the user input
         expert = await self.inference(
             user_input=user_input,
+            task=user_input,
             prompt_category="Default",
             prompt_name="Expert Determination",
+            disable_commands=True,
             log_output=False,
             log_user_input=False,
         )
@@ -2310,6 +2312,7 @@ Rules:
             job_title=expert,
             task=user_input,
             prompt_name="Prompt Generator",
+            disable_commands=True,
             log_output=False,
             log_user_input=False,
         )
@@ -2320,6 +2323,7 @@ Rules:
             introduction=primary_objective,
             prompt_category="Default",
             prompt_name="Title a Chain",
+            disable_commands=True,
             log_output=False,
             log_user_input=False,
         )
@@ -2338,10 +2342,11 @@ Rules:
             user_input=user_input,
             introduction=primary_objective,
             prompt_category="Default",
-            prompt_name="Break into Steps",
+            prompt_name="Break into steps",
             websearch=websearch,
             websearch_depth=websearch_depth,
             injected_memories=100,
+            disable_commands=True,
             log_output=False,
             log_user_input=False,
         )

@@ -1644,6 +1644,33 @@
     });
   }
 
+  // CSS `overflow-anchor: auto` on `.chat` pins to *some* visible element
+  // during reflow, but for a chat UI the desired anchor is almost always
+  // the bottom. When the user drags the resize handle (or the OS window
+  // resizes) the pane width changes, messages re-wrap, scrollHeight
+  // shifts, and the anchored element ends up partway up the viewport —
+  // i.e. the chat appears to scroll up. Track whether the user is pinned
+  // to the bottom on scroll events, and re-pin them after every resize.
+  (function installChatResizeAnchor() {
+    const scroll = document.getElementById('chat-scroll');
+    if (!scroll || typeof ResizeObserver !== 'function') return;
+    const NEAR_BOTTOM_PX = 30;
+    let pinnedToBottom = true;
+    const updatePinned = () => {
+      pinnedToBottom = (scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight) < NEAR_BOTTOM_PX;
+    };
+    scroll.addEventListener('scroll', updatePinned, { passive: true });
+    const ro = new ResizeObserver(() => {
+      if (pinnedToBottom) scroll.scrollTop = scroll.scrollHeight;
+    });
+    ro.observe(scroll);
+    // The messages list grows independently of the scroller (new
+    // messages, expanded activity blocks); reflow there also needs the
+    // same anchor-to-bottom behaviour when the user is parked there.
+    const list = document.getElementById('messages');
+    if (list) ro.observe(list);
+  })();
+
   // ----- Chat pane: resizable + collapsible -------------------------------
   // Drag the seam between chat and content to set chat width. Persists
   // to localStorage so the user's choice sticks across sessions.
