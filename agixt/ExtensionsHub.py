@@ -19,7 +19,7 @@ logging.basicConfig(
     format=getenv("LOG_FORMAT"),
 )
 
-# Global cache file location - written before workers spawn, read by workers
+# Global cache file location - written during startup/hub refresh, read by workers
 _EXTENSIONS_CACHE_FILE = os.path.join(
     os.path.dirname(__file__), ".extensions_cache.json"
 )
@@ -28,33 +28,48 @@ _EXTENSIONS_CACHE_FILE = os.path.join(
 _global_extension_paths: Optional[List[str]] = None
 _global_pricing_config: Optional[Dict[str, Any]] = None
 _global_cache_loaded: bool = False
+_global_cache_mtime: Optional[float] = None
 
 
 def _load_global_cache():
-    """Load the global cache from file into memory (called once per worker)."""
+    """Load or refresh the global cache from file into worker memory."""
     global _global_extension_paths, _global_pricing_config, _global_cache_loaded
+    global _global_cache_mtime
 
-    if _global_cache_loaded:
+    if not os.path.exists(_EXTENSIONS_CACHE_FILE):
+        if _global_cache_loaded:
+            _global_extension_paths = None
+            _global_pricing_config = None
+            _global_cache_loaded = False
+            _global_cache_mtime = None
         return
 
-    if os.path.exists(_EXTENSIONS_CACHE_FILE):
-        try:
-            with open(_EXTENSIONS_CACHE_FILE, "r") as f:
-                cache = json.load(f)
-                _global_extension_paths = cache.get("extension_paths")
-                _global_pricing_config = cache.get("pricing_config")
-                _global_cache_loaded = True
-                logging.debug(f"Loaded extensions cache from {_EXTENSIONS_CACHE_FILE}")
-        except Exception as e:
-            logging.warning(f"Failed to load extensions cache: {e}")
-            _global_cache_loaded = True  # Mark as loaded to avoid repeated failures
+    cache_mtime = os.path.getmtime(_EXTENSIONS_CACHE_FILE)
+    if _global_cache_loaded and _global_cache_mtime == cache_mtime:
+        return
+
+    try:
+        with open(_EXTENSIONS_CACHE_FILE, "r") as f:
+            cache = json.load(f)
+            _global_extension_paths = cache.get("extension_paths")
+            _global_pricing_config = cache.get("pricing_config")
+            _global_cache_loaded = True
+            _global_cache_mtime = cache_mtime
+            logging.debug(f"Loaded extensions cache from {_EXTENSIONS_CACHE_FILE}")
+    except Exception as e:
+        logging.warning(f"Failed to load extensions cache: {e}")
+        _global_extension_paths = None
+        _global_pricing_config = None
+        _global_cache_loaded = True  # Mark as loaded to avoid repeated failures
+        _global_cache_mtime = cache_mtime
 
 
 def _save_global_cache(
     extension_paths: List[str], pricing_config: Optional[Dict[str, Any]]
 ):
-    """Save the global cache to file (called during startup before workers spawn)."""
+    """Save the global cache to file."""
     global _global_extension_paths, _global_pricing_config, _global_cache_loaded
+    global _global_cache_mtime
 
     try:
         cache = {
@@ -68,6 +83,7 @@ def _save_global_cache(
         _global_extension_paths = extension_paths
         _global_pricing_config = pricing_config
         _global_cache_loaded = True
+        _global_cache_mtime = os.path.getmtime(_EXTENSIONS_CACHE_FILE)
 
         logging.info(f"Saved extensions cache to {_EXTENSIONS_CACHE_FILE}")
     except Exception as e:
@@ -77,10 +93,12 @@ def _save_global_cache(
 def invalidate_global_cache():
     """Invalidate the global cache (e.g., when extensions are updated)."""
     global _global_extension_paths, _global_pricing_config, _global_cache_loaded
+    global _global_cache_mtime
 
     _global_extension_paths = None
     _global_pricing_config = None
     _global_cache_loaded = False
+    _global_cache_mtime = None
 
     if os.path.exists(_EXTENSIONS_CACHE_FILE):
         try:
@@ -94,9 +112,8 @@ def initialize_global_cache():
     """
     Initialize the global extensions cache.
 
-    This should be called ONCE during application startup, BEFORE workers are spawned.
-    It computes extension paths and pricing config, then saves them to a cache file
-    that workers can quickly load.
+    This computes extension paths and pricing config, then saves them to a cache file
+    that workers can quickly load or refresh from when the file changes.
 
     Returns:
         Tuple of (extension_paths, pricing_config)
@@ -129,8 +146,8 @@ class ExtensionsHub:
         Initialize ExtensionsHub.
 
         Args:
-            skip_global_cache: If True, skip loading from global cache (used during
-                               initial setup before workers spawn)
+            skip_global_cache: If True, skip loading from global cache while building
+                               or refreshing that cache.
         """
         # Ensure we're cloning to the same directory that Extensions.py looks in
         self.extensions_dir = (
@@ -162,17 +179,15 @@ class ExtensionsHub:
         Returns:
             Dict with pricing configuration, or None if no pricing.json found
         """
+        # Check global cache first so long-lived instances see hub refreshes.
+        if not self._skip_global_cache:
+            _load_global_cache()
+            if _global_cache_loaded and _global_pricing_config is not None:
+                self._pricing_config_cache = _global_pricing_config
+                return self._pricing_config_cache
+
         # Check instance cache first
         if self._pricing_config_cache is not None:
-            return self._pricing_config_cache
-
-        # Check global cache (shared across workers)
-        if (
-            not self._skip_global_cache
-            and _global_cache_loaded
-            and _global_pricing_config is not None
-        ):
-            self._pricing_config_cache = _global_pricing_config
             return self._pricing_config_cache
 
         # Compute from scratch
@@ -279,23 +294,21 @@ class ExtensionsHub:
         Returns:
             List of absolute paths to search for extensions
         """
+        # Check global cache first so long-lived instances see hub refreshes.
+        if not self._skip_global_cache:
+            _load_global_cache()
+            if _global_cache_loaded and _global_extension_paths is not None:
+                self._extension_paths_cache = _global_extension_paths
+                # Still need to add to sys.path for this worker
+                import sys
+
+                for path in self._extension_paths_cache:
+                    if path not in sys.path:
+                        sys.path.insert(0, path)
+                return self._extension_paths_cache
+
         # Check instance cache first
         if self._extension_paths_cache is not None:
-            return self._extension_paths_cache
-
-        # Check global cache (shared across workers)
-        if (
-            not self._skip_global_cache
-            and _global_cache_loaded
-            and _global_extension_paths is not None
-        ):
-            self._extension_paths_cache = _global_extension_paths
-            # Still need to add to sys.path for this worker
-            import sys
-
-            for path in self._extension_paths_cache:
-                if path not in sys.path:
-                    sys.path.insert(0, path)
             return self._extension_paths_cache
 
         import sys

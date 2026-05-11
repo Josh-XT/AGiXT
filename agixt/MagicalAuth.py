@@ -147,6 +147,7 @@ def _get_price_service() -> PriceService:
 # Module-level cached pricing config from ExtensionsHub
 _cached_pricing_config = None
 _cached_pricing_config_time: float = 0
+_cached_pricing_config_mtime: Optional[float] = None
 _PRICING_CONFIG_TTL: float = 120  # 2 minutes
 
 
@@ -155,19 +156,27 @@ def _get_cached_pricing_config():
     Avoids constructing ExtensionsHub() + reading pricing.json on every call.
     """
     global _cached_pricing_config, _cached_pricing_config_time
+    global _cached_pricing_config_mtime
 
     now = _time.time()
+    from ExtensionsHub import _EXTENSIONS_CACHE_FILE, ExtensionsHub
+
+    try:
+        cache_mtime = os.path.getmtime(_EXTENSIONS_CACHE_FILE)
+    except OSError:
+        cache_mtime = None
+
     if (
         _cached_pricing_config is not None
         and now - _cached_pricing_config_time < _PRICING_CONFIG_TTL
+        and _cached_pricing_config_mtime == cache_mtime
     ):
         return _cached_pricing_config
-
-    from ExtensionsHub import ExtensionsHub
 
     hub = ExtensionsHub()
     _cached_pricing_config = hub.get_pricing_config()
     _cached_pricing_config_time = now
+    _cached_pricing_config_mtime = cache_mtime
     return _cached_pricing_config
 
 
@@ -8031,6 +8040,22 @@ class MagicalAuth:
                         "zip_code": getattr(company, "zip_code", None),
                         "country": getattr(company, "country", None),
                         "notes": getattr(company, "notes", None),
+                        "plan_id": getattr(company, "plan_id", None),
+                        "user_limit": getattr(company, "user_limit", None),
+                        "device_limit": getattr(company, "device_limit", None),
+                        "monthly_token_limit": getattr(
+                            company, "monthly_token_limit", None
+                        ),
+                        "storage_limit_bytes": getattr(
+                            company, "storage_limit_bytes", None
+                        ),
+                        "addon_users": getattr(company, "addon_users", 0) or 0,
+                        "addon_devices": getattr(company, "addon_devices", 0) or 0,
+                        "addon_tokens": getattr(company, "addon_tokens", 0) or 0,
+                        "addon_storage_bytes": getattr(
+                            company, "addon_storage_bytes", 0
+                        )
+                        or 0,
                         "token_balance": getattr(company, "token_balance", 0),
                         "token_balance_usd": getattr(company, "token_balance_usd", 0),
                         "users": list(unique_users.values()),

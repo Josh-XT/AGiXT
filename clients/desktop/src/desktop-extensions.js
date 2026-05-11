@@ -595,12 +595,38 @@
   // Re-run overflow handling on window resize. ResizeObserver is more
   // precise but window resize covers the cases we care about (height
   // changes), and works in jsdom-equivalent test envs that lack RO.
+  function scheduleReflow() {
+    clearTimeout(reflowSidenavOverflow._t);
+    reflowSidenavOverflow._t = setTimeout(reflowSidenavOverflow, 50);
+  }
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-    window.addEventListener('resize', () => {
-      // Coalesce bursts of resize events.
-      clearTimeout(reflowSidenavOverflow._t);
-      reflowSidenavOverflow._t = setTimeout(reflowSidenavOverflow, 50);
-    });
+    window.addEventListener('resize', scheduleReflow);
+  }
+  // ResizeObserver catches everything window.resize misses: chat-screen
+  // becoming visible after auth, topbar growing (e.g. error banner),
+  // `.sidenav-bottom` admin-slot churn squeezing `.sidenav-top`, etc.
+  // Without this the per-button reflow inside ensureSidenavBtn is the
+  // only trigger, and any of its early bails (zero clientHeight before
+  // paint, batched DOM inserts measuring before layout) leaves the rail
+  // truncated until the next manual resize.
+  if (typeof ResizeObserver === 'function') {
+    let _ro = null;
+    function attachObserver() {
+      const target = document.querySelector('.sidenav-top');
+      if (!target) return false;
+      if (_ro) _ro.disconnect();
+      _ro = new ResizeObserver(scheduleReflow);
+      _ro.observe(target);
+      const bottom = document.querySelector('.sidenav-bottom');
+      if (bottom) _ro.observe(bottom);
+      return true;
+    }
+    if (!attachObserver()) {
+      // .sidenav-top not in the DOM yet (auth screen still showing) —
+      // poll briefly until it appears.
+      const t = setInterval(() => { if (attachObserver()) clearInterval(t); }, 200);
+      setTimeout(() => clearInterval(t), 10000);
+    }
   }
 
   function wireDragSort(btn) {
