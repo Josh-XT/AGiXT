@@ -106,6 +106,27 @@ the first time you use the desktop-control tools or the mic.
 
 WebView2 is bundled with modern Windows; no extra setup.
 
+### Windows signing for release downloads
+
+Windows release artifacts must be Authenticode signed before upload. The
+`desktop-prewarm.yml` workflow builds the Windows binary without bundling,
+signs `agixt-desktop.exe`, bundles the installer, signs the installer, and
+verifies the selected artifact with `Get-AuthenticodeSignature`.
+
+Use one signing path:
+
+* Azure Artifact Signing: set repository variables
+  `AGIXT_WINDOWS_ARTIFACT_SIGNING_ENDPOINT`,
+  `AGIXT_WINDOWS_ARTIFACT_SIGNING_ACCOUNT`, and
+  `AGIXT_WINDOWS_ARTIFACT_SIGNING_CERTIFICATE_PROFILE`; set Azure auth secrets
+  `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`.
+* PFX/Authenticode certificate: set secrets `WINDOWS_CERTIFICATE_BASE64` and
+  `WINDOWS_CERTIFICATE_PASSWORD`, or set `WINDOWS_CERTIFICATE_THUMBPRINT` when
+  the cert is already installed on the Windows runner.
+
+`AGIXT_WINDOWS_SIGNING_REQUIRED` defaults to `true` in CI so unsigned Windows
+artifacts fail before they can be uploaded.
+
 ## Run
 
 ```bash

@@ -92,6 +92,67 @@ CHUNK_MAX_SIZE = 50 * 1024 * 1024  # 50MB per chunk
 CHUNK_UPLOAD_DIR = os.path.join(
     os.environ.get("AGIXT_HUB", os.path.expanduser("~/.agixt")), "tmp_uploads"
 )
+IMPORT_TASK_DIR = os.path.join(CHUNK_UPLOAD_DIR, "import_tasks")
+
+
+def _import_task_path(task_id: str) -> str:
+    try:
+        safe_task_id = str(uuid.UUID(str(task_id)))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=404, detail="Import task not found")
+    return os.path.join(IMPORT_TASK_DIR, f"{safe_task_id}.json")
+
+
+def _json_safe_task(task: dict) -> dict:
+    return json.loads(json.dumps(task, default=str))
+
+
+def _write_import_task(task_id: str, task: dict):
+    os.makedirs(IMPORT_TASK_DIR, exist_ok=True)
+    task_path = _import_task_path(task_id)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f"{task_id}.", suffix=".tmp", dir=IMPORT_TASK_DIR
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(_json_safe_task(task), f)
+        os.replace(tmp_path, task_path)
+    finally:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+
+
+def _read_import_task(task_id: str) -> dict | None:
+    task_path = _import_task_path(task_id)
+    try:
+        with open(task_path, "r", encoding="utf-8") as f:
+            task = json.load(f)
+        if isinstance(task, dict):
+            return task
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        logging.warning(f"Could not read import task {task_id}: {e}")
+    return None
+
+
+def _set_import_task(task_id: str, task: dict):
+    with _import_tasks_lock:
+        _import_tasks[task_id] = task
+        _write_import_task(task_id, task)
+
+
+def _update_import_task(task_id: str, updates: dict):
+    with _import_tasks_lock:
+        task = _import_tasks.get(task_id) or _read_import_task(task_id)
+        if not task:
+            return
+        task.update(updates)
+        _import_tasks[task_id] = task
+        _write_import_task(task_id, task)
 
 
 # Redis pub/sub channel for cross-worker WebSocket broadcasts
@@ -5665,17 +5726,16 @@ def _import_conversations_worker(
         else:
             parsed = _parse_claude_export(conversations_data, agent_name)
 
-        with _import_tasks_lock:
-            _import_tasks[task_id]["total_found"] = len(parsed)
+        _update_import_task(task_id, {"total_found": len(parsed)})
 
         if not parsed:
-            with _import_tasks_lock:
-                _import_tasks[task_id].update(
-                    {
-                        "status": "error",
-                        "error": "No conversations found in the export file",
-                    }
-                )
+            _update_import_task(
+                task_id,
+                {
+                    "status": "error",
+                    "error": "No conversations found in the export file",
+                },
+            )
             return
 
         # Build a set of existing conversation names for dedup
@@ -5747,15 +5807,15 @@ def _import_conversations_worker(
                 skipped_count += 1
 
             # Update progress after every conversation
-            with _import_tasks_lock:
-                _import_tasks[task_id].update(
-                    {
-                        "imported": imported_count,
-                        "skipped": skipped_count,
-                        "processed": i + 1,
-                        "errors": errors[:10] if errors else [],
-                    }
-                )
+            _update_import_task(
+                task_id,
+                {
+                    "imported": imported_count,
+                    "skipped": skipped_count,
+                    "processed": i + 1,
+                    "errors": errors[:10] if errors else [],
+                },
+            )
 
         # User-knowledge updates from bulk imports are intentionally skipped.
         # The original implementation reloaded summaries for up to 50 imported
@@ -5765,20 +5825,19 @@ def _import_conversations_worker(
         # offered little incremental value vs. the lazy summaries that get
         # generated when a user opens each imported conversation.
 
-        with _import_tasks_lock:
-            _import_tasks[task_id].update(
-                {
-                    "status": "complete",
-                    "imported": imported_count,
-                    "skipped": skipped_count,
-                    "processed": len(parsed),
-                    "errors": errors[:10] if errors else [],
-                }
-            )
+        _update_import_task(
+            task_id,
+            {
+                "status": "complete",
+                "imported": imported_count,
+                "skipped": skipped_count,
+                "processed": len(parsed),
+                "errors": errors[:10] if errors else [],
+            },
+        )
     except Exception as e:
         logging.error(f"Import task {task_id} failed: {e}")
-        with _import_tasks_lock:
-            _import_tasks[task_id].update({"status": "error", "error": str(e)})
+        _update_import_task(task_id, {"status": "error", "error": str(e)})
 
 
 def _stream_conversations_from_json_fp(fp) -> list:
@@ -5911,8 +5970,9 @@ def _start_import_task(
 ) -> dict:
     """Create an import task and start the background worker. Returns the response dict."""
     task_id = str(uuid.uuid4())
-    with _import_tasks_lock:
-        _import_tasks[task_id] = {
+    _set_import_task(
+        task_id,
+        {
             "status": "processing",
             "source": source,
             "total_found": len(conversations_data),
@@ -5922,7 +5982,8 @@ def _start_import_task(
             "errors": [],
             "error": None,
             "user": user,
-        }
+        },
+    )
 
     thread = threading.Thread(
         target=_import_conversations_worker,
@@ -6005,7 +6066,18 @@ async def upload_import_chunk(
     with open(chunk_path, "wb") as f:
         f.write(chunk_data)
 
-    # Track the upload
+    received_chunks = []
+    for i in range(total_chunks):
+        cp = os.path.realpath(os.path.join(upload_root, f"{upload_id}_chunk_{int(i)}"))
+        if os.path.commonpath([upload_root, cp]) != upload_root:
+            raise HTTPException(status_code=400, detail="Invalid upload path")
+        if os.path.exists(cp):
+            received_chunks.append(i)
+    received = len(received_chunks)
+
+    # Track the upload in memory for same-worker callers, but derive completion
+    # from disk so chunked uploads also work when uvicorn distributes chunks to
+    # different worker processes.
     with _chunked_uploads_lock:
         if upload_id not in _chunked_uploads:
             _chunked_uploads[upload_id] = {
@@ -6015,8 +6087,7 @@ async def upload_import_chunk(
                 "source": source,
                 "user": user,
             }
-        _chunked_uploads[upload_id]["received_chunks"].add(chunk_index)
-        received = len(_chunked_uploads[upload_id]["received_chunks"])
+        _chunked_uploads[upload_id]["received_chunks"].update(received_chunks)
 
     all_received = received == total_chunks
 
@@ -6138,8 +6209,13 @@ async def get_import_status(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ):
-    with _import_tasks_lock:
-        task = _import_tasks.get(task_id)
+    task = _read_import_task(task_id)
+    if task:
+        with _import_tasks_lock:
+            _import_tasks[task_id] = task
+    else:
+        with _import_tasks_lock:
+            task = _import_tasks.get(task_id)
 
     if not task:
         raise HTTPException(status_code=404, detail="Import task not found")

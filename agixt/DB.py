@@ -8459,6 +8459,109 @@ def migrate_bot_instance_id():
                     logging.info(
                         "Added bot_instance_id column to company_extension_setting"
                     )
+
+                # SQLite cannot drop a UNIQUE constraint that was created as
+                # part of the table definition. Older local databases can
+                # therefore still have UNIQUE(company_id, extension_name,
+                # setting_key), which breaks multiple bot instances even after
+                # the bot_instance_id column exists. Rebuild the table when
+                # that legacy constraint is present.
+                index_rows = session.execute(
+                    text("PRAGMA index_list(company_extension_setting)")
+                ).fetchall()
+                needs_rebuild = False
+                has_instance_unique = False
+                for index_row in index_rows:
+                    index_name = index_row[1]
+                    is_unique = bool(index_row[2])
+                    if not is_unique:
+                        continue
+                    safe_index_name = str(index_name).replace("'", "''")
+                    column_rows = session.execute(
+                        text(f"PRAGMA index_info('{safe_index_name}')")
+                    ).fetchall()
+                    columns = [column_row[2] for column_row in column_rows]
+                    if columns == ["company_id", "extension_name", "setting_key"]:
+                        needs_rebuild = True
+                    if columns == [
+                        "company_id",
+                        "extension_name",
+                        "setting_key",
+                        "bot_instance_id",
+                    ]:
+                        has_instance_unique = True
+
+                if needs_rebuild or not has_instance_unique:
+                    logging.info(
+                        "Rebuilding company_extension_setting to include "
+                        "bot_instance_id in SQLite unique constraint"
+                    )
+                    session.execute(text("PRAGMA foreign_keys=OFF"))
+                    session.execute(
+                        text("DROP TABLE IF EXISTS company_extension_setting_new")
+                    )
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE company_extension_setting_new (
+                                id TEXT PRIMARY KEY,
+                                company_id TEXT NOT NULL,
+                                extension_name TEXT NOT NULL,
+                                setting_key TEXT NOT NULL,
+                                setting_value TEXT,
+                                is_sensitive BOOLEAN DEFAULT 0,
+                                description TEXT,
+                                bot_instance_id TEXT NOT NULL DEFAULT 'default',
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY (company_id) REFERENCES Company(id),
+                                UNIQUE(company_id, extension_name, setting_key, bot_instance_id)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            """
+                            INSERT OR IGNORE INTO company_extension_setting_new
+                                (id, company_id, extension_name, setting_key,
+                                 setting_value, is_sensitive, description,
+                                 bot_instance_id, created_at, updated_at)
+                            SELECT id, company_id, extension_name, setting_key,
+                                   setting_value, COALESCE(is_sensitive, 0),
+                                   description, COALESCE(bot_instance_id, 'default'),
+                                   created_at, updated_at
+                            FROM company_extension_setting
+                            """
+                        )
+                    )
+                    session.execute(text("DROP TABLE company_extension_setting"))
+                    session.execute(
+                        text(
+                            "ALTER TABLE company_extension_setting_new "
+                            "RENAME TO company_extension_setting"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS "
+                            "idx_company_ext_setting_company "
+                            "ON company_extension_setting(company_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS "
+                            "idx_company_ext_setting_name "
+                            "ON company_extension_setting(extension_name)"
+                        )
+                    )
+                    session.execute(text("PRAGMA foreign_keys=ON"))
+                    session.commit()
+                    logging.info(
+                        "Rebuilt company_extension_setting unique constraint "
+                        "for bot_instance_id"
+                    )
             else:
                 # PostgreSQL
                 result = session.execute(
@@ -8502,6 +8605,47 @@ def migrate_bot_instance_id():
                     logging.info(
                         "Added bot_instance_id column to company_extension_setting (PostgreSQL)"
                     )
+                constraint_columns = session.execute(
+                    text(
+                        """
+                        SELECT kcu.column_name
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                          ON tc.constraint_name = kcu.constraint_name
+                         AND tc.table_schema = kcu.table_schema
+                        WHERE tc.table_name = 'company_extension_setting'
+                          AND tc.constraint_type = 'UNIQUE'
+                          AND tc.constraint_name = 'uix_company_ext_setting'
+                        ORDER BY kcu.ordinal_position
+                        """
+                    )
+                ).fetchall()
+                constraint_columns = [row[0] for row in constraint_columns]
+                expected_columns = [
+                    "company_id",
+                    "extension_name",
+                    "setting_key",
+                    "bot_instance_id",
+                ]
+                if constraint_columns != expected_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE company_extension_setting "
+                            "DROP CONSTRAINT IF EXISTS uix_company_ext_setting"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "ALTER TABLE company_extension_setting "
+                            "ADD CONSTRAINT uix_company_ext_setting "
+                            "UNIQUE (company_id, extension_name, setting_key, bot_instance_id)"
+                        )
+                    )
+                    session.commit()
+                    logging.info(
+                        "Ensured company_extension_setting unique constraint "
+                        "includes bot_instance_id (PostgreSQL)"
+                    )
     except Exception as e:
         logging.warning(f"bot_instance_id migration error: {e}", exc_info=True)
 
@@ -8536,6 +8680,35 @@ def check_schema_migrations_needed():
                     )
                     columns = {row[1] for row in result.fetchall()}
                     if "bot_instance_id" not in columns:
+                        return True
+                    index_rows = session.execute(
+                        text("PRAGMA index_list(company_extension_setting)")
+                    ).fetchall()
+                    has_instance_unique = False
+                    for index_row in index_rows:
+                        index_name = index_row[1]
+                        is_unique = bool(index_row[2])
+                        if not is_unique:
+                            continue
+                        safe_index_name = str(index_name).replace("'", "''")
+                        column_rows = session.execute(
+                            text(f"PRAGMA index_info('{safe_index_name}')")
+                        ).fetchall()
+                        unique_columns = [column_row[2] for column_row in column_rows]
+                        if unique_columns == [
+                            "company_id",
+                            "extension_name",
+                            "setting_key",
+                        ]:
+                            return True
+                        if unique_columns == [
+                            "company_id",
+                            "extension_name",
+                            "setting_key",
+                            "bot_instance_id",
+                        ]:
+                            has_instance_unique = True
+                    if not has_instance_unique:
                         return True
                 except Exception:
                     return True
@@ -8573,6 +8746,30 @@ def check_schema_migrations_needed():
                     )
                 )
                 if not result.fetchone():
+                    return True
+
+                constraint_columns = session.execute(
+                    text(
+                        """
+                        SELECT kcu.column_name
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                          ON tc.constraint_name = kcu.constraint_name
+                         AND tc.table_schema = kcu.table_schema
+                        WHERE tc.table_name = 'company_extension_setting'
+                          AND tc.constraint_type = 'UNIQUE'
+                          AND tc.constraint_name = 'uix_company_ext_setting'
+                        ORDER BY kcu.ordinal_position
+                        """
+                    )
+                ).fetchall()
+                constraint_columns = [row[0] for row in constraint_columns]
+                if constraint_columns != [
+                    "company_id",
+                    "extension_name",
+                    "setting_key",
+                    "bot_instance_id",
+                ]:
                     return True
 
                 result = session.execute(

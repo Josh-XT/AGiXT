@@ -497,7 +497,8 @@ async def get_extensions_by_category_v1(
     try:
         ApiClient = get_api_client(authorization=authorization)
 
-        # Verify category exists
+        # Verify category exists and load the same category mapping used by
+        # /v1/extensions so this endpoint can filter by category_info.
         with get_db_session() as session:
             category = (
                 session.query(ExtensionCategory).filter_by(id=category_id).first()
@@ -506,6 +507,13 @@ async def get_extensions_by_category_v1(
                 raise HTTPException(
                     status_code=404, detail="Extension category not found"
                 )
+            all_ext_db = session.query(Extension).all()
+            ext_to_category_id = {e.name: e.category_id for e in all_ext_db}
+            all_categories = session.query(ExtensionCategory).all()
+            category_map = {c.id: c for c in all_categories}
+            default_category = next(
+                (c for c in all_categories if c.name == "Automation"), None
+            )
 
         # Get all extensions and filter by category
         extensions_obj = Extensions(ApiClient=ApiClient)
@@ -513,6 +521,25 @@ async def get_extensions_by_category_v1(
 
         category_extensions = []
         for extension in all_extensions:
+            ext_name = extension["extension_name"]
+            cat_id = ext_to_category_id.get(ext_name)
+
+            if cat_id and cat_id in category_map:
+                extension_category = category_map[cat_id]
+                extension["category_info"] = {
+                    "id": str(extension_category.id),
+                    "name": extension_category.name,
+                    "description": extension_category.description,
+                }
+            elif default_category:
+                extension["category_info"] = {
+                    "id": str(default_category.id),
+                    "name": default_category.name,
+                    "description": default_category.description,
+                }
+            else:
+                extension["category_info"] = None
+
             if extension.get("category_info", {}).get("id") == category_id:
                 category_extensions.append(extension)
 

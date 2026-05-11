@@ -82,11 +82,13 @@
   /* Muted blue accent that sits naturally on the neutral gray chrome.
      Far less saturated than the dark theme's blue-purple — that one
      bloomed against #1f1f1f. Carries every accent surface (send btn,
-     play/volume/progress in audible, 1x-2x-3x toggle, user bubble). */
-  --accent: #4d8acb;
+     play/volume/progress in audible, 1x-2x-3x toggle, user bubble).
+     Darkened further so the user bubble + send button don't shout
+     against the muted gray surfaces. */
+  --accent: #3d6a93;
   --accent-2: #9a6cff;
-  --accent-soft: rgba(77, 138, 203, 0.20);
-  --accent-blue: #4a7eba;
+  --accent-soft: rgba(61, 106, 147, 0.20);
+  --accent-blue: #355c81;
   --user-bubble: var(--accent);
   --assistant-bubble: #2a2a2a;
   --activity: rgba(60, 80, 130, 0.22);
