@@ -2102,6 +2102,31 @@ body.window-mode.chat-collapsed .chat-resize-handle {
   overflow: hidden;
   box-shadow: var(--shadow);
 }
+.share-modal-card { max-width: 520px; }
+.modal-close {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+}
+.modal-close:hover { color: var(--text); }
+.share-modal-body select,
+.share-modal-body input[type="email"],
+.share-modal-body input[type="datetime-local"] {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  font-family: inherit;
+  font-size: 12px;
+}
+.share-modal-body input[readonly] {
+  user-select: all;
+}
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 14px;

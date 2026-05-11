@@ -325,6 +325,27 @@ class ExtensionsHub:
                     if os.path.exists(hub_path):
                         search_paths.append(os.path.abspath(hub_path))
 
+        # Local first-party extension repos that live beside AGiXT in the
+        # XT Systems workspace. Keeping these as conventional fallbacks makes
+        # desktop manifest discovery and backend extension loading agree even
+        # when EXTENSIONS_HUB only names one local hub.
+        workspace_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..")
+        )
+        for local_name in [
+            "xtsystems_extensions",
+            "nursext",
+            "ultraestimate",
+            "agent-hoa",
+        ]:
+            local_path = os.path.join(workspace_root, local_name)
+            if (
+                os.path.exists(local_path)
+                and os.path.isdir(local_path)
+                and os.path.abspath(local_path) not in search_paths
+            ):
+                search_paths.append(os.path.abspath(local_path))
+
         # Add all extension search paths to sys.path so extensions can import each other
         for path in search_paths:
             if path not in sys.path:

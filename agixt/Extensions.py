@@ -1519,23 +1519,36 @@ class Extensions:
                 continue
 
             try:
-                # Check if the class exists and is a subclass of Extensions
+                candidates = []
                 attr = getattr(module, class_name, None)
                 if (
                     attr is not None
                     and inspect.isclass(attr)
                     and issubclass(attr, Extensions)
                 ):
-                    command_class = attr(**settings)
+                    candidates.append((class_name, attr))
+                else:
+                    for candidate_name, candidate in inspect.getmembers(
+                        module, inspect.isclass
+                    ):
+                        if candidate is Extensions:
+                            continue
+                        if getattr(candidate, "__module__", None) != module.__name__:
+                            continue
+                        if issubclass(candidate, Extensions):
+                            candidates.append((candidate_name, candidate))
+
+                for extension_name, extension_class in candidates:
+                    command_class = extension_class(**settings)
                     # Check if the extension has a router attribute
                     if hasattr(command_class, "router"):
                         routers.append(
                             {
-                                "extension_name": class_name,
+                                "extension_name": extension_name,
                                 "router": command_class.router,
                             }
                         )
-                        # logging.info(f"Found router for extension: {class_name}")
+                        # logging.info(f"Found router for extension: {extension_name}")
             except Exception as e:
                 logging.error(f"Error loading router from extension {class_name}: {e}")
                 continue

@@ -1102,6 +1102,182 @@
     });
   }
 
+  const shareBtn = $('btn-share');
+  function activeConversationId() {
+    return (window.AgixtChat && typeof window.AgixtChat.getConversationId === 'function')
+      ? window.AgixtChat.getConversationId()
+      : (settings && settings.conversation_id);
+  }
+
+  function notifyShare(message, kind) {
+    if (window.AgixtToast && typeof window.AgixtToast.show === 'function') {
+      window.AgixtToast.show(message, kind || 'success');
+      return;
+    }
+    if (window.AgixtChat && window.AgixtChat.setComposerStatus) {
+      window.AgixtChat.setComposerStatus(message, kind === 'error' ? 'error' : 'success');
+    }
+  }
+
+  function errText(err) {
+    if (!err) return 'Unknown error';
+    if (typeof err === 'string') return err;
+    return err.detail || err.message || err.error || String(err);
+  }
+
+  async function desktopJson(path, opts) {
+    const server = settings && settings.server_url;
+    if (!server) throw new Error('Server URL is not configured.');
+    const init = {
+      method: (opts && opts.method) || 'GET',
+      headers: Object.assign(
+        { Authorization: 'Bearer ' + settings.jwt },
+        opts && opts.json != null ? { 'Content-Type': 'application/json' } : {},
+      ),
+    };
+    if (opts && opts.json != null) init.body = JSON.stringify(opts.json);
+    const resp = await fetch(new URL(path, server).toString(), init);
+    const text = await resp.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch (_) {}
+    if (!resp.ok) {
+      const err = new Error((data && (data.detail || data.message)) || ('HTTP ' + resp.status));
+      err.status = resp.status;
+      throw err;
+    }
+    return data;
+  }
+
+  function downloadJsonFile(filename, data) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function safeFilename(value) {
+    return String(value || 'conversation').replace(/[^a-z0-9._-]+/gi, '_').replace(/^_+|_+$/g, '') || 'conversation';
+  }
+
+  async function exportCurrentConversation() {
+    if (!settings) await loadSettings();
+    if (!settings || !settings.jwt) throw new Error('Sign in first.');
+    const conversationId = activeConversationId();
+    if (!conversationId || conversationId === '-') {
+      throw new Error('Send a message first to create a conversation.');
+    }
+    const data = await desktopJson('/v1/conversation/' + encodeURIComponent(conversationId) + '?limit=1000&page=1&format=tree');
+    const name = conversationName || settings.conversation_name || conversationId;
+    downloadJsonFile(safeFilename(name) + '_' + new Date().toISOString().slice(0, 10) + '.json', {
+      conversation_id: conversationId,
+      conversation_name: name,
+      exported_at: new Date().toISOString(),
+      messages: (data && data.conversation_history) || [],
+    });
+    notifyShare('Conversation exported.');
+  }
+
+  function openShareDialog() {
+    const conversationId = activeConversationId();
+    if (!settings || !settings.jwt) {
+      notifyShare('Sign in first.', 'error');
+      return;
+    }
+    if (!conversationId || conversationId === '-') {
+      notifyShare('Send a message first to create a conversation.', 'error');
+      return;
+    }
+
+    const modal = document.createElement('div');
+    modal.className = 'modal open';
+    modal.innerHTML = [
+      '<div class="modal-card share-modal-card" role="dialog" aria-modal="true" aria-labelledby="share-modal-title">',
+      '  <div class="modal-header">',
+      '    <h2 id="share-modal-title">Share Conversation</h2>',
+      '    <button class="modal-close" type="button" aria-label="Close">x</button>',
+      '  </div>',
+      '  <div class="modal-body share-modal-body">',
+      '    <label class="field"><span>Share type</span><select id="share-type"><option value="public">Public link</option><option value="email">Specific user by email</option></select></label>',
+      '    <label class="field" id="share-email-wrap" hidden><span>Email</span><input type="email" id="share-email" placeholder="user@example.com"></label>',
+      '    <label class="field check"><input type="checkbox" id="share-workspace"><span>Include workspace files</span></label>',
+      '    <label class="field"><span>Expiration</span><input type="datetime-local" id="share-expiry"></label>',
+      '    <div class="settings-status" id="share-status"></div>',
+      '    <label class="field" id="share-result-wrap" hidden><span>Share link</span><input type="text" id="share-result" readonly></label>',
+      '    <div class="field-actions">',
+      '      <button class="btn" id="share-export" type="button">Export JSON</button>',
+      '      <div><button class="btn" id="share-cancel" type="button">Cancel</button> <button class="btn btn-primary" id="share-create" type="button">Create link</button></div>',
+      '    </div>',
+      '  </div>',
+      '</div>',
+    ].join('');
+    document.body.appendChild(modal);
+    const close = () => modal.remove();
+    const status = modal.querySelector('#share-status');
+    const type = modal.querySelector('#share-type');
+    const emailWrap = modal.querySelector('#share-email-wrap');
+    const email = modal.querySelector('#share-email');
+    const workspace = modal.querySelector('#share-workspace');
+    const expiry = modal.querySelector('#share-expiry');
+    const resultWrap = modal.querySelector('#share-result-wrap');
+    const resultInput = modal.querySelector('#share-result');
+    const createBtn = modal.querySelector('#share-create');
+    const setStatus = (text, cls) => {
+      status.textContent = text || '';
+      status.className = 'settings-status' + (cls ? ' ' + cls : '');
+    };
+    type.addEventListener('change', () => { emailWrap.hidden = type.value !== 'email'; });
+    modal.querySelector('.modal-close').addEventListener('click', close);
+    modal.querySelector('#share-cancel').addEventListener('click', close);
+    modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+    resultInput.addEventListener('click', () => resultInput.select());
+    resultInput.addEventListener('focus', () => resultInput.select());
+    modal.querySelector('#share-export').addEventListener('click', async () => {
+      try {
+        await exportCurrentConversation();
+        close();
+      } catch (err) {
+        setStatus(errText(err), 'error');
+      }
+    });
+    createBtn.addEventListener('click', async () => {
+      if (type.value === 'email' && !email.value.trim()) {
+        setStatus('Email is required for email shares.', 'error');
+        return;
+      }
+      createBtn.disabled = true;
+      setStatus('Creating share link...');
+      try {
+        const payload = {
+          share_type: type.value,
+          email: type.value === 'email' ? email.value.trim() : undefined,
+          include_workspace: !!workspace.checked,
+          expires_at: expiry.value ? new Date(expiry.value).toISOString() : undefined,
+        };
+        const data = await desktopJson('/v1/conversation/' + encodeURIComponent(conversationId) + '/share', {
+          method: 'POST',
+          json: payload,
+        });
+        resultInput.value = data && data.share_url ? data.share_url : '';
+        resultWrap.hidden = false;
+        if (resultInput.value && navigator.clipboard) {
+          try { await navigator.clipboard.writeText(resultInput.value); } catch (_) {}
+        }
+        setStatus('Share link created and copied.', 'success');
+      } catch (err) {
+        setStatus(errText(err), 'error');
+      } finally {
+        createBtn.disabled = false;
+      }
+    });
+  }
+
+  if (shareBtn) shareBtn.addEventListener('click', openShareDialog);
+
   // Build the hidden context block sent to the agent for the attached
   // files. Phrasing primes the model that the *user* attached them
   // deliberately and that they live on disk — not in the AGiXT

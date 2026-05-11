@@ -293,11 +293,15 @@
       const body = tab.formData ? buildFormData(values, fields) : buildBody(values, fields);
       if (!tab.formData && tab.includeCompanyIdInBody && this.ctx.companyId && !body.company_id) body.company_id = this.ctx.companyId;
       if (mode === 'create') {
-        await this.fetchJson(tab.createPath || tab.endpoint, tab.formData
+        const opts = tab.formData
           ? { method: tab.createMethod || 'POST', body }
-          : { method: tab.createMethod || 'POST', json: body });
+          : requestOpts(tab.createMethod || 'POST', body, tab.createBodyPlacement);
+        await this.fetchJson(tab.createPath || tab.endpoint, opts);
       } else {
-        await this.fetchJson(pathFor(tab.updatePath || tab.endpoint + '/{id}', row, tab), { method: tab.updateMethod || 'PUT', json: body });
+        await this.fetchJson(
+          pathFor(tab.updatePath || tab.endpoint + '/{id}', row, tab),
+          requestOpts(tab.updateMethod || 'PUT', body, tab.updateBodyPlacement),
+        );
       }
       await this.refresh();
     } catch (err) {
@@ -334,7 +338,11 @@
       const body = action.body
         ? (typeof action.body === 'function' ? action.body(values, row, this.ctx) : action.body)
         : (action.fields && action.fields.length ? buildBody(values, action.fields) : undefined);
-      await this.fetchJson(pathFor(action.path, row || values, this.activeTab()), { method: action.method || 'POST', json: body });
+      const result = await this.fetchJson(
+        pathFor(action.path, Object.assign({}, values || {}, row || {}), this.activeTab()),
+        requestOpts(action.method || 'POST', body, action.bodyPlacement),
+      );
+      if (action.showResult) this.showDetail(result || { success: true });
       await this.refresh();
     } catch (err) {
       this.error = err;
@@ -395,6 +403,14 @@
     const idKey = (tab && tab.idKey) || 'id';
     const id = row && (row[idKey] || row.id);
     return String(template || '').replace(/\{id\}/g, encodeURIComponent(id || '')).replace(/\{([^}]+)\}/g, (_, key) => encodeURIComponent(valueAt(row, key) || ''));
+  }
+
+  function requestOpts(method, body, placement) {
+    const opts = { method: method || 'POST' };
+    if (body === undefined) return opts;
+    if (placement === 'query') opts.query = body;
+    else opts.json = body;
+    return opts;
   }
 
   function buildBody(values, fields) {

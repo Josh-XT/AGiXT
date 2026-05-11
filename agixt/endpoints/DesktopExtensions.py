@@ -97,6 +97,9 @@ def _meets_requires(
     if not isinstance(requires, dict) or not requires:
         return True
 
+    if requires.get("server_admin") and not auth.is_super_admin():
+        return False
+
     company_scope = requires.get("company_scope") or []
     if isinstance(company_scope, str):
         company_scope = [company_scope]
