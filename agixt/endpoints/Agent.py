@@ -920,7 +920,7 @@ async def text_to_speech_v1(
     dependencies=[Depends(verify_api_key)],
     summary="Plan a task by ID",
     description="Creates a task plan for the agent to execute using agent ID, optionally including web search capabilities.",
-    response_model=Dict[str, str],
+    response_model=Dict[str, Any],
 )
 async def plan_task_v1(
     agent_id: str,

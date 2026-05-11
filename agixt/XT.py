@@ -2327,11 +2327,9 @@ Rules:
             log_output=False,
             log_user_input=False,
         )
-        chain_title = await self.convert_to_model(
-            input_string=chain_name,
-            model=ChainCommandName,
-        )
-        chain_name = chain_title.command_name
+        chain_name = str(chain_name).strip().splitlines()[0]
+        chain_name = re.sub(r"[^A-Za-z0-9 _-]+", "", chain_name).strip()
+        chain_name = chain_name[:80].strip() or "Planned Task"
         self.conversation.log_interaction(
             role=self.agent_name,
             message=f"[ACTIVITY] Breaking objective into a list of tasks.",
@@ -2350,17 +2348,30 @@ Rules:
             log_output=False,
             log_user_input=False,
         )
-        task_list = await self.convert_to_model(
-            input_string=numbered_list_of_tasks,
-            model=TasksToDo,
-        )
+        tasks_to_plan = []
+        try:
+            parsed_tasks = json.loads(str(numbered_list_of_tasks))
+            if isinstance(parsed_tasks, dict):
+                parsed_tasks = parsed_tasks.get("tasks", [])
+            if isinstance(parsed_tasks, list):
+                tasks_to_plan = [str(item).strip() for item in parsed_tasks if item]
+        except Exception:
+            pass
+        if not tasks_to_plan:
+            tasks_to_plan = [
+                item.lstrip("0123456789.*- ").strip()
+                for item in str(numbered_list_of_tasks).splitlines()
+            ]
+        tasks_to_plan = [item for item in tasks_to_plan if item]
+        if not tasks_to_plan:
+            tasks_to_plan = [user_input]
         self.chain.add_chain(chain_name=chain_name)
         self.conversation.log_interaction(
             role=self.agent_name,
             message=f"[ACTIVITY] Creating new command `{chain_name}`.",
         )
         i = 1
-        total_tasks = len(task_list.tasks)
+        total_tasks = len(tasks_to_plan)
         x = 1
         # First step in the chain should be to disable the command so that the agent doesn't try to execute it while executing it
         self.chain.add_chain_step(
@@ -2377,7 +2388,7 @@ Rules:
             },
         )
         i += 1
-        for task in task_list.tasks:
+        for task in tasks_to_plan:
             self.conversation.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY] Planning task `{x}` of `{total_tasks}`.",
@@ -2411,7 +2422,7 @@ Rules:
             )
             i += 1
         list_of_tasks = "\n".join(
-            [f"{i}. {task}" for i, task in enumerate(task_list.tasks, 1)]
+            [f"{i}. {task}" for i, task in enumerate(tasks_to_plan, 1)]
         )
         # Enable the command of the chain name
         if enable_new_command:
@@ -5357,6 +5368,7 @@ Rules:
             schema=schema,
             prompt_category="Default",
             prompt_name="Convert to Pydantic Model",
+            disable_commands=True,
             log_user_input=False,
             log_output=False,
         )
