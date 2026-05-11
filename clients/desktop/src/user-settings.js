@@ -369,6 +369,12 @@
     return isAdminLikeRole(c.role_id);
   }
 
+  function userIsSuperAdmin(user) {
+    if (!user || !Array.isArray(user.companies)) return false;
+    return user.companies.some((company) =>
+      company.role_id === 0 || company.role === 'super_admin');
+  }
+
   // Load helpers — return cached values to avoid re-hitting the server
   // on every tab switch. Each setter clears the relevant cache.
   async function loadUser(force) {
@@ -1371,6 +1377,7 @@
     cache.pricingConfig = pricing;
     const appName = (pricing && (pricing.app_name || (pricing.app_names && pricing.app_names[0]))) || 'AGiXT';
     const isTokenBased = !pricing || pricing.pricing_model === 'per_token';
+    const isSuperAdmin = userIsSuperAdmin(user);
 
     panel.appendChild(section('Billing for ' + (activeCompany.name || 'company'),
       paymentOnly
@@ -1462,11 +1469,21 @@
         const tierSelect = el('select', { class: 'us-select' }, pricing.tiers.map((t) =>
           el('option', { value: t.id }, t.name + (t.price ? ' — $' + t.price : ''))));
         const changePlanStatus = el('span', { class: 'us-status-line' }, '');
-        const changePlanBtn = btn('Change plan', { kind: 'primary', onclick: async () => {
+        const changePlanBtn = btn(isSuperAdmin ? 'Set plan' : 'Change plan', { kind: 'primary', onclick: async () => {
+          changePlanBtn.disabled = true;
           try {
+            if (isSuperAdmin && typeof api.adminSetCompanyPlan === 'function') {
+              const res = await api.adminSetCompanyPlan(activeCompany.id, tierSelect.value);
+              changePlanStatus.textContent = (res && res.message) || 'Plan updated.';
+              changePlanStatus.className = 'us-status-line success';
+              cache.planLimits = null;
+              await renderBilling();
+              return;
+            }
             const res = await api.createPlanCheckout({ company_id: activeCompany.id, plan_id: tierSelect.value });
             if (res && res.checkout_url) { openExternal(res.checkout_url); changePlanStatus.textContent = 'Stripe checkout opened.'; changePlanStatus.className = 'us-status-line success'; }
           } catch (err) { changePlanStatus.textContent = errMsg(err); changePlanStatus.className = 'us-status-line error'; }
+          finally { changePlanBtn.disabled = false; }
         } });
         panel.appendChild(section('Change plan', null, [
           el('div', { class: 'us-section-row' }, [tierSelect, changePlanBtn]),

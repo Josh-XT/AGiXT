@@ -606,6 +606,30 @@
     });
   }
 
+  /** GET /v1/admin/companies — super-admin company list with billing plan fields. */
+  async function adminGetAllCompanies(params) {
+    const search = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') search.set(key, String(value));
+    });
+    const qs = search.toString();
+    return request('GET', '/v1/admin/companies' + (qs ? '?' + qs : ''));
+  }
+
+  /** POST /v1/admin/credit — issue credits as a super admin. */
+  async function adminIssueCredits(companyId, amountUsd) {
+    return request('POST', '/v1/admin/credit', {
+      body: { company_id: companyId, amount_usd: amountUsd },
+    });
+  }
+
+  /** PATCH /v1/admin/companies/{id}/plan — directly set a company plan as a super admin. */
+  async function adminSetCompanyPlan(companyId, planId) {
+    return request('PATCH', '/v1/admin/companies/' + encodeURIComponent(companyId) + '/plan', {
+      body: { plan_id: planId },
+    });
+  }
+
   // ----- Webhooks ---------------------------------------------------------
   // The webhook endpoints sit under `/api/webhooks/...` (not /v1/) — see
   // AGiXT/agixt/endpoints/Webhook.py and the web SDK methods around line
@@ -982,6 +1006,9 @@
     createTokenTopupStripe,
     listBillingTransactions,
     syncBilling,
+    adminGetAllCompanies,
+    adminIssueCredits,
+    adminSetCompanyPlan,
     // Chains
     listChains,
     getChain,

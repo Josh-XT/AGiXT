@@ -403,25 +403,78 @@
       moreBtn.remove();
       moreBtn = null;
     }
-    // jsdom and zero-height containers — bail without overflow handling.
-    const containerH = top.clientHeight;
-    if (!containerH) {
-      // Even with no measurable height (e.g. tests), keep DOM clean.
+    // Compute the available height for the top group from the parent
+    // sidenav's geometry, not `top.clientHeight`. If the flexbox sizing
+    // doesn't actually shrink the top group (e.g. a stylesheet override
+    // breaks `min-height: 0`), `top.clientHeight === top.scrollHeight`
+    // and the original `scrollHeight > clientHeight` test never fires.
+    // Measuring against the parent is reliable regardless of how the
+    // browser resolved the flex sizes.
+    const sidenav = top.closest('.sidenav');
+    if (!sidenav) { closeMorePopover(); return; }
+    const sidenavRect = sidenav.getBoundingClientRect();
+    if (!sidenavRect.height) {
+      // Hidden ancestor (auth screen still showing, etc.) — nothing to do.
       closeMorePopover();
       return;
     }
-    // No overflow? Done.
-    if (top.scrollHeight <= containerH) {
-      closeMorePopover();
-      return;
+    const bottom = sidenav.querySelector('.sidenav-bottom');
+    const bottomH = bottom ? bottom.getBoundingClientRect().height : 0;
+    const cs = getComputedStyle(sidenav);
+    const padV = parseFloat(cs.paddingTop || 0) + parseFloat(cs.paddingBottom || 0);
+    // Floor at 0 — if the bottom group alone is taller than the sidenav
+    // (window absurdly short), there's no room for the top at all and
+    // every button gets hidden into the More popover.
+    const availableH = Math.max(0, sidenavRect.height - bottomH - padV);
+    // Width of an item including the column gap below it. Use the first
+    // visible button (or the brand if there are no buttons yet) to
+    // measure — all items in `.sidenav-top` share the same row height.
+    function itemH(el) {
+      if (!el) return 0;
+      const r = el.getBoundingClientRect();
+      return r.height;
     }
-    // Insert the More button so its height counts toward the overflow
-    // measurement, then hide tail items until everything fits.
+    const brand = top.querySelector('.sidenav-brand');
+    const brandH = itemH(brand);
+    const gap = parseFloat(getComputedStyle(top).rowGap || getComputedStyle(top).gap || 0) || 0;
+    // The brand contributes its own height + bottom margin (set in CSS
+    // via `margin-bottom: 6px`). getBoundingClientRect already includes
+    // the box but not the margin — add it manually so we don't
+    // overshoot the available space.
+    const brandMb = brand ? parseFloat(getComputedStyle(brand).marginBottom || 0) : 0;
+    // Heights of each candidate row in `top`, in DOM order excluding the
+    // brand (which is fixed) and the more button (added below).
+    const rowH = all.map(itemH);
+    // Reserve enough room for the More button so we know how many real
+    // buttons can stay visible alongside it. Create it lazily so we
+    // don't pay the DOM cost when there's no overflow.
     moreBtn = ensureMoreBtn(top);
+    // Temporarily insert to measure, then remove if we don't need it.
     top.appendChild(moreBtn);
-    for (let i = all.length - 1; i >= 0; i--) {
-      if (top.scrollHeight <= containerH) break;
-      all[i].classList.add('is-overflow-hidden');
+    const moreH = itemH(moreBtn);
+    moreBtn.remove();
+    // Required space for "nothing overflows" = brand + every row + (n-1) gaps.
+    function totalH(n) {
+      const rows = (brand ? 1 : 0) + n;
+      const heights = (brand ? brandH + brandMb : 0)
+        + rowH.slice(0, n).reduce((a, b) => a + b, 0);
+      return heights + Math.max(0, rows - 1) * gap;
+    }
+    if (totalH(all.length) <= availableH) {
+      // Everything fits — no More button needed.
+      closeMorePopover();
+      return;
+    }
+    // Re-insert the More button (it counts toward the visible total) and
+    // hide tail items until the remaining set fits.
+    top.appendChild(moreBtn);
+    function totalWithMore(n) {
+      return totalH(n) + moreH + gap;
+    }
+    let visible = all.length;
+    while (visible > 0 && totalWithMore(visible) > availableH) {
+      all[visible - 1].classList.add('is-overflow-hidden');
+      visible -= 1;
     }
     // Annotate the More button when an active view is currently hidden.
     const activeId = currentActiveView();
@@ -611,18 +664,24 @@
   // truncated until the next manual resize.
   if (typeof ResizeObserver === 'function') {
     let _ro = null;
-    function attachObserver() {
-      const target = document.querySelector('.sidenav-top');
-      if (!target) return false;
+    // Observe the parent `.sidenav` (whose height tracks the window) and
+    // `.sidenav-bottom` (its height squeezes the top group). Observing
+    // `.sidenav-top` itself would NOT fire on window resize when its
+    // flex sizing is broken — its box would stay glued to content size
+    // even as the window shrinks, so no callback fires and the rail
+    // stays truncated. The parent is the reliable signal.
+    const attachObserver = () => {
+      const sidenav = document.querySelector('.sidenav');
+      if (!sidenav) return false;
       if (_ro) _ro.disconnect();
       _ro = new ResizeObserver(scheduleReflow);
-      _ro.observe(target);
-      const bottom = document.querySelector('.sidenav-bottom');
+      _ro.observe(sidenav);
+      const bottom = sidenav.querySelector('.sidenav-bottom');
       if (bottom) _ro.observe(bottom);
       return true;
-    }
+    };
     if (!attachObserver()) {
-      // .sidenav-top not in the DOM yet (auth screen still showing) —
+      // .sidenav not in the DOM yet (auth screen still showing) —
       // poll briefly until it appears.
       const t = setInterval(() => { if (attachObserver()) clearInterval(t); }, 200);
       setTimeout(() => clearInterval(t), 10000);
