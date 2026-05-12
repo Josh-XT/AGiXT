@@ -1889,6 +1889,26 @@ body.window-mode.chat-collapsed .chat-resize-handle {
 .auth-pane { display: flex; flex-direction: column; gap: 10px; }
 .auth-pane[hidden] { display: none; }
 
+.auth-invite {
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.auth-invite[hidden] { display: none; }
+.auth-invite-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.auth-invite-body {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
 .auth-cta {
   width: 100%;
   padding: 10px 12px;

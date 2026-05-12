@@ -56,13 +56,20 @@ TasksView.prototype.stop = function () {
 };
 
 TasksView.prototype.fetchJson = async function (path, opts) {
+  opts = opts || {};
+  if (this.ctx && typeof this.ctx.fetchJson === 'function') {
+    return this.ctx.fetchJson(path, opts);
+  }
+  if (window.AgixtSession && typeof window.AgixtSession.request === 'function') {
+    return window.AgixtSession.request(path, opts);
+  }
   const u = new URL(path, this.ctx.serverUrl).toString();
   const init = {
-    method: (opts && opts.method) || 'GET',
+    method: opts.method || 'GET',
     headers: Object.assign({ Authorization: 'Bearer ' + this.ctx.jwt },
-      (opts && opts.json != null) ? { 'Content-Type': 'application/json' } : {}),
+      (opts.json != null) ? { 'Content-Type': 'application/json' } : {}),
   };
-  if (opts && opts.json != null) init.body = JSON.stringify(opts.json);
+  if (opts.json != null) init.body = JSON.stringify(opts.json);
   const resp = await fetch(u, init);
   if (resp.status === 204) return null;
   const text = await resp.text();

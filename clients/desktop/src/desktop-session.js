@@ -65,6 +65,13 @@
 
   async function request(path, opts) {
     opts = opts || {};
+    const resp = await fetchWithSession(path, opts);
+    if (resp.status === 204) return null;
+    return parseBody(resp);
+  }
+
+  async function fetchWithSession(path, opts) {
+    opts = opts || {};
     const base = baseUrl();
     if (!base) throw new Error('No AGiXT server URL configured.');
     const url = /^https?:\/\//i.test(path) ? path : base + path;
@@ -82,16 +89,16 @@
       init.body = JSON.stringify(opts.json);
     }
     const resp = await fetch(url, init);
-    if (resp.status === 204) return null;
-    const body = await parseBody(resp);
-    if (!resp.ok) {
+    const allowed = Array.isArray(opts.allowedStatuses) ? opts.allowedStatuses : [];
+    if (!resp.ok && !allowed.includes(resp.status)) {
+      const body = await parseBody(resp.clone());
       await handleStatus(resp.status, body);
       const err = new Error(errorMessage(body, resp.status));
       err.status = resp.status;
       err.detail = body;
       throw err;
     }
-    return body;
+    return resp;
   }
 
   async function verifyCurrentSession() {
@@ -112,6 +119,7 @@
 
   window.AgixtSession = {
     request,
+    fetch: fetchWithSession,
     fetchJson: request,
     verifyCurrentSession,
   };

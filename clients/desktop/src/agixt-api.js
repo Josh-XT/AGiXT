@@ -432,6 +432,12 @@
     return (data && (data.roles || data.default_roles)) || data || [];
   }
 
+  async function updateDefaultRoleScopes(roleId, scopeIds) {
+    return request('PUT', '/v1/default-roles/' + encodeURIComponent(roleId) + '/scopes', {
+      body: Array.isArray(scopeIds) ? scopeIds : [],
+    });
+  }
+
   // ----- Custom roles & scopes ------------------------------------------
 
   /** GET /v1/scopes — all scopes available in the system. */
@@ -880,6 +886,31 @@
 
   // ----- Chains -----------------------------------------------------------
 
+  function normalizeScopedChain(chain) {
+    if (!chain || typeof chain !== 'object') return null;
+    const steps = Array.isArray(chain.steps) ? chain.steps.map((step, index) => ({
+      step: step.step || step.step_number || index + 1,
+      agent_name: step.agent_name || step.agentName || '',
+      prompt_type: step.prompt_type || step.promptType || 'Prompt',
+      prompt: step.prompt && typeof step.prompt === 'object' ? step.prompt : {},
+    })) : [];
+    return {
+      id: chain.id || chain.chain_id || '',
+      chainName: chain.chainName || chain.chain_name || chain.name || '',
+      description: chain.description || '',
+      steps,
+    };
+  }
+
+  function toScopedSteps(steps) {
+    return (steps || []).map((step, index) => ({
+      step_number: step.step || step.step_number || index + 1,
+      agent_name: step.agent_name || step.agentName || '',
+      prompt_type: step.prompt_type || step.promptType || 'Prompt',
+      prompt: step.prompt || {},
+    }));
+  }
+
   /** GET /v1/chains — list of {id, chainName, description}. */
   async function listChains() {
     const data = await request('GET', '/v1/chains');
@@ -1003,6 +1034,116 @@
     });
   }
 
+  function scopedChainBase(scope) {
+    if (scope === 'server') return '/v1/server/chain';
+    if (scope === 'company') return '/v1/company/chain';
+    return '/v1/chain';
+  }
+
+  async function listScopedChains(scope) {
+    if (scope === 'server') {
+      const data = await request('GET', '/v1/server/chains');
+      return ((data && data.chains) || []).map(normalizeScopedChain).filter(Boolean);
+    }
+    if (scope === 'company') {
+      const data = await request('GET', '/v1/company/chains');
+      return ((data && data.chains) || []).map(normalizeScopedChain).filter(Boolean);
+    }
+    return listChains();
+  }
+
+  async function getScopedChain(scope, chainId) {
+    if (scope === 'server' || scope === 'company') {
+      return normalizeScopedChain(await request('GET', scopedChainBase(scope) + '/' + encodeURIComponent(chainId)));
+    }
+    return getChain(chainId);
+  }
+
+  async function createScopedChain(scope, chainName, description) {
+    if (scope === 'server' || scope === 'company') {
+      return request('POST', scopedChainBase(scope), {
+        body: { chain_name: chainName, description: description || '' },
+      });
+    }
+    return createChain(chainName, description);
+  }
+
+  async function updateScopedChain(scope, chainId, payload) {
+    payload = payload || {};
+    if (scope === 'server' || scope === 'company') {
+      return request('PUT', scopedChainBase(scope) + '/' + encodeURIComponent(chainId), {
+        body: {
+          new_name: payload.name,
+          description: payload.description,
+        },
+      });
+    }
+    if (payload.name !== undefined || payload.description !== undefined) {
+      return renameChain(chainId, payload.name, payload.description);
+    }
+    return null;
+  }
+
+  async function deleteScopedChain(scope, chainId) {
+    if (scope === 'server' || scope === 'company') {
+      return request('DELETE', scopedChainBase(scope) + '/' + encodeURIComponent(chainId));
+    }
+    return deleteChain(chainId);
+  }
+
+  async function addScopedChainStep(scope, chainId, stepNumber, agentId, promptType, prompt, agentName) {
+    if (scope === 'server' || scope === 'company') {
+      return request('POST', scopedChainBase(scope) + '/' + encodeURIComponent(chainId) + '/step', {
+        body: {
+          step_number: stepNumber,
+          agent_name: agentName || '',
+          prompt_type: promptType,
+          prompt: prompt || {},
+        },
+      });
+    }
+    return addChainStep(chainId, stepNumber, agentId, promptType, prompt);
+  }
+
+  async function deleteScopedChainStep(scope, chainId, stepNumber) {
+    if (scope === 'server' || scope === 'company') {
+      return request('DELETE', scopedChainBase(scope) + '/' + encodeURIComponent(chainId) + '/step/' + encodeURIComponent(stepNumber));
+    }
+    return deleteChainStep(chainId, stepNumber);
+  }
+
+  async function replaceScopedChainSteps(scope, chainId, steps) {
+    if (scope === 'server' || scope === 'company') {
+      const normalized = toScopedSteps(steps);
+      const missingAgent = normalized.find((step) => !step.agent_name);
+      if (missingAgent) {
+        throw new Error('Every imported or edited company/server chain step needs an agent name.');
+      }
+      const current = await getScopedChain(scope, chainId);
+      const existingStepNumbers = ((current && current.steps) || [])
+        .map((step) => Number(step.step || step.step_number || 0))
+        .filter((stepNumber) => stepNumber > 0)
+        .sort((a, b) => b - a);
+      for (const stepNumber of existingStepNumbers) {
+        await deleteScopedChainStep(scope, chainId, stepNumber);
+      }
+      normalized.sort((a, b) => a.step_number - b.step_number);
+      for (const step of normalized) {
+        await addScopedChainStep(
+          scope,
+          chainId,
+          step.step_number,
+          '',
+          step.prompt_type,
+          step.prompt,
+          step.agent_name,
+        );
+      }
+      return { message: 'Scoped chain steps replaced.' };
+    }
+    throw new Error('User chains use per-step update endpoints.');
+  }
+
   /** GET /v1/chain/{id}/responses — chain run history. */
   async function getChainResponses(chainId) {
     try {
@@ -1032,11 +1173,59 @@
     return [];
   }
 
+  function normalizePromptRow(raw, fallbackId, fallbackCategory) {
+    raw = raw || {};
+    const content = raw.content != null ? raw.content
+      : raw.prompt != null ? raw.prompt
+      : raw.prompt_content != null ? raw.prompt_content
+      : '';
+    return {
+      id: raw.id || raw.prompt_id || fallbackId || raw.name || raw.prompt_name || '',
+      name: raw.name || raw.prompt_name || '',
+      content: typeof content === 'string' ? content : String(content || ''),
+      category: raw.category || raw.prompt_category || fallbackCategory || 'Default',
+      description: raw.description || '',
+      source: raw.source || '',
+      arguments: Array.isArray(raw.arguments) ? raw.arguments : [],
+    };
+  }
+
+  function promptPayload(name, content, category, description) {
+    return {
+      prompt_name: name || '',
+      prompt: content == null ? '' : String(content),
+      prompt_category: category || 'Default',
+      description: description || '',
+    };
+  }
+
+  function promptUpdatePayload(name, content, category, description) {
+    const body = {};
+    if (name != null) body.prompt_name = name;
+    if (content != null) body.prompt = String(content);
+    if (category) body.prompt_category = category;
+    if (description != null) body.description = description;
+    return body;
+  }
+
   /** GET /v1/prompts?prompt_category=Default — array of prompt rows. */
   async function listPrompts(category) {
     const cat = category || 'Default';
     const data = await request('GET', '/v1/prompts?prompt_category=' + encodeURIComponent(cat));
     return (data && data.prompts) || data || [];
+  }
+
+  async function listScopedPrompts(scope, category) {
+    const target = scope || 'user';
+    if (target === 'server') {
+      const data = await request('GET', '/v1/server/prompts');
+      return ((data && data.prompts) || data || []).map((p) => normalizePromptRow(p, null, category));
+    }
+    if (target === 'company') {
+      const data = await request('GET', '/v1/company/prompts');
+      return ((data && data.prompts) || data || []).map((p) => normalizePromptRow(p, null, category));
+    }
+    return (await listPrompts(category)).map((p) => normalizePromptRow(p, null, category));
   }
 
   /** GET /v1/prompt/categories. */
@@ -1064,47 +1253,106 @@
   async function getPrompt(promptId) {
     const data = await request('GET', '/v1/prompt/' + encodeURIComponent(promptId));
     if (!data) return null;
-    const content = data.content != null ? data.content
-      : data.prompt != null ? data.prompt
-      : data.prompt_content != null ? data.prompt_content
-      : '';
-    return {
-      id: data.id || data.prompt_id || promptId,
-      name: data.name || data.prompt_name || '',
-      content: typeof content === 'string' ? content : String(content || ''),
-      category: data.category || data.prompt_category || 'Default',
-    };
+    return normalizePromptRow(data, promptId);
+  }
+
+  async function getScopedPrompt(scope, promptId) {
+    const target = scope || 'user';
+    if (target === 'server') {
+      const data = await request('GET', '/v1/server/prompt/' + encodeURIComponent(promptId));
+      return data ? normalizePromptRow(data, promptId) : null;
+    }
+    if (target === 'company') {
+      const data = await request('GET', '/v1/company/prompt/' + encodeURIComponent(promptId));
+      return data ? normalizePromptRow(data, promptId) : null;
+    }
+    return getPrompt(promptId);
   }
 
   /** POST /v1/prompt — body {prompt_name, prompt, prompt_category}. */
   async function createPrompt(promptName, promptBody, category) {
     return request('POST', '/v1/prompt', {
-      body: {
-        prompt_name: promptName,
-        prompt: promptBody || '',
-        prompt_category: category || 'Default',
-      },
+      body: promptPayload(promptName, promptBody, category),
     });
+  }
+
+  async function createScopedPrompt(scope, promptName, promptBody, category, description) {
+    const target = scope || 'user';
+    const body = promptPayload(promptName, promptBody, category, description);
+    if (target === 'server') {
+      return request('POST', '/v1/server/prompt', { body });
+    }
+    if (target === 'company') {
+      return request('POST', '/v1/company/prompt', { body });
+    }
+    return createPrompt(promptName, promptBody, category);
   }
 
   /** PUT /v1/prompt/{id} — update prompt body (the AGiXT API uses `prompt`
    *  for the body). */
-  async function updatePrompt(promptId, promptBody) {
+  async function updatePrompt(promptId, promptBody, promptName, category, description) {
     return request('PUT', '/v1/prompt/' + encodeURIComponent(promptId), {
-      body: { prompt: promptBody || '' },
+      body: promptUpdatePayload(promptName, promptBody, category, description),
     });
   }
 
-  /** PATCH /v1/prompt/{id} — rename ({prompt_name}). */
-  async function renamePrompt(promptId, newName) {
-    return request('PATCH', '/v1/prompt/' + encodeURIComponent(promptId), {
-      body: { prompt_name: newName },
+  async function updateScopedPrompt(scope, promptId, data) {
+    const target = scope || 'user';
+    const body = promptUpdatePayload(
+      data && data.name,
+      data && data.content,
+      data && data.category,
+      data && data.description,
+    );
+    if (target === 'server') {
+      return request('PUT', '/v1/server/prompt/' + encodeURIComponent(promptId), { body });
+    }
+    if (target === 'company') {
+      return request('PUT', '/v1/company/prompt/' + encodeURIComponent(promptId), { body });
+    }
+    return updatePrompt(promptId, body.prompt, body.prompt_name, body.prompt_category, body.description);
+  }
+
+  /** Rename by PUT so the current prompt body is preserved server-side. */
+  async function renamePrompt(promptId, newName, currentBody, category) {
+    let body = currentBody;
+    if (body == null) {
+      const current = await getPrompt(promptId);
+      body = current ? current.content : '';
+    }
+    return updatePrompt(promptId, body, newName, category || 'Default');
+  }
+
+  async function renameScopedPrompt(scope, promptId, newName, currentBody, category, description) {
+    let body = currentBody;
+    let currentDescription = description;
+    if (body == null || currentDescription == null) {
+      const current = await getScopedPrompt(scope, promptId);
+      if (body == null) body = current ? current.content : '';
+      if (currentDescription == null) currentDescription = current ? current.description : '';
+    }
+    return updateScopedPrompt(scope, promptId, {
+      name: newName,
+      content: body,
+      category: category || 'Default',
+      description: currentDescription || '',
     });
   }
 
   /** DELETE /v1/prompt/{id}. */
   async function deletePrompt(promptId) {
     return request('DELETE', '/v1/prompt/' + encodeURIComponent(promptId));
+  }
+
+  async function deleteScopedPrompt(scope, promptId) {
+    const target = scope || 'user';
+    if (target === 'server') {
+      return request('DELETE', '/v1/server/prompt/' + encodeURIComponent(promptId));
+    }
+    if (target === 'company') {
+      return request('DELETE', '/v1/company/prompt/' + encodeURIComponent(promptId));
+    }
+    return deletePrompt(promptId);
   }
 
   /** POST /v1/agent/{id}/prompt — run a saved prompt with `prompt_args`
@@ -1174,6 +1422,7 @@
     createInvitation,
     deleteInvitation,
     listDefaultRoles,
+    updateDefaultRoleScopes,
     listScopes,
     listCustomRoles,
     createCustomRole,
@@ -1218,19 +1467,32 @@
     moveChainStep,
     deleteChainStep,
     runChain,
+    listScopedChains,
+    getScopedChain,
+    createScopedChain,
+    updateScopedChain,
+    deleteScopedChain,
+    addScopedChainStep,
+    replaceScopedChainSteps,
     getChainResponses,
     // Agents / prompts / commands (chain editor helpers)
     listAgents,
     listPrompts,
+    listScopedPrompts,
     listPromptCategories,
     getPromptArgs,
     getCommandArgs,
     // Prompt library
     getPrompt,
+    getScopedPrompt,
     createPrompt,
+    createScopedPrompt,
     updatePrompt,
+    updateScopedPrompt,
     renamePrompt,
+    renameScopedPrompt,
     deletePrompt,
+    deleteScopedPrompt,
     runPrompt,
     // Group chat / channels
     getGroupConversations,

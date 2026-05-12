@@ -604,6 +604,16 @@ pub struct LoginResponse {
     /// into an authenticator app.
     #[serde(default)]
     pub otp_uri: Option<String>,
+    /// Invitation registration flows for existing/reactivated users can
+    /// return a magic link instead of a direct token, matching the web UI.
+    #[serde(default)]
+    pub magic_link: Option<String>,
+    #[serde(default)]
+    pub added_to_company: Option<bool>,
+    #[serde(default)]
+    pub reactivated: Option<bool>,
+    #[serde(default)]
+    pub message: Option<String>,
     /// Bare email echoed back, used to seed the MFA prompt.
     #[serde(default)]
     pub email: Option<String>,

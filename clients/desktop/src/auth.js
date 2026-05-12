@@ -25,6 +25,9 @@
   let mfaPending = false;
   let onAuthenticatedCb = null;
   let oauthRefreshSeq = 0;
+  let invitationUnlisten = null;
+  let pendingInvitation = null;
+  const INVITATION_STORAGE_KEY = 'agixt.desktop.pendingInvitation.v1';
 
   function setStatus(text, cls) {
     const el = $('auth-status');
@@ -43,6 +46,113 @@
     const v = $('web-url').value.trim();
     if (v) return v.replace(/\/+$/, '');
     return (currentBrand && currentBrand.default_web_url) || 'http://localhost:3437';
+  }
+
+  function normalizeInvitation(input) {
+    if (!input) return null;
+    let data = input;
+    if (typeof input === 'string') {
+      try {
+        const u = new URL(input);
+        data = Object.fromEntries(u.searchParams.entries());
+      } catch (_) {
+        try {
+          data = Object.fromEntries(new URLSearchParams(input).entries());
+        } catch (_) {
+          data = {};
+        }
+      }
+    }
+    const id = data.invitation_id || data.invitationId || data.invitation || data.id;
+    if (!id) return null;
+    return {
+      invitation_id: String(id),
+      email: data.email ? String(data.email) : '',
+      company: data.company || data.company_name ? String(data.company || data.company_name) : '',
+    };
+  }
+
+  function loadPendingInvitation() {
+    if (pendingInvitation) return pendingInvitation;
+    try {
+      pendingInvitation = normalizeInvitation(JSON.parse(localStorage.getItem(INVITATION_STORAGE_KEY) || 'null'));
+    } catch (_) {
+      pendingInvitation = null;
+    }
+    return pendingInvitation;
+  }
+
+  function applyPendingInvitationToUi() {
+    const inv = loadPendingInvitation();
+    const banner = $('auth-invite');
+    const body = $('auth-invite-body');
+    if (!banner || !body) return;
+    if (!inv) {
+      banner.hidden = true;
+      body.textContent = '';
+      return;
+    }
+    const company = inv.company ? ` for ${inv.company}` : '';
+    const email = inv.email ? ` as ${inv.email}` : '';
+    body.textContent = `Sign in or create an account${email} to accept this invitation${company}.`;
+    banner.hidden = false;
+    if (inv.email) {
+      if ($('login-email') && !$('login-email').value) $('login-email').value = inv.email;
+      if ($('reg-email') && !$('reg-email').value) $('reg-email').value = inv.email;
+    }
+  }
+
+  function setPendingInvitation(input) {
+    const inv = normalizeInvitation(input);
+    if (!inv) return false;
+    pendingInvitation = inv;
+    try { localStorage.setItem(INVITATION_STORAGE_KEY, JSON.stringify(inv)); } catch (_) {}
+    applyPendingInvitationToUi();
+    setStatus('Sign in or create an account to accept the invitation.', 'info');
+    return true;
+  }
+
+  function clearPendingInvitation() {
+    pendingInvitation = null;
+    try { localStorage.removeItem(INVITATION_STORAGE_KEY); } catch (_) {}
+    applyPendingInvitationToUi();
+  }
+
+  async function acceptPendingInvitation() {
+    const inv = loadPendingInvitation();
+    if (!inv) return null;
+    // Existing users are added when the invite is created, and new/inactive
+    // users are accepted by POST /v1/user with invitation_id during register.
+    // Keep this helper as the desktop cleanup hook instead of calling a
+    // separate accept endpoint.
+    clearPendingInvitation();
+    setStatus('Invitation handled by the existing account flow.', 'success');
+    return { accepted: true, handled_by_existing_flow: true };
+  }
+
+  async function finishFromMagicLink(resp, fallbackMessage) {
+    if (!resp || !resp.magic_link) return false;
+    await persistBrand();
+    await invoke('login_with_jwt', {
+      serverUrl: activeServerUrl(),
+      raw: resp.magic_link,
+    });
+    clearPendingInvitation();
+    setStatus(fallbackMessage || resp.message || 'Signed in.', 'success');
+    finish(resp);
+    return true;
+  }
+
+  function bindInvitationListener() {
+    if (invitationUnlisten || !tauri.event || typeof tauri.event.listen !== 'function') return;
+    const listener = tauri.event.listen('agixt-invitation', (ev) => {
+      setPendingInvitation(ev && ev.payload);
+    });
+    if (listener && typeof listener.then === 'function') {
+      listener.then((unlisten) => { invitationUnlisten = unlisten; }).catch(() => {});
+    } else {
+      invitationUnlisten = listener;
+    }
   }
 
   function setActiveBrand(slug) {
@@ -119,6 +229,7 @@
     $('tab-login').setAttribute('aria-selected', String(isLogin));
     $('tab-register').setAttribute('aria-selected', String(!isLogin));
     setStatus('');
+    applyPendingInvitationToUi();
   }
 
   $('tab-login').addEventListener('click', () => showPane('login'));
@@ -317,6 +428,7 @@
       const resp = await invoke('login_password', { args });
       if (resp.token) {
         await persistBrand();
+        await acceptPendingInvitation();
         setStatus('Signed in.', 'success');
         finish(resp);
         return;
@@ -365,6 +477,8 @@
       last_name: $('reg-last').value.trim(),
       password: $('reg-password').value,
     };
+    const inv = loadPendingInvitation();
+    if (inv && inv.invitation_id) args.invitation_id = inv.invitation_id;
     if (!args.email || !args.first_name || !args.last_name || !args.password) {
       setStatus('All registration fields are required.', 'error');
       return;
@@ -374,8 +488,18 @@
       const resp = await invoke('register_account', { args });
       if (resp.token) {
         await persistBrand();
+        await acceptPendingInvitation();
         setStatus('Account created. Welcome!', 'success');
         finish(resp);
+        return;
+      }
+      if (await finishFromMagicLink(resp, resp.message || 'Invitation accepted.')) {
+        return;
+      }
+      if (resp.added_to_company || resp.reactivated) {
+        clearPendingInvitation();
+        showPane('login');
+        setStatus(resp.message || 'Invitation accepted. Sign in to continue.', 'success');
         return;
       }
       setStatus('Registration completed but no token returned. Try signing in.', 'info');
@@ -641,10 +765,20 @@
   async function boot({ onAuthenticated } = {}) {
     onAuthenticatedCb = onAuthenticated;
     bindLocalControls();
+    bindInvitationListener();
     await loadBrands();
+    loadPendingInvitation();
+    if (typeof window !== 'undefined' && window.location) setPendingInvitation(window.location.href);
+    applyPendingInvitationToUi();
     await refreshOAuthProviders();
     showPane('login');
   }
 
-  window.AgixtAuth = { boot, refreshOAuthProviders };
+  window.AgixtAuth = {
+    boot,
+    refreshOAuthProviders,
+    setPendingInvitation,
+    acceptPendingInvitation,
+    clearPendingInvitation,
+  };
 })();

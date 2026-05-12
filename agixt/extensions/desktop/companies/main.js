@@ -13,6 +13,7 @@
  *   Roles:
  *     PUT    /v1/user/role                               — change member's default role
  *     GET    /v1/default-roles                           — system role catalog
+ *     PUT    /v1/default-roles/{id}/scopes                — update system role scopes
  *     GET    /v1/scopes                                  — all available scopes
  *     GET    /v1/roles?company_id=…                      — custom roles
  *     POST   /v1/roles?company_id=…                      — create custom role
@@ -108,15 +109,22 @@ CompaniesView.prototype.stop = function () { this.container.innerHTML = ''; };
 // ─── Networking ──────────────────────────────────────────────────────
 
 CompaniesView.prototype.fetchJson = async function (path, opts) {
+  opts = opts || {};
+  if (this.ctx && typeof this.ctx.fetchJson === 'function') {
+    return this.ctx.fetchJson(path, opts);
+  }
+  if (window.AgixtSession && typeof window.AgixtSession.request === 'function') {
+    return window.AgixtSession.request(path, opts);
+  }
   const u = new URL(path, this.ctx.serverUrl).toString();
   const init = {
-    method: (opts && opts.method) || 'GET',
+    method: opts.method || 'GET',
     headers: Object.assign(
       { Authorization: 'Bearer ' + this.ctx.jwt },
-      (opts && opts.json != null) ? { 'Content-Type': 'application/json' } : {},
+      (opts.json != null) ? { 'Content-Type': 'application/json' } : {},
     ),
   };
-  if (opts && opts.json != null) init.body = JSON.stringify(opts.json);
+  if (opts.json != null) init.body = JSON.stringify(opts.json);
   const resp = await fetch(u, init);
   if (resp.status === 204) return null;
   const text = await resp.text();
@@ -154,6 +162,12 @@ CompaniesView.prototype.canAdminCompany = function (c) {
   if (this.roleId === 0) return true;
   const rid = Number(c && c.role_id);
   return rid >= 0 && rid <= 2;
+};
+CompaniesView.prototype.hasScope = function (name) {
+  return this.scopes.has('*') || this.scopes.has('*:*') || this.scopes.has(name);
+};
+CompaniesView.prototype.canEditDefaultRoles = function () {
+  return Number(this.roleId) === 0 || this.hasScope('server:admin');
 };
 
 CompaniesView.prototype.refresh = async function () {
@@ -593,6 +607,15 @@ CompaniesView.prototype.renderDetailHeader = function () {
     rolesBtn.addEventListener('click', () => this.openCustomRolesDialog(c));
     actions.appendChild(rolesBtn);
 
+    if (this.canEditDefaultRoles()) {
+      const defaultRolesBtn = document.createElement('button');
+      defaultRolesBtn.type = 'button';
+      defaultRolesBtn.className = 'co-secondary';
+      defaultRolesBtn.textContent = 'Default roles';
+      defaultRolesBtn.addEventListener('click', () => this.openDefaultRolesDialog());
+      actions.appendChild(defaultRolesBtn);
+    }
+
     const editBtn = document.createElement('button');
     editBtn.type = 'button'; editBtn.className = 'co-secondary'; editBtn.textContent = 'Edit company';
     editBtn.addEventListener('click', () => this.openCompanyDialog({ mode: 'edit', company: c }));
@@ -617,6 +640,10 @@ CompaniesView.prototype.renderDetailBody = function () {
   // Custom roles summary
   if (this.canAdminCompany(c)) {
     this.detailBodyEl.appendChild(this.buildCustomRolesSummary(c));
+  }
+  // Default system roles (super admin only)
+  if (this.canEditDefaultRoles()) {
+    this.detailBodyEl.appendChild(this.buildDefaultRolesSummary());
   }
   // Agents card (kept from original)
   if (Array.isArray(c.agents) && c.agents.length) {
@@ -1050,6 +1077,38 @@ CompaniesView.prototype.buildCustomRolesSummary = function (c) {
   return card;
 };
 
+CompaniesView.prototype.buildDefaultRolesSummary = function () {
+  const list = this.detail.defaultRoles || [];
+  const card = makeCardC('Default roles', list.length
+    ? list.length + ' system role(s) configured'
+    : 'System role permissions could not be loaded.');
+  if (list.length) {
+    const wrap = document.createElement('div');
+    wrap.className = 'co-row-list';
+    list.forEach((r) => {
+      const item = document.createElement('div');
+      item.className = 'co-list-item';
+      item.innerHTML =
+        '<div class="co-list-item-grow">' +
+          '<div class="co-list-item-title">' + escapeC(r.friendly_name || r.name || ('Role ' + r.id)) +
+            ' <span class="co-badge muted">System</span></div>' +
+          '<div class="co-list-item-meta">Slug: <code>' + escapeC(r.name || '') + '</code>' +
+            ' · ' + ((r.scopes && r.scopes.length) || 0) + ' permission(s)</div>' +
+        '</div>';
+      wrap.appendChild(item);
+    });
+    card._body.appendChild(wrap);
+  }
+  const manageBtn = document.createElement('button');
+  manageBtn.type = 'button';
+  manageBtn.className = 'co-primary';
+  manageBtn.textContent = 'Manage default roles';
+  manageBtn.style.cssText = 'margin-top:8px;';
+  manageBtn.addEventListener('click', () => this.openDefaultRolesDialog());
+  card._body.appendChild(manageBtn);
+  return card;
+};
+
 // ─── Bulk actions ────────────────────────────────────────────────────
 
 CompaniesView.prototype.bulkSetRole = async function (userIds, roleId, companyId) {
@@ -1327,6 +1386,247 @@ CompaniesView.prototype.openInviteDialog = function (c) {
     view.renderDetailBody();
   });
   focusFirstInput(handle);
+};
+
+// ─── Default system roles management ─────────────────────────────────
+
+CompaniesView.prototype.openDefaultRolesDialog = async function () {
+  const view = this;
+  if (!this.canEditDefaultRoles()) {
+    toastError('Only super admins can edit default system roles.');
+    return;
+  }
+
+  const listEl = document.createElement('div');
+  listEl.className = 'co-row-list';
+  listEl.appendChild(makeFaintC('Loading default roles…'));
+  const closeBtn = button('Close');
+
+  const handle = openModal({
+    title: 'Default system roles',
+    description: 'Edit the scopes assigned to built-in roles. Changes affect every user with that default role.',
+    wide: true,
+    body: [listEl],
+    footer: [closeBtn],
+  });
+  closeBtn.addEventListener('click', () => handle.close());
+
+  let scopesCache = null;
+  async function loadScopes() {
+    if (!scopesCache) {
+      try {
+        const data = await view.fetchJson('/v1/scopes');
+        scopesCache = (data && (data.scopes || data)) || [];
+      } catch (_) { scopesCache = []; }
+    }
+    return scopesCache;
+  }
+
+  async function refresh() {
+    listEl.innerHTML = '';
+    listEl.appendChild(makeFaintC('Loading default roles…'));
+    let roles;
+    try {
+      const data = await view.fetchJson('/v1/default-roles');
+      roles = (data && (data.roles || data.default_roles)) || [];
+    } catch (err) {
+      listEl.innerHTML = '';
+      const errDiv = document.createElement('div');
+      errDiv.className = 'co-error';
+      errDiv.textContent = friendlyError(err);
+      listEl.appendChild(errDiv);
+      return;
+    }
+    view.detail.defaultRoles = Array.isArray(roles) ? roles : [];
+    listEl.innerHTML = '';
+    if (!view.detail.defaultRoles.length) {
+      listEl.appendChild(makeFaintC('No default roles returned by the server.'));
+      return;
+    }
+    view.detail.defaultRoles.forEach((r) => listEl.appendChild(buildDefaultRoleCard(r)));
+  }
+
+  function buildDefaultRoleCard(r) {
+    const card = document.createElement('div');
+    card.className = 'co-role-card';
+    const grow = document.createElement('div');
+    grow.className = 'co-role-card-grow';
+    grow.innerHTML =
+      '<div class="co-role-card-title">' + escapeC(r.friendly_name || r.name || ('Role ' + r.id)) +
+        (Number(r.id) === 0 ? ' <span class="co-badge warn">Locked</span>' : ' <span class="co-badge muted">System</span>') +
+      '</div>' +
+      '<div class="co-role-card-desc">Slug: <code>' + escapeC(r.name || '') + '</code>' +
+        ' · ' + ((r.scopes && r.scopes.length) || 0) + ' permission(s)</div>';
+    if (r.scopes && r.scopes.length) {
+      const scopes = document.createElement('div');
+      scopes.className = 'co-role-card-scopes';
+      r.scopes.slice(0, 12).forEach((s) => {
+        const c = document.createElement('code');
+        c.textContent = s.name;
+        scopes.appendChild(c);
+      });
+      if (r.scopes.length > 12) {
+        const more = document.createElement('code');
+        more.textContent = '+' + (r.scopes.length - 12) + ' more';
+        scopes.appendChild(more);
+      }
+      grow.appendChild(scopes);
+    }
+    card.appendChild(grow);
+
+    const actions = document.createElement('div');
+    actions.className = 'co-role-card-actions';
+    const editBtn = button(Number(r.id) === 0 ? 'View' : 'Edit', {
+      onclick: async () => {
+        const scopes = await loadScopes();
+        view.openDefaultRoleEditor(r, scopes, async () => {
+          await refresh();
+          view.renderDetailBody();
+        });
+      },
+    });
+    actions.appendChild(editBtn);
+    card.appendChild(actions);
+    return card;
+  }
+
+  refresh();
+  focusFirstInput(handle, { focusSelector: '.co-secondary' });
+};
+
+CompaniesView.prototype.openDefaultRoleEditor = function (role, allScopes, onSaved) {
+  const view = this;
+  const roleId = Number(role && role.id);
+  const locked = roleId === 0;
+
+  const info = document.createElement('div');
+  info.className = 'co-role-editor-info';
+  info.innerHTML =
+    '<div class="co-role-card-title">' + escapeC((role && (role.friendly_name || role.name)) || ('Role ' + roleId)) + '</div>' +
+    '<div class="co-role-card-desc">Slug: <code>' + escapeC((role && role.name) || '') + '</code>' +
+      ' · Built-in role ID: ' + escapeC(roleId) + '</div>';
+
+  const groups = {};
+  (allScopes || []).forEach((s) => {
+    const cat = s.category || 'Other';
+    (groups[cat] = groups[cat] || []).push(s);
+  });
+  const categoryNames = Object.keys(groups).sort();
+  const originalScopeIds = new Set((role && role.scopes ? role.scopes : []).map((s) => s.id));
+  const selectedScopeIds = new Set(originalScopeIds);
+  const scopesWrap = document.createElement('div');
+  scopesWrap.className = 'co-scope-list co-scope-list-large';
+  if (!categoryNames.length) scopesWrap.appendChild(makeFaintC('Could not load scopes.'));
+  const scopesLabel = document.createElement('span');
+  scopesLabel.className = 'co-label-text';
+  let saveBtn = null;
+
+  function hasChanges() {
+    if (originalScopeIds.size !== selectedScopeIds.size) return true;
+    for (const id of originalScopeIds) if (!selectedScopeIds.has(id)) return true;
+    return false;
+  }
+  function refreshScopeCount() {
+    scopesLabel.textContent = 'Permissions / scopes (' + selectedScopeIds.size + ' selected)';
+    if (saveBtn) saveBtn.disabled = locked || !hasChanges();
+  }
+  function setCategory(catScopes, selected) {
+    catScopes.forEach((s) => {
+      if (selected) selectedScopeIds.add(s.id);
+      else selectedScopeIds.delete(s.id);
+    });
+    renderScopes();
+    refreshScopeCount();
+  }
+  function renderScopes() {
+    scopesWrap.innerHTML = '';
+    if (!categoryNames.length) {
+      scopesWrap.appendChild(makeFaintC('Could not load scopes.'));
+      return;
+    }
+    categoryNames.forEach((cat) => {
+      const catScopes = groups[cat];
+      const categoryIds = catScopes.map((s) => s.id);
+      const selectedCount = categoryIds.filter((id) => selectedScopeIds.has(id)).length;
+      const allSelected = categoryIds.length > 0 && selectedCount === categoryIds.length;
+      const catRow = document.createElement('label');
+      catRow.className = 'co-scope-cat-row';
+      const catCb = document.createElement('input');
+      catCb.type = 'checkbox';
+      catCb.checked = allSelected;
+      catCb.disabled = locked;
+      catCb.addEventListener('change', () => setCategory(catScopes, catCb.checked));
+      const catTitle = document.createElement('span');
+      catTitle.className = 'co-scope-cat';
+      catTitle.textContent = cat + ' (' + selectedCount + '/' + categoryIds.length + ')';
+      catRow.appendChild(catCb);
+      catRow.appendChild(catTitle);
+      scopesWrap.appendChild(catRow);
+      catScopes.forEach((s) => {
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = selectedScopeIds.has(s.id);
+        cb.disabled = locked;
+        cb.addEventListener('change', () => {
+          if (cb.checked) selectedScopeIds.add(s.id);
+          else selectedScopeIds.delete(s.id);
+          renderScopes();
+          refreshScopeCount();
+        });
+        const row = document.createElement('label');
+        row.className = 'co-scope-row';
+        row.appendChild(cb);
+        const det = document.createElement('div');
+        det.innerHTML = '<code>' + escapeC(s.name) + '</code>' +
+          (s.description ? '<div class="co-scope-row-desc">' + escapeC(s.description) + '</div>' : '');
+        row.appendChild(det);
+        scopesWrap.appendChild(row);
+      });
+    });
+  }
+
+  const scopesField = document.createElement('label');
+  scopesField.className = 'co-field';
+  scopesField.appendChild(scopesLabel);
+  scopesField.appendChild(scopesWrap);
+
+  const lockNote = locked ? makeFaintC('The Super Admin role always has full permissions and cannot be modified.') : null;
+  if (lockNote) lockNote.style.cssText = 'padding:10px 0;text-align:left;color:var(--text-dim);';
+
+  const cancelBtn = button('Cancel');
+  saveBtn = button('Save changes', { kind: 'primary', disabled: true });
+
+  const handle = openModal({
+    title: locked ? 'View default role' : 'Edit default role',
+    description: locked
+      ? 'The super admin role is locked by the server.'
+      : 'Select the scopes this default system role should grant to every user with that role.',
+    wide: true,
+    body: [info, lockNote, scopesField],
+    footer: [cancelBtn, saveBtn],
+  });
+  cancelBtn.addEventListener('click', () => handle.close());
+  saveBtn.addEventListener('click', async () => {
+    if (locked || !hasChanges()) return;
+    saveBtn.disabled = true;
+    try {
+      await view.fetchJson('/v1/default-roles/' + encodeURIComponent(roleId) + '/scopes', {
+        method: 'PUT',
+        json: Array.from(selectedScopeIds),
+      });
+      toastInfo('Default role permissions updated');
+      handle.close();
+      await view.loadUser();
+      if (typeof onSaved === 'function') onSaved();
+    } catch (err) {
+      toastError(friendlyError(err));
+      refreshScopeCount();
+    }
+  });
+
+  renderScopes();
+  refreshScopeCount();
+  focusFirstInput(handle, { focusSelector: locked ? '.co-secondary' : '.co-primary' });
 };
 
 // ─── Custom roles management ─────────────────────────────────────────
@@ -2029,11 +2329,16 @@ CompaniesView.prototype.injectStyles = function () {
     .co-role-card-scopes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
     .co-role-card-scopes code { font-family: var(--mono); font-size: 10.5px; background: var(--panel); color: var(--accent); padding: 1px 6px; border-radius: 3px; }
     .co-role-card-actions { display: flex; gap: 4px; flex-shrink: 0; }
+    .co-role-editor-info { background: var(--panel-2); border: 1px solid var(--co-border); border-radius: 8px; padding: 10px 12px; }
 
     /* Scope list inside role editor */
     .co-scope-list { max-height: 240px; overflow-y: auto; background: var(--panel-2); border: 1px solid var(--co-border); border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+    .co-scope-list-large { max-height: min(560px, 56vh); }
     .co-scope-cat { font-weight: 600; font-size: 11.5px; margin: 6px 0 2px; text-transform: capitalize; }
     .co-scope-cat:first-child { margin-top: 0; }
+    .co-scope-cat-row { display: flex; gap: 8px; align-items: center; padding: 8px 4px 4px; border-top: 1px solid var(--co-divider); cursor: pointer; }
+    .co-scope-cat-row:first-child { border-top: 0; padding-top: 0; }
+    .co-scope-cat-row .co-scope-cat { margin: 0; }
     .co-scope-row { display: flex; gap: 8px; align-items: flex-start; padding-left: 8px; cursor: pointer; }
     .co-scope-row code { font-family: var(--mono); font-size: 11px; color: var(--accent); }
     .co-scope-row-desc { font-size: 10.5px; color: var(--text-faint); }

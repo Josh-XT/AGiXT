@@ -1,7 +1,8 @@
 /* Prompt Library side pane.
  *
- * Vanilla-JS port of web/app/settings/prompts/page.tsx, scoped to user-
- * level prompts in the "Default" category. The pane has two columns:
+ * Vanilla-JS port of web/app/settings/prompts/page.tsx. Supports the same
+ * user/company/server levels as the web prompt library, defaulting to the
+ * "Default" category inside each scope. The pane has two columns:
  *   - List (left)  — searchable list of prompts with a body preview
  *   - Editor (right) — title + Edit/Test tabs
  *     • Edit: textarea + a sidebar of detected `{var}` tokens you can
@@ -35,6 +36,12 @@
   const STATE = {
     mounted: false,
     booted: false,
+    scope: (() => {
+      try { return window.localStorage.getItem('promptEditorScope') || 'user'; }
+      catch (_) { return 'user'; }
+    })(),
+    scopes: new Set(),
+    roleId: null,
     prompts: [],          // [{id, name, content?, category}]
     listFilter: '',
     activeId: null,       // currently selected prompt id
@@ -72,6 +79,48 @@
     if (!err) return 'Unknown error';
     if (typeof err === 'string') return err;
     return err.error || err.detail || err.message || String(err);
+  }
+
+  function isAdminRole() {
+    return STATE.roleId === 0 || STATE.roleId === 1;
+  }
+
+  function hasScope(name) {
+    return STATE.scopes.has('*') || STATE.scopes.has('*:*') || STATE.scopes.has(name);
+  }
+
+  function canUsePromptScope(scope) {
+    if (scope === 'user') return true;
+    if (scope === 'company') {
+      return isAdminRole() || hasScope('company:prompts') || hasScope('company:admin');
+    }
+    if (scope === 'server') {
+      return STATE.roleId === 0 || hasScope('server:prompts') || hasScope('server:admin');
+    }
+    return false;
+  }
+
+  function scopeLabel(scope) {
+    if (scope === 'company') return 'Company';
+    if (scope === 'server') return 'Server';
+    return 'My Prompts';
+  }
+
+  function scopeEntityLabel() {
+    if (STATE.scope === 'company') return 'company prompt';
+    if (STATE.scope === 'server') return 'server prompt';
+    return 'prompt';
+  }
+
+  function scopeEmptyLabel() {
+    if (STATE.scope === 'company') return 'company prompts';
+    if (STATE.scope === 'server') return 'server prompts';
+    return 'prompts';
+  }
+
+  function setScope(scope) {
+    STATE.scope = canUsePromptScope(scope) ? scope : 'user';
+    try { window.localStorage.setItem('promptEditorScope', STATE.scope); } catch (_) {}
   }
 
   // ── DOM helpers (mirrors chains.js for stylistic parity) ──────────────
@@ -134,14 +183,44 @@
 
   // ── Data loading ──────────────────────────────────────────────────────
 
+  async function loadUserScopes() {
+    try {
+      const [user, settings] = await Promise.all([
+        api.getUser(),
+        api.getSettings().catch(() => null),
+      ]);
+      const companyId = (settings && settings.company_id) || null;
+      const companies = (user && user.companies) || [];
+      const currentCompany = companyId
+        ? companies.find((c) => c.id === companyId)
+        : companies[0];
+      STATE.scopes = new Set(
+        (currentCompany && currentCompany.scopes)
+          || (user && user.scopes)
+          || []
+      );
+      STATE.roleId = currentCompany && currentCompany.role_id != null
+        ? Number(currentCompany.role_id)
+        : (user && user.role_id != null ? Number(user.role_id) : null);
+    } catch (err) {
+      console.warn('prompts: load user scopes failed', err);
+      STATE.scopes = new Set();
+      STATE.roleId = null;
+    }
+    if (!canUsePromptScope(STATE.scope)) setScope('user');
+    renderScopeTabs();
+  }
+
   async function loadPromptsList(force) {
     try {
-      const rows = await api.listPrompts('Default');
+      const rows = await api.listScopedPrompts(STATE.scope, 'Default');
       STATE.prompts = (rows || []).map((p) => ({
         id: p.id || p.prompt_id || '',
         name: p.name || p.prompt_name || '',
         content: p.content || p.prompt || p.prompt_content || '',
         category: p.category || p.prompt_category || 'Default',
+        description: p.description || '',
+        source: p.source || STATE.scope,
       })).filter((p) => p.id && p.name);
       STATE.prompts.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
     } catch (err) {
@@ -162,10 +241,14 @@
     let p = STATE.prompts.find((x) => x.id === STATE.activeId);
     if (!p || !p.content) {
       try {
-        const detail = await api.getPrompt(STATE.activeId);
+        const detail = await api.getScopedPrompt(STATE.scope, STATE.activeId);
         if (detail) {
           if (!p) p = detail;
-          else { p.content = detail.content; p.name = detail.name || p.name; }
+          else {
+            p.content = detail.content;
+            p.name = detail.name || p.name;
+            p.description = detail.description || p.description || '';
+          }
         }
       } catch (err) {
         toast('Failed to load prompt: ' + errMsg(err), 'error');
@@ -186,6 +269,45 @@
       STATE.agentId = '';
       STATE.agentName = '';
     }
+  }
+
+  function renderScopeTabs() {
+    const wrap = $('#pl-scope-tabs');
+    if (!wrap) return;
+    wrap.querySelectorAll('[data-scope]').forEach((node) => {
+      const scope = node.dataset.scope || 'user';
+      const allowed = canUsePromptScope(scope);
+      node.classList.toggle('is-active', scope === STATE.scope);
+      node.disabled = !allowed;
+      node.setAttribute('aria-selected', scope === STATE.scope ? 'true' : 'false');
+      node.title = allowed
+        ? `${scopeLabel(scope)} scope`
+        : `You do not have access to ${scopeLabel(scope).toLowerCase()}.`;
+    });
+  }
+
+  async function switchScope(scope) {
+    if (scope === STATE.scope) return;
+    if (!canUsePromptScope(scope)) {
+      toast(`You do not have access to ${scopeLabel(scope).toLowerCase()}.`, 'error');
+      renderScopeTabs();
+      return;
+    }
+    if (isDirty()) {
+      const ok = window.confirm('You have unsaved changes. Discard them and switch prompt scope?');
+      if (!ok) return;
+    }
+    setScope(scope);
+    STATE.activeId = null;
+    STATE.activeBody = '';
+    STATE.activeBaseline = '';
+    STATE.activeName = '';
+    STATE.testResponse = '';
+    STATE.testVars = {};
+    renderScopeTabs();
+    await loadPromptsList(true);
+    renderList();
+    renderEditor();
   }
 
   // ── Variable extraction ──────────────────────────────────────────────
@@ -231,7 +353,7 @@
     if (!items.length) {
       root.appendChild(el('div', { class: 'pl-list-empty' },
         STATE.prompts.length === 0
-          ? 'No prompts yet. Click + to create one.'
+          ? `No ${scopeEmptyLabel()} yet. Click + to create one.`
           : 'No prompts match this search.'
       ));
       return;
@@ -302,9 +424,9 @@
   function renderEmptyState() {
     return el('div', { class: 'pl-editor-empty' }, [
       el('div', { class: 'pl-editor-empty-icon', html: ICONS.book }),
-      el('div', { class: 'pl-editor-empty-title' }, 'Prompt Library'),
+      el('div', { class: 'pl-editor-empty-title' }, scopeLabel(STATE.scope)),
       el('div', { class: 'pl-editor-empty-body' },
-        'Save reusable prompt templates with named variables in `{curly_braces}`. They feed Prompt-type chain steps and the agent test panel.'
+        'Save reusable prompt templates with named variables in `{curly_braces}`. Company and server prompts are shared according to role scopes.'
       ),
       btn(
         el('span', null, [
@@ -347,7 +469,10 @@
     );
 
     return el('div', { class: 'pl-editor-header' }, [
-      el('div', { class: 'pl-editor-titlewrap' }, [titleInput]),
+      el('div', { class: 'pl-editor-titlewrap' }, [
+        titleInput,
+        el('div', { class: 'pl-editor-meta' }, `${scopeLabel(STATE.scope)} · ${scopeEntityLabel()}`),
+      ]),
       el('div', { class: 'pl-editor-actions' }, [saveBtn, exportBtn, deleteBtn]),
     ]);
   }
@@ -606,11 +731,11 @@
     const trimmed = name.trim();
     if (!trimmed) return;
     if (STATE.prompts.some((p) => p.name.toLowerCase() === trimmed.toLowerCase())) {
-      toast('A prompt with that name already exists.', 'error');
+      toast(`A ${scopeEntityLabel()} with that name already exists.`, 'error');
       return;
     }
     try {
-      await api.createPrompt(trimmed, '', 'Default');
+      await api.createScopedPrompt(STATE.scope, trimmed, '', 'Default');
       await loadPromptsList();
       const created = STATE.prompts.find((p) => p.name === trimmed);
       if (created) {
@@ -620,7 +745,7 @@
       renderList();
       renderEditor();
       emitPromptsChanged();
-      toast(`Prompt "${trimmed}" created.`, 'success');
+      toast(`${scopeEntityLabel()[0].toUpperCase() + scopeEntityLabel().slice(1)} "${trimmed}" created.`, 'success');
     } catch (err) {
       toast('Failed to create: ' + errMsg(err), 'error');
     }
@@ -642,7 +767,7 @@
       return;
     }
     try {
-      await api.renamePrompt(STATE.activeId, newName);
+      await api.renameScopedPrompt(STATE.scope, STATE.activeId, newName, STATE.activeBody, 'Default');
       STATE.activeName = newName;
       const p = STATE.prompts.find((x) => x.id === STATE.activeId);
       if (p) p.name = newName;
@@ -659,7 +784,11 @@
     if (!STATE.activeId) return;
     if (!isDirty()) return;
     try {
-      await api.updatePrompt(STATE.activeId, STATE.activeBody);
+      await api.updateScopedPrompt(STATE.scope, STATE.activeId, {
+        name: STATE.activeName,
+        content: STATE.activeBody,
+        category: 'Default',
+      });
       STATE.activeBaseline = STATE.activeBody;
       const p = STATE.prompts.find((x) => x.id === STATE.activeId);
       if (p) p.content = STATE.activeBody;
@@ -677,7 +806,7 @@
     const ok = window.confirm(`Delete prompt "${STATE.activeName}"? This cannot be undone.`);
     if (!ok) return;
     try {
-      await api.deletePrompt(STATE.activeId);
+      await api.deleteScopedPrompt(STATE.scope, STATE.activeId);
       STATE.activeId = null;
       STATE.activeBody = '';
       STATE.activeBaseline = '';
@@ -738,12 +867,14 @@
       STATE.mounted = true;
     }
     if (STATE.booted) {
+      await loadUserScopes();
       await loadPromptsList();
       renderList();
       return;
     }
     STATE.booted = true;
     try {
+      await loadUserScopes();
       await Promise.all([loadActiveAgent(), loadPromptsList()]);
       renderList();
       renderEditor();
@@ -762,6 +893,11 @@
     }
     const newBtn = $('#pl-new-prompt');
     if (newBtn) newBtn.addEventListener('click', handleCreatePrompt);
+
+    document.querySelectorAll('#pl-scope-tabs [data-scope]').forEach((button) => {
+      button.addEventListener('click', () => switchScope(button.dataset.scope || 'user'));
+    });
+    renderScopeTabs();
 
     // The Prompt Library is reached from the chains editor's toolbar
     // (no standalone sidenav item), so we offer a back-to-chains
@@ -783,7 +919,10 @@
       event.listen('agixt-agent-changed', async () => {
         try {
           await api.refreshSettings();
+          await loadUserScopes();
           await loadActiveAgent();
+          await loadPromptsList(true);
+          renderList();
           if (STATE.activeId && STATE.activeTab === 'test') renderEditor();
         } catch (_) { /* ignore */ }
       });

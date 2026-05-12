@@ -126,6 +126,11 @@
             <input id="web-url" type="url" placeholder="http://localhost:3437" autocomplete="url" />
           </label>
 
+          <div class="auth-invite" id="auth-invite" hidden>
+            <div class="auth-invite-title">Company invitation ready</div>
+            <div class="auth-invite-body" id="auth-invite-body"></div>
+          </div>
+
           <!-- LOCAL MODE PANE — shown only when brand === 'local'.
                Probes localhost:7437; if running, the user proceeds via
                the regular login pane below. If not running, surfaces
@@ -729,6 +734,11 @@
                 <h1 class="cn-header-title">Automation Chains</h1>
                 <div class="cn-header-sub">Sequence agent steps — Prompts, Commands, and other Chains — into a reusable workflow.</div>
               </div>
+              <div class="cn-scope-tabs" id="cn-scope-tabs" role="tablist" aria-label="Chain scope">
+                <button type="button" class="cn-scope-btn is-active" data-scope="user">My Chains</button>
+                <button type="button" class="cn-scope-btn" data-scope="company">Company</button>
+                <button type="button" class="cn-scope-btn" data-scope="server">Server</button>
+              </div>
               <div class="cn-header-spacer"></div>
               <!-- Prompt Library shortcut — always visible from the
                    chains pane regardless of whether a chain is selected.
@@ -827,6 +837,11 @@
                 <div class="pl-header-sub">Reusable prompt templates with named variables — feeds Prompt-type chain steps and the agent test panel.</div>
               </div>
               <div class="pl-header-spacer"></div>
+              <div class="pl-scope-tabs" id="pl-scope-tabs" role="tablist" aria-label="Prompt scope">
+                <button type="button" class="pl-scope-btn is-active" data-scope="user">My Prompts</button>
+                <button type="button" class="pl-scope-btn" data-scope="company">Company</button>
+                <button type="button" class="pl-scope-btn" data-scope="server">Server</button>
+              </div>
             </header>
 
             <div class="pl-body">

@@ -237,7 +237,11 @@
     if (lastEtag) headers['If-None-Match'] = lastEtag;
     let resp;
     try {
-      resp = await fetch(url, { headers });
+      if (window.AgixtSession && typeof window.AgixtSession.fetch === 'function') {
+        resp = await window.AgixtSession.fetch(url, { headers, allowedStatuses: [304] });
+      } else {
+        resp = await fetch(url, { headers });
+      }
     } catch (err) {
       console.warn('desktop-extensions: manifest fetch failed', err);
       return null;
@@ -1075,7 +1079,13 @@
     });
     let resp;
     try {
-      resp = await fetch(url, { headers: { Authorization: `Bearer ${c.jwt}` } });
+      if (window.AgixtSession && typeof window.AgixtSession.fetch === 'function') {
+        resp = await window.AgixtSession.fetch(url, {
+          headers: { Authorization: `Bearer ${c.jwt}` },
+        });
+      } else {
+        resp = await fetch(url, { headers: { Authorization: `Bearer ${c.jwt}` } });
+      }
     } catch (err) {
       console.warn('desktop-extensions: module fetch failed', entry.id, err);
       return null;

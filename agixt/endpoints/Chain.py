@@ -60,7 +60,7 @@ async def add_chain_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ChainResponse:
-    if chain_name.chain_name == "":
+    if not chain_name.chain_name:
         raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     try:
         chain_id = Chain(user=user).add_chain(
@@ -84,7 +84,7 @@ async def add_chain_v1(
 async def import_chain_v1(
     chain: ChainData, user=Depends(verify_api_key), authorization: str = Header(None)
 ) -> ResponseMessage:
-    if chain.chain_name == "":
+    if not chain.chain_name:
         raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     response = Chain(user=user).import_chain(
         chain_name=chain.chain_name, steps=chain.steps
@@ -594,6 +594,8 @@ async def create_server_chain_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ChainResponse:
+    if not chain_name.chain_name:
+        raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     chain_id = Chain(user=user).add_server_chain(
         name=chain_name.chain_name,
         description=chain_name.description,
@@ -754,6 +756,8 @@ async def create_company_chain_v1(
     user=Depends(verify_api_key),
     authorization: str = Header(None),
 ) -> ChainResponse:
+    if not chain_name.chain_name:
+        raise HTTPException(status_code=400, detail="Chain name cannot be empty.")
     chain_id = Chain(user=user).add_company_chain(
         name=chain_name.chain_name,
         description=chain_name.description,

@@ -40,6 +40,12 @@
   const STATE = {
     mounted: false,
     booted: false,
+    scope: (() => {
+      try { return window.localStorage.getItem('chainEditorScope') || 'user'; }
+      catch (_) { return 'user'; }
+    })(),
+    scopes: new Set(),
+    roleId: null,
     chainsList: [],
     listFilter: '',
     activeChainId: null,
@@ -86,6 +92,40 @@
     try { window.localStorage.setItem('chainEditorListOpen', String(STATE.listOpen)); }
     catch (_) { /* ignore */ }
     renderListVisibility();
+  }
+
+  function isAdminRole() {
+    return STATE.roleId === 0 || STATE.roleId === 1;
+  }
+
+  function hasScope(name) {
+    return STATE.scopes.has('*') || STATE.scopes.has('*:*') || STATE.scopes.has(name);
+  }
+
+  function canUseChainScope(scope) {
+    if (scope === 'user') return true;
+    if (scope === 'company') {
+      return isAdminRole() || hasScope('company:chains') || hasScope('company:admin');
+    }
+    if (scope === 'server') {
+      return STATE.roleId === 0 || hasScope('server:chains') || hasScope('server:admin');
+    }
+    return false;
+  }
+
+  function scopeLabel(scope) {
+    if (scope === 'company') return 'Company';
+    if (scope === 'server') return 'Server';
+    return 'My Chains';
+  }
+
+  function isSharedScope() {
+    return STATE.scope === 'company' || STATE.scope === 'server';
+  }
+
+  function setScope(scope) {
+    STATE.scope = canUseChainScope(scope) ? scope : 'user';
+    try { window.localStorage.setItem('chainEditorScope', STATE.scope); } catch (_) {}
   }
 
   /** Toggle the chain list panel vs. its collapsed strip. The two
@@ -313,9 +353,37 @@
     }
   }
 
+  async function loadUserScopes() {
+    try {
+      const [user, settings] = await Promise.all([
+        api.getUser(),
+        api.getSettings().catch(() => null),
+      ]);
+      const companyId = (settings && settings.company_id) || null;
+      const companies = (user && user.companies) || [];
+      const currentCompany = companyId
+        ? companies.find((c) => c.id === companyId)
+        : companies[0];
+      STATE.scopes = new Set(
+        (currentCompany && currentCompany.scopes)
+          || (user && user.scopes)
+          || []
+      );
+      STATE.roleId = currentCompany && currentCompany.role_id != null
+        ? Number(currentCompany.role_id)
+        : (user && user.role_id != null ? Number(user.role_id) : null);
+    } catch (err) {
+      console.warn('chains: load user scopes failed', err);
+      STATE.scopes = new Set();
+      STATE.roleId = null;
+    }
+    if (!canUseChainScope(STATE.scope)) setScope('user');
+    renderScopeTabs();
+  }
+
   async function loadChainsList() {
     try {
-      const rows = await api.listChains();
+      const rows = await api.listScopedChains(STATE.scope);
       STATE.chainsList = (rows || []).map((c) => ({
         id: c.id || c.chain_id || '',
         chainName: c.chainName || c.chain_name || c.name || '',
@@ -335,7 +403,7 @@
       return;
     }
     try {
-      const chain = await api.getChain(STATE.activeChainId);
+      const chain = await api.getScopedChain(STATE.scope, STATE.activeChainId);
       // The list has the description (the GET endpoint sometimes omits it),
       // so backfill from the cached list when missing.
       if (chain && !chain.description) {
@@ -354,7 +422,47 @@
     // settled Enable/Disable state — otherwise the button rendered while
     // the probe was still in-flight stayed stuck on "Checking…" because
     // nothing re-rendered when the promise resolved.
-    await refreshAbilityStatus();
+    if (isSharedScope()) STATE.abilityEnabled = false;
+    else await refreshAbilityStatus();
+  }
+
+  function renderScopeTabs() {
+    const wrap = $('#cn-scope-tabs');
+    if (!wrap) return;
+    wrap.querySelectorAll('[data-scope]').forEach((node) => {
+      const scope = node.dataset.scope || 'user';
+      const allowed = canUseChainScope(scope);
+      node.classList.toggle('is-active', scope === STATE.scope);
+      node.disabled = !allowed;
+      node.setAttribute('aria-selected', scope === STATE.scope ? 'true' : 'false');
+      node.title = allowed
+        ? `${scopeLabel(scope)} scope`
+        : `You do not have access to ${scopeLabel(scope).toLowerCase()} chains.`;
+    });
+  }
+
+  async function switchScope(scope) {
+    if (scope === STATE.scope) return;
+    if (!canUseChainScope(scope)) {
+      toast(`You do not have access to ${scopeLabel(scope).toLowerCase()} chains.`, 'error');
+      renderScopeTabs();
+      return;
+    }
+    if (STATE.dirty.size > 0) {
+      const ok = window.confirm('You have unsaved changes. Discard them and switch chain scope?');
+      if (!ok) return;
+    }
+    setScope(scope);
+    STATE.activeChainId = null;
+    STATE.activeChain = null;
+    STATE.dirty.clear();
+    STATE.expandedSteps.clear();
+    renderScopeTabs();
+    renderList();
+    renderEditor(true);
+    await loadChainsList();
+    renderList();
+    renderEditor();
   }
 
   /** Probe whether STATE.activeChain is enabled as a callable command on
@@ -464,7 +572,7 @@
     if (!items.length) {
       root.appendChild(el('div', { class: 'cn-list-empty' },
         STATE.chainsList.length === 0
-          ? 'No chains yet. Click + to create one.'
+          ? `No ${scopeLabel(STATE.scope).toLowerCase()} chains yet. Click + to create one.`
           : 'No chains match this search.'
       ));
       return;
@@ -478,6 +586,9 @@
         title: c.chainName,
       }, [
         el('span', { class: 'cn-list-item-name' }, c.chainName),
+        isSharedScope()
+          ? el('span', { class: 'cn-list-item-desc' }, scopeLabel(STATE.scope) + ' scope')
+          : null,
         c.description
           ? el('span', { class: 'cn-list-item-desc' }, c.description)
           : null,
@@ -631,7 +742,14 @@
 
     const runBtn = btn(
       el('span', { html: ICONS.play + '<span style="margin-left:6px">Run</span>' }),
-      { kind: 'secondary', onclick: handleRunChain, title: 'Run this chain' }
+      {
+        kind: 'secondary',
+        onclick: handleRunChain,
+        disabled: isSharedScope(),
+        title: isSharedScope()
+          ? 'Clone or use this chain from an agent/user context to run it.'
+          : 'Run this chain',
+      }
     );
     const exportBtn = btn(
       el('span', { html: ICONS.download }),
@@ -702,6 +820,7 @@
     }
     const enabled = STATE.abilityEnabled;
     const checking = STATE.abilityChecking;
+    const shared = isSharedScope();
     return btn(
       el('span', null, [
         el('span', {
@@ -713,9 +832,11 @@
       ]),
       {
         kind: enabled ? 'secondary' : 'primary',
-        disabled: checking,
+        disabled: checking || shared,
         onclick: handleToggleAbility,
-        title: enabled
+        title: shared
+          ? 'Company/server chains are managed here; enable a callable command from an agent/user chain context.'
+          : enabled
           ? `Currently exposed as a command on ${STATE.abilityAgentName}. Click to disable.`
           : `Expose this chain as a callable command on ${STATE.abilityAgentName}.`,
       }
@@ -1446,12 +1567,19 @@
 
       submitBtn.disabled = true;
       try {
-        await api.createChain(finalName, description);
+        await api.createScopedChain(STATE.scope, finalName, description);
         if (pickedFile) {
           const text = await pickedFile.text();
           const steps = JSON.parse(text);
           if (!Array.isArray(steps)) throw new Error('JSON must be an array of steps.');
-          await api.importChain(finalName, steps);
+          if (isSharedScope()) {
+            const refreshed = await api.listScopedChains(STATE.scope);
+            const createdForImport = refreshed.find((c) => c.chainName === finalName);
+            if (!createdForImport) throw new Error('Created chain was not found for import.');
+            await api.replaceScopedChainSteps(STATE.scope, createdForImport.id, steps);
+          } else {
+            await api.importChain(finalName, steps);
+          }
         }
         await loadChainsList();
         const created = STATE.chainsList.find((c) => c.chainName === finalName);
@@ -1490,7 +1618,10 @@
     try {
       // PUT /v1/chain/{id} accepts both {new_name, description}; pass the
       // current description through so a rename doesn't clobber it.
-      await api.renameChain(STATE.activeChainId, newName, STATE.activeChain.description || '');
+      await api.updateScopedChain(STATE.scope, STATE.activeChainId, {
+        name: newName,
+        description: STATE.activeChain.description || '',
+      });
       STATE.activeChain.chainName = newName;
       await loadChainsList();
       renderList();
@@ -1508,7 +1639,10 @@
     try {
       // The PUT endpoint takes both fields, so we send the current name
       // alongside the new description to update only the description.
-      await api.renameChain(STATE.activeChainId, STATE.activeChain.chainName, newDesc);
+      await api.updateScopedChain(STATE.scope, STATE.activeChainId, {
+        name: STATE.activeChain.chainName,
+        description: newDesc,
+      });
       STATE.activeChain.description = newDesc;
       const idx = STATE.chainsList.findIndex((c) => c.id === STATE.activeChainId);
       if (idx >= 0) STATE.chainsList[idx].description = newDesc;
@@ -1524,7 +1658,7 @@
     const ok = window.confirm(`Delete chain "${STATE.activeChain.chainName}"? This cannot be undone.`);
     if (!ok) return;
     try {
-      await api.deleteChain(STATE.activeChainId);
+      await api.deleteScopedChain(STATE.scope, STATE.activeChainId);
       STATE.activeChainId = null;
       STATE.activeChain = null;
       STATE.dirty.clear();
@@ -1548,10 +1682,11 @@
       return;
     }
     try {
-      await api.addChainStep(STATE.activeChainId, stepNumber, defaultAgentId, 'Prompt', {
+      const defaultAgent = STATE.agents.find((a) => a.id === defaultAgentId) || STATE.agents[0] || null;
+      await api.addScopedChainStep(STATE.scope, STATE.activeChainId, stepNumber, defaultAgentId, 'Prompt', {
         prompt_name: '',
         prompt_category: 'Default',
-      });
+      }, defaultAgent ? defaultAgent.name : '');
       await loadActiveChain();
       // Auto-expand the freshly-added step so the user can start editing it.
       STATE.expandedSteps.add(stepNumber);
@@ -1567,7 +1702,14 @@
     const ok = window.confirm(`Delete step ${stepNumber}?`);
     if (!ok) return;
     try {
-      await api.deleteChainStep(STATE.activeChainId, stepNumber);
+      if (isSharedScope()) {
+        const steps = (STATE.activeChain.steps || [])
+          .filter((s) => s.step !== stepNumber)
+          .map((s, idx) => Object.assign({}, s, { step: idx + 1 }));
+        await api.replaceScopedChainSteps(STATE.scope, STATE.activeChainId, steps);
+      } else {
+        await api.deleteChainStep(STATE.activeChainId, stepNumber);
+      }
       STATE.dirty.delete(stepNumber);
       await loadActiveChain();
       renderEditor();
@@ -1582,7 +1724,17 @@
     const target = direction === 'up' ? stepNum - 1 : stepNum + 1;
     if (target < 1 || target > (STATE.activeChain.steps || []).length) return;
     try {
-      await api.moveChainStep(STATE.activeChainId, stepNum, target);
+      if (isSharedScope()) {
+        const steps = (STATE.activeChain.steps || []).slice();
+        const currentIndex = steps.findIndex((s) => s.step === stepNum);
+        const targetIndex = steps.findIndex((s) => s.step === target);
+        if (currentIndex < 0 || targetIndex < 0) return;
+        [steps[currentIndex], steps[targetIndex]] = [steps[targetIndex], steps[currentIndex]];
+        const renumbered = steps.map((s, idx) => Object.assign({}, s, { step: idx + 1 }));
+        await api.replaceScopedChainSteps(STATE.scope, STATE.activeChainId, renumbered);
+      } else {
+        await api.moveChainStep(STATE.activeChainId, stepNum, target);
+      }
       await loadActiveChain();
       renderEditor();
     } catch (err) {
@@ -1594,19 +1746,32 @@
     if (!STATE.activeChain) return;
     const dirty = STATE.dirty.get(stepNumber);
     if (!dirty) return;
-    if (!dirty.agent_id) {
+    if (!dirty.agent_id && !dirty._agent_name) {
       toast('Pick an agent for this step before saving.', 'error');
       return;
     }
     const finalPrompt = coercePromptValues(dirty.prompt, dirty.prompt_type);
     try {
-      await api.updateChainStep(
-        STATE.activeChainId,
-        stepNumber,
-        dirty.agent_id,
-        dirty.prompt_type,
-        finalPrompt,
-      );
+      if (isSharedScope()) {
+        const steps = (STATE.activeChain.steps || []).map((s) => (
+          s.step === stepNumber
+            ? Object.assign({}, s, {
+              agent_name: dirty._agent_name || s.agent_name || '',
+              prompt_type: dirty.prompt_type,
+              prompt: finalPrompt,
+            })
+            : s
+        ));
+        await api.replaceScopedChainSteps(STATE.scope, STATE.activeChainId, steps);
+      } else {
+        await api.updateChainStep(
+          STATE.activeChainId,
+          stepNumber,
+          dirty.agent_id,
+          dirty.prompt_type,
+          finalPrompt,
+        );
+      }
       STATE.dirty.delete(stepNumber);
       await loadActiveChain();
       renderEditor();
@@ -1620,24 +1785,49 @@
     if (!STATE.activeChain || STATE.dirty.size === 0) return;
     const entries = Array.from(STATE.dirty.entries());
     const failures = [];
-    for (const [stepNumber, dirty] of entries) {
-      if (!dirty.agent_id) {
-        failures.push(stepNumber);
-        continue;
+    if (isSharedScope()) {
+      const mergedSteps = (STATE.activeChain.steps || []).map((step) => {
+        const dirty = STATE.dirty.get(step.step);
+        if (!dirty) return step;
+        if (!dirty.agent_id && !dirty._agent_name) {
+          failures.push(step.step);
+          return step;
+        }
+        return Object.assign({}, step, {
+          agent_name: dirty._agent_name || step.agent_name || '',
+          prompt_type: dirty.prompt_type,
+          prompt: coercePromptValues(dirty.prompt, dirty.prompt_type),
+        });
+      });
+      if (failures.length === 0) {
+        try {
+          await api.replaceScopedChainSteps(STATE.scope, STATE.activeChainId, mergedSteps);
+          STATE.dirty.clear();
+        } catch (err) {
+          console.error('save scoped chain failed', err);
+          failures.push('all');
+        }
       }
-      const finalPrompt = coercePromptValues(dirty.prompt, dirty.prompt_type);
-      try {
-        await api.updateChainStep(
-          STATE.activeChainId,
-          stepNumber,
-          dirty.agent_id,
-          dirty.prompt_type,
-          finalPrompt,
-        );
-        STATE.dirty.delete(stepNumber);
-      } catch (err) {
-        console.error('save step failed', stepNumber, err);
-        failures.push(stepNumber);
+    } else {
+      for (const [stepNumber, dirty] of entries) {
+        if (!dirty.agent_id) {
+          failures.push(stepNumber);
+          continue;
+        }
+        const finalPrompt = coercePromptValues(dirty.prompt, dirty.prompt_type);
+        try {
+          await api.updateChainStep(
+            STATE.activeChainId,
+            stepNumber,
+            dirty.agent_id,
+            dirty.prompt_type,
+            finalPrompt,
+          );
+          STATE.dirty.delete(stepNumber);
+        } catch (err) {
+          console.error('save step failed', stepNumber, err);
+          failures.push(stepNumber);
+        }
       }
     }
     await loadActiveChain();
@@ -1814,8 +2004,12 @@
           `Replace the ${(STATE.activeChain.steps || []).length} step(s) in "${STATE.activeChain.chainName}" with ${steps.length} imported step(s)?`
         );
         if (!ok) return;
-        // The /v1/chain/import endpoint replaces the chain's steps wholesale.
-        await api.importChain(STATE.activeChain.chainName, steps);
+        if (isSharedScope()) {
+          await api.replaceScopedChainSteps(STATE.scope, STATE.activeChainId, steps);
+        } else {
+          // The /v1/chain/import endpoint replaces the user chain's steps wholesale.
+          await api.importChain(STATE.activeChain.chainName, steps);
+        }
         await loadActiveChain();
         renderEditor();
         toast(`Imported ${steps.length} step(s).`, 'success');
@@ -1836,12 +2030,14 @@
     if (STATE.booted) {
       // Re-mount on subsequent activations refreshes the list so newly-
       // added chains created from another window show up.
+      await loadUserScopes();
       await loadChainsList();
       renderList();
       return;
     }
     STATE.booted = true;
     try {
+      await loadUserScopes();
       await Promise.all([loadAgents(true), loadPrompts(true), loadChainsList()]);
       renderList();
       renderEditor();
@@ -1868,6 +2064,11 @@
     const openPromptsBtn = $('#cn-open-prompts');
     if (openPromptsBtn) openPromptsBtn.addEventListener('click', handleOpenPromptLibrary);
 
+    document.querySelectorAll('#cn-scope-tabs [data-scope]').forEach((button) => {
+      button.addEventListener('click', () => switchScope(button.dataset.scope || 'user'));
+    });
+    renderScopeTabs();
+
     // Collapse / re-expand the chain list panel. The chevron in the
     // list header tucks the panel away; clicking the thin strip on the
     // right edge brings it back. Open/closed state persists via
@@ -1888,6 +2089,7 @@
       event.listen('agixt-agent-changed', async () => {
         try {
           await api.refreshSettings();
+          await loadUserScopes();
           STATE.commandsByAgent.clear();
           STATE.argCache.clear();
           await loadAgents(true);

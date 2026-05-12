@@ -44,6 +44,40 @@
 }
 .cn-header-spacer { flex: 1; }
 
+.cn-scope-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  border-radius: var(--radius-sm);
+}
+.cn-scope-btn {
+  appearance: none;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 9px;
+  cursor: pointer;
+}
+.cn-scope-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--panel-hover);
+}
+.cn-scope-btn.is-active {
+  color: #fff;
+  background: var(--accent);
+}
+.cn-scope-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .cn-toast {
   position: fixed;
   bottom: 24px;

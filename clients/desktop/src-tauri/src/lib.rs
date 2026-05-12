@@ -719,6 +719,39 @@ async fn handle_deep_link_login(app: &AppHandle, token: String) {
     tracing::info!("deep link login: success");
 }
 
+fn emit_invitation_link(
+    app: &AppHandle,
+    invitation_id: Option<String>,
+    email: Option<String>,
+    company: Option<String>,
+) {
+    let Some(invitation_id) = invitation_id.filter(|v| !v.trim().is_empty()) else {
+        tracing::warn!("agixt://invite received with no invitation_id");
+        return;
+    };
+    let _ = app.emit(
+        "agixt-invitation",
+        serde_json::json!({
+            "invitation_id": invitation_id,
+            "email": email,
+            "company": company,
+        }),
+    );
+}
+
+fn emit_shared_conversation_link(app: &AppHandle, token: Option<String>) {
+    let Some(token) = token.filter(|v| !v.trim().is_empty()) else {
+        tracing::warn!("agixt://shared received with no token");
+        return;
+    };
+    let _ = app.emit(
+        "agixt-shared-conversation",
+        serde_json::json!({
+            "token": token,
+        }),
+    );
+}
+
 /// Try to pull a JWT out of a string that might be:
 ///   * the raw JWT (`eyJhbGci…`)
 ///   * a magic-link URL with `?token=…` or `?jwt=…`
@@ -3606,6 +3639,40 @@ pub fn run() {
                             None
                         }
                     });
+                    let invitation_id = url.query_pairs().find_map(|(k, v)| {
+                        if k == "invitation_id" || k == "invitation" || k == "id" {
+                            Some(v.into_owned())
+                        } else {
+                            None
+                        }
+                    });
+                    let invite_email = url.query_pairs().find_map(|(k, v)| {
+                        if k == "email" {
+                            Some(v.into_owned())
+                        } else {
+                            None
+                        }
+                    });
+                    let invite_company = url.query_pairs().find_map(|(k, v)| {
+                        if k == "company" || k == "company_name" {
+                            Some(v.into_owned())
+                        } else {
+                            None
+                        }
+                    });
+                    let shared_token = url
+                        .query_pairs()
+                        .find_map(|(k, v)| {
+                            if k == "token" || k == "share_token" || k == "id" {
+                                Some(v.into_owned())
+                            } else {
+                                None
+                            }
+                        })
+                        .or_else(|| {
+                            url.path_segments()
+                                .and_then(|mut segments| segments.find(|s| !s.is_empty()).map(String::from))
+                        });
                     let app = dl_handle.clone();
                     tauri::async_runtime::spawn(async move {
                         if let Some(w) = app.get_webview_window(MAIN_LABEL) {
@@ -3625,6 +3692,17 @@ pub fn run() {
                                     let _ = w.show();
                                     let _ = w.set_focus();
                                 }
+                            }
+                            "invite" | "invitation" => {
+                                emit_invitation_link(
+                                    &app,
+                                    invitation_id,
+                                    invite_email,
+                                    invite_company,
+                                );
+                            }
+                            "shared" | "share" => {
+                                emit_shared_conversation_link(&app, shared_token);
                             }
                             _ => {}
                         }
@@ -3927,6 +4005,40 @@ pub fn run() {
                             None
                         }
                     });
+                    let invitation_id = url.query_pairs().find_map(|(k, v)| {
+                        if k == "invitation_id" || k == "invitation" || k == "id" {
+                            Some(v.into_owned())
+                        } else {
+                            None
+                        }
+                    });
+                    let invite_email = url.query_pairs().find_map(|(k, v)| {
+                        if k == "email" {
+                            Some(v.into_owned())
+                        } else {
+                            None
+                        }
+                    });
+                    let invite_company = url.query_pairs().find_map(|(k, v)| {
+                        if k == "company" || k == "company_name" {
+                            Some(v.into_owned())
+                        } else {
+                            None
+                        }
+                    });
+                    let shared_token = url
+                        .query_pairs()
+                        .find_map(|(k, v)| {
+                            if k == "token" || k == "share_token" || k == "id" {
+                                Some(v.into_owned())
+                            } else {
+                                None
+                            }
+                        })
+                        .or_else(|| {
+                            url.path_segments()
+                                .and_then(|mut segments| segments.find(|s| !s.is_empty()).map(String::from))
+                        });
                     let app = dl_handle.clone();
                     tauri::async_runtime::spawn(async move {
                         match action.as_str() {
@@ -3939,6 +4051,17 @@ pub fn run() {
                             }
                             "oauth-connect" => {
                                 handle_deep_link_oauth_connect(&app, provider, code).await;
+                            }
+                            "invite" | "invitation" => {
+                                emit_invitation_link(
+                                    &app,
+                                    invitation_id,
+                                    invite_email,
+                                    invite_company,
+                                );
+                            }
+                            "shared" | "share" => {
+                                emit_shared_conversation_link(&app, shared_token);
                             }
                             _ => {}
                         }

@@ -1,5 +1,22 @@
 (function () {
   const EXT_ID = 'shared-conversations';
+  const PENDING_KEY = 'agixt.desktop.pendingSharedConversationToken.v1';
+
+  function setPendingToken(token) {
+    const clean = String(token || '').trim();
+    if (!clean) return;
+    try { window.localStorage.setItem(PENDING_KEY, clean); } catch (_) {}
+  }
+
+  function takePendingToken() {
+    try {
+      const token = window.localStorage.getItem(PENDING_KEY) || '';
+      window.localStorage.removeItem(PENDING_KEY);
+      return token;
+    } catch (_) {
+      return '';
+    }
+  }
 
   window.AgixtRegisterExtension(EXT_ID, {
     mount(container, ctx) {
@@ -26,15 +43,26 @@
     this.workspace = { open: false, path: '/', loading: false, error: null, items: [] };
     this.loading = false;
     this.error = null;
+    this._externalOpenHandler = null;
   }
 
   SharedConversationsView.prototype.start = function () {
     injectStyles();
     this.render();
     this.loadSharedWithMe();
+    this.bindExternalOpen();
+    const pending = takePendingToken();
+    if (pending) this.openExternalToken(pending);
   };
 
   SharedConversationsView.prototype.stop = function () {
+    if (this._externalOpenHandler) {
+      window.removeEventListener('agixt-shared-conversation-open', this._externalOpenHandler);
+      this._externalOpenHandler = null;
+    }
+    if (window.AgixtSharedConversations && window.AgixtSharedConversations._view === this) {
+      window.AgixtSharedConversations = null;
+    }
     this.container.innerHTML = '';
   };
 
@@ -43,14 +71,21 @@
   };
 
   SharedConversationsView.prototype.fetchJson = async function (path, opts) {
+    opts = opts || {};
+    if (!opts.public && this.ctx && typeof this.ctx.fetchJson === 'function') {
+      return this.ctx.fetchJson(path, opts);
+    }
+    if (!opts.public && window.AgixtSession && typeof window.AgixtSession.request === 'function') {
+      return window.AgixtSession.request(path, opts);
+    }
     const init = {
-      method: (opts && opts.method) || 'GET',
+      method: opts.method || 'GET',
       headers: Object.assign(
-        opts && opts.public ? {} : { Authorization: 'Bearer ' + this.ctx.jwt },
-        opts && opts.json != null ? { 'Content-Type': 'application/json' } : {},
+        opts.public ? {} : { Authorization: 'Bearer ' + this.ctx.jwt },
+        opts.json != null ? { 'Content-Type': 'application/json' } : {},
       ),
     };
-    if (opts && opts.json != null) init.body = JSON.stringify(opts.json);
+    if (opts.json != null) init.body = JSON.stringify(opts.json);
     const resp = await fetch(this.url(path), init);
     const text = await resp.text();
     let data = null;
@@ -84,6 +119,28 @@
       if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
     } catch (_) {}
     return raw.replace(/^shared\//, '').replace(/^\/shared\//, '');
+  };
+
+  SharedConversationsView.prototype.bindExternalOpen = function () {
+    if (this._externalOpenHandler) return;
+    this._externalOpenHandler = (ev) => {
+      const detail = ev && ev.detail ? ev.detail : {};
+      this.openExternalToken(detail.token || detail.url || detail);
+    };
+    window.addEventListener('agixt-shared-conversation-open', this._externalOpenHandler);
+    window.AgixtSharedConversations = {
+      _view: this,
+      openToken: (token) => this.openExternalToken(token),
+      setPendingToken,
+    };
+  };
+
+  SharedConversationsView.prototype.openExternalToken = function (value) {
+    const token = this.extractToken(value);
+    if (!token) return;
+    this.tokenInput = token;
+    this.render();
+    this.openToken(token);
   };
 
   SharedConversationsView.prototype.openToken = async function (tokenValue) {

@@ -2213,6 +2213,14 @@
 
   async function onAuthenticated(authContext) {
     await loadSettings();
+    if (window.AgixtAuth && typeof window.AgixtAuth.acceptPendingInvitation === 'function') {
+      try {
+        await window.AgixtAuth.acceptPendingInvitation();
+        await loadSettings();
+      } catch (err) {
+        console.warn('accept pending invitation failed', err);
+      }
+    }
     const paymentRequired = !!(authContext && authContext.payment_required);
     if (!paymentRequired
         && window.AgixtSession
@@ -2345,6 +2353,46 @@
     // automatically — no copy-paste needed.
     event.listen('agixt-authenticated', async () => {
       try { await onAuthenticated(); } catch (e) { console.warn('onAuthenticated', e); }
+    });
+    event.listen('agixt-invitation', async (ev) => {
+      if (window.AgixtAuth && typeof window.AgixtAuth.setPendingInvitation === 'function') {
+        window.AgixtAuth.setPendingInvitation(ev && ev.payload);
+      }
+      await loadSettings().catch(() => {});
+      if (settings && settings.jwt) {
+        try {
+          if (window.AgixtAuth && typeof window.AgixtAuth.acceptPendingInvitation === 'function') {
+            await window.AgixtAuth.acceptPendingInvitation();
+          }
+          await loadSettings();
+          await refreshAgentsAndCompanies();
+          if (window.AgixtDesktopExtensions
+              && typeof window.AgixtDesktopExtensions.refresh === 'function') {
+            window.AgixtDesktopExtensions.refresh();
+          }
+        } catch (err) {
+          console.warn('accept invitation from deep link failed', err);
+        }
+      } else {
+        showScreen('auth');
+        if (window.AgixtAuth) {
+          await window.AgixtAuth.boot({ onAuthenticated });
+        }
+      }
+    });
+    event.listen('agixt-shared-conversation', async (ev) => {
+      const payload = (ev && ev.payload) || {};
+      const token = payload.token || payload.share_token || payload.id || payload.url || '';
+      if (!token) return;
+      try {
+        window.localStorage.setItem('agixt.desktop.pendingSharedConversationToken.v1', String(token));
+      } catch (_) {}
+      if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
+        window.AgixtSidenav.setActiveView('shared-conversations');
+      }
+      window.dispatchEvent(new CustomEvent('agixt-shared-conversation-open', {
+        detail: { token },
+      }));
     });
     // Whenever Rust hides the popover (tray X, window decorate's close
     // button, Esc, etc.) it reverts chrome to popover-form before
