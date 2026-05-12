@@ -3115,6 +3115,128 @@ async fn save_dock_position(_app: AppHandle, _state: State<'_, AppState>) -> Too
 }
 
 // --------------------------------------------------------------------------
+// OG-preview fetcher
+// --------------------------------------------------------------------------
+//
+// The webview's fetch() silently strips `User-Agent` and `Referer` per the
+// WHATWG forbidden-header list, which breaks the OG-preview strategies we
+// copied from the web's /api/og route:
+//   - fxtwitter.com only serves OG tags to a Twitterbot UA — anything else
+//     gets redirected to x.com (no OG tags in the response).
+//   - cdn.syndication.twimg.com 403s without the `Referer: platform.twitter.com`
+//     + matching `Origin` headers that its own embed widget sends.
+//   - YouTube oEmbed and arbitrary blocked-bot sites prefer a real-browser UA.
+// reqwest on the Rust side has no such restrictions, so we expose this
+// command and route every OG-related fetch through it from team-chat.js.
+
+#[derive(Debug, Deserialize)]
+pub struct OgFetchArgs {
+    pub url: String,
+    #[serde(default)]
+    pub user_agent: Option<String>,
+    #[serde(default)]
+    pub referer: Option<String>,
+    #[serde(default)]
+    pub origin: Option<String>,
+    #[serde(default)]
+    pub accept: Option<String>,
+    #[serde(default)]
+    pub accept_language: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OgFetchResult {
+    pub ok: bool,
+    pub status: u16,
+    pub content_type: String,
+    pub body: String,
+    pub final_url: String,
+}
+
+#[tauri::command]
+async fn og_fetch(args: OgFetchArgs) -> ToolResult<OgFetchResult> {
+    use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, HeaderMap, HeaderName, HeaderValue, USER_AGENT};
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .map_err(|e| ToolError { error: format!("client build: {e}") })?;
+
+    let mut headers = HeaderMap::new();
+    if let Some(ua) = args.user_agent.as_deref().filter(|s| !s.is_empty()) {
+        if let Ok(v) = HeaderValue::from_str(ua) { headers.insert(USER_AGENT, v); }
+    } else {
+        // Sensible default — a real browser UA matches what the web's
+        // /api/og route sends for arbitrary URLs.
+        headers.insert(
+            USER_AGENT,
+            HeaderValue::from_static(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+                 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            ),
+        );
+    }
+    if let Some(referer) = args.referer.as_deref().filter(|s| !s.is_empty()) {
+        if let Ok(v) = HeaderValue::from_str(referer) {
+            if let Ok(name) = HeaderName::from_bytes(b"referer") {
+                headers.insert(name, v);
+            }
+        }
+    }
+    if let Some(origin) = args.origin.as_deref().filter(|s| !s.is_empty()) {
+        if let Ok(v) = HeaderValue::from_str(origin) {
+            if let Ok(name) = HeaderName::from_bytes(b"origin") {
+                headers.insert(name, v);
+            }
+        }
+    }
+    headers.insert(
+        ACCEPT,
+        HeaderValue::from_str(
+            args.accept.as_deref().unwrap_or(
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            ),
+        )
+        .unwrap_or_else(|_| HeaderValue::from_static("*/*")),
+    );
+    headers.insert(
+        ACCEPT_LANGUAGE,
+        HeaderValue::from_str(args.accept_language.as_deref().unwrap_or("en-US,en;q=0.9"))
+            .unwrap_or_else(|_| HeaderValue::from_static("en-US,en;q=0.9")),
+    );
+
+    let resp = client
+        .get(&args.url)
+        .headers(headers)
+        .send()
+        .await
+        .map_err(|e| ToolError { error: format!("og fetch: {e}") })?;
+
+    let status = resp.status().as_u16();
+    let ok = resp.status().is_success();
+    let final_url = resp.url().to_string();
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    // Cap the body at 256 KB — OG metadata lives in the <head>, we
+    // never need more. Prevents a runaway response from spiking memory
+    // on the chat surface.
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| ToolError { error: format!("og read: {e}") })?;
+    let cap = 256 * 1024;
+    let slice = if bytes.len() > cap { &bytes[..cap] } else { &bytes[..] };
+    let body = String::from_utf8_lossy(slice).into_owned();
+
+    Ok(OgFetchResult { ok, status, content_type, body, final_url })
+}
+
+// --------------------------------------------------------------------------
 // Tauri setup
 // --------------------------------------------------------------------------
 
@@ -3697,6 +3819,7 @@ pub fn run() {
             workspace_upload_local,
             workspace_download_to_local,
             workspace_list,
+            og_fetch,
             show_chat,
             hide_chat,
             toggle_chat,
@@ -3921,6 +4044,7 @@ pub fn run() {
             workspace_upload_local,
             workspace_download_to_local,
             workspace_list,
+            og_fetch,
             show_chat,
             hide_chat,
             toggle_chat,

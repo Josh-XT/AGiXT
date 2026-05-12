@@ -1762,6 +1762,50 @@
     + 'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
   // fxtwitter responds to Twitterbot specifically with OG metadata.
   const OG_TWITTERBOT_UA = 'Twitterbot/1.0';
+
+  // The webview's fetch() silently drops User-Agent / Referer / Origin
+  // per the WHATWG forbidden-header list, which breaks every Twitter
+  // OG path (fxtwitter only emits OG tags to Twitterbot; syndication
+  // 403s without the right Referer + Origin). Route every OG fetch
+  // through a Rust-side IPC that uses reqwest, which has no such
+  // restriction. Falls back to a webview fetch when Tauri isn't
+  // around (jsdom test env).
+  async function ogFetch(opts) {
+    const tauri = window.__TAURI__ && window.__TAURI__.core
+      && typeof window.__TAURI__.core.invoke === 'function';
+    if (tauri) {
+      try {
+        return await window.__TAURI__.core.invoke('og_fetch', { args: opts });
+      } catch (_) {
+        return null;
+      }
+    }
+    // Fallback path used by tests (jsdom) — forbidden headers will be
+    // dropped but the call won't blow up.
+    try {
+      const resp = await fetch(opts.url, {
+        method: 'GET',
+        credentials: 'omit',
+        redirect: 'follow',
+        referrerPolicy: 'no-referrer',
+        headers: {
+          'Accept': opts.accept
+            || 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': opts.accept_language || 'en-US,en;q=0.9',
+        },
+      });
+      const body = await resp.text();
+      return {
+        ok: resp.ok,
+        status: resp.status,
+        content_type: resp.headers.get('content-type') || '',
+        body,
+        final_url: resp.url || opts.url,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
   // Most popular Twitter / X URL shapes carry the tweet ID right
   // before a `/photo`, `/video`, or end-of-path. We grab it and reuse
   // it across the three proxies.
@@ -1950,122 +1994,79 @@
         }
       } catch (_) {}
     }
-    // Generic OG fetch.
-    let resp;
-    try {
-      resp = await fetch(url, {
-        method: 'GET',
-        credentials: 'omit',
-        redirect: 'follow',
-        referrerPolicy: 'no-referrer',
-        headers: {
-          'User-Agent': OG_BROWSER_UA,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-      });
-    } catch (_) {
-      return null;
-    }
-    if (!resp.ok) return null;
-    const text = await resp.text();
-    if (!text) return null;
-    return parseOGFromHtml(text, url);
+    // Generic OG fetch — routed through the IPC so the User-Agent
+    // actually reaches the destination server.
+    return fetchGenericOG(url);
   }
 
   // Same logic as the generic fetch but exposed so site-specific
   // branches can call it directly. Used by the GitHub path to try a
   // direct fetch before falling back to the synthesized card.
   async function fetchGenericOG(url) {
-    try {
-      const resp = await fetch(url, {
-        method: 'GET',
-        credentials: 'omit',
-        redirect: 'follow',
-        referrerPolicy: 'no-referrer',
-        headers: {
-          'User-Agent': OG_BROWSER_UA,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-      });
-      if (!resp.ok) return null;
-      const text = await resp.text();
-      if (!text) return null;
-      return parseOGFromHtml(text, url);
-    } catch (_) { return null; }
+    const r = await ogFetch({ url, user_agent: OG_BROWSER_UA });
+    if (!r || !r.ok || !r.body) return null;
+    return parseOGFromHtml(r.body, r.final_url || url);
   }
 
   async function tryYouTubeOEmbed(url) {
-    try {
-      const oeUrl = 'https://www.youtube.com/oembed?url='
-        + encodeURIComponent(url) + '&format=json';
-      const resp = await fetch(oeUrl, {
-        method: 'GET',
-        credentials: 'omit',
-        referrerPolicy: 'no-referrer',
-        headers: { 'Accept': 'application/json' },
-      });
-      if (!resp.ok) return null;
-      const json = await resp.json();
-      if (!json || !json.title) return null;
-      return {
-        title: json.title,
-        description: json.author_name ? 'by ' + json.author_name : '',
-        image: json.thumbnail_url || '',
-        video: '',
-        siteName: 'YouTube',
-        url,
-      };
-    } catch (_) { return null; }
+    const oeUrl = 'https://www.youtube.com/oembed?url='
+      + encodeURIComponent(url) + '&format=json';
+    const r = await ogFetch({
+      url: oeUrl,
+      user_agent: OG_BROWSER_UA,
+      accept: 'application/json',
+    });
+    if (!r || !r.ok || !r.body) return null;
+    let json;
+    try { json = JSON.parse(r.body); } catch (_) { return null; }
+    if (!json || !json.title) return null;
+    return {
+      title: json.title,
+      description: json.author_name ? 'by ' + json.author_name : '',
+      image: json.thumbnail_url || '',
+      video: '',
+      siteName: 'YouTube',
+      url,
+    };
   }
 
   async function tryFxTwitter(tweetId) {
-    try {
-      const resp = await fetch('https://fxtwitter.com/i/status/' + tweetId, {
-        method: 'GET',
-        credentials: 'omit',
-        redirect: 'follow',
-        referrerPolicy: 'no-referrer',
-        headers: { 'User-Agent': OG_TWITTERBOT_UA, 'Accept': 'text/html' },
-      });
-      if (!resp.ok) return null;
-      const html = await resp.text();
-      const parsed = parseOGFromHtml(html, 'https://x.com/i/status/' + tweetId);
-      if (!parsed) return null;
-      // fxtwitter sometimes returns the user's avatar as og:image for
-      // text-only tweets — filter so we don't show a tiny avatar where
-      // a media preview belongs.
-      if (parsed.image && /\/profile_images\//i.test(parsed.image)) parsed.image = '';
-      // fxtwitter error pages have title "FxTwitter" — don't surface
-      // those as valid previews.
-      if (/^FxTwitter$/i.test(parsed.title || '')) return null;
-      if (/^Sorry, that/i.test(parsed.description || '')) return null;
-      parsed.siteName = 'X (Twitter)';
-      return parsed;
-    } catch (_) { return null; }
+    const r = await ogFetch({
+      url: 'https://fxtwitter.com/i/status/' + tweetId,
+      // fxtwitter ONLY emits the rich OG tags to Twitterbot. A regular
+      // browser UA just gets redirected to x.com (no OG, no preview).
+      // This is the whole reason og_fetch exists — the webview's
+      // fetch() strips the UA header so we couldn't reach this path
+      // before.
+      user_agent: OG_TWITTERBOT_UA,
+      accept: 'text/html',
+    });
+    if (!r || !r.ok || !r.body) return null;
+    const parsed = parseOGFromHtml(r.body, 'https://x.com/i/status/' + tweetId);
+    if (!parsed) return null;
+    if (parsed.image && /\/profile_images\//i.test(parsed.image)) parsed.image = '';
+    if (/^FxTwitter$/i.test(parsed.title || '')) return null;
+    if (/^Sorry, that/i.test(parsed.description || '')) return null;
+    parsed.siteName = 'X (Twitter)';
+    return parsed;
   }
 
   async function trySyndication(tweetId) {
+    const url = 'https://cdn.syndication.twimg.com/tweet-result?id='
+      + encodeURIComponent(tweetId) + '&token=x';
+    const r = await ogFetch({
+      url,
+      user_agent: OG_BROWSER_UA,
+      accept: 'application/json, text/javascript, */*',
+      // The syndication endpoint rejects (403) without the headers its
+      // own embed widget sends. The webview can't add these — the IPC
+      // can.
+      referer: 'https://platform.twitter.com/',
+      origin: 'https://platform.twitter.com',
+    });
+    if (!r || !r.ok || !r.body) return null;
     try {
-      const url = 'https://cdn.syndication.twimg.com/tweet-result?id='
-        + encodeURIComponent(tweetId) + '&token=x';
-      const resp = await fetch(url, {
-        method: 'GET',
-        credentials: 'omit',
-        referrerPolicy: 'no-referrer',
-        headers: {
-          'User-Agent': OG_BROWSER_UA,
-          'Accept': 'application/json, text/javascript, */*',
-          'Accept-Language': 'en-US,en;q=0.9',
-          // Without these the API rejects with 403 — they're how the
-          // official embed widget identifies itself.
-          'Referer': 'https://platform.twitter.com/',
-          'Origin': 'https://platform.twitter.com',
-        },
-      });
-      if (!resp.ok) return null;
-      const json = await resp.json();
+      const json = JSON.parse(r.body);
       if (!json || !(json.text || json.full_text)) return null;
       const u = json.user || {};
       const authorName = u.name || u.screen_name || 'Tweet';
@@ -2121,32 +2122,25 @@
   }
 
   async function tryOEmbed(tweetUrl) {
-    try {
-      const url = 'https://publish.twitter.com/oembed?url='
-        + encodeURIComponent(tweetUrl) + '&omit_script=true';
-      const resp = await fetch(url, {
-        method: 'GET',
-        credentials: 'omit',
-        referrerPolicy: 'no-referrer',
-        headers: { 'User-Agent': OG_BROWSER_UA, 'Accept': 'application/json' },
-      });
-      if (!resp.ok) return null;
-      const json = await resp.json();
-      if (!json || !json.html) return null;
-      // Strip HTML tags iteratively. publish.twitter.com returns a
-      // <blockquote>...&mdash;</blockquote> snippet; we only need the
-      // tweet text and author name for the card body.
-      let body = String(json.html);
-      while (/<[^>]+>/.test(body)) body = body.replace(/<[^>]+>/g, ' ');
-      const text = body.replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
-      return {
-        title: (json.author_name || 'Tweet') + ' on X',
-        description: text.slice(0, 280),
-        image: '',
-        siteName: 'X (Twitter)',
-        url: tweetUrl,
-      };
-    } catch (_) { return null; }
+    const url = 'https://publish.twitter.com/oembed?url='
+      + encodeURIComponent(tweetUrl) + '&omit_script=true';
+    const r = await ogFetch({
+      url, user_agent: OG_BROWSER_UA, accept: 'application/json',
+    });
+    if (!r || !r.ok || !r.body) return null;
+    let json;
+    try { json = JSON.parse(r.body); } catch (_) { return null; }
+    if (!json || !json.html) return null;
+    let body = String(json.html);
+    while (/<[^>]+>/.test(body)) body = body.replace(/<[^>]+>/g, ' ');
+    const text = body.replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+    return {
+      title: (json.author_name || 'Tweet') + ' on X',
+      description: text.slice(0, 280),
+      image: '',
+      siteName: 'X (Twitter)',
+      url: tweetUrl,
+    };
   }
 
   function buildOGCard(url, data) {
