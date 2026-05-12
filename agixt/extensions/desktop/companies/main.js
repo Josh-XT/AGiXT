@@ -1080,32 +1080,33 @@ CompaniesView.prototype.buildCustomRolesSummary = function (c) {
 CompaniesView.prototype.buildDefaultRolesSummary = function () {
   const list = this.detail.defaultRoles || [];
   const card = makeCardC('Default roles', list.length
-    ? list.length + ' system role(s) configured'
+    ? 'Built-in system roles applied to every user with that default role across the platform.'
     : 'System role permissions could not be loaded.');
   if (list.length) {
-    const wrap = document.createElement('div');
-    wrap.className = 'co-row-list';
+    const grid = document.createElement('div');
+    grid.className = 'co-default-role-grid';
     list.forEach((r) => {
-      const item = document.createElement('div');
-      item.className = 'co-list-item';
-      item.innerHTML =
-        '<div class="co-list-item-grow">' +
-          '<div class="co-list-item-title">' + escapeC(r.friendly_name || r.name || ('Role ' + r.id)) +
-            ' <span class="co-badge muted">System</span></div>' +
-          '<div class="co-list-item-meta">Slug: <code>' + escapeC(r.name || '') + '</code>' +
-            ' · ' + ((r.scopes && r.scopes.length) || 0) + ' permission(s)</div>' +
-        '</div>';
-      wrap.appendChild(item);
+      grid.appendChild(buildDefaultRoleSummaryTile(r));
     });
-    card._body.appendChild(wrap);
+    card._body.appendChild(grid);
   }
+  const footer = document.createElement('div');
+  footer.className = 'co-default-role-footer';
   const manageBtn = document.createElement('button');
   manageBtn.type = 'button';
   manageBtn.className = 'co-primary';
-  manageBtn.textContent = 'Manage default roles';
-  manageBtn.style.cssText = 'margin-top:8px;';
+  manageBtn.innerHTML =
+    '<span style="display:inline-flex;align-items:center;gap:6px">' +
+    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>' +
+    'Manage default roles</span>';
   manageBtn.addEventListener('click', () => this.openDefaultRolesDialog());
-  card._body.appendChild(manageBtn);
+  footer.appendChild(manageBtn);
+  const note = document.createElement('span');
+  note.className = 'co-default-role-footer-note';
+  note.textContent = 'Changes affect every user with the matching default role.';
+  footer.appendChild(note);
+  card._body.appendChild(footer);
   return card;
 };
 
@@ -1447,27 +1448,39 @@ CompaniesView.prototype.openDefaultRolesDialog = async function () {
   }
 
   function buildDefaultRoleCard(r) {
+    const locked = Number(r.id) === 0;
     const card = document.createElement('div');
-    card.className = 'co-role-card';
+    card.className = 'co-role-card co-default-role-card' + (locked ? ' is-locked' : '');
+
+    const iconWrap = document.createElement('div');
+    iconWrap.className = 'co-default-role-card-icon';
+    iconWrap.innerHTML = defaultRoleIconC(r.id, locked);
+    card.appendChild(iconWrap);
+
     const grow = document.createElement('div');
     grow.className = 'co-role-card-grow';
+    const count = (r.scopes && r.scopes.length) || 0;
     grow.innerHTML =
-      '<div class="co-role-card-title">' + escapeC(r.friendly_name || r.name || ('Role ' + r.id)) +
-        (Number(r.id) === 0 ? ' <span class="co-badge warn">Locked</span>' : ' <span class="co-badge muted">System</span>') +
+      '<div class="co-default-role-card-title-row">' +
+        '<div class="co-role-card-title">' + escapeC(r.friendly_name || r.name || ('Role ' + r.id)) + '</div>' +
+        (locked
+          ? '<span class="co-default-role-tile-lock"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Locked</span></span>'
+          : '<span class="co-badge muted">System</span>') +
+        '<span class="co-default-role-card-count">' + count + ' permission' + (count === 1 ? '' : 's') + '</span>' +
       '</div>' +
-      '<div class="co-role-card-desc">Slug: <code>' + escapeC(r.name || '') + '</code>' +
-        ' · ' + ((r.scopes && r.scopes.length) || 0) + ' permission(s)</div>';
+      '<div class="co-role-card-desc">Slug: <code>' + escapeC(r.name || '') + '</code> · Built-in role ID ' + escapeC(r.id) + '</div>';
     if (r.scopes && r.scopes.length) {
       const scopes = document.createElement('div');
       scopes.className = 'co-role-card-scopes';
-      r.scopes.slice(0, 12).forEach((s) => {
+      r.scopes.slice(0, 10).forEach((s) => {
         const c = document.createElement('code');
         c.textContent = s.name;
         scopes.appendChild(c);
       });
-      if (r.scopes.length > 12) {
+      if (r.scopes.length > 10) {
         const more = document.createElement('code');
-        more.textContent = '+' + (r.scopes.length - 12) + ' more';
+        more.className = 'co-role-card-scopes-more';
+        more.textContent = '+' + (r.scopes.length - 10) + ' more';
         scopes.appendChild(more);
       }
       grow.appendChild(scopes);
@@ -1476,7 +1489,8 @@ CompaniesView.prototype.openDefaultRolesDialog = async function () {
 
     const actions = document.createElement('div');
     actions.className = 'co-role-card-actions';
-    const editBtn = button(Number(r.id) === 0 ? 'View' : 'Edit', {
+    const editBtn = button(locked ? 'View' : 'Edit scopes', {
+      kind: locked ? undefined : 'primary',
       onclick: async () => {
         const scopes = await loadScopes();
         view.openDefaultRoleEditor(r, scopes, async () => {
@@ -1499,12 +1513,25 @@ CompaniesView.prototype.openDefaultRoleEditor = function (role, allScopes, onSav
   const roleId = Number(role && role.id);
   const locked = roleId === 0;
 
+  // Role summary header — shows icon + name + slug + ID inline so users
+  // always know which role they're editing without scrolling the modal.
   const info = document.createElement('div');
-  info.className = 'co-role-editor-info';
-  info.innerHTML =
+  info.className = 'co-role-editor-info co-default-role-editor-info' + (locked ? ' is-locked' : '');
+  const iconWrap = document.createElement('div');
+  iconWrap.className = 'co-default-role-editor-icon';
+  iconWrap.innerHTML = defaultRoleIconC(roleId, locked);
+  info.appendChild(iconWrap);
+  const infoBody = document.createElement('div');
+  infoBody.className = 'co-default-role-editor-body';
+  infoBody.innerHTML =
     '<div class="co-role-card-title">' + escapeC((role && (role.friendly_name || role.name)) || ('Role ' + roleId)) + '</div>' +
     '<div class="co-role-card-desc">Slug: <code>' + escapeC((role && role.name) || '') + '</code>' +
-      ' · Built-in role ID: ' + escapeC(roleId) + '</div>';
+      ' · Built-in role ID ' + escapeC(roleId) + '</div>';
+  info.appendChild(infoBody);
+
+  // Prominent lock banner for Super Admin — replaces the small faint
+  // "lockNote" with a banner that mirrors the auth invite styling.
+  const lockBanner = locked ? buildSuperAdminLockBanner() : null;
 
   const groups = {};
   (allScopes || []).forEach((s) => {
@@ -1515,20 +1542,44 @@ CompaniesView.prototype.openDefaultRoleEditor = function (role, allScopes, onSav
   const originalScopeIds = new Set((role && role.scopes ? role.scopes : []).map((s) => s.id));
   const selectedScopeIds = new Set(originalScopeIds);
   const scopesWrap = document.createElement('div');
-  scopesWrap.className = 'co-scope-list co-scope-list-large';
+  scopesWrap.className = 'co-scope-list co-scope-list-large co-default-role-scope-list';
   if (!categoryNames.length) scopesWrap.appendChild(makeFaintC('Could not load scopes.'));
+
+  // Field-label row: title on the left + selected-count pill on the right.
+  const scopesLabelRow = document.createElement('div');
+  scopesLabelRow.className = 'co-default-role-scope-head';
   const scopesLabel = document.createElement('span');
   scopesLabel.className = 'co-label-text';
-  let saveBtn = null;
+  scopesLabel.textContent = 'Permissions / scopes';
+  const scopesCountPill = document.createElement('span');
+  scopesCountPill.className = 'co-default-role-scope-count';
+  scopesLabelRow.appendChild(scopesLabel);
+  scopesLabelRow.appendChild(scopesCountPill);
 
-  function hasChanges() {
-    if (originalScopeIds.size !== selectedScopeIds.size) return true;
-    for (const id of originalScopeIds) if (!selectedScopeIds.has(id)) return true;
-    return false;
+  let saveBtn = null;
+  let unsavedPill = null;
+
+  function changedCount() {
+    let n = 0;
+    for (const id of selectedScopeIds) if (!originalScopeIds.has(id)) n += 1;
+    for (const id of originalScopeIds) if (!selectedScopeIds.has(id)) n += 1;
+    return n;
   }
+  function hasChanges() { return changedCount() > 0; }
   function refreshScopeCount() {
-    scopesLabel.textContent = 'Permissions / scopes (' + selectedScopeIds.size + ' selected)';
+    const total = (allScopes && allScopes.length) || 0;
+    scopesCountPill.textContent = selectedScopeIds.size + (total ? ' / ' + total : '') + ' selected';
     if (saveBtn) saveBtn.disabled = locked || !hasChanges();
+    if (unsavedPill) {
+      const n = changedCount();
+      if (locked || n === 0) {
+        unsavedPill.hidden = true;
+        unsavedPill.textContent = '';
+      } else {
+        unsavedPill.hidden = false;
+        unsavedPill.textContent = n + ' unsaved change' + (n === 1 ? '' : 's');
+      }
+    }
   }
   function setCategory(catScopes, selected) {
     catScopes.forEach((s) => {
@@ -1549,23 +1600,34 @@ CompaniesView.prototype.openDefaultRoleEditor = function (role, allScopes, onSav
       const categoryIds = catScopes.map((s) => s.id);
       const selectedCount = categoryIds.filter((id) => selectedScopeIds.has(id)).length;
       const allSelected = categoryIds.length > 0 && selectedCount === categoryIds.length;
+      const someSelected = selectedCount > 0 && selectedCount < categoryIds.length;
+      // Category row: sticky header with select-all checkbox + count chip.
       const catRow = document.createElement('label');
-      catRow.className = 'co-scope-cat-row';
+      catRow.className = 'co-scope-cat-row co-default-role-cat-row';
+      if (allSelected) catRow.classList.add('is-all');
+      else if (someSelected) catRow.classList.add('is-some');
       const catCb = document.createElement('input');
       catCb.type = 'checkbox';
       catCb.checked = allSelected;
+      catCb.indeterminate = someSelected;
       catCb.disabled = locked;
       catCb.addEventListener('change', () => setCategory(catScopes, catCb.checked));
       const catTitle = document.createElement('span');
       catTitle.className = 'co-scope-cat';
-      catTitle.textContent = cat + ' (' + selectedCount + '/' + categoryIds.length + ')';
+      catTitle.textContent = cat;
+      const catCount = document.createElement('span');
+      catCount.className = 'co-default-role-cat-count';
+      catCount.textContent = selectedCount + '/' + categoryIds.length;
       catRow.appendChild(catCb);
       catRow.appendChild(catTitle);
+      catRow.appendChild(catCount);
       scopesWrap.appendChild(catRow);
       catScopes.forEach((s) => {
+        const isChecked = selectedScopeIds.has(s.id);
+        const isChanged = originalScopeIds.has(s.id) !== isChecked;
         const cb = document.createElement('input');
         cb.type = 'checkbox';
-        cb.checked = selectedScopeIds.has(s.id);
+        cb.checked = isChecked;
         cb.disabled = locked;
         cb.addEventListener('change', () => {
           if (cb.checked) selectedScopeIds.add(s.id);
@@ -1574,10 +1636,14 @@ CompaniesView.prototype.openDefaultRoleEditor = function (role, allScopes, onSav
           refreshScopeCount();
         });
         const row = document.createElement('label');
-        row.className = 'co-scope-row';
+        row.className = 'co-scope-row co-default-role-scope-row'
+          + (isChecked ? ' is-checked' : '')
+          + (isChanged ? ' is-changed' : '');
         row.appendChild(cb);
         const det = document.createElement('div');
+        det.className = 'co-default-role-scope-detail';
         det.innerHTML = '<code>' + escapeC(s.name) + '</code>' +
+          (isChanged ? ' <span class="co-default-role-scope-changed">modified</span>' : '') +
           (s.description ? '<div class="co-scope-row-desc">' + escapeC(s.description) + '</div>' : '');
         row.appendChild(det);
         scopesWrap.appendChild(row);
@@ -1585,25 +1651,38 @@ CompaniesView.prototype.openDefaultRoleEditor = function (role, allScopes, onSav
     });
   }
 
-  const scopesField = document.createElement('label');
+  const scopesField = document.createElement('div');
   scopesField.className = 'co-field';
-  scopesField.appendChild(scopesLabel);
+  scopesField.appendChild(scopesLabelRow);
   scopesField.appendChild(scopesWrap);
 
-  const lockNote = locked ? makeFaintC('The Super Admin role always has full permissions and cannot be modified.') : null;
-  if (lockNote) lockNote.style.cssText = 'padding:10px 0;text-align:left;color:var(--text-dim);';
-
   const cancelBtn = button('Cancel');
-  saveBtn = button('Save changes', { kind: 'primary', disabled: true });
+  saveBtn = button(locked ? 'Save changes' : 'Save changes', { kind: 'primary', disabled: true });
+
+  // "X unsaved changes" pill — lives between Cancel and Save and only
+  // appears when the user has actually moved scope state away from the
+  // server-loaded baseline. Gives a one-glance way to tell the user
+  // their edits are pending rather than burying it in the button label.
+  unsavedPill = document.createElement('span');
+  unsavedPill.className = 'co-default-role-unsaved';
+  unsavedPill.hidden = true;
+
+  const bodyChildren = [info];
+  if (lockBanner) bodyChildren.push(lockBanner);
+  bodyChildren.push(scopesField);
 
   const handle = openModal({
     title: locked ? 'View default role' : 'Edit default role',
     description: locked
-      ? 'The super admin role is locked by the server.'
+      ? 'The Super Admin role always has full permissions. Reach a server admin if you need to grant elevated access.'
       : 'Select the scopes this default system role should grant to every user with that role.',
     wide: true,
-    body: [info, lockNote, scopesField],
-    footer: [cancelBtn, saveBtn],
+    body: bodyChildren,
+    footer: [unsavedPill, cancelBtn, saveBtn],
+    onBeforeClose: () => {
+      if (locked || !hasChanges()) return true;
+      return window.confirm('You have unsaved changes to this default role. Discard them?');
+    },
   });
   cancelBtn.addEventListener('click', () => handle.close());
   saveBtn.addEventListener('click', async () => {
@@ -1615,6 +1694,10 @@ CompaniesView.prototype.openDefaultRoleEditor = function (role, allScopes, onSav
         json: Array.from(selectedScopeIds),
       });
       toastInfo('Default role permissions updated');
+      // Force-close even if onBeforeClose would otherwise prompt — the
+      // edits are now the baseline and there's nothing left to discard.
+      originalScopeIds.clear();
+      selectedScopeIds.forEach((id) => originalScopeIds.add(id));
       handle.close();
       await view.loadUser();
       if (typeof onSaved === 'function') onSaved();
@@ -1628,6 +1711,21 @@ CompaniesView.prototype.openDefaultRoleEditor = function (role, allScopes, onSav
   refreshScopeCount();
   focusFirstInput(handle, { focusSelector: locked ? '.co-secondary' : '.co-primary' });
 };
+
+function buildSuperAdminLockBanner() {
+  const banner = document.createElement('div');
+  banner.className = 'co-default-role-lock-banner';
+  banner.innerHTML =
+    '<div class="co-default-role-lock-icon">' +
+    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>' +
+    '</div>' +
+    '<div class="co-default-role-lock-body">' +
+    '<div class="co-default-role-lock-title">Super Admin is locked by the server</div>' +
+    '<div class="co-default-role-lock-text">This role always grants every permission. Use a custom role or a different default role to scope access for a particular user.</div>' +
+    '</div>';
+  return banner;
+}
 
 // ─── Custom roles management ─────────────────────────────────────────
 
@@ -2347,6 +2445,74 @@ CompaniesView.prototype.injectStyles = function () {
     .co-toast { position: fixed; top: 16px; right: 16px; background: var(--panel); border: 1px solid var(--co-border); padding: 10px 14px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); z-index: 300; font-size: 12.5px; color: var(--text); max-width: 360px; }
     .co-toast.success { border-color: rgba(94, 210, 143, 0.5); }
     .co-toast.error { border-color: rgba(220, 60, 80, 0.55); color: #ffb4ba; }
+
+    /* Default-roles summary tiles (Companies & Teams detail view) ──── */
+    .co-default-role-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+    .co-default-role-tile { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; background: var(--panel); border: 1px solid var(--co-border); border-radius: 10px; transition: border-color 120ms ease, background 120ms ease; }
+    .co-default-role-tile:hover { border-color: color-mix(in srgb, var(--accent) 30%, var(--co-border)); background: color-mix(in srgb, var(--accent) 4%, var(--panel)); }
+    .co-default-role-tile.is-locked { background: color-mix(in srgb, #ffb774 6%, var(--panel)); border-color: color-mix(in srgb, #ffb774 30%, var(--co-border)); }
+    .co-default-role-tile-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 18%, var(--panel-2)); color: var(--accent); flex: 0 0 auto; margin-top: 2px; }
+    .co-default-role-tile.is-locked .co-default-role-tile-icon { background: color-mix(in srgb, #ffb774 22%, var(--panel-2)); color: #ffb774; }
+    .co-default-role-tile-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+    .co-default-role-tile-title-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .co-default-role-tile-title { font-weight: 600; font-size: 13px; color: var(--text); }
+    .co-default-role-tile-lock { display: inline-flex; align-items: center; gap: 3px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; padding: 1px 6px 1px 5px; border-radius: 999px; color: #ffb774; background: color-mix(in srgb, #ffb774 14%, transparent); border: 1px solid color-mix(in srgb, #ffb774 30%, transparent); }
+    .co-default-role-tile-meta { font-size: 11px; color: var(--text-faint); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .co-default-role-tile-meta code { font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+    .co-default-role-tile-count { font-weight: 700; color: var(--text-dim); font-size: 10.5px; padding: 1px 6px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--co-border); }
+    .co-default-role-footer { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+    .co-default-role-footer-note { font-size: 11.5px; color: var(--text-faint); }
+
+    /* Default-roles dialog cards ──────────────────────────────────── */
+    .co-default-role-card { gap: 12px; }
+    .co-default-role-card.is-locked { background: color-mix(in srgb, #ffb774 5%, var(--panel-2)); border-color: color-mix(in srgb, #ffb774 26%, var(--co-border)); }
+    .co-default-role-card-icon { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 9px; background: color-mix(in srgb, var(--accent) 18%, var(--panel)); color: var(--accent); flex: 0 0 auto; margin-top: 1px; }
+    .co-default-role-card.is-locked .co-default-role-card-icon { background: color-mix(in srgb, #ffb774 22%, var(--panel)); color: #ffb774; }
+    .co-default-role-card-title-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .co-default-role-card-count { font-size: 10.5px; font-weight: 600; color: var(--text-dim); padding: 1px 7px; border-radius: 999px; background: var(--panel); border: 1px solid var(--co-border); }
+    .co-role-card-scopes-more { background: transparent !important; color: var(--text-faint) !important; border: 1px dashed var(--co-border); padding: 1px 6px !important; }
+
+    /* Default-role editor — modal header + lock banner ───────────── */
+    .co-default-role-editor-info { display: flex; gap: 10px; align-items: center; }
+    .co-default-role-editor-info.is-locked { background: color-mix(in srgb, #ffb774 6%, var(--panel-2)); border-color: color-mix(in srgb, #ffb774 26%, var(--co-border)); }
+    .co-default-role-editor-icon { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 18%, var(--panel)); color: var(--accent); flex: 0 0 auto; }
+    .co-default-role-editor-info.is-locked .co-default-role-editor-icon { background: color-mix(in srgb, #ffb774 22%, var(--panel)); color: #ffb774; }
+    .co-default-role-editor-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .co-default-role-lock-banner { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid color-mix(in srgb, #ffb774 30%, var(--co-border)); background: color-mix(in srgb, #ffb774 10%, var(--panel)); border-radius: 9px; }
+    .co-default-role-lock-icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; background: color-mix(in srgb, #ffb774 22%, var(--panel-2)); color: #ffb774; flex: 0 0 auto; margin-top: 1px; }
+    .co-default-role-lock-body { flex: 1; min-width: 0; }
+    .co-default-role-lock-title { font-size: 12.5px; font-weight: 700; color: var(--text); margin-bottom: 3px; }
+    .co-default-role-lock-text { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+
+    /* Default-role editor — scope checklist header + categories ──── */
+    .co-default-role-scope-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+    .co-default-role-scope-count { font-size: 10.5px; font-weight: 700; color: var(--accent); padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+    .co-default-role-scope-list { padding: 4px 8px 8px; gap: 0; }
+    .co-default-role-cat-row { position: sticky; top: 0; z-index: 1; background: var(--panel-2); padding: 8px 4px 6px; border-top: 1px solid var(--co-divider); margin: 0 -8px; padding-left: 12px; padding-right: 8px; display: flex; gap: 8px; align-items: center; }
+    .co-default-role-cat-row:first-child { border-top: 0; }
+    .co-default-role-cat-row .co-scope-cat { flex: 1; }
+    .co-default-role-cat-row.is-all { color: var(--accent); }
+    .co-default-role-cat-row.is-some { color: var(--text); }
+    .co-default-role-cat-count { font-size: 10.5px; font-weight: 600; color: var(--text-faint); padding: 1px 7px; border-radius: 999px; background: var(--panel); border: 1px solid var(--co-border); flex: 0 0 auto; }
+    .co-default-role-cat-row.is-all .co-default-role-cat-count { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, var(--co-border)); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+    .co-default-role-scope-row { padding: 4px 4px 4px 12px; border-radius: 5px; transition: background 100ms ease; }
+    .co-default-role-scope-row:hover:not(:has(input:disabled)) { background: var(--panel); }
+    .co-default-role-scope-row.is-checked { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+    .co-default-role-scope-row.is-changed { background: color-mix(in srgb, #ffb774 10%, transparent); }
+    .co-default-role-scope-detail { flex: 1; min-width: 0; }
+    .co-default-role-scope-changed { display: inline-block; margin-left: 6px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: #ffb774; padding: 0 5px; border-radius: 4px; background: color-mix(in srgb, #ffb774 16%, transparent); border: 1px solid color-mix(in srgb, #ffb774 32%, transparent); vertical-align: middle; }
+
+    /* Unsaved-change pill in modal footer ────────────────────────── */
+    .co-default-role-unsaved { font-size: 11px; font-weight: 700; letter-spacing: 0.3px; padding: 4px 10px; border-radius: 999px; color: #ffb774; background: color-mix(in srgb, #ffb774 14%, transparent); border: 1px solid color-mix(in srgb, #ffb774 32%, transparent); margin-right: auto; display: inline-flex; align-items: center; gap: 4px; }
+    .co-default-role-unsaved[hidden] { display: none; }
+    .co-default-role-unsaved::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, #ffb774 18%, transparent); animation: co-pulse 1.6s ease-in-out infinite; }
+    @keyframes co-pulse {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0.5; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .co-default-role-unsaved::before { animation: none; }
+    }
   `;
   const tag = document.createElement('style');
   tag.id = 'co-styles'; tag.textContent = css;
@@ -2374,6 +2540,79 @@ function makeFaintC(text) {
   e.textContent = text;
   e.style.cssText = 'padding:24px;text-align:center;color:var(--text-faint);';
   return e;
+}
+
+// Tile representation of a built-in role in the summary card. Each tile
+// shows the role icon, name, permission count chip, and a Locked badge
+// for the Super Admin role (id=0) so the visual hierarchy hints at what
+// can be edited and what is enforced by the server.
+function buildDefaultRoleSummaryTile(r) {
+  const tile = document.createElement('div');
+  const locked = Number(r.id) === 0;
+  tile.className = 'co-default-role-tile' + (locked ? ' is-locked' : '');
+  const iconWrap = document.createElement('div');
+  iconWrap.className = 'co-default-role-tile-icon';
+  iconWrap.innerHTML = defaultRoleIconC(r.id, locked);
+  tile.appendChild(iconWrap);
+  const body = document.createElement('div');
+  body.className = 'co-default-role-tile-body';
+  const titleRow = document.createElement('div');
+  titleRow.className = 'co-default-role-tile-title-row';
+  const name = document.createElement('span');
+  name.className = 'co-default-role-tile-title';
+  name.textContent = r.friendly_name || r.name || ('Role ' + r.id);
+  titleRow.appendChild(name);
+  if (locked) {
+    const lockChip = document.createElement('span');
+    lockChip.className = 'co-default-role-tile-lock';
+    lockChip.innerHTML =
+      '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>' +
+      '<span>Locked</span>';
+    titleRow.appendChild(lockChip);
+  }
+  body.appendChild(titleRow);
+  const meta = document.createElement('div');
+  meta.className = 'co-default-role-tile-meta';
+  const count = (r.scopes && r.scopes.length) || 0;
+  meta.innerHTML = '<span class="co-default-role-tile-count">' + count +
+    ' permission' + (count === 1 ? '' : 's') + '</span>' +
+    ' · <code>' + escapeC(r.name || '') + '</code>';
+  body.appendChild(meta);
+  tile.appendChild(body);
+  return tile;
+}
+
+function defaultRoleIconC(roleId, locked) {
+  if (locked) {
+    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M12 2L4 6v6c0 5 3.4 9.4 8 10 4.6-.6 8-5 8-10V6l-8-4z"/>' +
+      '<path d="m9 12 2 2 4-4"/></svg>';
+  }
+  const id = Number(roleId);
+  if (id === 1) {
+    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M5 16 3 6l5 4 4-8 4 8 5-4-2 10z"/></svg>';
+  }
+  if (id === 2) {
+    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>' +
+      '<circle cx="12" cy="12" r="3"/></svg>';
+  }
+  if (id === 3) {
+    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<circle cx="9" cy="7" r="3.2"/><path d="M2 21a7 7 0 0 1 14 0"/><circle cx="17" cy="9" r="2.5"/><path d="M22 21a6 6 0 0 0-5-5.9"/></svg>';
+  }
+  if (id === 5) {
+    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>';
+  }
+  if (id === 6) {
+    return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>';
+  }
+  return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>';
 }
 function makeCardC(title, description) {
   const card = document.createElement('div'); card.className = 'co-card';
@@ -2519,8 +2758,14 @@ function openModal(opts) {
   root.appendChild(card);
 
   let closed = false;
-  function close() {
+  function close(opts2) {
     if (closed) return;
+    const force = !!(opts2 && opts2.force);
+    if (!force && typeof opts.onBeforeClose === 'function') {
+      let allow = true;
+      try { allow = opts.onBeforeClose() !== false; } catch (_) { allow = true; }
+      if (!allow) return;
+    }
     closed = true;
     if (root.parentElement) root.parentElement.removeChild(root);
     document.removeEventListener('keydown', onKey);

@@ -87,15 +87,34 @@
     const banner = $('auth-invite');
     const body = $('auth-invite-body');
     if (!banner || !body) return;
+    const meta = $('auth-invite-meta');
+    const companyChip = $('auth-invite-company');
+    const companyText = $('auth-invite-company-text');
+    const emailChip = $('auth-invite-email');
+    const emailText = $('auth-invite-email-text');
     if (!inv) {
       banner.hidden = true;
       body.textContent = '';
+      if (meta) meta.hidden = true;
+      if (companyChip) companyChip.hidden = true;
+      if (emailChip) emailChip.hidden = true;
       return;
     }
-    const company = inv.company ? ` for ${inv.company}` : '';
-    const email = inv.email ? ` as ${inv.email}` : '';
-    body.textContent = `Sign in or create an account${email} to accept this invitation${company}.`;
+    body.textContent = inv.company
+      ? `Sign in or create an account to join ${inv.company}.`
+      : 'Sign in or create an account to accept this invitation.';
     banner.hidden = false;
+    const hasCompany = Boolean(inv.company);
+    const hasEmail = Boolean(inv.email);
+    if (companyChip && companyText) {
+      companyText.textContent = inv.company || '';
+      companyChip.hidden = !hasCompany;
+    }
+    if (emailChip && emailText) {
+      emailText.textContent = inv.email || '';
+      emailChip.hidden = !hasEmail;
+    }
+    if (meta) meta.hidden = !(hasCompany || hasEmail);
     if (inv.email) {
       if ($('login-email') && !$('login-email').value) $('login-email').value = inv.email;
       if ($('reg-email') && !$('reg-email').value) $('reg-email').value = inv.email;
@@ -762,9 +781,20 @@
     if (btnRefresh) btnRefresh.addEventListener('click', refreshLocalStatus);
   }
 
+  function bindInvitationControls() {
+    const dismiss = $('auth-invite-dismiss');
+    if (dismiss) {
+      dismiss.addEventListener('click', () => {
+        clearPendingInvitation();
+        setStatus('Invitation dismissed. You can still sign in normally.', 'info');
+      });
+    }
+  }
+
   async function boot({ onAuthenticated } = {}) {
     onAuthenticatedCb = onAuthenticated;
     bindLocalControls();
+    bindInvitationControls();
     bindInvitationListener();
     await loadBrands();
     loadPendingInvitation();

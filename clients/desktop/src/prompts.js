@@ -118,6 +118,10 @@
     return 'prompts';
   }
 
+  function isSharedScope() {
+    return STATE.scope === 'company' || STATE.scope === 'server';
+  }
+
   function setScope(scope) {
     STATE.scope = canUsePromptScope(scope) ? scope : 'user';
     try { window.localStorage.setItem('promptEditorScope', STATE.scope); } catch (_) {}
@@ -278,12 +282,24 @@
       const scope = node.dataset.scope || 'user';
       const allowed = canUsePromptScope(scope);
       node.classList.toggle('is-active', scope === STATE.scope);
+      node.classList.toggle('is-locked', !allowed);
       node.disabled = !allowed;
       node.setAttribute('aria-selected', scope === STATE.scope ? 'true' : 'false');
       node.title = allowed
-        ? `${scopeLabel(scope)} scope`
-        : `You do not have access to ${scopeLabel(scope).toLowerCase()}.`;
+        ? `${scopeLabel(scope)} prompts`
+        : `You don't have access to ${scopeLabel(scope).toLowerCase()}. Ask an admin for the ${scope}:prompts scope.`;
     });
+  }
+
+  function renderScopeBadge(scope) {
+    const label = scope === 'company' ? 'Company' : scope === 'server' ? 'Server' : 'My';
+    const iconSvg = scope === 'server'
+      ? '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><line x1="7" y1="7" x2="7.01" y2="7"/><line x1="7" y1="17" x2="7.01" y2="17"/></svg>'
+      : '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l7-4 7 4v14"/></svg>';
+    return el('span', { class: 'pl-scope-badge is-' + scope, title: `${label} scope` }, [
+      el('span', { class: 'pl-scope-badge-icon', html: iconSvg }),
+      el('span', null, label),
+    ]);
   }
 
   async function switchScope(scope) {
@@ -351,27 +367,48 @@
       : STATE.prompts;
 
     if (!items.length) {
-      root.appendChild(el('div', { class: 'pl-list-empty' },
-        STATE.prompts.length === 0
-          ? `No ${scopeEmptyLabel()} yet. Click + to create one.`
-          : 'No prompts match this search.'
-      ));
+      root.appendChild(renderListEmpty(STATE.prompts.length === 0));
       return;
     }
 
     items.forEach((p) => {
       const isActive = p.id === STATE.activeId;
       const preview = (p.content || '').replace(/\s+/g, ' ').slice(0, 140);
+      const headerRow = el('div', { class: 'pl-list-item-row' }, [
+        el('span', { class: 'pl-list-item-name' }, p.name),
+        isSharedScope() ? renderScopeBadge(STATE.scope) : null,
+      ]);
       const item = el('button', {
         class: 'pl-list-item' + (isActive ? ' is-active' : ''),
         onclick: () => selectPrompt(p.id),
         title: p.name,
       }, [
-        el('span', { class: 'pl-list-item-name' }, p.name),
+        headerRow,
         preview ? el('span', { class: 'pl-list-item-preview' }, preview) : null,
       ]);
       root.appendChild(item);
     });
+  }
+
+  function renderListEmpty(noResults) {
+    if (!noResults) {
+      return el('div', { class: 'pl-list-empty' }, [
+        el('div', { class: 'pl-list-empty-title' }, 'No matches'),
+        el('div', { class: 'pl-list-empty-body' }, 'Clear the search to see all prompts in this scope.'),
+      ]);
+    }
+    const scope = STATE.scope;
+    const heading = scope === 'user'
+      ? 'No prompts yet'
+      : `No ${scopeEmptyLabel()} yet`;
+    const body = scope === 'user'
+      ? 'Click + to save your first reusable prompt template.'
+      : `${scopeLabel(scope)} prompts are shared with everyone who has access to this ${scope}. Click + to create one.`;
+    return el('div', { class: 'pl-list-empty' }, [
+      el('div', { class: 'pl-list-empty-icon', html: ICONS.book }),
+      el('div', { class: 'pl-list-empty-title' }, heading),
+      el('div', { class: 'pl-list-empty-body' }, body),
+    ]);
   }
 
   async function selectPrompt(id) {
@@ -422,16 +459,25 @@
   }
 
   function renderEmptyState() {
+    const shared = isSharedScope();
+    const title = shared
+      ? `${scopeLabel(STATE.scope)} prompts`
+      : 'Prompt Library';
+    const body = shared
+      ? `${scopeLabel(STATE.scope)} prompts are shared with everyone who has access to this ${STATE.scope}. Pick a prompt on the left, or save a new template.`
+      : 'Save reusable prompt templates with named variables in `{curly_braces}`. They power Prompt-type chain steps and the agent test panel.';
     return el('div', { class: 'pl-editor-empty' }, [
       el('div', { class: 'pl-editor-empty-icon', html: ICONS.book }),
-      el('div', { class: 'pl-editor-empty-title' }, scopeLabel(STATE.scope)),
-      el('div', { class: 'pl-editor-empty-body' },
-        'Save reusable prompt templates with named variables in `{curly_braces}`. Company and server prompts are shared according to role scopes.'
-      ),
+      el('div', { class: 'pl-editor-empty-titlewrap' }, [
+        el('div', { class: 'pl-editor-empty-title' }, title),
+        shared ? renderScopeBadge(STATE.scope) : null,
+      ]),
+      el('div', { class: 'pl-editor-empty-body' }, body),
       btn(
         el('span', null, [
           el('span', { html: ICONS.plus }),
-          el('span', { style: 'margin-left:6px' }, 'New prompt'),
+          el('span', { style: 'margin-left:6px' },
+            shared ? `New ${scopeLabel(STATE.scope).toLowerCase()} prompt` : 'New prompt'),
         ]),
         { kind: 'primary', onclick: handleCreatePrompt }
       ),
@@ -468,11 +514,21 @@
       { kind: 'danger', onclick: handleDeletePrompt, title: 'Delete prompt' }
     );
 
-    return el('div', { class: 'pl-editor-header' }, [
-      el('div', { class: 'pl-editor-titlewrap' }, [
-        titleInput,
-        el('div', { class: 'pl-editor-meta' }, `${scopeLabel(STATE.scope)} · ${scopeEntityLabel()}`),
+    const meta = el('div', { class: 'pl-editor-meta' }, [
+      isSharedScope() ? renderScopeBadge(STATE.scope) : null,
+      el('span', {
+        class: 'pl-category-chip',
+        title: 'Category management is coming — prompts currently live in the Default category.',
+      }, [
+        el('span', {
+          class: 'pl-category-chip-icon',
+          html: '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 3h10v9a2 2 0 0 1-2 2H3z"/></svg>',
+        }),
+        el('span', null, 'Default'),
       ]),
+    ]);
+    return el('div', { class: 'pl-editor-header' }, [
+      el('div', { class: 'pl-editor-titlewrap' }, [titleInput, meta]),
       el('div', { class: 'pl-editor-actions' }, [saveBtn, exportBtn, deleteBtn]),
     ]);
   }
@@ -542,9 +598,27 @@
       'data-pl-edit-toolbar': '',
     }, editToolbarChildren(dirty));
 
-    const pane = el('section', { class: 'pl-edit-pane' }, [toolbar, grid]);
+    const children = [toolbar];
+    if (isSharedScope()) children.push(renderSharedScopeNotice());
+    children.push(grid);
+    const pane = el('section', { class: 'pl-edit-pane' }, children);
     setTimeout(() => bodyArea.focus(), 30);
     return pane;
+  }
+
+  function renderSharedScopeNotice() {
+    const scope = STATE.scope;
+    const verb = scope === 'company' ? 'company' : 'server';
+    return el('div', { class: 'pl-shared-notice', role: 'note' }, [
+      el('div', {
+        class: 'pl-shared-notice-icon',
+        html: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><circle cx="12" cy="12" r="10"/></svg>',
+      }),
+      el('div', { class: 'pl-shared-notice-body' }, [
+        el('strong', null, 'Shared prompt — '),
+        `changes you save here apply to everyone in this ${verb}.`,
+      ]),
+    ]);
   }
 
   function editToolbarChildren(dirty) {

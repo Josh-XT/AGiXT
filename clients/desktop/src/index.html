@@ -126,9 +126,48 @@
             <input id="web-url" type="url" placeholder="http://localhost:3437" autocomplete="url" />
           </label>
 
-          <div class="auth-invite" id="auth-invite" hidden>
-            <div class="auth-invite-title">Company invitation ready</div>
-            <div class="auth-invite-body" id="auth-invite-body"></div>
+          <div class="auth-invite" id="auth-invite" role="status" aria-live="polite" hidden>
+            <div class="auth-invite-icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="1.8"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 6h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/>
+                <polyline points="2 8 12 14 22 8"/>
+              </svg>
+            </div>
+            <div class="auth-invite-main">
+              <div class="auth-invite-title">You're invited</div>
+              <div class="auth-invite-body" id="auth-invite-body"></div>
+              <div class="auth-invite-meta" id="auth-invite-meta" hidden>
+                <span class="auth-invite-chip" id="auth-invite-company" hidden>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+                       stroke="currentColor" stroke-width="2"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1M9 13h1M9 17h1M14 9h1M14 13h1M14 17h1"/>
+                  </svg>
+                  <span class="auth-invite-chip-text" id="auth-invite-company-text"></span>
+                </span>
+                <span class="auth-invite-chip" id="auth-invite-email" hidden>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+                       stroke="currentColor" stroke-width="2"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M4 4h16v16H4z"/>
+                    <polyline points="4 6 12 13 20 6"/>
+                  </svg>
+                  <span class="auth-invite-chip-text" id="auth-invite-email-text"></span>
+                </span>
+              </div>
+            </div>
+            <button class="auth-invite-dismiss" id="auth-invite-dismiss"
+                    type="button" title="Dismiss invitation"
+                    aria-label="Dismiss invitation">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
           </div>
 
           <!-- LOCAL MODE PANE — shown only when brand === 'local'.
@@ -735,9 +774,34 @@
                 <div class="cn-header-sub">Sequence agent steps — Prompts, Commands, and other Chains — into a reusable workflow.</div>
               </div>
               <div class="cn-scope-tabs" id="cn-scope-tabs" role="tablist" aria-label="Chain scope">
-                <button type="button" class="cn-scope-btn is-active" data-scope="user">My Chains</button>
-                <button type="button" class="cn-scope-btn" data-scope="company">Company</button>
-                <button type="button" class="cn-scope-btn" data-scope="server">Server</button>
+                <button type="button" class="cn-scope-btn is-active" data-scope="user" role="tab">
+                  <svg class="cn-scope-btn-icon" width="12" height="12" viewBox="0 0 24 24"
+                       fill="none" stroke="currentColor" stroke-width="2"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="8" r="4"/>
+                    <path d="M4 21a8 8 0 0 1 16 0"/>
+                  </svg>
+                  <span>My Chains</span>
+                </button>
+                <button type="button" class="cn-scope-btn" data-scope="company" role="tab">
+                  <svg class="cn-scope-btn-icon" width="12" height="12" viewBox="0 0 24 24"
+                       fill="none" stroke="currentColor" stroke-width="2"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1M9 13h1M9 17h1M14 9h1M14 13h1M14 17h1"/>
+                  </svg>
+                  <span>Company</span>
+                </button>
+                <button type="button" class="cn-scope-btn" data-scope="server" role="tab">
+                  <svg class="cn-scope-btn-icon" width="12" height="12" viewBox="0 0 24 24"
+                       fill="none" stroke="currentColor" stroke-width="2"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="6" rx="1.5"/>
+                    <rect x="3" y="14" width="18" height="6" rx="1.5"/>
+                    <line x1="7" y1="7" x2="7.01" y2="7"/>
+                    <line x1="7" y1="17" x2="7.01" y2="17"/>
+                  </svg>
+                  <span>Server</span>
+                </button>
               </div>
               <div class="cn-header-spacer"></div>
               <!-- Prompt Library shortcut — always visible from the
@@ -838,9 +902,34 @@
               </div>
               <div class="pl-header-spacer"></div>
               <div class="pl-scope-tabs" id="pl-scope-tabs" role="tablist" aria-label="Prompt scope">
-                <button type="button" class="pl-scope-btn is-active" data-scope="user">My Prompts</button>
-                <button type="button" class="pl-scope-btn" data-scope="company">Company</button>
-                <button type="button" class="pl-scope-btn" data-scope="server">Server</button>
+                <button type="button" class="pl-scope-btn is-active" data-scope="user" role="tab">
+                  <svg class="pl-scope-btn-icon" width="12" height="12" viewBox="0 0 24 24"
+                       fill="none" stroke="currentColor" stroke-width="2"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="8" r="4"/>
+                    <path d="M4 21a8 8 0 0 1 16 0"/>
+                  </svg>
+                  <span>My Prompts</span>
+                </button>
+                <button type="button" class="pl-scope-btn" data-scope="company" role="tab">
+                  <svg class="pl-scope-btn-icon" width="12" height="12" viewBox="0 0 24 24"
+                       fill="none" stroke="currentColor" stroke-width="2"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1M9 13h1M9 17h1M14 9h1M14 13h1M14 17h1"/>
+                  </svg>
+                  <span>Company</span>
+                </button>
+                <button type="button" class="pl-scope-btn" data-scope="server" role="tab">
+                  <svg class="pl-scope-btn-icon" width="12" height="12" viewBox="0 0 24 24"
+                       fill="none" stroke="currentColor" stroke-width="2"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="6" rx="1.5"/>
+                    <rect x="3" y="14" width="18" height="6" rx="1.5"/>
+                    <line x1="7" y1="7" x2="7.01" y2="7"/>
+                    <line x1="7" y1="17" x2="7.01" y2="17"/>
+                  </svg>
+                  <span>Server</span>
+                </button>
               </div>
             </header>
 

@@ -48,10 +48,11 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 2px;
+  padding: 3px;
   border: 1px solid var(--border);
   background: var(--panel-2);
-  border-radius: var(--radius-sm);
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
 }
 .cn-scope-btn {
   appearance: none;
@@ -62,20 +63,45 @@
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
-  padding: 6px 9px;
+  padding: 6px 10px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  transition: background 140ms ease, color 140ms ease, transform 80ms ease;
+  letter-spacing: 0.15px;
+}
+.cn-scope-btn-icon {
+  flex: 0 0 auto;
+  opacity: 0.85;
 }
 .cn-scope-btn:hover:not(:disabled) {
   color: var(--text);
   background: var(--panel-hover);
 }
+.cn-scope-btn:active:not(:disabled) { transform: translateY(0.5px); }
 .cn-scope-btn.is-active {
   color: #fff;
   background: var(--accent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), 0 4px 12px -6px var(--accent);
 }
-.cn-scope-btn:disabled {
-  opacity: 0.45;
+.cn-scope-btn.is-active .cn-scope-btn-icon { opacity: 1; }
+.cn-scope-btn:disabled,
+.cn-scope-btn.is-locked {
+  opacity: 0.42;
   cursor: not-allowed;
+  position: relative;
+}
+.cn-scope-btn.is-locked::after {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: 2px;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><rect x='4' y='11' width='16' height='10' rx='2'/><path d='M8 11V7a4 4 0 0 1 8 0v4'/></svg>") no-repeat center / contain;
+          mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><rect x='4' y='11' width='16' height='10' rx='2'/><path d='M8 11V7a4 4 0 0 1 8 0v4'/></svg>") no-repeat center / contain;
 }
 
 .cn-toast {
@@ -208,10 +234,107 @@
   padding: 6px;
 }
 .cn-list-empty {
-  padding: 32px 16px;
+  padding: 28px 18px;
   text-align: center;
   color: var(--text-faint);
   font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.cn-list-empty-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+.cn-list-empty-icon svg { width: 18px; height: 18px; }
+.cn-list-empty-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: 0.1px;
+}
+.cn-list-empty-body {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.5;
+  max-width: 220px;
+}
+.cn-steps-empty {
+  padding: 22px 18px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  margin: 4px 0;
+}
+
+/* Scope badges — used in the chain list rows and editor header to
+   surface which scope the active chain belongs to. Colors mirror the
+   scope-tab accent so company/server contexts read at a glance. */
+.cn-scope-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.55px;
+  padding: 2px 7px 2px 5px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  line-height: 1.6;
+}
+.cn-scope-badge-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.9;
+}
+.cn-scope-badge.is-company {
+  color: #ffb774;
+  background: color-mix(in srgb, #ffb774 14%, transparent);
+  border-color: color-mix(in srgb, #ffb774 28%, transparent);
+}
+.cn-scope-badge.is-server {
+  color: #b29dff;
+  background: color-mix(in srgb, #b29dff 14%, transparent);
+  border-color: color-mix(in srgb, #b29dff 30%, transparent);
+}
+
+.cn-list-item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.cn-list-item-row .cn-list-item-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.cn-editor-titlerow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.cn-editor-titlerow .cn-editor-title { flex: 1; min-width: 0; }
+.cn-editor-empty-titlewrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .cn-list-item {

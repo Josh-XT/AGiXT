@@ -433,11 +433,12 @@
       const scope = node.dataset.scope || 'user';
       const allowed = canUseChainScope(scope);
       node.classList.toggle('is-active', scope === STATE.scope);
+      node.classList.toggle('is-locked', !allowed);
       node.disabled = !allowed;
       node.setAttribute('aria-selected', scope === STATE.scope ? 'true' : 'false');
       node.title = allowed
-        ? `${scopeLabel(scope)} scope`
-        : `You do not have access to ${scopeLabel(scope).toLowerCase()} chains.`;
+        ? `${scopeLabel(scope)} chains`
+        : `You don't have access to ${scopeLabel(scope).toLowerCase()} chains. Ask an admin for the ${scope}:chains scope.`;
     });
   }
 
@@ -570,31 +571,60 @@
       : STATE.chainsList;
 
     if (!items.length) {
-      root.appendChild(el('div', { class: 'cn-list-empty' },
-        STATE.chainsList.length === 0
-          ? `No ${scopeLabel(STATE.scope).toLowerCase()} chains yet. Click + to create one.`
-          : 'No chains match this search.'
-      ));
+      root.appendChild(renderListEmpty(STATE.chainsList.length === 0));
       return;
     }
 
     items.forEach((c) => {
       const isActive = c.id === STATE.activeChainId;
+      const headerRow = el('div', { class: 'cn-list-item-row' }, [
+        el('span', { class: 'cn-list-item-name' }, c.chainName),
+        isSharedScope() ? renderScopeBadge(STATE.scope) : null,
+      ]);
       const item = el('button', {
         class: 'cn-list-item' + (isActive ? ' is-active' : ''),
         onclick: () => selectChain(c.id),
         title: c.chainName,
       }, [
-        el('span', { class: 'cn-list-item-name' }, c.chainName),
-        isSharedScope()
-          ? el('span', { class: 'cn-list-item-desc' }, scopeLabel(STATE.scope) + ' scope')
-          : null,
+        headerRow,
         c.description
           ? el('span', { class: 'cn-list-item-desc' }, c.description)
           : null,
       ]);
       root.appendChild(item);
     });
+  }
+
+  function renderScopeBadge(scope) {
+    const label = scopeLabel(scope);
+    const iconSvg = scope === 'server'
+      ? '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><line x1="7" y1="7" x2="7.01" y2="7"/><line x1="7" y1="17" x2="7.01" y2="17"/></svg>'
+      : '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l7-4 7 4v14"/></svg>';
+    return el('span', { class: 'cn-scope-badge is-' + scope, title: `${label} scope` }, [
+      el('span', { class: 'cn-scope-badge-icon', html: iconSvg }),
+      el('span', null, label),
+    ]);
+  }
+
+  function renderListEmpty(noResults) {
+    if (!noResults) {
+      return el('div', { class: 'cn-list-empty' }, [
+        el('div', { class: 'cn-list-empty-title' }, 'No matches'),
+        el('div', { class: 'cn-list-empty-body' }, 'Clear the search to see all chains in this scope.'),
+      ]);
+    }
+    const scope = STATE.scope;
+    const heading = scope === 'user'
+      ? 'No chains yet'
+      : `No ${scopeLabel(scope).toLowerCase()} chains yet`;
+    const body = scope === 'user'
+      ? 'Click + to build your first automation chain.'
+      : `${scopeLabel(scope)} chains are shared with everyone who has access to this ${scope}. Click + to create one.`;
+    return el('div', { class: 'cn-list-empty' }, [
+      el('div', { class: 'cn-list-empty-icon', html: ICONS.workflow }),
+      el('div', { class: 'cn-list-empty-title' }, heading),
+      el('div', { class: 'cn-list-empty-body' }, body),
+    ]);
   }
 
   async function selectChain(chainId) {
@@ -682,12 +712,20 @@
       el('span', { class: 'cn-empty-chip-icon', html }),
       el('span', null, type),
     ]);
+    const shared = isSharedScope();
+    const title = shared
+      ? `${scopeLabel(STATE.scope)} chains`
+      : 'Automation Chains';
+    const body = shared
+      ? `Chains in ${scopeLabel(STATE.scope).toLowerCase()} scope are shared with everyone who has access to this ${STATE.scope}. Pick one on the left, or create a new one.`
+      : 'Sequence agent steps into a reusable workflow — each step’s output flows into the next. Pick a chain on the left, or start a new one.';
     return el('div', { class: 'cn-editor-empty' }, [
       el('div', { class: 'cn-editor-empty-icon', html: ICONS.workflow }),
-      el('div', { class: 'cn-editor-empty-title' }, 'Automation Chains'),
-      el('div', { class: 'cn-editor-empty-body' },
-        'Sequence agent steps into a reusable workflow — each step’s output flows into the next. Pick a chain on the left, or start a new one.'
-      ),
+      el('div', { class: 'cn-editor-empty-titlewrap' }, [
+        el('div', { class: 'cn-editor-empty-title' }, title),
+        shared ? renderScopeBadge(STATE.scope) : null,
+      ]),
+      el('div', { class: 'cn-editor-empty-body' }, body),
       el('div', { class: 'cn-empty-chips' }, [
         chip('Prompt', ICONS.fileText),
         chip('Command', ICONS.terminal),
@@ -696,7 +734,8 @@
       btn(
         el('span', null, [
           el('span', { html: ICONS.plus }),
-          el('span', { style: 'margin-left:6px' }, 'New chain'),
+          el('span', { style: 'margin-left:6px' },
+            shared ? `New ${scopeLabel(STATE.scope).toLowerCase()} chain` : 'New chain'),
         ]),
         { kind: 'primary', onclick: handleCreateChain }
       ),
@@ -711,6 +750,10 @@
       value: chain.chainName,
       onblur: handleRenameChainBlur,
     });
+    const titleRow = el('div', { class: 'cn-editor-titlerow' }, [
+      titleInput,
+      isSharedScope() ? renderScopeBadge(STATE.scope) : null,
+    ]);
     const descArea = el('textarea', {
       class: 'cn-editor-desc',
       rows: 1,
@@ -779,7 +822,7 @@
     );
 
     return el('div', { class: 'cn-editor-header' }, [
-      el('div', { class: 'cn-editor-titlewrap' }, [titleInput, descArea]),
+      el('div', { class: 'cn-editor-titlewrap' }, [titleRow, descArea]),
       el('div', { class: 'cn-editor-actions' }, [
         saveAllBtn, autosaveToggle, runBtn,
         renderAbilityControl(),
@@ -851,9 +894,11 @@
       (a.step || 0) - (b.step || 0));
 
     if (steps.length === 0) {
-      stack.appendChild(el('div', { class: 'cn-list-empty' },
-        'No steps yet. Click "Add step" below to get started.'
-      ));
+      stack.appendChild(el('div', { class: 'cn-list-empty cn-steps-empty' }, [
+        el('div', { class: 'cn-list-empty-title' }, 'No steps yet'),
+        el('div', { class: 'cn-list-empty-body' },
+          'Click "Add step" below to chain a Prompt, Command, or other Chain together.'),
+      ]));
     }
 
     steps.forEach((step, idx) => {
