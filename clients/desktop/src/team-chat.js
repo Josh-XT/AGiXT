@@ -1361,6 +1361,28 @@
         text: emoji,
       }));
     }
+    // "Add reaction" — opens the full emoji picker, same affordance the
+    // web's AddReactionButton renders at the end of its hover toolbar.
+    // Without this, users could only reach the picker through the
+    // right-click menu.
+    bar.appendChild(ce('button', {
+      type: 'button',
+      class: 'tc-msg-toolbar-btn tc-msg-toolbar-add-react',
+      title: 'Add reaction…',
+      'aria-label': 'Add reaction',
+      html: '<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">'
+        + '<circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/>'
+        + '<path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"'
+        + ' d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01M18 4v6M21 7h-6"/></svg>',
+      on: { click: (e) => {
+        if (!msg.id) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        openEmojiPicker(rect.right, rect.bottom, (emoji) => {
+          window.AgixtApi.toggleReaction(activeChannelId, msg.id, emoji)
+            .catch(() => toast('Failed to react', true));
+        });
+      }},
+    }));
     bar.appendChild(ce('span', { class: 'tc-msg-toolbar-sep' }));
     bar.appendChild(ce('button', {
       type: 'button', class: 'tc-msg-toolbar-btn',

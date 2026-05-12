@@ -4489,11 +4489,25 @@ body.window-mode.chat-collapsed .chat-resize-handle {
 
 /* Hover toolbar above each message — pinned to the message's top-right,
    only fully visible on hover. */
-.tc-message { position: relative; }
+.tc-message {
+  position: relative;
+  /* Reserve a sliver at the top so the absolutely-positioned hover
+     toolbar can sit inside the message bounds without overlapping the
+     header line. Without this, top:-10px puts the toolbar into the
+     previous message's footer / above the scroll container's edge
+     where containment clips it. */
+  padding-top: 4px;
+}
 .tc-msg-toolbar {
   position: absolute;
-  top: -10px;
+  /* Anchor INSIDE the message box — keeps the toolbar inside any
+     parent containment (the scroll container uses contain: strict).
+     Pulls slightly upward visually with a -4px translate so it still
+     reads as "floating above the message header" without escaping
+     the paint area. */
+  top: 2px;
   right: 8px;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   gap: 1px;
@@ -5143,10 +5157,18 @@ body.window-mode.chat-collapsed .chat-resize-handle {
    gives the scroller a stable height estimate so the scrollbar
    doesn't jitter. */
 .tc-message {
-  contain: layout style paint;
+  /* Layout + style only — `paint` containment would CLIP everything
+     outside the message's content box, including the hover toolbar
+     that lives at top: -10px above the message. Dropping `paint`
+     keeps layout-isolation perf without losing the toolbar.
+     content-visibility:auto applies its own paint containment ONLY
+     while the row is off-screen, which is exactly what we want. */
+  contain: layout style;
   content-visibility: auto;
   contain-intrinsic-size: auto 80px;
 }
+/* The scroll container can keep strict containment — its children
+   (.tc-message) handle their own isolation. */
 .tc-messages-scroll {
   contain: strict;
   overflow-anchor: auto;
