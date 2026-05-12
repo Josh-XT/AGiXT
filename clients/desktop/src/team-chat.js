@@ -4156,12 +4156,250 @@
   const updateEmojiAutocomplete = updateComposerAC;
   const handleEmojiAutocompleteKey = handleComposerACKey;
 
+  // ----- Composer helpers: emoji insert + voice recording ---------------
+
+  function insertEmojiAtCursor(emoji) {
+    const input = el('tc-composer-input');
+    if (!input || !emoji) return;
+    const start = input.selectionStart || 0;
+    const end = input.selectionEnd || 0;
+    const v = input.value || '';
+    input.value = v.slice(0, start) + emoji + v.slice(end);
+    const caret = start + emoji.length;
+    input.selectionStart = input.selectionEnd = caret;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+  }
+
+  // Tiny voice-recording state machine, separate from the agent-chat
+  // one in app.js but using the same Tauri backend (voice_start_recording
+  // → voice_stop_recording → /v1/audio/transcriptions). Transcript
+  // lands in the team-chat composer; the user reviews it and chooses
+  // when to send. Esc cancels in-progress recording.
+  const micState = {
+    state: 'idle',           // 'idle' | 'recording' | 'busy'
+    native: false,
+    cancelled: false,
+    recorder: null,
+    stream: null,
+    chunks: [],
+  };
+
+  function setMicState(state) {
+    micState.state = state;
+    const btn = el('tc-mic-btn');
+    if (btn) btn.dataset.state = state;
+  }
+  function setComposerNotice(text, isError) {
+    const status = el('tc-composer-status');
+    if (!status) return;
+    status.textContent = text || '';
+    status.classList.toggle('is-error', !!isError);
+  }
+  function pickRecorderMime() {
+    const candidates = [
+      'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus',
+      'audio/ogg', 'audio/mp4', 'audio/mpeg',
+    ];
+    for (const m of candidates) {
+      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported
+          && MediaRecorder.isTypeSupported(m)) return m;
+    }
+    return '';
+  }
+  function audioExtension(mime) {
+    if (!mime) return 'webm';
+    if (mime.includes('webm')) return 'webm';
+    if (mime.includes('ogg')) return 'ogg';
+    if (mime.includes('mp4')) return 'm4a';
+    if (mime.includes('mpeg')) return 'mp3';
+    return 'webm';
+  }
+  function blobFromBase64(b64, mime) {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime || 'audio/webm' });
+  }
+
+  async function startMicRecording() {
+    if (micState.state !== 'idle') return;
+    const inv = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
+    // Prefer the native recorder via Tauri (matches the agent chat's
+    // approach — better mic device handling than the browser API in
+    // a webview). Fall back to MediaRecorder if native isn't available.
+    if (inv) {
+      try {
+        const info = await inv('voice_start_recording');
+        micState.native = true;
+        micState.cancelled = false;
+        setMicState('recording');
+        const label = info && info.device_name ? ' (' + info.device_name + ')' : '';
+        setComposerNotice('Listening' + label + ' — tap mic to send, Esc to cancel');
+        return;
+      } catch (_) {
+        micState.native = false;
+      }
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setComposerNotice('Microphone unavailable in this webview', true);
+      return;
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      setComposerNotice('Microphone permission denied', true);
+      return;
+    }
+    const mime = pickRecorderMime();
+    const recorder = mime ? new MediaRecorder(stream, { mimeType: mime })
+      : new MediaRecorder(stream);
+    micState.stream = stream;
+    micState.recorder = recorder;
+    micState.chunks = [];
+    micState.native = false;
+    micState.cancelled = false;
+    recorder.addEventListener('dataavailable', (e) => {
+      if (e.data && e.data.size > 0) micState.chunks.push(e.data);
+    });
+    recorder.addEventListener('stop', handleWebRecorderStopped);
+    recorder.start(250);
+    setMicState('recording');
+    setComposerNotice('Listening — tap mic to send, Esc to cancel');
+  }
+
+  async function stopMicRecording() {
+    if (micState.state !== 'recording') return;
+    setMicState('busy');
+    setComposerNotice('Transcribing…');
+    if (micState.native) {
+      const inv = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
+      try {
+        const result = await inv('voice_stop_recording');
+        micState.native = false;
+        const blob = blobFromBase64(result.audio_base64, result.mime_type);
+        await transcribeBlob(blob, result.mime_type);
+      } catch (e) {
+        setMicState('idle');
+        setComposerNotice('Recording stop failed', true);
+      }
+      return;
+    }
+    const r = micState.recorder;
+    if (!r) { setMicState('idle'); return; }
+    try {
+      if (r.state !== 'inactive') {
+        if (typeof r.requestData === 'function') {
+          try { r.requestData(); } catch (_) {}
+        }
+        r.stop();
+      }
+    } catch (_) { setMicState('idle'); }
+  }
+
+  async function cancelMicRecording() {
+    if (micState.state !== 'recording') return;
+    micState.cancelled = true;
+    const inv = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
+    if (micState.native) {
+      try { if (inv) await inv('voice_cancel_recording'); } catch (_) {}
+      micState.native = false;
+      setMicState('idle');
+      setComposerNotice('');
+      return;
+    }
+    const r = micState.recorder;
+    try { if (r && r.state !== 'inactive') r.stop(); } catch (_) {}
+    teardownMicStream();
+    micState.recorder = null;
+    micState.chunks = [];
+    setMicState('idle');
+    setComposerNotice('');
+  }
+
+  function teardownMicStream() {
+    if (micState.stream) {
+      micState.stream.getTracks().forEach((t) => t.stop());
+      micState.stream = null;
+    }
+  }
+
+  async function handleWebRecorderStopped() {
+    const chunks = micState.chunks || [];
+    const cancelled = micState.cancelled;
+    teardownMicStream();
+    micState.recorder = null;
+    micState.chunks = [];
+    if (cancelled) { setMicState('idle'); setComposerNotice(''); return; }
+    if (!chunks.length) {
+      setMicState('idle');
+      setComposerNotice('No audio captured', true);
+      return;
+    }
+    const mime = chunks[0].type || 'audio/webm';
+    const blob = new Blob(chunks, { type: mime });
+    await transcribeBlob(blob, mime);
+  }
+
+  async function transcribeBlob(blob, mime) {
+    if (!blob || !blob.size) {
+      setMicState('idle');
+      setComposerNotice('No audio captured', true);
+      return;
+    }
+    let settings = null;
+    try { settings = await window.AgixtApi.getSettings(); } catch (_) {}
+    if (!settings || !settings.server_url || !settings.jwt) {
+      setMicState('idle');
+      setComposerNotice('Not signed in', true);
+      return;
+    }
+    try {
+      const fd = new FormData();
+      fd.append('file', blob, 'recording.' + audioExtension(mime));
+      // AGiXT routes the transcription to the active agent via `model`,
+      // same convention chat completions uses.
+      fd.append('model', settings.agent_name || 'XT');
+      const url = settings.server_url.replace(/\/+$/, '') + '/v1/audio/transcriptions';
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + settings.jwt },
+        body: fd,
+      });
+      if (!resp.ok) {
+        const body = await resp.text().catch(() => '');
+        throw new Error('HTTP ' + resp.status + (body ? ': ' + body.slice(0, 160) : ''));
+      }
+      const data = await resp.json().catch(() => ({}));
+      const transcript = ((data && (data.text || data.transcript)) || '').trim();
+      if (!transcript) {
+        setMicState('idle');
+        setComposerNotice("Couldn't hear anything", true);
+        return;
+      }
+      // Drop the transcript into the composer at the caret and let
+      // the user review before sending. Matches Discord — voice goes
+      // to text, you send when ready.
+      insertEmojiAtCursor(transcript);
+      setMicState('idle');
+      setComposerNotice('Transcribed.');
+      setTimeout(() => {
+        if (micState.state === 'idle') setComposerNotice('');
+      }, 1500);
+    } catch (err) {
+      setMicState('idle');
+      setComposerNotice('Transcription failed: ' + (err && err.message || err), true);
+    }
+  }
+
   // ----- GIF picker (Tenor v2 public anon key) --------------------------
   // The web has its own /api/gif proxy with a server-side key; the
-  // desktop hits Tenor directly using the public anon key shipped with
-  // the v2 docs. This matches what GifPicker.tsx falls back to when the
-  // backend doesn't expose the proxy.
-  const TENOR_KEY = 'AIzaSyAYJ-zlsihPzo6jb_g2tZAQ7XHb-WgmtRA'; // Tenor public free-tier key
+  // desktop hits Tenor directly using the public anon key the web's
+  // /api/gif route falls back to when TENOR_API_KEY isn't set. We
+  // route through the og_fetch IPC so a future host that blocks the
+  // webview's UA still works through the Rust HTTP path.
+  const TENOR_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ'; // canonical Google public Tenor key
   let gifPopover = null;
   let gifSearchTimer = null;
 
@@ -4191,45 +4429,63 @@
     grid.appendChild(ce('div', { class: 'tc-gif-status', text: 'Loading…' }));
     setTimeout(() => search.focus(), 30);
 
-    function load(query) {
+    async function load(query) {
       grid.innerHTML = '';
       grid.appendChild(ce('div', { class: 'tc-gif-status', text: 'Loading…' }));
+      // contentfilter=medium matches the web's /api/gif proxy (the
+      // older `high` value occasionally returned zero results for
+      // benign queries — Tenor recommends medium for chat UIs).
       const url = query
-        ? `https://tenor.googleapis.com/v2/search?key=${TENOR_KEY}&q=${encodeURIComponent(query)}&limit=20&media_filter=gif,tinygif&contentfilter=high`
-        : `https://tenor.googleapis.com/v2/featured?key=${TENOR_KEY}&limit=20&media_filter=gif,tinygif&contentfilter=high`;
-      fetch(url).then((r) => r.json()).then((data) => {
-        grid.innerHTML = '';
-        const results = (data && data.results) || [];
-        if (!results.length) {
-          grid.appendChild(ce('div', { class: 'tc-gif-status', text: 'No results' }));
-          return;
-        }
-        for (const g of results) {
-          const media = g.media_formats || {};
-          const thumb = (media.tinygif && media.tinygif.url) || (media.gif && media.gif.url);
-          const full = (media.gif && media.gif.url) || thumb;
-          if (!thumb || !full) continue;
-          const btn = ce('button', {
-            type: 'button',
-            class: 'tc-gif-cell',
-            on: { click: () => {
-              const input = el('tc-composer-input');
-              if (input) {
-                input.value = (input.value ? input.value + ' ' : '') + full;
-                input.focus();
-              }
-              pop.hidden = true;
-            }},
-          });
-          const img = ce('img', { src: thumb, alt: g.content_description || '', loading: 'lazy' });
-          img.referrerPolicy = 'no-referrer';
-          btn.appendChild(img);
-          grid.appendChild(btn);
-        }
-      }).catch(() => {
-        grid.innerHTML = '';
-        grid.appendChild(ce('div', { class: 'tc-gif-status', text: 'Tenor unavailable' }));
-      });
+        ? `https://tenor.googleapis.com/v2/search?key=${TENOR_KEY}&q=${encodeURIComponent(query)}&limit=20&media_filter=gif,tinygif&contentfilter=medium`
+        : `https://tenor.googleapis.com/v2/featured?key=${TENOR_KEY}&limit=20&media_filter=gif,tinygif&contentfilter=medium`;
+      // Route through the Rust IPC the same way OG previews do — Tenor
+      // is CORS-friendly today, but going through reqwest gives us a
+      // consistent error surface and lets us add headers / retries
+      // without touching every call site.
+      const resp = await ogFetch({ url, accept: 'application/json' });
+      grid.innerHTML = '';
+      if (!resp || !resp.ok || !resp.body) {
+        grid.appendChild(ce('div', { class: 'tc-gif-status',
+          text: 'GIF service unreachable' }));
+        return;
+      }
+      let data;
+      try { data = JSON.parse(resp.body); } catch (_) { data = null; }
+      if (data && data.error) {
+        // Tenor surfaces "API key not valid" as a 400 with a JSON
+        // error body — show that verbatim instead of the generic
+        // "Tenor unavailable" so the user knows what to fix.
+        grid.appendChild(ce('div', { class: 'tc-gif-status',
+          text: 'GIF service error: ' + (data.error.message || data.error.status || 'unknown') }));
+        return;
+      }
+      const results = (data && data.results) || [];
+      if (!results.length) {
+        grid.appendChild(ce('div', { class: 'tc-gif-status', text: 'No results' }));
+        return;
+      }
+      for (const g of results) {
+        const media = g.media_formats || {};
+        const thumb = (media.tinygif && media.tinygif.url) || (media.gif && media.gif.url);
+        const full = (media.gif && media.gif.url) || thumb;
+        if (!thumb || !full) continue;
+        const btn = ce('button', {
+          type: 'button',
+          class: 'tc-gif-cell',
+          on: { click: () => {
+            const input = el('tc-composer-input');
+            if (input) {
+              input.value = (input.value ? input.value + ' ' : '') + full;
+              input.focus();
+            }
+            pop.hidden = true;
+          }},
+        });
+        const img = ce('img', { src: thumb, alt: g.content_description || '', loading: 'lazy' });
+        img.referrerPolicy = 'no-referrer';
+        btn.appendChild(img);
+        grid.appendChild(btn);
+      }
     }
     search.addEventListener('input', () => {
       clearTimeout(gifSearchTimer);
@@ -4369,6 +4625,20 @@
     if (addBtn) addBtn.addEventListener('click', openCreateChannelDialog);
     const gifBtn = el('tc-gif-btn');
     if (gifBtn) gifBtn.addEventListener('click', openGifPicker);
+    const emojiBtn = el('tc-emoji-btn');
+    if (emojiBtn) {
+      emojiBtn.addEventListener('click', (e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        openEmojiPicker(rect.right, rect.top, (emoji) => insertEmojiAtCursor(emoji));
+      });
+    }
+    const micBtn = el('tc-mic-btn');
+    if (micBtn) {
+      micBtn.addEventListener('click', () => {
+        if (micState.state === 'recording') stopMicRecording();
+        else if (micState.state === 'idle') startMicRecording();
+      });
+    }
     const newDmBtn = el('tc-new-dm-btn');
     if (newDmBtn) newDmBtn.addEventListener('click', openNewDMDialog);
     const threadsBtn = el('tc-threads-toggle');
@@ -4430,9 +4700,24 @@
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendMessage();
-      } else if (e.key === 'Escape' && replyTarget) {
+      } else if (e.key === 'Escape') {
+        // Esc precedence: cancel an active recording first, then drop
+        // a staged reply, otherwise let the textarea handle it.
+        if (micState.state === 'recording') {
+          e.preventDefault();
+          cancelMicRecording();
+        } else if (replyTarget) {
+          e.preventDefault();
+          clearReplyTarget();
+        }
+      }
+    });
+    // Esc anywhere on the page (e.g. user moved focus elsewhere) also
+    // cancels a hot mic — matches the agent chat's behavior.
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && micState.state === 'recording') {
         e.preventDefault();
-        clearReplyTarget();
+        cancelMicRecording();
       }
     });
     input.addEventListener('input', () => {

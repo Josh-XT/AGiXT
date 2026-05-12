@@ -5388,3 +5388,40 @@ body.window-mode.chat-collapsed .chat-resize-handle {
   font-size: 11px;
   color: var(--text-dim);
 }
+
+/* Round 11: composer emoji + mic buttons + mic state indicators. */
+
+/* Mic button — three visual states (idle / recording / busy) driven
+   by data-state, matching the agent chat's mic styling in the side
+   pane so the two feel native to the same app. */
+#tc-mic-btn {
+  position: relative;
+}
+#tc-mic-btn .tc-mic-icon-idle,
+#tc-mic-btn .tc-mic-icon-recording,
+#tc-mic-btn .tc-mic-icon-busy {
+  display: none;
+  pointer-events: none;
+}
+#tc-mic-btn[data-state="idle"] .tc-mic-icon-idle { display: inline-block; }
+#tc-mic-btn[data-state="recording"] .tc-mic-icon-recording { display: inline-block; }
+#tc-mic-btn[data-state="busy"] .tc-mic-icon-busy {
+  display: inline-block;
+  animation: tc-mic-spin 0.9s linear infinite;
+}
+#tc-mic-btn[data-state="recording"] {
+  background: rgba(239, 68, 68, 0.18);
+  color: #ef4444;
+}
+.tc-mic-icon-recording {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: #ef4444;
+  animation: tc-mic-pulse 1.1s ease-in-out infinite;
+}
+@keyframes tc-mic-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+@keyframes tc-mic-pulse {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50%      { opacity: 1; transform: scale(1.15); }
+}

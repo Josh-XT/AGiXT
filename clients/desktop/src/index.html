@@ -512,12 +512,33 @@
                             aria-label="Send GIF">
                       <span class="tc-gif-label">GIF</span>
                     </button>
+                    <button class="tc-icon-btn tc-composer-action" id="tc-emoji-btn"
+                            type="button" title="Insert emoji"
+                            aria-label="Insert emoji">
+                      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                        <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                              d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/>
+                      </svg>
+                    </button>
                     <div class="tc-composer-input-wrap">
                       <div id="tc-composer-overlay" class="tc-composer-overlay" aria-hidden="true"></div>
                       <textarea id="tc-composer-input" class="tc-composer-input"
                                 rows="1" placeholder="Send a message…"
                                 autocomplete="off" spellcheck="true"></textarea>
                     </div>
+                    <button class="tc-icon-btn tc-composer-action" id="tc-mic-btn"
+                            type="button" title="Record voice (Esc to cancel)"
+                            aria-label="Record voice" data-state="idle">
+                      <svg class="tc-mic-icon-idle" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                              d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/>
+                      </svg>
+                      <span class="tc-mic-icon-recording" aria-hidden="true"></span>
+                      <svg class="tc-mic-icon-busy" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-dasharray="40" stroke-linecap="round"/>
+                      </svg>
+                    </button>
                     <button class="tc-send-btn" id="tc-send-btn"
                             aria-label="Send" title="Send (Enter)" disabled>➤</button>
                   </footer>
