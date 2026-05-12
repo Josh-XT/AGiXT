@@ -29,6 +29,70 @@ AGiXT is not just another AI framework—it's a complete automation platform tha
 - **Workflow Automation**: Chain multiple services and create sophisticated automation sequences
 - **Real-Time Integration**: WebSockets, webhooks, and live data feeds for immediate responses
 
+## FAQ
+
+### What is AGiXT?
+AGiXT is a **comprehensive AI automation platform** that serves as the central nervous system for your digital and physical environments. It bridges AI with real-world applications through natural language interactions.
+
+### How does AGiXT differ from LangChain or CrewAI?
+| Feature | AGiXT | LangChain | CrewAI |
+|:---|:---|:---|:---|
+| **Focus** | Complete automation platform | Chain orchestration | Multi-agent collaboration |
+| **Extensions** | 40+ built-in | External tools | Limited |
+| **Enterprise** | ✅ OAuth, multi-tenancy | ❌ | ❌ |
+| **Real-time** | ✅ WebSocket, webhooks | ❌ | ❌ |
+| **Natural Language Control** | ✅ Full system control | ❌ | ❌ |
+
+### How do I install AGiXT?
+```bash
+pip install agixt
+agixt start
+```
+
+### What AI providers does AGiXT support?
+- **OpenAI** (GPT-4, GPT-3.5)
+- **Anthropic** (Claude)
+- **Google** (Gemini)
+- **Azure OpenAI**
+- **Local Models** (via Ollama, LM Studio)
+- **Custom Providers**
+
+### What are AGiXT extensions?
+AGiXT includes **40+ built-in extensions** for:
+- Smart home control (Tesla, Home Assistant)
+- Enterprise integration (Asset management, ERP)
+- Crypto trading (Binance, Coinbase)
+- Web automation (Selenium, Playwright)
+- Communication (Discord, Slack, Telegram)
+- Data processing (Spreadsheets, Databases)
+
+### How do I create custom extensions?
+See [Extension Development](https://docs.agixt.com) documentation for details on creating your own AGiXT extensions.
+
+### What enterprise features does AGiXT offer?
+- **OAuth authentication**
+- **Multi-tenancy support**
+- **Advanced security** (role-based access, encryption)
+- **Compliance features** (audit logs, data retention)
+- **Workflow automation**
+
+### How does AGiXT handle real-time integration?
+- **WebSockets** - Live bidirectional communication
+- **Webhooks** - Event-driven triggers
+- **Live data feeds** - Real-time market data, sensor data
+
+### Where can I find AGiXT documentation?
+- **Main Documentation**: [docs.agixt.com](https://docs.agixt.com)
+- **Platform**: [agixt.com](https://agixt.com)
+- **GitHub**: [github.com/Josh-XT/AGiXT](https://github.com/Josh-XT/AGiXT)
+- **Discord**: [discord.gg/d3TkHRZcjD](https://discord.gg/d3TkHRZcjD)
+
+### What SDKs are available?
+- **Python SDK**: [AGiXT/python-sdk](https://github.com/AGiXT/python-sdk) - `pip install agixtsdk`
+- **TypeScript SDK**: [AGiXT/typescript-sdk](https://github.com/AGiXT/typescript-sdk) - `npm install agixt`
+
+<br>
+
 ## 📚 Documentation
 
 Documentation for AGiXT has moved to our central documentation site:
