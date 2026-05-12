@@ -121,11 +121,6 @@ fn frontend_log(level: String, message: String) {
 #[tauri::command]
 async fn get_settings(state: State<'_, AppState>) -> ToolResult<DesktopSettings> {
     let s = state.settings.lock().await.clone();
-    tracing::info!(
-        "get_settings -> sidebar_open={}, has_jwt={}",
-        s.sidebar_open,
-        s.jwt.is_some()
-    );
     Ok(s)
 }
 
@@ -2495,7 +2490,6 @@ fn set_gtk_application_id(win: &WebviewWindow) {
         gdk::PropMode::Replace,
         gdk::ChangeData::UChars(id),
     );
-    tracing::info!("set_gtk_application_id: stamped _GTK_APPLICATION_ID=agixt");
 }
 
 #[cfg(all(not(mobile), not(target_os = "linux")))]
@@ -3838,9 +3832,6 @@ pub fn run() {
                 tracing::warn!("run event: exit requested code={code:?}");
                 if code.is_none() {
                     if let Some(win) = app.get_webview_window(MAIN_LABEL) {
-                        tracing::warn!(
-                            "run event: preventing user/window requested exit; hiding popover"
-                        );
                         hide_popover(app, &win);
                     }
                     api.prevent_exit();
@@ -3851,17 +3842,10 @@ pub fn run() {
             }
             tauri::RunEvent::WindowEvent { label, event, .. } => match event {
                 tauri::WindowEvent::CloseRequested { api, .. } => {
-                    tracing::warn!("window event: close requested label={label}");
                     api.prevent_close();
                     if let Some(win) = app.get_webview_window(&label) {
                         hide_popover(app, &win);
                     }
-                }
-                tauri::WindowEvent::Destroyed => {
-                    tracing::warn!("window event: destroyed label={label}");
-                }
-                tauri::WindowEvent::Focused(focused) => {
-                    tracing::debug!("window event: focused label={label} focused={focused}");
                 }
                 _ => {}
             },

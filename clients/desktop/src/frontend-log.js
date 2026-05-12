@@ -47,8 +47,5 @@
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => log('info', 'renderer DOMContentLoaded'), { once: true });
-  } else {
-    log('info', 'renderer DOM ready');
   }
-  log('info', 'renderer diagnostics loaded');
 })();

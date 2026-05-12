@@ -600,10 +600,6 @@
     const rawMessage = String(msg.message || '');
     if (window.AgixtFrontendLog && _ingestLogged < 30) {
       _ingestLogged += 1;
-      window.AgixtFrontendLog(
-        'info',
-        `ingest sample #${_ingestLogged} role=${role} initial=${!!isInitial} body=${JSON.stringify(rawMessage.slice(0, 240))}`,
-      );
     }
     if (role === 'user' && !rawMessage.trim()) return;
     const normalizedMessage = rawMessage.startsWith('[SUBACTIVITY]')

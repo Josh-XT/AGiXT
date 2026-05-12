@@ -15,7 +15,6 @@
   const invoke = tauri.core.invoke;
   const event = tauri.event;
   const frontendLog = window.AgixtFrontendLog || function () {};
-  frontendLog('info', 'app.js boot');
 
   let settings = null;
   let companies = [];
@@ -2260,7 +2259,6 @@
   }
 
   (async () => {
-    frontendLog('info', 'app boot sequence start');
     await loadSettings();
     if (settings.jwt) {
       if (window.AgixtSession && typeof window.AgixtSession.verifyCurrentSession === 'function') {
@@ -2297,7 +2295,6 @@
         await window.AgixtAuth.boot({ onAuthenticated });
       }
     }
-    frontendLog('info', 'app boot sequence complete');
   })();
 
   // Refresh the cached conversations list when a conversation is created

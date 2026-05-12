@@ -159,7 +159,6 @@
       reconnectAttempt = 0;
       setStatus('connected');
       startHeartbeat();
-      log('info', 'notifications: connected');
     };
     socket.onmessage = (ev) => {
       let data;
