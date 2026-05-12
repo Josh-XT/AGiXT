@@ -491,9 +491,12 @@
     } else if (dot) {
       dot.remove();
     }
-    // Refresh the popover content if it's currently open.
+    // Refresh the popover content if it's currently open, and
+    // re-run positioning — the new height may push the popover off
+    // the bottom of the window, so it needs a chance to flip upward.
     if (_morePopover && !_morePopover.hidden) {
       renderMorePopover(moreBtn);
+      positionMorePopover(moreBtn);
     }
   }
 
@@ -542,8 +545,15 @@
     const pop = ensureMorePopover();
     if (!pop.hidden) { closeMorePopover(); return; }
     renderMorePopover(moreBtn);
-    positionMorePopover(moreBtn);
+    // Make the popover laid out (but invisible) so positionMorePopover
+    // can read a real offsetHeight — otherwise `pop.hidden = true`
+    // means display:none and offsetHeight is 0, and the position math
+    // always concludes "it fits below" even when the natural height
+    // would clip off the bottom of the window.
+    pop.style.visibility = 'hidden';
     pop.hidden = false;
+    positionMorePopover(moreBtn);
+    pop.style.visibility = '';
     moreBtn.setAttribute('aria-expanded', 'true');
     // Defer listener install so the click that opened us doesn't
     // immediately close it.
