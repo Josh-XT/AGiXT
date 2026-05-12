@@ -43,6 +43,11 @@
     scopes: new Set(),
     roleId: null,
     prompts: [],          // [{id, name, content?, category}]
+    categories: [],       // [{id, name, description, is_internal}]
+    category: (() => {
+      try { return window.localStorage.getItem('promptEditorCategory') || 'Default'; }
+      catch (_) { return 'Default'; }
+    })(),
     listFilter: '',
     activeId: null,       // currently selected prompt id
     activeBody: '',       // local edit buffer
@@ -217,7 +222,7 @@
 
   async function loadPromptsList(force) {
     try {
-      const rows = await api.listScopedPrompts(STATE.scope, 'Default');
+      const rows = await api.listScopedPrompts(STATE.scope, STATE.category);
       STATE.prompts = (rows || []).map((p) => ({
         id: p.id || p.prompt_id || '',
         name: p.name || p.prompt_name || '',
@@ -231,6 +236,50 @@
       toast('Failed to load prompts: ' + errMsg(err), 'error');
       STATE.prompts = [];
     }
+  }
+
+  async function loadCategories() {
+    try {
+      const rows = await api.listScopedPromptCategories(STATE.scope);
+      const seen = new Set();
+      const out = [];
+      // Always include "Default" first.
+      out.push({ id: null, name: 'Default', description: '', is_internal: false });
+      seen.add('default');
+      (rows || []).forEach((c) => {
+        const name = (c && c.name) || '';
+        const key = name.toLowerCase();
+        if (!name || seen.has(key)) return;
+        seen.add(key);
+        out.push({ id: c.id || null, name, description: c.description || '', is_internal: !!c.is_internal });
+      });
+      STATE.categories = out;
+      // If the persisted active category no longer exists in this scope,
+      // fall back to Default so the editor isn't pointed at a phantom.
+      if (!STATE.categories.some((c) => c.name === STATE.category)) {
+        setCategory('Default', { skipPersistError: true });
+      }
+    } catch (err) {
+      STATE.categories = [{ id: null, name: 'Default', description: '', is_internal: false }];
+    }
+  }
+
+  function setCategory(name, opts) {
+    STATE.category = name || 'Default';
+    try { window.localStorage.setItem('promptEditorCategory', STATE.category); }
+    catch (_) { if (!opts || !opts.skipPersistError) {} }
+  }
+
+  function getCategoryEntry(name) {
+    const target = (name || STATE.category || 'Default').toLowerCase();
+    return STATE.categories.find((c) => c.name.toLowerCase() === target) || null;
+  }
+
+  function canManageCategories() {
+    // The backend exposes category create/delete only for company and
+    // server scopes. User-level categories are implicit — created the
+    // moment a prompt is saved with that category name.
+    return STATE.scope === 'company' || STATE.scope === 'server';
   }
 
   async function loadActivePrompt() {
@@ -321,9 +370,201 @@
     STATE.testResponse = '';
     STATE.testVars = {};
     renderScopeTabs();
+    await loadCategories();
     await loadPromptsList(true);
+    renderCategoryBar();
     renderList();
     renderEditor();
+  }
+
+  async function switchCategory(name) {
+    if (!name || name === STATE.category) return;
+    if (isDirty()) {
+      const ok = window.confirm('You have unsaved changes. Discard them and switch category?');
+      if (!ok) return;
+    }
+    setCategory(name);
+    STATE.activeId = null;
+    STATE.activeBody = '';
+    STATE.activeBaseline = '';
+    STATE.activeName = '';
+    STATE.testResponse = '';
+    STATE.testVars = {};
+    await loadPromptsList(true);
+    renderCategoryBar();
+    renderList();
+    renderEditor();
+  }
+
+  async function handleCreateCategory() {
+    if (!canManageCategories()) {
+      toast(`Categories can only be created in company or server scope.`, 'error');
+      return;
+    }
+    const values = await openCategoryModal({
+      title: `New ${scopeLabel(STATE.scope).toLowerCase()} category`,
+      description: `Categories help group related prompts. A category exists once it's saved here; prompts can then be created under it.`,
+      defaults: { name: '', description: '' },
+    });
+    if (!values) return;
+    const name = (values.name || '').trim();
+    if (!name) return;
+    if (STATE.categories.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+      toast(`A category named "${name}" already exists in this scope.`, 'error');
+      return;
+    }
+    try {
+      await api.createScopedPromptCategory(STATE.scope, name, (values.description || '').trim());
+      await loadCategories();
+      setCategory(name);
+      await loadPromptsList(true);
+      renderEditor();
+      renderList();
+      renderCategoryBar();
+      toast(`Category "${name}" created.`, 'success');
+    } catch (err) {
+      toast('Failed to create category: ' + errMsg(err), 'error');
+    }
+  }
+
+  async function handleDeleteActiveCategory() {
+    if (!canManageCategories()) {
+      toast(`Categories can only be deleted in company or server scope.`, 'error');
+      return;
+    }
+    const cat = getCategoryEntry(STATE.category);
+    if (!cat || !cat.id) {
+      toast('The Default category cannot be deleted.', 'error');
+      return;
+    }
+    if (STATE.prompts.length) {
+      toast(`Move or delete the ${STATE.prompts.length} prompt(s) in "${cat.name}" before deleting the category.`, 'error');
+      return;
+    }
+    const ok = window.confirm(`Delete the "${cat.name}" category? This action cannot be undone.`);
+    if (!ok) return;
+    try {
+      await api.deleteScopedPromptCategory(STATE.scope, cat.id);
+      setCategory('Default');
+      await loadCategories();
+      await loadPromptsList(true);
+      renderEditor();
+      renderList();
+      renderCategoryBar();
+      toast(`Category "${cat.name}" deleted.`, 'success');
+    } catch (err) {
+      toast('Failed to delete category: ' + errMsg(err), 'error');
+    }
+  }
+
+  // Lightweight "New category" modal. Same wrap/styles as the toast
+  // (uses theme tokens) so we don't pull in another modal helper.
+  function openCategoryModal({ title, description, defaults }) {
+    return new Promise((resolve) => {
+      const overlay = el('div', { class: 'pl-modal-overlay' });
+      const nameInput = el('input', {
+        class: 'pl-modal-input',
+        type: 'text',
+        value: (defaults && defaults.name) || '',
+        placeholder: 'e.g. Triage, Sales follow-up',
+        maxlength: 64,
+      });
+      const descInput = el('input', {
+        class: 'pl-modal-input',
+        type: 'text',
+        value: (defaults && defaults.description) || '',
+        placeholder: 'Optional — short hint about what goes here',
+        maxlength: 200,
+      });
+      const submitBtn = el('button', { class: 'pl-modal-submit', type: 'button' }, 'Create category');
+      const cancelBtn = el('button', { class: 'pl-modal-cancel', type: 'button' }, 'Cancel');
+      const card = el('div', { class: 'pl-modal', role: 'dialog', 'aria-modal': 'true' }, [
+        el('div', { class: 'pl-modal-head' }, [
+          el('h3', { class: 'pl-modal-title' }, title || 'New category'),
+          el('button', {
+            class: 'pl-modal-x',
+            type: 'button',
+            'aria-label': 'Close',
+            onclick: () => close(null),
+          }, '×'),
+        ]),
+        description ? el('p', { class: 'pl-modal-desc' }, description) : null,
+        el('label', { class: 'pl-modal-label' }, 'Name'),
+        nameInput,
+        el('label', { class: 'pl-modal-label' }, 'Description'),
+        descInput,
+        el('div', { class: 'pl-modal-footer' }, [cancelBtn, submitBtn]),
+      ]);
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+      function close(result) {
+        document.removeEventListener('keydown', onKey);
+        if (overlay.parentElement) overlay.parentElement.removeChild(overlay);
+        resolve(result);
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') close(null);
+        else if (e.key === 'Enter' && e.target === nameInput) submitBtn.click();
+      }
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
+      cancelBtn.addEventListener('click', () => close(null));
+      submitBtn.addEventListener('click', () => {
+        const name = nameInput.value.trim();
+        if (!name) { nameInput.focus(); return; }
+        close({ name, description: descInput.value });
+      });
+      document.addEventListener('keydown', onKey);
+      setTimeout(() => { try { nameInput.focus(); nameInput.select(); } catch (_) {} }, 30);
+    });
+  }
+
+  // Render the category toolbar above the prompt list. It surfaces the
+  // active category, lets users hop between categories, and exposes
+  // create/delete actions (for company/server scopes where the backend
+  // supports it).
+  function renderCategoryBar() {
+    const bar = $('#pl-category-bar');
+    if (!bar) return;
+    bar.innerHTML = '';
+    if (!STATE.categories.length) return;
+    // For user-scope where categories are implicit, only show the bar
+    // when more than one category actually exists in the list — Default
+    // alone is just noise.
+    if (STATE.scope === 'user' && STATE.categories.length <= 1) {
+      bar.hidden = true;
+      return;
+    }
+    bar.hidden = false;
+    STATE.categories.forEach((c) => {
+      const isActive = c.name === STATE.category;
+      const promptCount = STATE.prompts.filter((p) =>
+        (p.category || 'Default').toLowerCase() === c.name.toLowerCase()).length;
+      const chip = el('button', {
+        type: 'button',
+        class: 'pl-category-pill' + (isActive ? ' is-active' : ''),
+        title: c.description || c.name,
+        onclick: () => switchCategory(c.name),
+      }, [
+        el('span', { class: 'pl-category-pill-name' }, c.name),
+        // Only show count for the active category (mirrors what's loaded)
+        // — counts for inactive categories would require a per-category
+        // load and right now we only load one at a time.
+        isActive ? el('span', { class: 'pl-category-pill-count' }, String(promptCount)) : null,
+      ]);
+      bar.appendChild(chip);
+    });
+    if (canManageCategories()) {
+      const newBtn = el('button', {
+        type: 'button',
+        class: 'pl-category-bar-new',
+        title: 'Create a new category',
+        onclick: handleCreateCategory,
+      }, [
+        el('span', { html: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>' }),
+        el('span', { class: 'pl-category-bar-new-label' }, 'New'),
+      ]);
+      bar.appendChild(newBtn);
+    }
   }
 
   // ── Variable extraction ──────────────────────────────────────────────
@@ -374,9 +615,17 @@
     items.forEach((p) => {
       const isActive = p.id === STATE.activeId;
       const preview = (p.content || '').replace(/\s+/g, ' ').slice(0, 140);
+      // Surface the row's category when it's not the active list category.
+      // Useful when prompts were imported with explicit categories that
+      // differ from the active filter, so users see why a row is there.
+      const rowCategory = p.category || 'Default';
+      const showRowCategory = rowCategory.toLowerCase() !== (STATE.category || '').toLowerCase();
       const headerRow = el('div', { class: 'pl-list-item-row' }, [
         el('span', { class: 'pl-list-item-name' }, p.name),
         isSharedScope() ? renderScopeBadge(STATE.scope) : null,
+        showRowCategory
+          ? el('span', { class: 'pl-list-item-category', title: 'Category' }, rowCategory)
+          : null,
       ]);
       const item = el('button', {
         class: 'pl-list-item' + (isActive ? ' is-active' : ''),
@@ -516,21 +765,73 @@
 
     const meta = el('div', { class: 'pl-editor-meta' }, [
       isSharedScope() ? renderScopeBadge(STATE.scope) : null,
-      el('span', {
-        class: 'pl-category-chip',
-        title: 'Category management is coming — prompts currently live in the Default category.',
-      }, [
-        el('span', {
-          class: 'pl-category-chip-icon',
-          html: '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 3h10v9a2 2 0 0 1-2 2H3z"/></svg>',
-        }),
-        el('span', null, 'Default'),
-      ]),
+      renderCategorySelector(),
     ]);
     return el('div', { class: 'pl-editor-header' }, [
       el('div', { class: 'pl-editor-titlewrap' }, [titleInput, meta]),
       el('div', { class: 'pl-editor-actions' }, [saveBtn, exportBtn, deleteBtn]),
     ]);
+  }
+
+  function renderCategorySelector() {
+    const wrap = el('label', {
+      class: 'pl-category-selector',
+      title: canManageCategories()
+        ? 'Category — switch, create, or delete'
+        : 'Category — user-level categories are implicit (the category exists once a prompt uses it).',
+    });
+    const icon = el('span', {
+      class: 'pl-category-chip-icon',
+      html: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h6l2 3h10v9a2 2 0 0 1-2 2H3z"/></svg>',
+    });
+    wrap.appendChild(icon);
+    const select = el('select', {
+      class: 'pl-category-select',
+      onchange: (e) => switchCategory(e.target.value),
+    });
+    const names = STATE.categories.length ? STATE.categories : [{ name: 'Default' }];
+    let hasActive = false;
+    names.forEach((c) => {
+      const opt = document.createElement('option');
+      opt.value = c.name;
+      opt.textContent = c.name;
+      if (c.name === STATE.category) { opt.selected = true; hasActive = true; }
+      select.appendChild(opt);
+    });
+    if (!hasActive) {
+      // Active category isn't in the list yet (e.g. mid-load) — show it
+      // anyway so the chip isn't lying about the editor state.
+      const opt = document.createElement('option');
+      opt.value = STATE.category;
+      opt.textContent = STATE.category;
+      opt.selected = true;
+      select.appendChild(opt);
+    }
+    wrap.appendChild(select);
+    if (canManageCategories()) {
+      const newBtn = el('button', {
+        type: 'button',
+        class: 'pl-category-action',
+        title: 'New category',
+        ariaLabel: 'New category',
+        onclick: handleCreateCategory,
+        html: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+      });
+      wrap.appendChild(newBtn);
+      const cat = getCategoryEntry(STATE.category);
+      const deletable = cat && cat.id;
+      const delBtn = el('button', {
+        type: 'button',
+        class: 'pl-category-action pl-category-action-danger',
+        title: deletable ? `Delete "${STATE.category}"` : 'The Default category cannot be deleted',
+        ariaLabel: 'Delete category',
+        disabled: !deletable,
+        onclick: handleDeleteActiveCategory,
+        html: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+      });
+      wrap.appendChild(delBtn);
+    }
+    return wrap;
   }
 
   function renderTabs() {
@@ -809,7 +1110,7 @@
       return;
     }
     try {
-      await api.createScopedPrompt(STATE.scope, trimmed, '', 'Default');
+      await api.createScopedPrompt(STATE.scope, trimmed, '', STATE.category);
       await loadPromptsList();
       const created = STATE.prompts.find((p) => p.name === trimmed);
       if (created) {
@@ -841,7 +1142,7 @@
       return;
     }
     try {
-      await api.renameScopedPrompt(STATE.scope, STATE.activeId, newName, STATE.activeBody, 'Default');
+      await api.renameScopedPrompt(STATE.scope, STATE.activeId, newName, STATE.activeBody, STATE.category);
       STATE.activeName = newName;
       const p = STATE.prompts.find((x) => x.id === STATE.activeId);
       if (p) p.name = newName;
@@ -861,7 +1162,7 @@
       await api.updateScopedPrompt(STATE.scope, STATE.activeId, {
         name: STATE.activeName,
         content: STATE.activeBody,
-        category: 'Default',
+        category: STATE.category,
       });
       STATE.activeBaseline = STATE.activeBody;
       const p = STATE.prompts.find((x) => x.id === STATE.activeId);
@@ -942,14 +1243,19 @@
     }
     if (STATE.booted) {
       await loadUserScopes();
+      await loadCategories();
       await loadPromptsList();
+      renderCategoryBar();
       renderList();
+      renderEditor();
       return;
     }
     STATE.booted = true;
     try {
       await loadUserScopes();
+      await loadCategories();
       await Promise.all([loadActiveAgent(), loadPromptsList()]);
+      renderCategoryBar();
       renderList();
       renderEditor();
     } catch (err) {

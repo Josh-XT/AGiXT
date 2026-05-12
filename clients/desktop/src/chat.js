@@ -1151,7 +1151,10 @@
     tries.push(`${base}/v1/conversations/stop`);
     for (const url of tries) {
       try {
-        await fetch(url, { method: 'POST', headers, body: '{}' });
+        const fetcher = window.AgixtSession && typeof window.AgixtSession.fetch === 'function'
+          ? window.AgixtSession.fetch(url, { method: 'POST', headers, body: '{}' })
+          : fetch(url, { method: 'POST', headers, body: '{}' });
+        await fetcher;
       } catch (err) {
         console.warn('stop POST failed', url, err);
       }

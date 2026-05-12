@@ -498,7 +498,8 @@ async def update_custom_role(
             raise HTTPException(status_code=404, detail="Custom role not found")
 
         # Verify user has access to this company
-        if str(custom_role.company_id) not in auth.get_user_companies():
+        company_id = str(custom_role.company_id)
+        if company_id not in auth.get_user_companies():
             raise HTTPException(
                 status_code=403,
                 detail="Access denied to the specified role",

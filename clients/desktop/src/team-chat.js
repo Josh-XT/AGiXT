@@ -4362,11 +4362,18 @@
       // same convention chat completions uses.
       fd.append('model', settings.agent_name || 'XT');
       const url = settings.server_url.replace(/\/+$/, '') + '/v1/audio/transcriptions';
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + settings.jwt },
-        body: fd,
-      });
+      const fetcher = window.AgixtSession && typeof window.AgixtSession.fetch === 'function'
+        ? window.AgixtSession.fetch(url, {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + settings.jwt },
+          body: fd,
+        })
+        : fetch(url, {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + settings.jwt },
+          body: fd,
+        });
+      const resp = await fetcher;
       if (!resp.ok) {
         const body = await resp.text().catch(() => '');
         throw new Error('HTTP ' + resp.status + (body ? ': ' + body.slice(0, 160) : ''));

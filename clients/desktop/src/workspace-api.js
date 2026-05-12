@@ -1,8 +1,8 @@
 /* AGiXT conversation workspace HTTP client.
  *
  * Mirrors web/components/api/conversation.ts workspace functions 1:1.
- * Uses direct fetch against the configured AGiXT server with the user's
- * JWT — same pattern chat.js uses for /v1/conversation/{id}/stop.
+ * Uses the desktop session guard when available so auth/payment/server
+ * failures route the same way as the rest of the desktop app.
  *
  * Endpoint patterns: /v1/conversation/{conversationId}/workspace/...
  *
@@ -29,8 +29,15 @@
     return h;
   }
 
+  async function guardedFetch(url, opts) {
+    if (window.AgixtSession && typeof window.AgixtSession.fetch === 'function') {
+      return window.AgixtSession.fetch(url, opts);
+    }
+    return fetch(url, opts);
+  }
+
   async function jsonFetch(url, opts) {
-    const resp = await fetch(url, opts);
+    const resp = await guardedFetch(url, opts);
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       throw new Error(`HTTP ${resp.status}: ${text || resp.statusText}`);
@@ -66,7 +73,7 @@
     const form = new FormData();
     for (const f of files) form.append('files', f, f.name);
     if (destinationPath) form.append('destination_path', destinationPath);
-    const resp = await fetch(url, { method: 'POST', headers: authHeaders(cfg.jwt), body: form });
+    const resp = await guardedFetch(url, { method: 'POST', headers: authHeaders(cfg.jwt), body: form });
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       throw new Error(`upload HTTP ${resp.status}: ${text}`);
@@ -118,7 +125,7 @@
    */
   async function downloadFile(cfg, conversationId, path) {
     const url = `${trimSlash(cfg.serverUrl)}/v1/conversation/${encodeURIComponent(conversationId)}/workspace/download?path=${encodePath(path)}`;
-    const resp = await fetch(url, { method: 'GET', headers: authHeaders(cfg.jwt) });
+    const resp = await guardedFetch(url, { method: 'GET', headers: authHeaders(cfg.jwt) });
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       throw new Error(`download HTTP ${resp.status}: ${text}`);
@@ -149,7 +156,7 @@
       model: opts.model || 'XT',
       user: opts.conversationId,
     };
-    const resp = await fetch(url, {
+    const resp = await guardedFetch(url, {
       method: 'POST',
       headers: authHeaders(cfg.jwt, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),

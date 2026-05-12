@@ -294,11 +294,23 @@
     const target = this.container.querySelector('[data-role="conversation"]');
     if (!target) return;
     if (this.loading) {
-      target.innerHTML = '<div class="scv-empty">Loading shared conversation...</div>';
+      target.innerHTML = renderOpeningState(this.activeToken);
       return;
     }
     if (this.error) {
-      target.innerHTML = '<div class="scv-empty error">' + esc(errMsg(this.error)) + '</div>';
+      target.innerHTML = renderErrorState(this.error, this.activeToken);
+      const retry = target.querySelector('[data-action="retry"]');
+      if (retry) retry.addEventListener('click', () => this.openToken(this.activeToken));
+      const clear = target.querySelector('[data-action="clear-token"]');
+      if (clear) clear.addEventListener('click', () => {
+        this.tokenInput = '';
+        this.activeToken = '';
+        this.error = null;
+        this.conversation = null;
+        const input = this.container.querySelector('[data-role="token"]');
+        if (input) input.value = '';
+        this.renderConversation();
+      });
       return;
     }
     if (!this.conversation) {
@@ -366,6 +378,100 @@
       });
     });
   };
+
+  // Mask a token for display so the full secret doesn't leak into the
+  // UI while still letting the user verify the right link is loading.
+  function maskToken(t) {
+    const s = String(t || '');
+    if (!s) return '';
+    if (s.length <= 12) return s;
+    return s.slice(0, 6) + '…' + s.slice(-4);
+  }
+
+  function renderOpeningState(token) {
+    const masked = maskToken(token);
+    return [
+      '<div class="scv-state scv-state-loading" role="status" aria-live="polite">',
+      '  <div class="scv-state-icon">',
+      '    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
+      '      <path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
+      '    </svg>',
+      '  </div>',
+      '  <div class="scv-state-body">',
+      '    <div class="scv-state-title">Opening shared conversation…</div>',
+      '    <div class="scv-state-msg">' + (masked
+        ? 'Fetching <code>' + esc(masked) + '</code> from the server.'
+        : 'Fetching shared conversation from the server.') + '</div>',
+      '  </div>',
+      '</div>',
+    ].join('');
+  }
+
+  // Pick the right copy for each known failure mode. The fetchJson helper
+  // attaches an HTTP status code to thrown errors and many of the
+  // public /api/shared messages match well-known patterns, so we surface
+  // a friendly state without guessing.
+  function classifyShareError(err) {
+    const status = err && err.status;
+    const raw = err && (err.detail || err.message || err.error || '');
+    const msg = String(raw || '').toLowerCase();
+    if (status === 404 || msg.includes('not found')) {
+      return { kind: 'not-found', title: 'Shared conversation not found',
+        body: 'This link may have been deleted, or the token is incorrect. Double-check the link with whoever shared it.' };
+    }
+    if (status === 410 || msg.includes('expired') || msg.includes('gone')) {
+      return { kind: 'expired', title: 'This shared link has expired',
+        body: 'The owner set an expiration date that has passed. Ask them to share it again to restore access.' };
+    }
+    if (status === 403 || msg.includes('revoked') || msg.includes('disabled') || msg.includes('access denied')) {
+      return { kind: 'revoked', title: 'Sharing has been turned off',
+        body: 'The owner revoked this link. Ask them to share it again or send the conversation a different way.' };
+    }
+    if (status === 401 || msg.includes('unauthorized')) {
+      return { kind: 'unauthorized', title: 'Sign-in required',
+        body: 'This share requires you to be signed in. Sign in to your AGiXT account and try opening the link again.' };
+    }
+    if (status === 400 || msg.includes('invalid')) {
+      return { kind: 'invalid', title: 'That doesn’t look like a valid shared link',
+        body: 'Make sure you pasted the entire <code>/shared/...</code> URL or the share token. Spaces and stray punctuation can break the token.' };
+    }
+    if (status >= 500) {
+      return { kind: 'server', title: 'Server error while opening this link',
+        body: 'Something went wrong on the server. Try again in a moment.' };
+    }
+    return { kind: 'unknown', title: 'Couldn’t open this shared conversation',
+      body: raw ? String(raw) : 'An unknown error occurred. Try again or paste the link.' };
+  }
+
+  function renderErrorState(err, token) {
+    const c = classifyShareError(err);
+    const masked = maskToken(token);
+    return [
+      '<div class="scv-state scv-state-error scv-state-' + esc(c.kind) + '" role="alert">',
+      '  <div class="scv-state-icon">',
+      '    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">',
+      (c.kind === 'expired' || c.kind === 'revoked'
+        ? '      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>'
+        : c.kind === 'not-found' || c.kind === 'invalid'
+        ? '      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>'
+        : c.kind === 'unauthorized'
+        ? '      <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'
+        : '      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+      '    </svg>',
+      '  </div>',
+      '  <div class="scv-state-body">',
+      '    <div class="scv-state-title">' + esc(c.title) + '</div>',
+      '    <div class="scv-state-msg">' + c.body + '</div>',
+      masked ? '    <div class="scv-state-meta">Token: <code>' + esc(masked) + '</code></div>' : '',
+      '    <div class="scv-state-actions">',
+      (c.kind === 'not-found' || c.kind === 'invalid' || c.kind === 'expired' || c.kind === 'revoked')
+        ? '      <button class="scv-btn" data-action="clear-token">Try a different link</button>'
+        : '      <button class="scv-btn" data-action="retry">Try again</button><button class="scv-btn" data-action="clear-token">Use a different link</button>',
+      '    </div>',
+      '  </div>',
+      '</div>',
+    ].join('');
+  }
 
   function renderMessage(msg) {
     const role = String(msg.role || 'assistant');
@@ -583,6 +689,98 @@
         border-radius: 10px;
         margin: 14px;
         padding: 16px;
+      }
+
+      /* Distinct loading + error states surfaced inside the conversation
+         panel. Each card has an icon + title + message + optional action
+         row. Color tints the icon and border for the specific failure
+         mode (not-found/expired/revoked/invalid/unauthorized/server). */
+      .scv-state {
+        display: flex; gap: 14px; align-items: flex-start;
+        margin: 14px;
+        padding: 16px 18px;
+        border-radius: 12px;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+      }
+      .scv-state-icon {
+        flex: 0 0 auto;
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 36px; height: 36px;
+        border-radius: 10px;
+        background: var(--panel);
+        color: var(--text-dim);
+      }
+      .scv-state-body { flex: 1; min-width: 0; }
+      .scv-state-title {
+        font-size: 13.5px; font-weight: 700;
+        color: var(--text); margin-bottom: 4px;
+      }
+      .scv-state-msg {
+        font-size: 12.5px; color: var(--text-dim);
+        line-height: 1.55;
+      }
+      .scv-state-msg code,
+      .scv-state-meta code {
+        font-family: var(--mono); font-size: 11px;
+        background: var(--panel); color: var(--text);
+        padding: 1px 6px; border-radius: 4px;
+        border: 1px solid var(--border);
+      }
+      .scv-state-meta {
+        margin-top: 6px;
+        font-size: 11px; color: var(--text-faint);
+      }
+      .scv-state-actions {
+        display: flex; gap: 6px; flex-wrap: wrap;
+        margin-top: 10px;
+      }
+
+      /* Loading — accent tinted, with a spinning arc icon. */
+      .scv-state-loading {
+        border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+        background: color-mix(in srgb, var(--accent) 5%, var(--panel-2));
+      }
+      .scv-state-loading .scv-state-icon {
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+        animation: scv-spin 1.2s linear infinite;
+      }
+      @keyframes scv-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) {
+        .scv-state-loading .scv-state-icon { animation: none; }
+      }
+
+      /* Error variants — color the icon block per failure mode. */
+      .scv-state-error.scv-state-not-found .scv-state-icon,
+      .scv-state-error.scv-state-invalid .scv-state-icon {
+        color: #ffb774;
+        background: color-mix(in srgb, #ffb774 22%, var(--panel));
+      }
+      .scv-state-error.scv-state-not-found,
+      .scv-state-error.scv-state-invalid {
+        border-color: color-mix(in srgb, #ffb774 30%, var(--border));
+      }
+      .scv-state-error.scv-state-expired .scv-state-icon,
+      .scv-state-error.scv-state-revoked .scv-state-icon {
+        color: #ff8a96;
+        background: color-mix(in srgb, #ff8a96 22%, var(--panel));
+      }
+      .scv-state-error.scv-state-expired,
+      .scv-state-error.scv-state-revoked {
+        border-color: color-mix(in srgb, #ff8a96 30%, var(--border));
+      }
+      .scv-state-error.scv-state-unauthorized .scv-state-icon {
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+      }
+      .scv-state-error.scv-state-unauthorized {
+        border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+      }
+      .scv-state-error.scv-state-server .scv-state-icon,
+      .scv-state-error.scv-state-unknown .scv-state-icon {
+        color: #ff8a96;
+        background: color-mix(in srgb, #ff8a96 22%, var(--panel));
       }
 
       .scv-conv-head {

@@ -2013,6 +2013,77 @@ body.window-mode.chat-collapsed .chat-resize-handle {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
+.auth-invite-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #ffb774;
+  background: color-mix(in srgb, #ffb774 12%, transparent);
+  border: 1px solid color-mix(in srgb, #ffb774 30%, transparent);
+  border-radius: 6px;
+}
+.auth-invite-warn[hidden] { display: none; }
+.auth-invite-warn::before {
+  content: "!";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: color-mix(in srgb, #ffb774 28%, transparent);
+  color: #ffb774;
+  font-weight: 800;
+  font-size: 10px;
+  margin-top: 1px;
+}
+
+.auth-invite-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.auth-invite-actions[hidden] { display: none; }
+.auth-invite-accept,
+.auth-invite-decline {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  padding: 5px 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+.auth-invite-accept {
+  color: #fff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), 0 4px 12px -6px var(--accent);
+}
+.auth-invite-accept:hover { filter: brightness(1.08); }
+.auth-invite-accept:active { transform: translateY(0.5px); }
+.auth-invite-decline {
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+}
+.auth-invite-decline:hover {
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: color-mix(in srgb, var(--text-faint) 50%, var(--border));
+}
 @keyframes auth-invite-in {
   from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -2738,6 +2809,78 @@ body.window-mode.chat-collapsed .chat-resize-handle {
 .us-section-row.between { justify-content: space-between; }
 .us-section-row.end { justify-content: flex-end; }
 .us-section-row.column { flex-direction: column; align-items: stretch; }
+
+/* Pending payment banner — shown in the Billing tab after the user
+   opens an external Stripe checkout. Variants:
+   - info    (blue)    → checkout opened, waiting on completion
+   - warn    (amber)   → more than ~10 minutes elapsed, payment may have
+                         been cancelled or abandoned
+   - success (green)   → token balance went up, payment landed
+*/
+.us-payment-banner {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  margin-bottom: 8px;
+}
+.us-payment-banner-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text-dim);
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.us-payment-banner-body { flex: 1; min-width: 0; }
+.us-payment-banner-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.us-payment-banner-msg {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin-top: 3px;
+}
+.us-payment-banner-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
+  flex-wrap: wrap;
+}
+.us-payment-banner-info {
+  border-color: color-mix(in srgb, #8bc7ff 30%, var(--border));
+  background: color-mix(in srgb, #8bc7ff 8%, var(--panel-2));
+}
+.us-payment-banner-info .us-payment-banner-icon {
+  color: #8bc7ff;
+  background: color-mix(in srgb, #8bc7ff 22%, var(--panel));
+}
+.us-payment-banner-warn {
+  border-color: color-mix(in srgb, #ffb774 30%, var(--border));
+  background: color-mix(in srgb, #ffb774 10%, var(--panel-2));
+}
+.us-payment-banner-warn .us-payment-banner-icon {
+  color: #ffb774;
+  background: color-mix(in srgb, #ffb774 22%, var(--panel));
+}
+.us-payment-banner-success {
+  border-color: color-mix(in srgb, #5dd28f 32%, var(--border));
+  background: color-mix(in srgb, #5dd28f 10%, var(--panel-2));
+}
+.us-payment-banner-success .us-payment-banner-icon {
+  color: #5dd28f;
+  background: color-mix(in srgb, #5dd28f 22%, var(--panel));
+}
 
 .us-grid-2 {
   display: grid;

@@ -92,12 +92,16 @@
     const companyText = $('auth-invite-company-text');
     const emailChip = $('auth-invite-email');
     const emailText = $('auth-invite-email-text');
+    const warn = $('auth-invite-warn');
+    const actions = banner.querySelector('.auth-invite-actions');
     if (!inv) {
       banner.hidden = true;
       body.textContent = '';
       if (meta) meta.hidden = true;
       if (companyChip) companyChip.hidden = true;
       if (emailChip) emailChip.hidden = true;
+      if (warn) { warn.hidden = true; warn.textContent = ''; }
+      if (actions) actions.hidden = true;
       return;
     }
     body.textContent = inv.company
@@ -119,6 +123,72 @@
       if ($('login-email') && !$('login-email').value) $('login-email').value = inv.email;
       if ($('reg-email') && !$('reg-email').value) $('reg-email').value = inv.email;
     }
+    if (actions) actions.hidden = false;
+    refreshInvitationEmailWarning();
+  }
+
+  function refreshInvitationEmailWarning() {
+    const inv = loadPendingInvitation();
+    const warn = $('auth-invite-warn');
+    if (!warn) return;
+    if (!inv || !inv.email) {
+      warn.hidden = true;
+      warn.textContent = '';
+      return;
+    }
+    // Which email field is the user typing into right now?
+    const activePane = $('pane-register') && !$('pane-register').hidden ? 'register' : 'login';
+    const fieldId = activePane === 'register' ? 'reg-email' : 'login-email';
+    const typed = ($(fieldId) && $(fieldId).value || '').trim().toLowerCase();
+    const expected = String(inv.email).trim().toLowerCase();
+    if (!typed || typed === expected) {
+      warn.hidden = true;
+      warn.textContent = '';
+      return;
+    }
+    warn.hidden = false;
+    warn.textContent = `This invitation is for ${inv.email}. Signing in or registering as ${typed} won't accept it.`;
+  }
+
+  function clickAcceptInvitation() {
+    const inv = loadPendingInvitation();
+    if (!inv) return;
+    // Route the user into the most useful flow based on what we know:
+    //  - If we have an email and no password is required, prefer magic
+    //    link (matches the existing-user invitation path which returns a
+    //    magic_link the desktop already knows how to consume).
+    //  - Otherwise prompt them to register (new user) or sign in.
+    // Keep the actual auth path identical to the existing button handlers
+    // — the user just clicks them after we pre-fill and focus the email.
+    if (inv.email) {
+      if ($('login-email')) $('login-email').value = inv.email;
+      if ($('reg-email')) $('reg-email').value = inv.email;
+    }
+    // Default to the register pane (covers brand-new invitees); existing
+    // users who already have an account can flip to "Sign in" themselves.
+    showPane('register');
+    setStatus(
+      inv.company
+        ? `Continue to join ${inv.company}: create your account or switch to Sign in if you already have one.`
+        : 'Continue to accept this invitation: create your account or switch to Sign in if you already have one.',
+      'info',
+    );
+    if ($('reg-first')) { try { $('reg-first').focus(); } catch (_) {} }
+  }
+
+  function clickDeclineInvitation() {
+    const inv = loadPendingInvitation();
+    if (!inv) return;
+    const target = inv.company ? `the invitation to ${inv.company}` : 'this invitation';
+    const ok = window.confirm(
+      `Decline ${target}? You can ask the inviter to resend if you change your mind.`,
+    );
+    if (!ok) return;
+    clearPendingInvitation();
+    setStatus(
+      `Invitation declined. You can still sign in or register normally.`,
+      'info',
+    );
   }
 
   function setPendingInvitation(input) {
@@ -789,6 +859,18 @@
         setStatus('Invitation dismissed. You can still sign in normally.', 'info');
       });
     }
+    const accept = $('auth-invite-accept');
+    if (accept) accept.addEventListener('click', clickAcceptInvitation);
+    const decline = $('auth-invite-decline');
+    if (decline) decline.addEventListener('click', clickDeclineInvitation);
+    // Live wrong-email warning: when the user types something different
+    // from the invitation's intended recipient, surface it next to the
+    // banner so we don't waste a roundtrip on a registration that won't
+    // accept the pending invitation.
+    ['login-email', 'reg-email'].forEach((id) => {
+      const f = $(id);
+      if (f) f.addEventListener('input', refreshInvitationEmailWarning);
+    });
   }
 
   async function boot({ onAuthenticated } = {}) {

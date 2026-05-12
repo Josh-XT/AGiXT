@@ -1206,6 +1206,12 @@
   async function desktopJson(path, opts) {
     const server = settings && settings.server_url;
     if (!server) throw new Error('Server URL is not configured.');
+    if (window.AgixtSession && typeof window.AgixtSession.request === 'function') {
+      return window.AgixtSession.request(path, {
+        method: (opts && opts.method) || 'GET',
+        json: opts && opts.json,
+      });
+    }
     const init = {
       method: (opts && opts.method) || 'GET',
       headers: Object.assign(
@@ -1219,6 +1225,9 @@
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch (_) {}
     if (!resp.ok) {
+      if (window.AgixtSession && typeof window.AgixtSession.routeFailureStatus === 'function') {
+        try { await window.AgixtSession.routeFailureStatus(resp.status, data); } catch (_) {}
+      }
       const err = new Error((data && (data.detail || data.message)) || ('HTTP ' + resp.status));
       err.status = resp.status;
       throw err;
@@ -1588,11 +1597,18 @@
       // form field — same convention as /v1/chat/completions.
       fd.append('model', settings.agent_name || 'XT');
       const url = (settings.server_url || '').replace(/\/+$/, '') + '/v1/audio/transcriptions';
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${settings.jwt}` },
-        body: fd,
-      });
+      const fetcher = window.AgixtSession && typeof window.AgixtSession.fetch === 'function'
+        ? window.AgixtSession.fetch(url, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${settings.jwt}` },
+          body: fd,
+        })
+        : fetch(url, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${settings.jwt}` },
+          body: fd,
+        });
+      const resp = await fetcher;
       if (!resp.ok) {
         const text = await resp.text().catch(() => '');
         throw new Error(`HTTP ${resp.status}${text ? `: ${text.slice(0, 160)}` : ''}`);

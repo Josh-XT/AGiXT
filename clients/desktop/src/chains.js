@@ -53,6 +53,7 @@
     agentsByName: new Map(),
     agents: [],
     promptsByName: new Map(),
+    promptsByKey: new Map(),
     prompts: [],
     promptsLoaded: false,
     expandedSteps: new Set(),
@@ -117,6 +118,16 @@
     if (scope === 'company') return 'Company';
     if (scope === 'server') return 'Server';
     return 'My Chains';
+  }
+
+  function promptOptionKey(name, category) {
+    return `${category || 'Default'}\u0000${name || ''}`;
+  }
+
+  function parsePromptOptionKey(key) {
+    const parts = String(key || '').split('\u0000');
+    if (parts.length < 2) return { category: 'Default', name: key || '' };
+    return { category: parts[0] || 'Default', name: parts.slice(1).join('\u0000') };
   }
 
   function isSharedScope() {
@@ -306,18 +317,49 @@
   async function loadPrompts(force) {
     if (STATE.promptsLoaded && !force) return STATE.prompts;
     try {
-      const rows = await api.listPrompts('Default');
-      STATE.prompts = (rows || []).map((p) => ({
-        id: p.id || p.prompt_id || '',
-        name: p.name || p.prompt_name || '',
-      })).filter((p) => p.name);
-      STATE.prompts.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-      STATE.promptsByName = new Map(STATE.prompts.map((p) => [p.name, p]));
+      let rows = [];
+      if (isSharedScope()) {
+        rows = await api.listScopedPrompts(STATE.scope);
+      } else {
+        const categories = await api.listScopedPromptCategories('user');
+        const seen = new Set();
+        for (const cat of (categories || [{ name: 'Default' }])) {
+          const category = (cat && cat.name) || 'Default';
+          const scopedRows = await api.listScopedPrompts('user', category);
+          (scopedRows || []).forEach((p) => {
+            const id = p.id || p.prompt_id || `${category}:${p.name || p.prompt_name || ''}`;
+            if (seen.has(id)) return;
+            seen.add(id);
+            rows.push(p);
+          });
+        }
+      }
+      STATE.prompts = (rows || []).map((p) => {
+        const category = p.category || p.prompt_category || 'Default';
+        const name = p.name || p.prompt_name || '';
+        return {
+          id: p.id || p.prompt_id || '',
+          name,
+          category,
+          key: promptOptionKey(name, category),
+        };
+      }).filter((p) => p.name);
+      STATE.prompts.sort((a, b) => (
+        a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+        || a.category.toLowerCase().localeCompare(b.category.toLowerCase())
+      ));
+      STATE.promptsByName = new Map();
+      STATE.promptsByKey = new Map();
+      STATE.prompts.forEach((p) => {
+        if (!STATE.promptsByName.has(p.name)) STATE.promptsByName.set(p.name, p);
+        STATE.promptsByKey.set(p.key, p);
+      });
       STATE.promptsLoaded = true;
     } catch (err) {
       console.warn('chains: list_prompts failed', err);
       STATE.prompts = [];
       STATE.promptsByName = new Map();
+      STATE.promptsByKey = new Map();
       STATE.promptsLoaded = true;
     }
     return STATE.prompts;
@@ -528,14 +570,15 @@
   /** Resolve the args a step exposes for editing, given the current target.
    *  Cached per (type,target) pair to avoid re-fetching when the user
    *  twiddles other fields. */
-  async function loadStepArgs(stepType, targetName, agentName) {
+  async function loadStepArgs(stepType, targetName, agentName, promptCategory) {
     if (!targetName) return [];
-    const key = `${stepType}::${targetName}`;
+    const key = `${stepType}::${promptCategory || ''}::${targetName}`;
     if (STATE.argCache.has(key)) return STATE.argCache.get(key);
     let args = [];
     try {
       if (stepType === 'Prompt') {
-        const prompt = STATE.promptsByName.get(targetName);
+        const prompt = STATE.promptsByKey.get(promptOptionKey(targetName, promptCategory || 'Default'))
+          || STATE.promptsByName.get(targetName);
         if (prompt && prompt.id) args = await api.getPromptArgs(prompt.id);
       } else if (stepType === 'Command') {
         args = await api.getCommandArgs(targetName);
@@ -783,6 +826,12 @@
     // toggle but lives inline in the header instead of a floating bar.
     const autosaveToggle = renderAutosaveToggle();
 
+    // Run is only wired for user-scope chains today. The backend's
+    // `/v1/chain/{id}/run` resolves only user/default ChainDB ids, and
+    // `XT.execute_chain` reads through the user's `Chain.get_chain`, so
+    // running a company/server chain by name fails before any step
+    // executes. Disable Run for shared scopes and point the user at
+    // the Clone affordance instead of advertising an action that fails.
     const runBtn = btn(
       el('span', { html: ICONS.play + '<span style="margin-left:6px">Run</span>' }),
       {
@@ -790,10 +839,25 @@
         onclick: handleRunChain,
         disabled: isSharedScope(),
         title: isSharedScope()
-          ? 'Clone or use this chain from an agent/user context to run it.'
+          ? `Run is only available for chains in My Chains today. Use "Clone to My Chains" to fork this ${scopeLabel(STATE.scope).toLowerCase()} chain and then run it.`
           : 'Run this chain',
       }
     );
+    // Shared-scope chains get a "Clone to My Chains" affordance so users
+    // can fork the company/server template into their own scope and edit
+    // it freely without affecting the shared definition. Promoted to the
+    // primary action (kind: primary) for shared scopes since it's the
+    // only path to running the chain.
+    const cloneBtn = isSharedScope() ? btn(
+      el('span', {
+        html: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span style="margin-left:6px">Clone to My Chains</span>',
+      }),
+      {
+        kind: 'primary',
+        onclick: handleCloneChain,
+        title: `Copy this ${scopeLabel(STATE.scope).toLowerCase()} chain into My Chains so you can edit and run it freely.`,
+      }
+    ) : null;
     const exportBtn = btn(
       el('span', { html: ICONS.download }),
       { kind: 'ghost', onclick: handleExportChain, title: 'Export as JSON', ariaLabel: 'Export chain' }
@@ -824,7 +888,7 @@
     return el('div', { class: 'cn-editor-header' }, [
       el('div', { class: 'cn-editor-titlewrap' }, [titleRow, descArea]),
       el('div', { class: 'cn-editor-actions' }, [
-        saveAllBtn, autosaveToggle, runBtn,
+        saveAllBtn, autosaveToggle, runBtn, cloneBtn,
         renderAbilityControl(),
         exportBtn, importBtn, helpBtn, deleteBtn,
       ]),
@@ -1054,6 +1118,7 @@
     if (promptType === 'Prompt') targetName = prompt.prompt_name || '';
     else if (promptType === 'Command') targetName = prompt.command_name || '';
     else if (promptType === 'Chain') targetName = prompt.chain_name || '';
+    const promptCategory = promptType === 'Prompt' ? (prompt.prompt_category || 'Default') : '';
 
     let agentName = '';
     if (dirty && dirty.agent_id) {
@@ -1064,7 +1129,7 @@
     } else {
       agentName = step.agent_name || '';
     }
-    return { promptType, prompt, targetName, agentName };
+    return { promptType, prompt, targetName, promptCategory, agentName };
   }
 
   // ── Step body (form) ─────────────────────────────────────────────────
@@ -1161,7 +1226,7 @@
     root.appendChild(argsHost);
 
     if (eff.targetName) {
-      loadStepArgs(eff.promptType, eff.targetName, eff.agentName).then((args) => {
+      loadStepArgs(eff.promptType, eff.targetName, eff.agentName, eff.promptCategory).then((args) => {
         renderStepArgs(argsHost, stepNum, eff, args);
       }).catch((err) => {
         argsHost.innerHTML = '';
@@ -1192,15 +1257,19 @@
       });
       sel.appendChild(el('option', { value: '' }, '— select prompt —'));
       STATE.prompts.forEach((p) => {
+        const label = p.category && p.category !== 'Default'
+          ? `${p.name} (${p.category})`
+          : p.name;
         sel.appendChild(el('option', {
-          value: p.name,
-          selected: p.name === eff.targetName,
-        }, p.name));
+          value: p.key,
+          selected: p.name === eff.targetName && (p.category || 'Default') === (eff.promptCategory || 'Default'),
+        }, label));
       });
-      if (eff.targetName && !STATE.promptsByName.has(eff.targetName)) {
+      const currentPromptKey = promptOptionKey(eff.targetName, eff.promptCategory || 'Default');
+      if (eff.targetName && !STATE.promptsByKey.has(currentPromptKey)) {
         sel.appendChild(el('option', {
-          value: eff.targetName, selected: true,
-        }, eff.targetName + ' (missing)'));
+          value: currentPromptKey, selected: true,
+        }, `${eff.targetName} (${eff.promptCategory || 'Default'}, missing)`));
       }
       wrap.appendChild(sel);
     } else if (eff.promptType === 'Command') {
@@ -1354,9 +1423,13 @@
     const dirty = ensureDirty(stepNum);
     const type = dirty.prompt_type;
     if (type === 'Prompt') {
+      const picked = STATE.promptsByKey.get(target);
+      const parsed = picked ? null : parsePromptOptionKey(target);
+      const promptName = picked ? picked.name : parsed.name;
+      const promptCategory = picked ? (picked.category || 'Default') : parsed.category;
       dirty.prompt = Object.assign({}, dirty.prompt);
-      dirty.prompt.prompt_name = target;
-      dirty.prompt.prompt_category = 'Default';
+      dirty.prompt.prompt_name = promptName;
+      dirty.prompt.prompt_category = promptCategory;
       delete dirty.prompt.command_name;
       delete dirty.prompt.chain_name;
     } else if (type === 'Command') {
@@ -1917,6 +1990,51 @@
     openRunDialog(chainArgs);
   }
 
+  async function handleCloneChain() {
+    if (!STATE.activeChain || !isSharedScope()) return;
+    const source = STATE.activeChain.chainName || 'this chain';
+    const ok = window.confirm(
+      `Clone "${source}" into My Chains? You'll get a separate user-level copy you can edit and run freely; the ${scopeLabel(STATE.scope).toLowerCase()} version stays unchanged.`
+    );
+    if (!ok) return;
+    try {
+      // Pass the chain *name* for shared scopes. The backend's clone
+      // endpoint tries `get_chain_by_id` first (which only finds user/
+      // default chains), then falls back to
+      // `get_chain_with_tiered_resolution(name)` which resolves company/
+      // server chains by name. Sending the company/server uuid never
+      // reaches that fallback because the uuid type-checks as a valid id
+      // shape and the lookup returns None for the user's tier instead
+      // of falling through to tiered resolution.
+      const resp = await api.cloneScopedChain(STATE.scope, source);
+      const newId = resp && (resp.id || resp.chain_id || resp.new_chain_id);
+      // Switch to user scope, reload, and select the cloned chain.
+      if (STATE.dirty.size > 0) STATE.dirty.clear();
+      setScope('user');
+      STATE.activeChainId = null;
+      STATE.activeChain = null;
+      renderScopeTabs();
+      await loadChainsList();
+      if (newId) {
+        STATE.activeChainId = newId;
+        await loadActiveChain();
+      } else {
+        // Fallback: best-effort match by name in the user-scope list.
+        const match = STATE.chainsList.find((c) =>
+          (c.chainName || '').toLowerCase() === source.toLowerCase());
+        if (match) {
+          STATE.activeChainId = match.id;
+          await loadActiveChain();
+        }
+      }
+      renderList();
+      renderEditor();
+      toast(`Cloned "${source}" to My Chains. You can now run and edit it freely.`, 'success');
+    } catch (err) {
+      toast('Clone failed: ' + errMsg(err), 'error');
+    }
+  }
+
   function openRunDialog(argNames) {
     // Strip already-collected meta fields the run endpoint sets directly.
     const userArgs = (argNames || []).filter((a) =>
@@ -1987,7 +2105,12 @@
       result.hidden = false;
       result.textContent = 'Running chain… this can take a while for multi-step chains.';
       try {
-        const out = await api.runChain(STATE.activeChainId, {
+        // The run endpoint resolves only user/default ChainDB ids today,
+        // so we always pass the active chain id. Run is disabled for
+        // shared scopes at the toolbar; if a future user gets here in
+        // shared scope through some other path, the backend will
+        // respond with 404, which the caller surfaces as a toast.
+        const out = await api.runScopedChain(STATE.scope, STATE.activeChainId, {
           user_input: userInput.value,
           chain_args: chainArgs,
           all_responses: false,

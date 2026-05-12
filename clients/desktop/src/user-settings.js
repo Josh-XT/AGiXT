@@ -1323,6 +1323,95 @@
     return enabled && enabled.billing_enabled;
   }
 
+  // Pending payment markers — when the user opens an external Stripe
+  // checkout, we record the kind, the active company, and the token
+  // balance at the moment of handoff. On return to the app, we compare
+  // the live balance against that baseline to decide whether the
+  // payment completed, is still pending, or appears to have failed/
+  // been cancelled. The marker survives reloads via localStorage and
+  // auto-expires after 30 minutes to avoid stale banners.
+  const PENDING_PAYMENT_KEY = 'agixt.desktop.pendingPayment.v1';
+  const PENDING_PAYMENT_TTL_MS = 30 * 60 * 1000;
+  function loadPendingPayment() {
+    try {
+      const raw = window.localStorage.getItem(PENDING_PAYMENT_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (!data || !data.started_at) return null;
+      if (Date.now() - data.started_at > PENDING_PAYMENT_TTL_MS) {
+        window.localStorage.removeItem(PENDING_PAYMENT_KEY);
+        return null;
+      }
+      return data;
+    } catch (_) { return null; }
+  }
+  function savePendingPayment(data) {
+    try {
+      window.localStorage.setItem(PENDING_PAYMENT_KEY, JSON.stringify(Object.assign({
+        started_at: Date.now(),
+        status: 'pending',
+      }, data || {})));
+    } catch (_) {}
+  }
+  function clearPendingPayment() {
+    try { window.localStorage.removeItem(PENDING_PAYMENT_KEY); } catch (_) {}
+  }
+
+  // Banner DOM: surfaced at the top of the billing panel when a pending
+  // payment marker exists. The caller passes the current balance so we
+  // can render the right kind ("pending"/"completed"/"cancelled").
+  function renderPaymentReturnBanner(payment, currentBalanceTokens, onRefresh, onDismiss) {
+    const baseline = Number(payment.baseline_balance_tokens || 0);
+    const balance = Number(currentBalanceTokens || 0);
+    const completed = balance > baseline;
+    const elapsedMin = Math.max(0, Math.round((Date.now() - payment.started_at) / 60000));
+    const stale = !completed && elapsedMin >= 10;
+
+    const variant = completed ? 'success' : (stale ? 'warn' : 'info');
+    const icon = completed
+      ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+      : stale
+      ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>'
+      : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
+    const title = completed
+      ? 'Payment completed'
+      : stale
+      ? 'Still waiting on your payment'
+      : 'Finishing your payment…';
+    const kindLabel = payment.kind === 'plan' ? 'subscription change' : 'token top-up';
+    const body = completed
+      ? 'Your ' + kindLabel + ' came through — the new balance is loaded above.'
+      : stale
+      ? 'It has been about ' + elapsedMin + ' minutes since you opened Stripe. If you cancelled or closed the tab, dismiss this and try again.'
+      : 'When you finish the ' + kindLabel + ' in your browser, return here and we will pick up the new balance automatically.';
+
+    const wrap = el('div', { class: 'us-payment-banner us-payment-banner-' + variant });
+    wrap.appendChild(el('div', { class: 'us-payment-banner-icon', html: icon }));
+    const body2 = el('div', { class: 'us-payment-banner-body' }, [
+      el('div', { class: 'us-payment-banner-title' }, title),
+      el('div', { class: 'us-payment-banner-msg' }, body),
+    ]);
+    const actions = el('div', { class: 'us-payment-banner-actions' });
+    if (!completed) {
+      const refreshBtn = btn('Refresh balance', {
+        kind: 'secondary',
+        onclick: async () => {
+          refreshBtn.disabled = true;
+          try { await onRefresh(); } finally { refreshBtn.disabled = false; }
+        },
+      });
+      actions.appendChild(refreshBtn);
+    }
+    const dismissBtn = btn(completed ? 'Got it' : 'Dismiss', {
+      kind: completed ? 'primary' : 'ghost',
+      onclick: () => { clearPendingPayment(); onDismiss(); },
+    });
+    actions.appendChild(dismissBtn);
+    body2.appendChild(actions);
+    wrap.appendChild(body2);
+    return wrap;
+  }
+
   async function renderBilling(panel) {
     panel.innerHTML = '';
     panel.appendChild(emptyState('Loading billing…'));
@@ -1388,10 +1477,26 @@
           'Pricing model: ' + (pricing ? pricing.pricing_model : 'unknown')),
       ]));
 
+    // Pending payment banner — surfaces at the top of the panel so the
+    // user knows we're tracking their Stripe handoff. We capture the
+    // current balance here so the banner can detect completion.
+    const pendingPayment = loadPendingPayment();
+    let postPaymentBalance = null;
+
     // Token balance / plan summary.
     if (isTokenBased) {
       try {
         const balance = await api.getTokenBalance(activeCompany.id, true);
+        postPaymentBalance = Number(balance.token_balance || 0);
+        if (pendingPayment
+            && pendingPayment.company_id === activeCompany.id) {
+          panel.appendChild(renderPaymentReturnBanner(
+            pendingPayment,
+            postPaymentBalance,
+            async () => renderBilling(panel),
+            () => renderBilling(panel),
+          ));
+        }
         panel.appendChild(section('Credit balance', null, [
           el('dl', { class: 'us-kv-grid' }, [
             el('dt', null, 'Tokens remaining'), el('dd', null, formatTokens(balance.token_balance)),
@@ -1408,6 +1513,19 @@
         const limits = await api.getPlanLimits(activeCompany.id);
         const usage = limits.usage || {};
         const lim = limits.limits || {};
+        // Plan-based pending payment banner uses tokens-this-period as
+        // the baseline yardstick. It's less reliable than the token
+        // balance (since the period ticks regardless), but combined
+        // with elapsed time it still gives a usable signal.
+        postPaymentBalance = Number(usage.tokens_this_period || usage.tokens_used_this_period || 0);
+        if (pendingPayment && pendingPayment.company_id === activeCompany.id) {
+          panel.appendChild(renderPaymentReturnBanner(
+            pendingPayment,
+            postPaymentBalance,
+            async () => renderBilling(panel),
+            () => renderBilling(panel),
+          ));
+        }
         panel.appendChild(section('Plan: ' + (limits.plan_name || limits.plan_id || 'unknown'), null, [
           el('dl', { class: 'us-kv-grid' }, [
             el('dt', null, 'Users'), el('dd', null, (usage.users || 0) + ' / ' + (lim.users || '∞')),
@@ -1434,8 +1552,18 @@
         try {
           const res = await api.createTokenTopupStripe({ token_millions: millions, company_id: activeCompany.id });
           if (res && (res.checkout_url || res.url)) {
+            // Stash a pending-payment marker with the current token
+            // balance as baseline. When the user comes back, the
+            // banner compares balance against this baseline to decide
+            // whether the topup landed.
+            savePendingPayment({
+              kind: 'topup',
+              company_id: activeCompany.id,
+              token_millions: millions,
+              baseline_balance_tokens: postPaymentBalance,
+            });
             openExternal(res.checkout_url || res.url);
-            topupStatus.textContent = 'Opened Stripe checkout in your browser.';
+            topupStatus.textContent = 'Opened Stripe checkout in your browser. We will pick up the new balance when you return.';
             topupStatus.className = 'us-status-line success';
           } else if (res && res.client_secret) {
             topupStatus.textContent = 'Stripe payment intent created. Complete in the web app.';
@@ -1457,7 +1585,17 @@
       const planTopupBtn = btn('Buy token top-up', { kind: 'primary', onclick: async () => {
         try {
           const res = await api.createPlanTopup({ company_id: activeCompany.id, token_millions: Number(planTopupAmount.value) || 1 });
-          if (res && res.checkout_url) { openExternal(res.checkout_url); planTopupStatus.textContent = 'Stripe checkout opened.'; planTopupStatus.className = 'us-status-line success'; }
+          if (res && res.checkout_url) {
+            savePendingPayment({
+              kind: 'topup',
+              company_id: activeCompany.id,
+              token_millions: Number(planTopupAmount.value) || 1,
+              baseline_balance_tokens: postPaymentBalance,
+            });
+            openExternal(res.checkout_url);
+            planTopupStatus.textContent = 'Stripe checkout opened. Return here when you finish — we will refresh the balance.';
+            planTopupStatus.className = 'us-status-line success';
+          }
         } catch (err) { planTopupStatus.textContent = errMsg(err); planTopupStatus.className = 'us-status-line error'; }
       } });
       panel.appendChild(section('Token top-ups (one-time)', null, [
@@ -1477,11 +1615,21 @@
               changePlanStatus.textContent = (res && res.message) || 'Plan updated.';
               changePlanStatus.className = 'us-status-line success';
               cache.planLimits = null;
-              await renderBilling();
+              await renderBilling(panel);
               return;
             }
             const res = await api.createPlanCheckout({ company_id: activeCompany.id, plan_id: tierSelect.value });
-            if (res && res.checkout_url) { openExternal(res.checkout_url); changePlanStatus.textContent = 'Stripe checkout opened.'; changePlanStatus.className = 'us-status-line success'; }
+            if (res && res.checkout_url) {
+              savePendingPayment({
+                kind: 'plan',
+                company_id: activeCompany.id,
+                plan_id: tierSelect.value,
+                baseline_balance_tokens: postPaymentBalance,
+              });
+              openExternal(res.checkout_url);
+              changePlanStatus.textContent = 'Stripe checkout opened. Return here to confirm the subscription change.';
+              changePlanStatus.className = 'us-status-line success';
+            }
           } catch (err) { changePlanStatus.textContent = errMsg(err); changePlanStatus.className = 'us-status-line error'; }
           finally { changePlanBtn.disabled = false; }
         } });
@@ -3060,6 +3208,17 @@
     bindTabs();
     await ensureBillingTabVisible();
     setActiveTab((opts && opts.tab) || 'app');
+    // Refresh the Billing tab when the user returns to the app from
+    // Stripe checkout. We only re-render when there's actually a
+    // pending-payment marker so the rest of the app doesn't churn
+    // every time the window regains focus.
+    window.addEventListener('focus', () => {
+      if (!loadPendingPayment()) return;
+      const panel = document.querySelector('.us-panel[data-us-panel="billing"]');
+      if (!panel || panel.hidden) return;
+      renderBilling(panel).catch((err) =>
+        console.warn('billing focus refresh failed', err));
+    });
   }
 
   window.UserSettings = { mount, setActiveTab };

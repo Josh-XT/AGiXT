@@ -2363,9 +2363,24 @@ class Chain:
             session.close()
             return None
 
+        existing_user_chain_names = {
+            name
+            for (name,) in session.query(ChainDB.name)
+            .filter(ChainDB.user_id == self.user_id)
+            .all()
+        }
+        new_chain_name = source_chain.name
+        if new_chain_name in existing_user_chain_names:
+            base_chain_name = f"{source_chain.name} Copy"
+            new_chain_name = base_chain_name
+            copy_number = 2
+            while new_chain_name in existing_user_chain_names:
+                new_chain_name = f"{base_chain_name} {copy_number}"
+                copy_number += 1
+
         # Create user's copy of the chain
         new_chain = ChainDB(
-            name=source_chain.name,
+            name=new_chain_name,
             description=source_chain.description,
             user_id=self.user_id,
         )

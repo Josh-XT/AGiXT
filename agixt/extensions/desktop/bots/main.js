@@ -44,11 +44,44 @@ function BotsView(container, ctx) {
   this.container = container; this.ctx = ctx;
   this.deployedBots = []; this.platforms = []; this.permissionModes = [];
   this.companies = []; this.agents = [];
+  this.userScopes = new Set(); this.roleId = null;
+  // Full provider objects from /v1/oauth (name, client_id, authorize,
+  // scopes…) — used to feed AgentSettingsConnections.startConnect.
+  this.oauthProviders = [];
+  // Plain list of connected provider names from /v1/oauth2, e.g.
+  // ["discord", "google"]. Compared case-insensitively to a platform's
+  // oauth_provider slug.
+  this.connectedProviderNames = [];
   this.search = '';
+  this.scope = readJsonB('agixt.desktop.bots.scope.v1', 'company'); // 'company' | 'server'
   this.statusFilter = readJsonB('agixt.desktop.bots.status.v1', 'all');
   this.sort = readJsonB('agixt.desktop.bots.sort.v1', { id: 'platform', dir: 'asc' });
   this.pollTimer = null;
 }
+
+BotsView.prototype.isServerAdmin = function () {
+  if (this.roleId === 0) return true;
+  return this.userScopes.has('*') || this.userScopes.has('*:*')
+    || this.userScopes.has('server:bots') || this.userScopes.has('server:admin');
+};
+BotsView.prototype.canUseScope = function (scope) {
+  if (scope === 'company') return true;
+  if (scope === 'server') return this.isServerAdmin();
+  return false;
+};
+BotsView.prototype.hasOAuthConnection = function (platform) {
+  if (!platform || !platform.uses_oauth) return true;
+  const want = String(platform.oauth_provider || '').toLowerCase();
+  if (!want) return true;
+  return (this.connectedProviderNames || []).some((n) =>
+    String(n || '').toLowerCase() === want);
+};
+BotsView.prototype.findOAuthProvider = function (platform) {
+  const want = String(platform && platform.oauth_provider || '').toLowerCase();
+  if (!want) return null;
+  return (this.oauthProviders || []).find((p) =>
+    String(p && p.name || '').toLowerCase() === want) || null;
+};
 
 BotsView.prototype.start = function () {
   this.injectStyles();
@@ -56,10 +89,20 @@ BotsView.prototype.start = function () {
   this.bootstrap();
   this.onVis = () => { if (document.hidden) this.cancelPoll(); else { this.refresh(); this.scheduleNext(); } };
   document.addEventListener('visibilitychange', this.onVis);
+  // Refresh OAuth connection state after the desktop receives a
+  // successful provider callback. AgentSettingsConnections fires this
+  // through Tauri's event bus, but listening on window also works
+  // because user-settings re-broadcasts it. We just re-load and re-
+  // render the platforms list.
+  this.onConnected = () => {
+    this.loadOAuthConnections().then(() => this.renderPlatforms()).catch(() => {});
+  };
+  window.addEventListener('agixt-extension-connected', this.onConnected);
 };
 BotsView.prototype.stop = function () {
   this.cancelPoll();
   if (this.onVis) document.removeEventListener('visibilitychange', this.onVis);
+  if (this.onConnected) window.removeEventListener('agixt-extension-connected', this.onConnected);
   this.container.innerHTML = '';
 };
 
@@ -87,10 +130,85 @@ BotsView.prototype.fetchJson = async function (path, opts) {
 };
 
 BotsView.prototype.bootstrap = async function () {
-  await Promise.all([this.loadPlatforms(), this.loadCompanies(), this.loadAgents()]);
+  await Promise.all([
+    this.loadPlatforms(),
+    this.loadCompanies(),
+    this.loadAgents(),
+    this.loadUserAndScopes(),
+    this.loadOAuthConnections(),
+  ]);
+  // Force scope back to company if the user lost server admin since the
+  // last session — keeps the tab strip from showing an unselectable scope.
+  if (this.scope === 'server' && !this.canUseScope('server')) {
+    this.scope = 'company';
+    writeJsonB('agixt.desktop.bots.scope.v1', this.scope);
+  }
   this.renderHeader();
   await this.refresh();
   this.scheduleNext();
+};
+
+BotsView.prototype.loadUserAndScopes = async function () {
+  try {
+    const u = await this.fetchJson('/v1/user');
+    const co = (u.companies || []).find((c) => c.id === this.ctx.companyId) || (u.companies || [])[0];
+    if (co) {
+      this.userScopes = new Set(co.scopes || []);
+      this.roleId = co.role_id != null ? co.role_id : null;
+    }
+  } catch (_) { /* leave defaults */ }
+};
+
+BotsView.prototype.loadOAuthConnections = async function () {
+  // Two endpoints with complementary jobs:
+  //   /v1/oauth   → list of available providers + their authorize URLs,
+  //                 client ids, and scope sets. Needed to *start* a
+  //                 connect flow via AgentSettingsConnections.startConnect.
+  //   /v1/oauth2  → list of provider name strings the *current user* is
+  //                 already connected to (e.g. ["discord", "google"]).
+  // Both calls are best-effort so a misconfigured server still lets the
+  // platforms list render.
+  try {
+    if (window.AgixtApi && typeof window.AgixtApi.getOAuthProviders === 'function') {
+      const providers = await window.AgixtApi.getOAuthProviders();
+      this.oauthProviders = Array.isArray(providers) ? providers : [];
+    } else {
+      const data = await this.fetchJson('/v1/oauth');
+      this.oauthProviders = (data && (data.providers || data)) || [];
+    }
+  } catch (_) { this.oauthProviders = []; }
+  try {
+    if (window.AgixtApi && typeof window.AgixtApi.getUserOAuthConnections === 'function') {
+      const conns = await window.AgixtApi.getUserOAuthConnections();
+      this.connectedProviderNames = Array.isArray(conns) ? conns
+        : (conns && Array.isArray(conns.providers)) ? conns.providers
+        : [];
+    } else {
+      const data = await this.fetchJson('/v1/oauth2');
+      this.connectedProviderNames = Array.isArray(data) ? data
+        : (data && Array.isArray(data.providers)) ? data.providers
+        : [];
+    }
+  } catch (_) { this.connectedProviderNames = []; }
+};
+
+// Opens the OAuth connect flow for the platform's provider. Prefers the
+// existing AgentSettingsConnections helper because it knows how to call
+// the Rust `build_oauth_connect_url` command, open the system browser,
+// and react to the deep-link callback. Falls back to opening user
+// settings so the user has somewhere to go even when the helper isn't
+// loaded yet (e.g. before user-settings.js has mounted).
+BotsView.prototype.openConnectionSettings = function (platform) {
+  const provider = this.findOAuthProvider(platform);
+  if (provider
+      && window.AgentSettingsConnections
+      && typeof window.AgentSettingsConnections.startConnect === 'function') {
+    try { window.AgentSettingsConnections.startConnect(provider); return; }
+    catch (_) { /* fall through to settings nav */ }
+  }
+  if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
+    window.AgixtSidenav.setActiveView('user-settings');
+  }
 };
 
 BotsView.prototype.loadPlatforms = async function () {
@@ -115,7 +233,11 @@ BotsView.prototype.loadAgents = async function () {
     this.agents = (data && data.agents) || [];
   } catch (_) {}
 };
-BotsView.prototype.loadBotSettings = async function (companyId, platform, instanceId) {
+BotsView.prototype.loadBotSettings = async function (companyId, platform, instanceId, scope) {
+  // Server bots have no dedicated settings GET; the desktop edits flow
+  // is a fresh re-enable. Surface that with a null return so the caller
+  // doesn't pre-fill stale values into the modal.
+  if (scope === 'server') return null;
   try {
     const path = '/v1/company/' + encodeURIComponent(companyId) + '/bots/' + encodeURIComponent(platform)
       + '/settings?instance_id=' + encodeURIComponent(instanceId || 'default');
@@ -134,40 +256,72 @@ BotsView.prototype.cancelPoll = function () {
 
 BotsView.prototype.refresh = async function () {
   try {
-    // /v1/user/deployed-bots covers all companies the user belongs to.
-    const data = await this.fetchJson('/v1/user/deployed-bots');
-    this.deployedBots = (data && data.bots) || [];
+    // Scope decides which endpoint to read. The server endpoint is super-
+    // admin gated; we already enforce scope availability in canUseScope,
+    // so an unauthorized call here would be a programming error in the
+    // tab strip handler.
+    const path = this.scope === 'server'
+      ? '/v1/server/deployed-bots'
+      : '/v1/user/deployed-bots';
+    const data = await this.fetchJson(path);
+    const rows = (data && data.bots) || [];
+    // Tag each bot with the scope it came from so per-row actions route
+    // to the right endpoint regardless of what the current tab is when
+    // the user clicks.
+    this.deployedBots = rows.map((b) => Object.assign({}, b, { _scope: this.scope }));
     this.renderError(null);
     this.renderHeader();
     this.renderTable();
   } catch (err) { this.renderError(err); }
 };
 
+// Builds the right pause/restart/enable/delete path for a deployed bot
+// based on the scope it was loaded from. Server bots don't accept a
+// company id or instance id (super-admin only, single-instance per
+// platform), so the route shape is different.
+BotsView.prototype._botBasePath = function (b) {
+  const scope = (b && b._scope) || this.scope;
+  if (scope === 'server') {
+    return '/v1/server/bots/' + encodeURIComponent(b.platform);
+  }
+  return '/v1/company/' + encodeURIComponent(b.company_id) + '/bots/' + encodeURIComponent(b.platform);
+};
+BotsView.prototype._botQuery = function (b) {
+  if ((b && b._scope) === 'server') return '';
+  return '?instance_id=' + encodeURIComponent(b.instance_id || 'default');
+};
+
 BotsView.prototype.pauseBot = async function (b) {
   const next = !b.is_paused;
   try {
-    await this.fetchJson('/v1/company/' + encodeURIComponent(b.company_id) + '/bots/' + encodeURIComponent(b.platform)
-      + '/pause?instance_id=' + encodeURIComponent(b.instance_id || 'default'),
+    await this.fetchJson(this._botBasePath(b) + '/pause' + this._botQuery(b),
       { method: 'POST', json: { paused: next } });
     await this.refresh();
   } catch (err) { this.renderError(err); }
 };
 
 BotsView.prototype.restartBot = async function (b) {
+  if ((b && b._scope) === 'server') {
+    // The server bot endpoint set doesn't expose restart (enable/pause/
+    // delete only). Surface that instead of silently 404'ing.
+    this.renderError(new Error('Server-scope bots do not support restart from desktop yet. Use pause/resume or delete + re-enable.'));
+    return;
+  }
   if (!window.confirm('Restart ' + b.platform_name + ' bot for ' + b.company_name + '?')) return;
   try {
-    await this.fetchJson('/v1/company/' + encodeURIComponent(b.company_id) + '/bots/' + encodeURIComponent(b.platform)
-      + '/restart?instance_id=' + encodeURIComponent(b.instance_id || 'default'),
+    await this.fetchJson(this._botBasePath(b) + '/restart' + this._botQuery(b),
       { method: 'POST' });
     await this.refresh();
   } catch (err) { this.renderError(err); }
 };
 
 BotsView.prototype.deleteBot = async function (b) {
-  if (!window.confirm('Undeploy ' + b.platform_name + ' bot for ' + b.company_name + '?\nThis stops the bot and removes its configuration.')) return;
+  const where = (b && b._scope) === 'server'
+    ? 'server-wide'
+    : 'for ' + (b.company_name || 'this company');
+  if (!window.confirm('Undeploy ' + b.platform_name + ' bot ' + where + '?\nThis stops the bot and removes its configuration.')) return;
   try {
-    await this.fetchJson('/v1/company/' + encodeURIComponent(b.company_id) + '/bots/' + encodeURIComponent(b.platform)
-      + '?instance_id=' + encodeURIComponent(b.instance_id || 'default'),
+    await this.fetchJson(this._botBasePath(b) + this._botQuery(b),
       { method: 'DELETE' });
     await this.refresh();
   } catch (err) { this.renderError(err); }
@@ -175,42 +329,56 @@ BotsView.prototype.deleteBot = async function (b) {
 
 BotsView.prototype.openDeploy = async function () {
   if (!this.platforms.length) { this.renderError(new Error('No platforms available — try refreshing.')); return; }
+  const deployScope = this.scope === 'server' && this.canUseScope('server') ? 'server' : 'company';
   const platformOpts = this.platforms.map((p) => ({ value: p.id, label: p.name + (p.uses_oauth ? ' (OAuth)' : '') }));
   const companyOpts = (this.companies.length ? this.companies : [{ id: this.ctx.companyId || '', name: 'Active company' }])
     .map((c) => ({ value: c.id || '', label: c.name || c.id || 'Active company' }));
 
+  // Server bots have no company id and only one instance per platform —
+  // hide the company picker and instance name in that mode so the form
+  // doesn't lie about what's being collected.
+  const fields = [
+    { key: 'platform', label: 'Platform', type: 'select', options: platformOpts, value: platformOpts[0].value, required: true },
+  ];
+  if (deployScope === 'company') {
+    fields.push({ key: 'company_id', label: 'Deploy in company', type: 'select', options: companyOpts, value: this.ctx.companyId || companyOpts[0].value, required: true });
+    fields.push({ key: 'instance_name', label: 'Instance name (optional)', type: 'text', placeholder: 'Friendly label, e.g. "support" — keep blank for the default instance.' });
+  }
+
   const pick = await window.AgixtFormModal.show({
-    title: 'Deploy agent',
-    description: 'Pick a platform to deploy to. After choosing, you can configure its credentials and settings.',
-    fields: [
-      { key: 'platform', label: 'Platform', type: 'select', options: platformOpts, value: platformOpts[0].value, required: true },
-      { key: 'company_id', label: 'Deploy in company', type: 'select', options: companyOpts, value: this.ctx.companyId || companyOpts[0].value, required: true },
-      { key: 'instance_name', label: 'Instance name (optional)', type: 'text', placeholder: 'Friendly label, e.g. "support" — keep blank for the default instance.' },
-    ],
+    title: deployScope === 'server' ? 'Deploy server bot' : 'Deploy agent',
+    description: deployScope === 'server'
+      ? 'Server bots run server-wide on a single configuration. After picking a platform you will configure its credentials.'
+      : 'Pick a platform to deploy to. After choosing, you can configure its credentials and settings.',
+    fields,
     submitLabel: 'Continue →',
   });
   if (!pick) return;
   const platform = this.platforms.find((p) => p.id === pick.platform);
   if (!platform) return;
-  await this._configureBot(platform, pick.company_id, 'new', pick.instance_name || null);
+  const companyId = deployScope === 'company' ? pick.company_id : '';
+  const instanceName = deployScope === 'company' ? (pick.instance_name || null) : null;
+  await this._configureBot(platform, companyId, 'new', instanceName, undefined, undefined, deployScope);
 };
 
 BotsView.prototype.openConfigure = async function (b) {
   const platform = this.platforms.find((p) => p.id === b.platform);
   if (!platform) { this.renderError(new Error('Unknown platform: ' + b.platform)); return; }
-  const settings = await this.loadBotSettings(b.company_id, b.platform, b.instance_id || 'default');
+  const scope = (b && b._scope) || 'company';
+  const settings = await this.loadBotSettings(b.company_id, b.platform, b.instance_id || 'default', scope);
   await this._configureBot(platform, b.company_id, b.instance_id || 'default', b.instance_name || null,
-    (settings && settings.settings) || {}, b);
+    (settings && settings.settings) || {}, b, scope);
 };
 
-BotsView.prototype._configureBot = async function (platform, companyId, instanceId, instanceName, existing, existingBot) {
+BotsView.prototype._configureBot = async function (platform, companyId, instanceId, instanceName, existing, existingBot, scopeOverride) {
   existing = existing || {};
+  const scope = scopeOverride || (existingBot && existingBot._scope) || this.scope || 'company';
   const required = platform.required_settings || [];
   const optional = platform.optional_settings || [];
   const fields = [];
 
   // Agent picker.
-  const agentOpts = [{ value: '', label: '— No specific agent (use company default) —' }]
+  const agentOpts = [{ value: '', label: '— No specific agent (use ' + (scope === 'server' ? 'server' : 'company') + ' default) —' }]
     .concat(this.agents.map((a) => ({ value: a.id, label: a.name })));
   fields.push({
     key: '__agent_id', label: 'Agent', type: 'select', options: agentOpts,
@@ -227,27 +395,38 @@ BotsView.prototype._configureBot = async function (platform, companyId, instance
     });
   }
 
-  // Instance name.
-  fields.push({
-    key: '__instance_name', label: 'Instance name', type: 'text',
-    value: instanceName || (existingBot && existingBot.instance_name) || '',
-    placeholder: 'Optional — friendly label for this bot deployment',
-  });
-
-  // OAuth note (we can't do OAuth inline in the desktop, but we can still
-  // save settings; OAuth-driven platforms expect the user to complete the
-  // flow elsewhere first).
-  if (platform.uses_oauth) {
+  // Instance name — only meaningful for company scope (server bots are
+  // single-instance per platform).
+  if (scope === 'company') {
     fields.push({
-      key: '__oauth_note', label: 'OAuth provider',
-      type: 'text', value: platform.oauth_provider_display || platform.oauth_provider || '',
-      help: 'This platform uses OAuth (' + (platform.oauth_provider_display || platform.oauth_provider || 'OAuth') +
-            '). Connect the provider for your user/agent in the web UI before the bot can run.',
+      key: '__instance_name', label: 'Instance name', type: 'text',
+      value: instanceName || (existingBot && existingBot.instance_name) || '',
+      placeholder: 'Optional — friendly label for this bot deployment',
     });
-    fields[fields.length - 1].placeholder = '';
-    fields[fields.length - 1].value = platform.oauth_provider_display || platform.oauth_provider || '';
-    // Disable the OAuth note input so it's read-only.
-    // We'll handle this via the help text only — keep value simple.
+  }
+
+  // OAuth status — we can't run the OAuth handshake from inside the
+  // modal, but we can detect whether the connection already exists and
+  // surface a clear "Connect provider" CTA if it doesn't.
+  const hasOAuth = this.hasOAuthConnection(platform);
+  if (platform.uses_oauth) {
+    if (!hasOAuth) {
+      // Bail out of the modal up front — saving settings without a
+      // connection just produces a runtime error later. Offer to open
+      // the connections settings instead.
+      const provider = platform.oauth_provider_display || platform.oauth_provider || 'OAuth';
+      const ok = window.confirm(
+        platform.name + ' uses ' + provider + ' OAuth, but no connection is configured for this account yet.\n\n'
+        + 'Open the connections settings to authorize ' + provider + ' first?'
+      );
+      if (ok) this.openConnectionSettings(platform);
+      return;
+    }
+    fields.push({
+      key: '__oauth_note', label: 'OAuth provider', type: 'text',
+      value: (platform.oauth_provider_display || platform.oauth_provider || '') + ' — connected',
+      help: 'OAuth connection detected. Reconnect from User Settings → Connections if anything looks off.',
+    });
   }
 
   // Required settings.
@@ -285,14 +464,23 @@ BotsView.prototype._configureBot = async function (platform, companyId, instance
   }
 
   try {
-    const path = '/v1/company/' + encodeURIComponent(companyId) + '/bots/' + encodeURIComponent(platform.id) + '/enable';
-    await this.fetchJson(path, { method: 'POST', json: {
+    const isServer = scope === 'server';
+    const path = isServer
+      ? '/v1/server/bots/' + encodeURIComponent(platform.id) + '/enable'
+      : '/v1/company/' + encodeURIComponent(companyId) + '/bots/' + encodeURIComponent(platform.id) + '/enable';
+    const body = {
       enabled: true,
       settings: settings,
       agent_id: values.__agent_id || null,
       permission_mode: values.__permission_mode || null,
-      instance_id: instanceId || 'new',
-    }});
+    };
+    // Company endpoints accept an instance_id; server endpoints don't.
+    if (!isServer) body.instance_id = instanceId || 'new';
+    await this.fetchJson(path, { method: 'POST', json: body });
+    // Make sure the next refresh picks up the freshly-enabled bot
+    // regardless of which tab the user is on. We always re-fetch the
+    // current scope's view; the user can switch tabs to see the
+    // newly-deployed server bot if they were on Company.
     await this.refresh();
   } catch (err) { this.renderError(err); }
 };
@@ -377,6 +565,48 @@ BotsView.prototype.renderHeader = function () {
     row.appendChild(this._tools.deploy);
     row.appendChild(this._tools.search);
     this.headerEl.appendChild(row);
+  }
+
+  // Scope strip — switches between company-wide and server-wide views.
+  // The server tab is gated to super admins; for regular users we still
+  // render it disabled so the affordance is visible and explained.
+  const scopeStrip = document.createElement('div'); scopeStrip.className = 'bt-scope-tabs';
+  const scopes = [
+    { key: 'company', label: 'Company', icon: 'company' },
+    { key: 'server',  label: 'Server',  icon: 'server' },
+  ];
+  for (const s of scopes) {
+    const b = document.createElement('button'); b.type = 'button';
+    const allowed = this.canUseScope(s.key);
+    b.className = 'bt-scope-tab' + (this.scope === s.key ? ' is-active' : '') + (allowed ? '' : ' is-locked');
+    b.disabled = !allowed;
+    b.title = allowed ? s.label + ' bots'
+      : "You don't have the scope to manage server-level bots. Ask a super admin to grant `server:bots`.";
+    b.innerHTML = (s.icon === 'server'
+      ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><line x1="7" y1="7" x2="7.01" y2="7"/><line x1="7" y1="17" x2="7.01" y2="17"/></svg>'
+      : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1M9 13h1M9 17h1M14 9h1M14 13h1M14 17h1"/></svg>')
+      + '<span>' + escapeB(s.label) + '</span>';
+    b.addEventListener('click', () => {
+      if (!this.canUseScope(s.key)) return;
+      this.scope = s.key;
+      writeJsonB('agixt.desktop.bots.scope.v1', s.key);
+      this.renderHeader(); this.renderTable(); this.renderPlatforms();
+    });
+    scopeStrip.appendChild(b);
+  }
+  this.headerEl.appendChild(scopeStrip);
+
+  // Server scope has fewer backend affordances than company scope:
+  // there is no per-instance settings GET (so Configure can't pre-fill
+  // existing values) and no restart endpoint. Make those limits
+  // visible so users know what's intentional vs. broken.
+  if (this.scope === 'server') {
+    const limits = document.createElement('div');
+    limits.className = 'bt-scope-note';
+    limits.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>'
+      + '<div><strong>Server-wide bots</strong> are single-instance per platform. Pause/resume and delete work from desktop; <em>restart</em> isn\'t exposed by the backend, and <em>configure</em> always starts from a blank form (no settings prefill).</div>';
+    this.headerEl.appendChild(limits);
   }
 
   const tabs = [
@@ -468,7 +698,8 @@ BotsView.prototype.renderTable = function () {
   });
 
   const view = this;
-  const findBot = (id) => view.deployedBots.find((b) => (b.id || (b.company_id + '|' + b.platform + '|' + b.instance_id)) === id);
+  const findBot = (id) => view.deployedBots.find((b) =>
+    (b.id || ((b.company_id || 'server') + '|' + b.platform + '|' + (b.instance_id || 'default'))) === id);
   this.tableEl.querySelectorAll('button[data-action]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const b = findBot(btn.dataset.id);
@@ -482,25 +713,32 @@ BotsView.prototype.renderTable = function () {
 };
 
 BotsView.prototype.rowHtml = function (b) {
-  const id = b.id || (b.company_id + '|' + b.platform + '|' + b.instance_id);
+  const id = b.id || ((b.company_id || 'server') + '|' + b.platform + '|' + (b.instance_id || 'default'));
   const bucket = this.statusBucket(b);
   const statusClass = bucket === 'running' ? 'bt-pill-good' :
                        bucket === 'paused'  ? 'bt-pill-warn' :
                        bucket === 'error'   ? 'bt-pill-bad'  : 'bt-pill-mute';
   const platform = (b.platform_name || b.platform || '');
-  const instance = (b.instance_name || b.instance_id || 'default');
+  const isServer = b._scope === 'server';
+  const instance = isServer ? 'server-wide' : (b.instance_name || b.instance_id || 'default');
+  const company = isServer ? '<span class="bt-faint">Server</span>' : escapeB(b.company_name || '');
   const agent = b.agent_name || '<span class="bt-faint">—</span>';
   const started = b.started_at ? formatRelativeB(b.started_at) : '<span class="bt-faint">—</span>';
   const actions = [];
-  actions.push('<button data-action="' + (b.is_paused ? 'pause' : 'pause') + '" data-id="' + escapeB(id) + '">' + (b.is_paused ? 'Resume' : 'Pause') + '</button>');
-  actions.push('<button data-action="restart" data-id="' + escapeB(id) + '">Restart</button>');
-  actions.push('<button data-action="config" data-id="' + escapeB(id) + '">Configure</button>');
+  actions.push('<button data-action="pause" data-id="' + escapeB(id) + '">' + (b.is_paused ? 'Resume' : 'Pause') + '</button>');
+  // Server bots don't expose restart/configure endpoints; only show
+  // Restart/Configure for company-scope rows so the buttons match what
+  // the backend can actually do.
+  if (!isServer) {
+    actions.push('<button data-action="restart" data-id="' + escapeB(id) + '">Restart</button>');
+    actions.push('<button data-action="config" data-id="' + escapeB(id) + '">Configure</button>');
+  }
   actions.push('<button class="danger" data-action="delete" data-id="' + escapeB(id) + '">Delete</button>');
 
   return '<tr>' +
     '<td><span class="bt-platform">' + escapeB(platform) + '</span></td>' +
     '<td>' + escapeB(instance) + '</td>' +
-    '<td>' + escapeB(b.company_name || '') + '</td>' +
+    '<td>' + company + '</td>' +
     '<td>' + (typeof agent === 'string' && agent.indexOf('<') === 0 ? agent : escapeB(agent)) + '</td>' +
     '<td><span class="bt-pill ' + statusClass + '">' + escapeB(bucket) + '</span>' +
       (b.error ? '<div class="bt-error-detail" title="' + escapeB(b.error) + '">' + escapeB(truncB(b.error, 50)) + '</div>' : '') +
@@ -518,18 +756,50 @@ BotsView.prototype.renderPlatforms = function () {
   const head = document.createElement('div'); head.className = 'bt-card-head';
   const title = document.createElement('div'); title.className = 'bt-card-title'; title.textContent = 'Available platforms';
   const desc = document.createElement('div'); desc.className = 'bt-card-desc';
-  desc.textContent = 'Click any platform below to start a new deployment.';
+  desc.textContent = 'Click any platform below to start a new deployment. OAuth platforms need a connected provider before deployment will succeed.';
   head.appendChild(title); head.appendChild(desc);
   card.appendChild(head);
   const body = document.createElement('div'); body.className = 'bt-card-body bt-platform-grid';
   const view = this;
   for (const p of this.platforms) {
-    const item = document.createElement('div'); item.className = 'bt-platform-item';
-    item.innerHTML = '<div class="bt-platform-name">' + escapeB(p.name) + '</div>' +
-      '<div class="bt-platform-desc">' + escapeB(p.description || '') + '</div>' +
-      (p.uses_oauth ? '<div class="bt-platform-tag">OAuth: ' + escapeB(p.oauth_provider_display || p.oauth_provider || '') + '</div>' : '');
-    item.style.cursor = 'pointer';
-    item.addEventListener('click', () => view._configureBot(p, view.ctx.companyId, 'new', null, {}, null));
+    const needsOAuth = !!p.uses_oauth;
+    const hasConn = view.hasOAuthConnection(p);
+    const item = document.createElement('div');
+    item.className = 'bt-platform-item' + (needsOAuth && !hasConn ? ' bt-platform-needs-oauth' : '');
+    const providerLabel = p.oauth_provider_display || p.oauth_provider || '';
+    const oauthBadge = needsOAuth
+      ? (hasConn
+          ? '<span class="bt-platform-tag bt-platform-tag-ok">✓ ' + escapeB(providerLabel) + ' connected</span>'
+          : '<span class="bt-platform-tag bt-platform-tag-warn">⚠ ' + escapeB(providerLabel) + ' not connected</span>')
+      : '';
+    const setupLink = p.setup_url
+      ? '<a class="bt-platform-link" href="' + escapeB(p.setup_url) + '" target="_blank" rel="noopener">Setup guide ↗</a>'
+      : '';
+    item.innerHTML = '<div class="bt-platform-name">' + escapeB(p.name) + '</div>'
+      + '<div class="bt-platform-desc">' + escapeB(p.description || '') + '</div>'
+      + oauthBadge
+      + '<div class="bt-platform-actions">'
+      + '<button class="bt-platform-btn" data-action="deploy">' + (needsOAuth && !hasConn ? 'Configure' : 'Deploy') + '</button>'
+      + (needsOAuth && !hasConn
+          ? '<button class="bt-platform-btn bt-platform-btn-primary" data-action="connect">Connect ' + escapeB(providerLabel || 'provider') + '</button>'
+          : '')
+      + setupLink
+      + '</div>';
+    item.querySelector('[data-action="deploy"]').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const deployScope = view.scope === 'server' && view.canUseScope('server') ? 'server' : 'company';
+      const companyId = deployScope === 'company'
+        ? (view.ctx.companyId || (view.companies[0] && view.companies[0].id) || '')
+        : '';
+      view._configureBot(p, companyId, 'new', null, {}, null, deployScope);
+    });
+    const connectBtn = item.querySelector('[data-action="connect"]');
+    if (connectBtn) {
+      connectBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        view.openConnectionSettings(p);
+      });
+    }
     body.appendChild(item);
   }
   card.appendChild(body);
@@ -595,11 +865,47 @@ BotsView.prototype.injectStyles = function () {
     .bt-card-title { font-weight: 600; font-size: 13.5px; }
     .bt-card-desc { font-size: 12px; color: var(--text-faint); margin-top: 3px; }
     .bt-card-body { padding: 16px 18px; }
-    .bt-platform-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
-    .bt-platform-item { padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--bt-border); border-radius: 8px; }
+    .bt-platform-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+    .bt-platform-item { padding: 12px 14px; background: var(--panel-2); border: 1px solid var(--bt-border); border-radius: 8px; display: flex; flex-direction: column; gap: 6px; transition: border-color 120ms ease; }
+    .bt-platform-item:hover { border-color: color-mix(in srgb, var(--accent) 25%, var(--bt-border)); }
+    .bt-platform-needs-oauth { border-color: color-mix(in srgb, #ffb774 30%, var(--bt-border)); }
     .bt-platform-name { font-weight: 600; font-size: 13px; text-transform: capitalize; }
-    .bt-platform-desc { font-size: 11.5px; color: var(--text-faint); margin-top: 4px; }
-    .bt-platform-tag { font-size: 10.5px; color: var(--text-dim); margin-top: 6px; padding: 2px 6px; background: var(--panel); border: 1px solid var(--bt-border); border-radius: 999px; display: inline-block; }
+    .bt-platform-desc { font-size: 11.5px; color: var(--text-faint); }
+    .bt-platform-tag { font-size: 10.5px; color: var(--text-dim); padding: 2px 8px; background: var(--panel); border: 1px solid var(--bt-border); border-radius: 999px; display: inline-block; align-self: flex-start; }
+    .bt-platform-tag-ok { color: #5dd28f; border-color: rgba(94, 210, 143, 0.34); background: rgba(94, 210, 143, 0.14); }
+    .bt-platform-tag-warn { color: #ffb774; border-color: rgba(255, 183, 116, 0.4); background: rgba(255, 183, 116, 0.12); }
+    .bt-platform-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+    .bt-platform-btn { font-size: 11.5px; padding: 5px 12px; border-radius: 6px; background: var(--panel); color: var(--text); border: 1px solid var(--bt-border); cursor: pointer; font-weight: 500; }
+    .bt-platform-btn:hover { background: var(--panel-2); border-color: color-mix(in srgb, var(--accent) 30%, var(--bt-border)); }
+    .bt-platform-btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .bt-platform-btn-primary:hover { filter: brightness(1.1); background: var(--accent); }
+    .bt-platform-link { font-size: 11px; color: var(--accent); text-decoration: none; margin-left: auto; }
+    .bt-platform-link:hover { text-decoration: underline; }
+
+    /* Scope tabs — Company / Server */
+    .bt-scope-tabs { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--bt-border); background: var(--panel-2); border-radius: 8px; align-self: flex-start; }
+    .bt-scope-tab { appearance: none; border: 0; background: transparent; color: var(--text-dim); font-family: inherit; font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background 140ms ease, color 140ms ease; }
+    .bt-scope-tab:hover:not(:disabled) { color: var(--text); background: var(--panel-hover); }
+    .bt-scope-tab.is-active { color: #fff; background: var(--accent); }
+    .bt-scope-tab:disabled,
+    .bt-scope-tab.is-locked { opacity: 0.45; cursor: not-allowed; }
+    .bt-scope-tab.is-locked::after { content: "🔒"; font-size: 10px; margin-left: 2px; }
+
+    /* Inline note explaining server-scope limitations. Matches the
+       overall info-banner styling used elsewhere (e.g. payment-banner
+       in user-settings) without pulling in another component. */
+    .bt-scope-note {
+      display: flex; gap: 10px; align-items: flex-start;
+      padding: 10px 12px; margin-top: 4px;
+      background: color-mix(in srgb, #8bc7ff 8%, var(--panel-2));
+      border: 1px solid color-mix(in srgb, #8bc7ff 30%, var(--bt-border));
+      border-radius: 8px;
+      color: var(--text-dim);
+      font-size: 12px; line-height: 1.5;
+    }
+    .bt-scope-note svg { flex: 0 0 auto; color: #8bc7ff; margin-top: 1px; }
+    .bt-scope-note strong { color: var(--text); }
+    .bt-scope-note em { color: var(--text-dim); font-style: normal; font-weight: 600; }
   `;
   const tag = document.createElement('style'); tag.id = 'bt-styles'; tag.textContent = css; document.head.appendChild(tag);
 };

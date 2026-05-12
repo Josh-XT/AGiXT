@@ -188,6 +188,9 @@
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch (_) { data = text; }
     if (!resp.ok) {
+      if (window.AgixtSession && typeof window.AgixtSession.routeFailureStatus === 'function') {
+        try { await window.AgixtSession.routeFailureStatus(resp.status, data); } catch (_) {}
+      }
       const err = new Error(data && data.detail ? data.detail : 'HTTP ' + resp.status);
       err.status = resp.status;
       throw err;
@@ -207,6 +210,17 @@
 
   CrudView.prototype.refresh = async function () {
     const tab = this.activeTab();
+    // Custom-render tabs skip the list fetch entirely — the renderer
+    // is responsible for its own data loading inside its panel. This
+    // lets dashboard-shaped surfaces (status cards, multi-source
+    // grids) live next to row-shaped tabs in the same extension
+    // without forcing them through the table layout.
+    if (typeof tab.customRender === 'function') {
+      this.loading = false;
+      this.error = null;
+      this.renderData();
+      return;
+    }
     this.loading = true;
     this.error = null;
     this.renderData();
@@ -240,8 +254,30 @@
   CrudView.prototype.renderData = function () {
     if (!this.tableEl) return;
     this.renderError();
-    this.renderSummary();
     const tab = this.activeTab();
+    if (typeof tab.customRender === 'function') {
+      // Suppress the summary strip — the custom renderer paints its
+      // own status surface and the generic numbers would just be
+      // duplicate visual noise.
+      if (this.summaryEl) this.summaryEl.innerHTML = '';
+      this.tableEl.innerHTML = '';
+      const helpers = {
+        fetchJson: (p, o) => this.fetchJson(p, o),
+        refresh: () => this.refresh(),
+        ctx: this.ctx,
+        tab,
+        openSidenavView: (id) => {
+          if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
+            window.AgixtSidenav.setActiveView(id);
+          }
+        },
+      };
+      const out = tab.customRender(this.tableEl, helpers);
+      if (out instanceof Node) this.tableEl.appendChild(out);
+      else if (typeof out === 'string') this.tableEl.innerHTML = out;
+      return;
+    }
+    this.renderSummary();
     if (this.loading) {
       this.tableEl.innerHTML = renderSkeleton(tab);
       return;
@@ -407,6 +443,58 @@
     const tab = this.activeTab();
     const title = (tab.singular ? title2(tab.singular) : 'Details');
     const subtitle = primaryLabelFor(row);
+    const close = () => { this.detailEl.hidden = true; this.detailEl.innerHTML = ''; };
+
+    // Custom detail renderer hook — when an extension supplies
+    // `detailRenderer(row, helpers)`, we hand the body over to it
+    // entirely. The helpers object exposes the things a workflow detail
+    // typically needs (close, refresh, fetchJson, openForm, runAction)
+    // so the renderer doesn't have to reach into CrudView internals.
+    if (typeof tab.detailRenderer === 'function') {
+      const helpers = {
+        close,
+        refresh: () => this.refresh(),
+        fetchJson: (path, opts) => this.fetchJson(path, opts),
+        openEdit: () => { close(); this.openForm('edit', row); },
+        openForm: (mode, r) => this.openForm(mode || 'edit', r || row),
+        runAction: (actionId) => {
+          const action = (tab.actions || []).find((a) => a.id === actionId);
+          if (action) this.runAction(action, row);
+        },
+        ctx: this.ctx,
+        tab: tab,
+      };
+      this.detailEl.hidden = false;
+      this.detailEl.innerHTML = [
+        '<div class="dc-detail-head">',
+        '  <div class="dc-detail-titles">',
+        '    <div class="dc-detail-eyebrow">' + esc(title) + '</div>',
+        '    <h3 class="dc-detail-title">' + esc(subtitle || 'Detail') + '</h3>',
+        '  </div>',
+        '  <div class="dc-detail-actions">',
+        '    <button type="button" class="dc-icon-btn" data-detail-action="close" title="Close">' + closeIcon() + '</button>',
+        '  </div>',
+        '</div>',
+        '<div class="dc-detail-body" data-role="detail-body"></div>',
+      ].join('');
+      this.detailEl.querySelector('[data-detail-action="close"]').addEventListener('click', close);
+      const body = this.detailEl.querySelector('[data-role="detail-body"]');
+      const rendered = tab.detailRenderer(row, helpers);
+      if (rendered instanceof Node) body.appendChild(rendered);
+      else if (typeof rendered === 'string') body.innerHTML = rendered;
+      else if (rendered && typeof rendered.then === 'function') {
+        body.innerHTML = '<div class="dc-empty-inline">Loading…</div>';
+        rendered.then((r) => {
+          body.innerHTML = '';
+          if (r instanceof Node) body.appendChild(r);
+          else if (typeof r === 'string') body.innerHTML = r;
+        }).catch((err) => {
+          body.innerHTML = '<div class="dc-error">' + esc((err && err.message) || 'Failed to load detail.') + '</div>';
+        });
+      }
+      return;
+    }
+
     const fields = detailFields(row, tab);
     const kv = fields.map((f) => (
       '<div class="dc-kv-row">'
@@ -431,7 +519,6 @@
       kv ? '<div class="dc-kv">' + kv + '</div>' : '<div class="dc-empty-inline">No fields to display.</div>',
       '</div>',
     ].join('');
-    const close = () => { this.detailEl.hidden = true; this.detailEl.innerHTML = ''; };
     this.detailEl.querySelector('[data-detail-action="close"]').addEventListener('click', close);
     const editBtn = this.detailEl.querySelector('[data-detail-action="edit"]');
     if (editBtn) editBtn.addEventListener('click', () => { close(); this.openForm('edit', row); });

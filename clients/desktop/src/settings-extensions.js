@@ -387,8 +387,12 @@
     if (customConnectInflight[raw]) return customConnectInflight[raw];
     const ctx = window.AgixtAppContext && window.AgixtAppContext();
     if (!ctx) return Promise.resolve(null);
+    const requestPath = withAgentParam(cfg.statusPath);
     const url = (ctx.serverUrl || '').replace(/\/+$/, '') + withAgentParam(cfg.statusPath);
-    const p = fetch(url, { headers: { Authorization: 'Bearer ' + ctx.jwt } })
+    const fetcher = window.AgixtSession && typeof window.AgixtSession.fetch === 'function'
+      ? window.AgixtSession.fetch(requestPath, { headers: { Authorization: 'Bearer ' + ctx.jwt } })
+      : fetch(url, { headers: { Authorization: 'Bearer ' + ctx.jwt } });
+    const p = fetcher
       .then((r) => r.ok ? r.json() : null)
       .then((s) => { customConnectStatus[raw] = s || null; return s; })
       .catch(() => { customConnectStatus[raw] = null; return null; })
@@ -498,16 +502,19 @@
   async function audibleFetch(path, init) {
     const ctx = window.AgixtAppContext && window.AgixtAppContext();
     if (!ctx) throw new Error('No AGiXT context available');
-    const url = (ctx.serverUrl || '').replace(/\/+$/, '') + withAgentParam(path);
+    const requestPath = withAgentParam(path);
+    const url = (ctx.serverUrl || '').replace(/\/+$/, '') + requestPath;
     const opts = Object.assign({}, init || {});
     opts.headers = Object.assign(
       { Authorization: 'Bearer ' + ctx.jwt },
       (opts.body && !(opts.headers && opts.headers['Content-Type']))
         ? { 'Content-Type': 'application/json' }
-        : {},
+      : {},
       opts.headers || {},
     );
-    const r = await fetch(url, opts);
+    const r = window.AgixtSession && typeof window.AgixtSession.fetch === 'function'
+      ? await window.AgixtSession.fetch(requestPath, opts)
+      : await fetch(url, opts);
     if (!r.ok) {
       let detail = '';
       try { detail = JSON.stringify(await r.json()); }

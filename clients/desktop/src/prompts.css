@@ -123,9 +123,9 @@
   border-color: color-mix(in srgb, #b29dff 30%, transparent);
 }
 
-/* Category chip — placeholder for the upcoming category management
-   feature. Looks like a slightly muted pill that surfaces the active
-   category alongside the scope badge. */
+/* Category chip — surfaces the active category alongside the scope
+   badge. Interactive: a tiny <select> + add/delete actions for company
+   and server scopes. */
 .pl-category-chip {
   display: inline-flex;
   align-items: center;
@@ -140,6 +140,248 @@
   line-height: 1.55;
 }
 .pl-category-chip-icon { display: inline-flex; align-items: center; opacity: 0.85; }
+
+.pl-category-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 4px 1px 8px;
+  line-height: 1.4;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.pl-category-selector:hover {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: color-mix(in srgb, var(--accent) 4%, var(--panel-2));
+}
+.pl-category-selector .pl-category-chip-icon { opacity: 0.85; }
+.pl-category-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 14px 2px 0;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0 center;
+  outline: none;
+  max-width: 180px;
+  text-overflow: ellipsis;
+}
+.pl-category-select:focus { color: var(--text); }
+.pl-category-action {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-faint);
+  padding: 2px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms ease, color 120ms ease;
+}
+.pl-category-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text);
+}
+.pl-category-action-danger:hover:not(:disabled) {
+  background: rgba(255, 110, 110, 0.18);
+  color: #ffb4ba;
+}
+.pl-category-action:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* List toolbar category bar — wraps under the search input and gives
+   users a hop-between-categories affordance without opening a prompt.
+   Empty in user scope unless multiple categories exist (Default alone
+   is noise). */
+.pl-category-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 12px 8px 12px;
+  border-bottom: 1px solid var(--border-muted);
+}
+.pl-category-bar:empty { display: none; padding: 0; border-bottom: 0; }
+.pl-category-pill {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  max-width: 100%;
+}
+.pl-category-pill:hover {
+  color: var(--text);
+  background: var(--panel);
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+}
+.pl-category-pill.is-active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.pl-category-pill-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+.pl-category-pill-count {
+  background: color-mix(in srgb, #fff 24%, transparent);
+  color: #fff;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0 6px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.pl-category-bar-new {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+  margin-left: 2px;
+}
+.pl-category-bar-new:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel-2));
+  border-color: var(--accent);
+}
+
+.pl-list-item-category {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-faint);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+/* "New category" modal — reused by handleCreateCategory. */
+.pl-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 24px;
+}
+.pl-modal {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+.pl-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pl-modal-title { margin: 0; font-size: 15px; font-weight: 700; }
+.pl-modal-desc { margin: 0; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+.pl-modal-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin-top: 4px;
+}
+.pl-modal-input {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+}
+.pl-modal-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(107, 123, 255, 0.18); }
+.pl-modal-x {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.pl-modal-x:hover { color: var(--text); }
+.pl-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+.pl-modal-cancel,
+.pl-modal-submit {
+  appearance: none;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: filter 120ms ease, background 120ms ease;
+}
+.pl-modal-cancel {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.pl-modal-cancel:hover { background: var(--panel); }
+.pl-modal-submit {
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid var(--accent);
+}
+.pl-modal-submit:hover { filter: brightness(1.08); }
 
 .pl-toast {
   position: fixed;

@@ -350,14 +350,31 @@ class ReposView {
   }
 
   async apiGet(path) {
+    // Prefer the session-aware path so 401/402/5xx route through the
+    // desktop session handlers like every other extension does.
+    if (this.ctx && typeof this.ctx.fetchJson === 'function') {
+      return this.ctx.fetchJson(path);
+    }
+    if (window.AgixtSession && typeof window.AgixtSession.request === 'function') {
+      return window.AgixtSession.request(path);
+    }
     const resp = await fetch(this.url(path), { headers: this.authHeaders() });
     if (!resp.ok) {
+      if (window.AgixtSession && typeof window.AgixtSession.routeFailureStatus === 'function') {
+        try { await window.AgixtSession.routeFailureStatus(resp.status, null); } catch (_) {}
+      }
       throw new Error('HTTP ' + resp.status);
     }
     return resp.json();
   }
 
   async apiPost(path, body) {
+    if (this.ctx && typeof this.ctx.fetchJson === 'function') {
+      return this.ctx.fetchJson(path, { method: 'POST', json: body || {} });
+    }
+    if (window.AgixtSession && typeof window.AgixtSession.request === 'function') {
+      return window.AgixtSession.request(path, { method: 'POST', json: body || {} });
+    }
     const resp = await fetch(this.url(path), {
       method: 'POST',
       headers: this.authHeaders({ 'Content-Type': 'application/json' }),
@@ -365,6 +382,9 @@ class ReposView {
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
+      if (window.AgixtSession && typeof window.AgixtSession.routeFailureStatus === 'function') {
+        try { await window.AgixtSession.routeFailureStatus(resp.status, data); } catch (_) {}
+      }
       throw new Error(data.detail || data.error || ('HTTP ' + resp.status));
     }
     return data;
@@ -1111,23 +1131,36 @@ class ReposView {
       host.textContent = originalText;
     };
 
+    // Use the session-aware fetch helper so 401/402/5xx route through
+    // the desktop session handlers, then fall back to the raw fetch
+    // path with explicit routeFailureStatus on error.
     let resp;
+    let data = {};
     try {
-      resp = await fetch(this.url(path), {
-        method: 'POST',
-        headers: this.authHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
-        body: '{}',
-      });
+      if (window.AgixtSession && typeof window.AgixtSession.fetch === 'function') {
+        resp = await window.AgixtSession.fetch(path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: '{}',
+        });
+      } else {
+        resp = await fetch(this.url(path), {
+          method: 'POST',
+          headers: this.authHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
+          body: '{}',
+        });
+      }
     } catch (err) {
       restoreButton();
       alert(`Failed to start: ${err && err.message ? err.message : err}`);
       return;
     }
-
-    let data = {};
     try { data = await resp.json(); } catch (_) {}
 
     if (!resp.ok || data.error) {
+      if (window.AgixtSession && typeof window.AgixtSession.routeFailureStatus === 'function') {
+        try { await window.AgixtSession.routeFailureStatus(resp.status, data); } catch (_) {}
+      }
       restoreButton();
       const msg = data.error || `HTTP ${resp.status}`;
       alert(`Failed to start: ${msg}`);

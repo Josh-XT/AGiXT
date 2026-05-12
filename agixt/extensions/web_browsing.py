@@ -1,4 +1,5 @@
 from typing import List, Union
+from urllib.parse import urlparse
 import logging
 import subprocess
 import uuid
@@ -151,6 +152,7 @@ pytesseract = _import_optional("pytesseract", "pytesseract")
 Image = _import_optional("PIL.Image", "Pillow")
 
 from Extensions import Extensions
+from XT import is_safe_url
 import xml.etree.ElementTree as ET
 
 # Configure logging
@@ -211,6 +213,7 @@ class web_browsing(Extensions):
         self.page = None
         self.popup = None
         self._cleanup_attempted = False  # Track cleanup attempts
+        self._ssrf_guarded_context = None
 
     def __del__(self):
         """Destructor to ensure cleanup on garbage collection"""
@@ -379,6 +382,50 @@ class web_browsing(Extensions):
             logging.error(f"Web search error: {e}")
             return f"Error performing web search: {str(e)}"
 
+    def _normalize_navigation_url(self, url: str) -> str:
+        """Normalize user-supplied navigation URLs before SSRF validation."""
+        url = (url or "").strip().replace("\\", "/")
+        if not url:
+            return url
+        parsed = urlparse(url)
+        if not parsed.scheme:
+            url = f"https://{url}"
+        return url
+
+    def _is_safe_browser_request_url(self, url: str) -> bool:
+        """
+        Return whether a browser request URL is safe to send over the network.
+
+        Browser-internal schemes do not connect to another host, while http(s)
+        requests go through the shared SSRF guard.
+        """
+        normalized_url = (url or "").strip().replace("\\", "/")
+        parsed = urlparse(normalized_url)
+        if parsed.scheme in ("about", "blob", "chrome-error", "data"):
+            return True
+        return is_safe_url(normalized_url)
+
+    async def _abort_unsafe_browser_route(self, route) -> bool:
+        """Abort a Playwright route when it targets an unsafe network URL."""
+        request_url = route.request.url
+        if self._is_safe_browser_request_url(request_url):
+            return False
+        logging.warning("Blocked browser request by SSRF protection: %s", request_url)
+        await route.abort(error_code="blockedbyclient")
+        return True
+
+    async def _ssrf_guard_route_handler(self, route):
+        if await self._abort_unsafe_browser_route(route):
+            return
+        await route.continue_()
+
+    async def _enable_browser_ssrf_protection(self):
+        """Install SSRF protection for every request in the active context."""
+        if self.context is None or self._ssrf_guarded_context is self.context:
+            return
+        await self.context.route("**/*", self._ssrf_guard_route_handler)
+        self._ssrf_guarded_context = self.context
+
     async def _ensure_browser_page(self, headless: bool = True):
         """Internal helper to ensure Playwright, browser, context, and page are initialized."""
         try:
@@ -436,6 +483,7 @@ class web_browsing(Extensions):
                     device_scale_factor=1,
                     has_touch=False,
                     is_mobile=False,
+                    service_workers="block",
                     extra_http_headers={
                         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
                         "Accept-Language": "en-US,en;q=0.9",
@@ -450,6 +498,7 @@ class web_browsing(Extensions):
                         "Cache-Control": "max-age=0",
                     },
                 )
+                await self._enable_browser_ssrf_protection()
 
                 # Apply playwright-stealth's full bundle of fingerprint
                 # patches to the context. This single call replaces dozens
@@ -1315,6 +1364,12 @@ What key information should be remembered from this content?"""
                 "curl_cffi is not installed; cannot use browser-TLS fallback."
             )
             return None
+        url = self._normalize_navigation_url(url)
+        if not is_safe_url(url):
+            logging.warning(
+                "Blocked browser-TLS fallback fetch by SSRF protection: %s", url
+            )
+            return None
         try:
             # Run the (synchronous) curl_cffi call off the event loop so we
             # don't block other navigation work that may be happening.
@@ -1325,6 +1380,7 @@ What key information should be remembered from this content?"""
                     url,
                     impersonate="chrome131",
                     timeout=30,
+                    allow_redirects=False,
                     headers={
                         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                         "Accept-Language": "en-US,en;q=0.9",
@@ -1381,9 +1437,9 @@ What key information should be remembered from this content?"""
             str: A confirmation message indicating success or an error message.
         """
         try:
-            if not url.startswith("http"):
-                url = "https://" + url
-                logging.info(f"Assuming HTTPS for URL: {url}")
+            url = self._normalize_navigation_url(url)
+            if not is_safe_url(url):
+                return "Error navigating to URL: URL blocked by SSRF protection."
 
             await self._ensure_browser_page(headless=headless)
 
@@ -1405,6 +1461,10 @@ What key information should be remembered from this content?"""
                     logging.info(
                         f"Successfully navigated to {current_url} using {wait_strategy}"
                     )
+
+                    if current_url and current_url != "about:blank":
+                        if not is_safe_url(current_url):
+                            return "Error navigating to URL: Final URL blocked by SSRF protection."
 
                     # Additional validation - ensure we actually got to a page
                     if current_url and current_url != "about:blank":
@@ -2419,7 +2479,10 @@ What key information should be remembered from this content?"""
                 await self.context.close()
 
             # Create new context with device parameters
-            self.context = await self.browser.new_context(**device)
+            self.context = await self.browser.new_context(
+                **device, service_workers="block"
+            )
+            await self._enable_browser_ssrf_protection()
             self.page = (
                 await self.context.new_page()
             )  # Open a new page in the emulated context
@@ -2585,6 +2648,8 @@ What key information should be remembered from this content?"""
         )
 
         async def route_handler(route):
+            if await self._abort_unsafe_browser_route(route):
+                return
             request = route.request
             should_handle = False
             if isinstance(url_pattern, re.Pattern):
@@ -4136,8 +4201,7 @@ Current Page Content Snippet (for context):
         if not task:
             return "Error: Task description must be provided."
 
-        if not url.startswith("http"):
-            url = "https://" + url
+        url = self._normalize_navigation_url(url)
 
         # Initialize browser if needed, navigate to start URL
         try:

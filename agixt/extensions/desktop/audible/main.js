@@ -263,6 +263,12 @@ AudibleView.prototype.fetchJson = async function (path, params, opts) {
       e.code = 'audible_auth_required';
       throw e;
     }
+    // Plain 401 (not audible-auth-related) means the AGiXT JWT itself
+    // expired — route through the session handler so the user lands
+    // back at auth instead of seeing a stuck error.
+    if (window.AgixtSession && typeof window.AgixtSession.routeFailureStatus === 'function') {
+      try { await window.AgixtSession.routeFailureStatus(401, body); } catch (_) {}
+    }
     const t = JSON.stringify(detail || body || '');
     throw new Error(`${r.status} ${r.statusText}: ${t.slice(0, 240)}`);
   }
@@ -274,6 +280,11 @@ AudibleView.prototype.fetchJson = async function (path, params, opts) {
   }
   if (!r.ok) {
     const t = await r.text().catch(() => '');
+    // Surface 402 / 5xx to the desktop session handler so billing/
+    // server-issue overlays still trigger from this extension.
+    if (window.AgixtSession && typeof window.AgixtSession.routeFailureStatus === 'function') {
+      try { await window.AgixtSession.routeFailureStatus(r.status, t); } catch (_) {}
+    }
     throw new Error(`${r.status} ${r.statusText}: ${t.slice(0, 240)}`);
   }
   return r.json();
@@ -282,7 +293,12 @@ AudibleView.prototype.fetchJson = async function (path, params, opts) {
 AudibleView.prototype.fetchBlob = async function (path, params) {
   const url = this.apiUrl(path, params);
   const r = await fetch(url, { headers: { Authorization: 'Bearer ' + this.ctx.jwt } });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  if (!r.ok) {
+    if (window.AgixtSession && typeof window.AgixtSession.routeFailureStatus === 'function') {
+      try { await window.AgixtSession.routeFailureStatus(r.status, null); } catch (_) {}
+    }
+    throw new Error(`${r.status} ${r.statusText}`);
+  }
   return r.blob();
 };
 

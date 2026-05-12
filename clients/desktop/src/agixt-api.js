@@ -257,16 +257,20 @@
   /** DELETE /v1/agent/{id}/memories/external_source — remove a source. */
   async function deleteSource(agentId, source) {
     const base = await apiBase();
-    const url = base + '/v1/agent/' + encodeURIComponent(agentId) + '/memories/external_source';
+    const path = '/v1/agent/' + encodeURIComponent(agentId) + '/memories/external_source';
+    const url = base + path;
     const headers = await authHeaders({ 'Content-Type': 'application/json' });
-    const resp = await fetch(url, {
+    const init = {
       method: 'DELETE',
       headers,
       body: JSON.stringify({
         external_source: source,
         collection_number: '0',
       }),
-    });
+    };
+    const resp = window.AgixtSession && typeof window.AgixtSession.fetch === 'function'
+      ? await window.AgixtSession.fetch(path, init)
+      : await fetch(url, init);
     if (!resp.ok) throw await parseError(resp);
     return null;
   }
@@ -1034,6 +1038,31 @@
     });
   }
 
+  /** POST /v1/chain/{name_or_id}/clone — clone a parent-tier (company/server)
+   *  chain into the user's own scope so they can edit/run it freely.
+   *
+   *  The backend's clone endpoint resolves user/default ChainDB ids
+   *  through `get_chain_by_id`, and falls back to
+   *  `get_chain_with_tiered_resolution(name)` for company/server chains.
+   *  That fallback resolves *by name*, not by id, so for shared scopes
+   *  we must pass the chain's display name. For user scope, the id
+   *  works (and matches what the rest of the chain editor already uses).
+   *
+   *  Returns {message, id} where id is the new user-level chain id. */
+  async function cloneScopedChain(scope, chainIdOrName) {
+    if (!chainIdOrName) return null;
+    return request('POST', '/v1/chain/' + encodeURIComponent(chainIdOrName) + '/clone');
+  }
+
+  /** Run a chain. The desktop chain editor only supports running user-tier
+   *  chains directly — the backend's `/v1/chain/{id}/run` resolves only
+   *  user/default ChainDB rows and `XT.execute_chain` reads through the
+   *  user's `Chain.get_chain`. Callers should clone shared chains to
+   *  user scope before invoking this. */
+  async function runScopedChain(scope, chainIdOrName, opts) {
+    return runChain(chainIdOrName, opts);
+  }
+
   function scopedChainBase(scope) {
     if (scope === 'server') return '/v1/server/chain';
     if (scope === 'company') return '/v1/company/chain';
@@ -1234,6 +1263,66 @@
       const data = await request('GET', '/v1/prompt/categories');
       return (data && data.categories) || data || [];
     } catch (_) { return [{ name: 'Default' }]; }
+  }
+
+  function normalizeCategoryRow(c) {
+    if (typeof c === 'string') return { name: c, id: null };
+    return {
+      id: c.id || c.category_id || null,
+      name: c.name || c.category_name || c.category || '',
+      description: c.description || '',
+      is_internal: !!c.is_internal,
+    };
+  }
+
+  /** Scoped category listing — user/company/server. Falls back to a
+   *  single Default category if the server doesn't expose categories
+   *  for the requested scope or the call fails. */
+  async function listScopedPromptCategories(scope) {
+    const target = scope || 'user';
+    try {
+      if (target === 'server') {
+        const data = await request('GET', '/v1/server/prompt/categories');
+        return ((data && data.categories) || data || []).map(normalizeCategoryRow);
+      }
+      if (target === 'company') {
+        const data = await request('GET', '/v1/company/prompt/categories');
+        return ((data && data.categories) || data || []).map(normalizeCategoryRow);
+      }
+      return (await listPromptCategories()).map(normalizeCategoryRow);
+    } catch (_) {
+      return [{ name: 'Default', id: null, description: '', is_internal: false }];
+    }
+  }
+
+  /** POST /v1/{scope}/prompt/category?name=...&description=... — create
+   *  a category for company or server scope. User-level categories are
+   *  implicit (a category exists once a prompt uses it) so this is a
+   *  no-op for the user scope. */
+  async function createScopedPromptCategory(scope, name, description) {
+    const target = scope || 'user';
+    const params = '?name=' + encodeURIComponent(name || '')
+      + '&description=' + encodeURIComponent(description || '');
+    if (target === 'server') {
+      return request('POST', '/v1/server/prompt/category' + params);
+    }
+    if (target === 'company') {
+      return request('POST', '/v1/company/prompt/category' + params);
+    }
+    return null;
+  }
+
+  /** DELETE /v1/{scope}/prompt/category/{id} — company/server only. */
+  async function deleteScopedPromptCategory(scope, categoryId) {
+    const target = scope || 'user';
+    if (!categoryId) return null;
+    if (target === 'server') {
+      return request('DELETE', '/v1/server/prompt/category/' + encodeURIComponent(categoryId));
+    }
+    if (target === 'company') {
+      return request('DELETE', '/v1/company/prompt/category/' + encodeURIComponent(categoryId));
+    }
+    return null;
   }
 
   /** GET /v1/prompt/{id}/args — list of arg names referenced in the prompt
@@ -1467,6 +1556,8 @@
     moveChainStep,
     deleteChainStep,
     runChain,
+    runScopedChain,
+    cloneScopedChain,
     listScopedChains,
     getScopedChain,
     createScopedChain,
@@ -1480,6 +1571,9 @@
     listPrompts,
     listScopedPrompts,
     listPromptCategories,
+    listScopedPromptCategories,
+    createScopedPromptCategory,
+    deleteScopedPromptCategory,
     getPromptArgs,
     getCommandArgs,
     // Prompt library

@@ -117,10 +117,26 @@
     }
   }
 
+  // Exposed for extensions that must keep their own raw `fetch` for
+  // binary downloads, multipart uploads, websocket negotiation, etc.
+  // After the response comes back they should call this with the status
+  // and (optional) parsed body so the centralized 401/402/5xx handlers
+  // still run. Returns true if the response status was handled (so the
+  // caller can avoid surfacing a duplicate error toast).
+  async function routeFailureStatus(status, body) {
+    if (status >= 400 && status !== 404) {
+      await handleStatus(status, body);
+      return status === 401 || status === 402 || status === 403
+        || status === 502 || status >= 500;
+    }
+    return false;
+  }
+
   window.AgixtSession = {
     request,
     fetch: fetchWithSession,
     fetchJson: request,
     verifyCurrentSession,
+    routeFailureStatus,
   };
 })();

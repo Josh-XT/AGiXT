@@ -157,6 +157,23 @@
                   <span class="auth-invite-chip-text" id="auth-invite-email-text"></span>
                 </span>
               </div>
+              <div class="auth-invite-warn" id="auth-invite-warn" hidden></div>
+              <div class="auth-invite-actions">
+                <button class="auth-invite-accept" id="auth-invite-accept"
+                        type="button"
+                        title="Continue to sign in or register; the invitation is accepted once you complete auth.">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                       stroke="currentColor" stroke-width="2.4"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M5 12h14M13 5l7 7-7 7"/>
+                  </svg>
+                  <span>Continue with invitation</span>
+                </button>
+                <button class="auth-invite-decline" id="auth-invite-decline"
+                        type="button" title="Decline this invitation">
+                  <span>Decline</span>
+                </button>
+              </div>
             </div>
             <button class="auth-invite-dismiss" id="auth-invite-dismiss"
                     type="button" title="Dismiss invitation"
@@ -947,6 +964,7 @@
                     </span>
                   </button>
                 </div>
+                <div id="pl-category-bar" class="pl-category-bar"></div>
                 <div id="pl-list-scroll" class="pl-list-scroll">
                   <div class="pl-list-empty">Loading prompts…</div>
                 </div>
