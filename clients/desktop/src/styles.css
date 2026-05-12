@@ -3180,3 +3180,2189 @@ body.window-mode.chat-collapsed .chat-resize-handle {
   animation: pulse 0.9s ease-in-out infinite;
   color: var(--accent);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Team chat (Discord-style group chat) pane.
+ * Lives in the chat-screen-main content slot like extensions/chains/etc.
+ * The agent chat pane stays alongside on the side via with-content-pane.
+ * Three sub-columns within the pane:
+ *   .tc-company-rail  — fixed 56px vertical icon strip (companies + DMs)
+ *   .tc-channel-list  — collapsible channel/DM list (-> .tc-channels-collapsed)
+ *   .tc-content       — main message surface (header + scroller + composer)
+ *   .tc-member-list   — collapsible member list (-> .tc-members-collapsed)
+ * ─────────────────────────────────────────────────────────────────────── */
+
+.view-pane-team-chat {
+  background: var(--bg);
+  overflow: hidden;
+}
+.tc-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+/* Company switcher rail (left). Mirrors GroupRail.tsx in style — round
+   icons with active indicator pill on the left edge, vertical list. */
+.tc-company-rail {
+  flex: 0 0 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.tc-company,
+.tc-company-private {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 12px;
+  cursor: pointer;
+  background: var(--panel-2);
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  transition: border-radius 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+.tc-company:hover,
+.tc-company-private:hover {
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+}
+.tc-company.is-active,
+.tc-company-private.is-active {
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+}
+.tc-company.is-active::before,
+.tc-company-private.is-active::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 28px;
+  border-radius: 0 4px 4px 0;
+  background: var(--text);
+}
+.tc-company-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+.tc-company-initials {
+  font-size: 13px;
+  font-weight: 600;
+}
+.tc-company-sep {
+  width: 28px;
+  height: 2px;
+  background: var(--border);
+  border-radius: 1px;
+  margin: 2px 0;
+  flex-shrink: 0;
+}
+.tc-company-list {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.tc-company-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Channel / DM list (collapsible). */
+.tc-channel-list {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  min-width: 0;
+}
+.tc-channel-header {
+  flex: 0 0 auto;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  gap: 6px;
+}
+.tc-channel-header-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tc-channel-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 4px;
+}
+.tc-channel-empty {
+  padding: 12px 10px;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: center;
+}
+.tc-channel-category {
+  padding: 10px 8px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.tc-channel-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+.tc-channel-row:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.tc-channel-row.is-active {
+  background: var(--panel-2);
+  color: var(--text);
+  font-weight: 600;
+}
+.tc-channel-row.has-unread {
+  color: var(--text);
+  font-weight: 600;
+}
+.tc-channel-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+}
+.tc-channel-row.is-active .tc-channel-icon,
+.tc-channel-row.has-unread .tc-channel-icon {
+  color: var(--text);
+}
+.tc-channel-name {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tc-channel-unread {
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tc-channel-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* Collapsed-state re-expand strip — same vocabulary the chains pane
+   uses for its list (.cn-list-collapsed). Wraps the whole channel list
+   so user clicks anywhere to reopen. */
+.tc-channels-collapsed .tc-channel-list { display: none; }
+.tc-channel-collapsed {
+  display: none;
+  flex: 0 0 22px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 0;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  color: var(--text-dim);
+  border: 0;
+  cursor: pointer;
+}
+.tc-channels-collapsed .tc-channel-collapsed { display: flex; }
+.tc-channel-collapsed:hover { color: var(--text); background: var(--panel-2); }
+.tc-channel-collapsed-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Content area (channel header + messages + composer). */
+.tc-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.tc-content-header {
+  flex: 0 0 auto;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  gap: 10px;
+}
+.tc-content-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tc-content-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.tc-content-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tc-messages-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px;
+  position: relative;
+}
+.tc-messages-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 13px;
+  text-align: center;
+  padding: 20px;
+  pointer-events: none;
+}
+/* The CSS `display: flex` above outranks the user-agent `[hidden] {
+   display: none }` rule, so the empty placeholder stayed visible even
+   when the message list was populated. Re-assert hidden here so the
+   toggle in renderMessages() actually takes effect. */
+.tc-messages-empty[hidden] { display: none !important; }
+.tc-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.tc-message {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.tc-message-avatar {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--panel-2);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+}
+.tc-message.is-agent .tc-message-avatar {
+  background: var(--accent);
+  color: #fff;
+}
+.tc-message-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tc-message-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.tc-message-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.tc-message-ts {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.tc-message-body {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+.tc-message-body p { margin: 0 0 6px; }
+.tc-message-body p:last-child { margin-bottom: 0; }
+
+/* Composer. */
+.tc-composer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+.tc-composer-input {
+  flex: 1 1 auto;
+  min-height: 36px;
+  max-height: 132px;
+  resize: none;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.4;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  outline: none;
+}
+.tc-composer-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(107, 123, 255, 0.18);
+}
+.tc-send-btn {
+  flex: 0 0 auto;
+  height: 36px;
+  min-width: 40px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 10px;
+}
+.tc-send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.tc-composer-status {
+  padding: 4px 14px 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--panel);
+}
+.tc-composer-status.is-error { color: #ff8a96; }
+.tc-composer-status:empty { display: none; }
+
+/* Member list (collapsible). */
+.tc-member-list {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  min-width: 0;
+}
+.tc-members-collapsed .tc-member-list { display: none; }
+.tc-member-header {
+  flex: 0 0 auto;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+}
+.tc-member-header-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.tc-member-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 4px;
+}
+.tc-member-empty {
+  padding: 12px 10px;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: center;
+}
+.tc-member-section {
+  padding: 10px 8px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.tc-member-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+}
+.tc-member-row:hover { background: var(--panel-2); }
+.tc-member-avatar {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--panel-2);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+.tc-member-row.is-agent .tc-member-avatar {
+  background: var(--accent);
+  color: #fff;
+}
+.tc-member-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tc-member-name {
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tc-member-row.is-agent .tc-member-name { color: var(--accent); }
+.tc-member-sub {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+/* Shared icon button for tc-* headers. */
+.tc-icon-btn {
+  background: transparent;
+  color: var(--text-dim);
+  border: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.tc-icon-btn:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+/* Toast — bottom-center status overlay (success / error) consistent
+   with the other pane toasts (.cn-toast, .as-toast, .us-toast). */
+.tc-toast {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+}
+.tc-toast.is-error {
+  background: #4a1f1f;
+  color: #ff8a96;
+  border-color: #663030;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Team-chat additions: avatars, reply cards, OG previews, attachments,
+ * emoji autocomplete, GIF picker, modal dialogs, context menus.
+ * Lives below the main team-chat block so it overrides the basic styles
+ * where needed.
+ * ─────────────────────────────────────────────────────────────── */
+
+/* Composite avatar: <img> stacks on top, initials underneath, swap to
+   bot icon for agents. Single positioning context so the gravatar 404
+   fallback reveals the initials seamlessly. */
+.tc-avatar {
+  position: relative;
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--panel-2);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+}
+.tc-avatar.is-agent {
+  background: var(--accent);
+  color: #fff;
+}
+.tc-avatar-initials {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 0;
+}
+.tc-avatar-img {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Override the placeholder .tc-message-avatar block since we render
+   .tc-avatar inside the message wrapper now. */
+.tc-message-avatar { display: none; }
+
+/* Channel header: action row sits to the right of the title. */
+.tc-channel-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* Reply card — appears above the message body when the message is a
+   reply. Curved connector line + hover state to suggest the click
+   scrolls to the original. */
+.tc-reply-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 18px;
+  margin-bottom: 4px;
+  background: var(--panel-2);
+  border-left: 2px solid var(--accent);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+}
+.tc-reply-card:hover { background: rgba(107, 123, 255, 0.08); }
+.tc-reply-author {
+  color: var(--text);
+  font-weight: 600;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.tc-reply-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+}
+.tc-reply-connector { display: none; }
+.tc-message-flash {
+  animation: tc-message-flash-anim 1.4s ease;
+}
+@keyframes tc-message-flash-anim {
+  0%, 100% { background: transparent; }
+  20%, 60% { background: rgba(107, 123, 255, 0.16); }
+}
+
+/* OG previews — small inline cards below the message body. */
+.tc-og-previews {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* Generic OG card. The web's LinkPreview.tsx flips to flex-column
+   the moment there's an image — so a GitHub repo / news article /
+   landing page with an og:image gets the big "image on top, text
+   below" treatment, not a small thumbnail. Text-only links keep a
+   compact horizontal layout. */
+.tc-og-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--text);
+  max-width: 520px;
+  overflow: hidden;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.tc-og-card:hover {
+  background: var(--panel);
+  border-color: var(--accent);
+}
+.tc-og-card-media .tc-og-image,
+.tc-og-card-media .tc-og-video {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 360px;
+  object-fit: contain;
+  background: #000;
+  border-radius: 3px 3px 0 0;
+}
+.tc-og-video { background: #000; }
+.tc-og-meta {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.tc-og-site {
+  font-size: 11px;
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.tc-og-site-icon { display: inline-flex; opacity: 0.7; }
+.tc-og-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tc-og-card:hover .tc-og-title { text-decoration: underline; }
+.tc-og-desc {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Twitter / X-specific card — Discord-style rich tweet embed.
+   Blue left rail in Twitter's brand color, X logo + site name in the
+   header, then author / handle on its own line, the tweet text, and
+   the media (image or video) at the bottom. Maps 1:1 to the web's
+   LinkPreview.tsx isTwitter branch. */
+.tc-og-card-twitter {
+  border-left-color: #1d9bf0;
+  padding: 8px 12px 10px;
+  gap: 0;
+}
+.tc-og-card-twitter .tc-og-tw-head {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  letter-spacing: 0.02em;
+}
+.tc-og-tw-logo { color: var(--text); display: inline-flex; }
+.tc-og-tw-author { margin-top: 4px; }
+.tc-og-tw-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.tc-og-card-twitter:hover .tc-og-tw-name { text-decoration: underline; }
+.tc-og-tw-handle {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.tc-og-tw-text {
+  font-size: 13.5px;
+  color: var(--text);
+  line-height: 1.4;
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.tc-og-tw-image,
+.tc-og-tw-video {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 360px;
+  object-fit: cover;
+  border-radius: 6px;
+  margin-top: 8px;
+  background: #000;
+}
+
+/* Pinned badge in message head. */
+.tc-message-pinned {
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+/* Attachments tray above the composer. */
+.tc-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--panel-2);
+  border-top: 1px solid var(--border);
+}
+.tc-attachments[hidden] { display: none; }
+.tc-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text);
+  max-width: 200px;
+}
+.tc-attach-thumb {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 3px;
+}
+.tc-attach-icon { font-size: 16px; }
+.tc-attach-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+.tc-attach-remove {
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  line-height: 1;
+}
+.tc-attach-remove:hover { color: var(--text); }
+
+/* Composer action buttons (paperclip, GIF) — sized to match the existing
+   icon buttons in the rest of the chat surface. */
+.tc-composer-action {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  margin-top: 2px;
+}
+.tc-gif-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* Reply chip displayed above the composer when a reply is queued. */
+.tc-reply-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--panel-2);
+  border-top: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  font-size: 12px;
+}
+.tc-reply-chip-label {
+  color: var(--text);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.tc-reply-chip-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+}
+.tc-reply-chip-close {
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 4px;
+}
+.tc-reply-chip-close:hover { color: var(--text); }
+
+/* Drop zone visual indicator. */
+.tc-messages-scroll.tc-dropzone-active {
+  outline: 2px dashed var(--accent);
+  outline-offset: -8px;
+  background: rgba(107, 123, 255, 0.05);
+}
+
+/* Emoji autocomplete popover. */
+.tc-emoji-popover {
+  position: absolute;
+  bottom: 100%;
+  left: 8px;
+  margin-bottom: 4px;
+  width: 240px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  z-index: 30;
+}
+.tc-emoji-popover[hidden] { display: none; }
+.tc-emoji-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.tc-emoji-row:hover,
+.tc-emoji-row.is-active { background: var(--panel-2); }
+.tc-emoji-glyph { font-size: 16px; }
+.tc-emoji-code { color: var(--text-dim); }
+
+/* GIF picker popover. */
+.tc-gif-popover {
+  position: absolute;
+  bottom: 100%;
+  right: 8px;
+  margin-bottom: 4px;
+  width: 340px;
+  max-height: 380px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  padding: 8px;
+  z-index: 30;
+}
+.tc-gif-popover[hidden] { display: none; }
+.tc-gif-search {
+  flex: 0 0 auto;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+.tc-gif-search:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.tc-gif-grid {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  overflow-y: auto;
+  min-height: 200px;
+}
+.tc-gif-status {
+  grid-column: 1 / -1;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.tc-gif-cell {
+  border: 0;
+  background: var(--panel-2);
+  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 4px;
+}
+.tc-gif-cell img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.tc-gif-cell:hover { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Context menu (team-chat scoped). Uses the same vocabulary as ctx-menu
+   but with distinct class so we can override per-section appearance. */
+.tc-ctxmenu {
+  position: fixed;
+  min-width: 200px;
+  max-width: 280px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  padding: 4px;
+  z-index: 200;
+}
+.tc-ctxmenu[hidden] { display: none; }
+.tc-ctxmenu-head {
+  padding: 4px 10px 6px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.tc-ctxmenu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 2px;
+}
+.tc-ctxmenu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  font-family: inherit;
+}
+.tc-ctxmenu-item:hover:not(.is-disabled) { background: var(--panel-2); }
+.tc-ctxmenu-item.is-disabled,
+.tc-ctxmenu-item:disabled {
+  color: var(--text-faint, var(--text-dim));
+  cursor: default;
+  opacity: 0.5;
+}
+.tc-ctxmenu-item.is-danger { color: #ff8a96; }
+.tc-ctxmenu-item.is-danger:hover:not(.is-disabled) {
+  background: rgba(255, 138, 150, 0.12);
+  color: #ff8a96;
+}
+
+/* Modal dialog (create/edit channel). */
+.tc-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 150;
+}
+.tc-modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  min-width: 360px;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.tc-modal-header {
+  padding: 12px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+.tc-modal-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tc-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.tc-form-label {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+.tc-form-input {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.tc-form-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.tc-form-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+.tc-btn {
+  padding: 6px 14px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.tc-btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.tc-btn-primary:hover { filter: brightness(1.08); }
+.tc-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.tc-btn-secondary {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
+.tc-btn-secondary:hover { background: var(--panel-2); }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Round 2 parity additions: active pill, presence dots, role icons,
+ * member search, hover toolbar, reactions strip, edit mode, modal tabs.
+ * ─────────────────────────────────────────────────────────────── */
+
+/* Active indicator pill on the company rail — Discord-style white bar
+   anchored to the left edge of the active server icon, growing on hover. */
+.tc-company { position: relative; }
+.tc-company-pill {
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 0;
+  border-radius: 0 4px 4px 0;
+  background: var(--text);
+  transition: height 200ms ease;
+  pointer-events: none;
+}
+.tc-company.is-active .tc-company-pill { height: 28px; }
+.tc-company:hover .tc-company-pill { height: 16px; }
+.tc-company.is-active:hover .tc-company-pill { height: 28px; }
+
+/* "Add server" button at the bottom of the rail. */
+.tc-company-add {
+  background: var(--panel-2);
+  color: var(--text-dim);
+}
+.tc-company-add:hover { background: #10b981; color: #fff; }
+
+/* Channel category — turn it into a button when categories are
+   collapsible. */
+.tc-channel-category-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 8px 4px;
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-align: left;
+}
+.tc-channel-category-btn:hover { color: var(--text); }
+.tc-channel-cat-chev {
+  flex: 0 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tc-channel-cat-label {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tc-channel-cat-unread {
+  flex-shrink: 0;
+  min-width: 16px;
+  height: 14px;
+  padding: 0 4px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Loading state for the channel list. */
+.tc-channel-empty.tc-loading {
+  animation: tc-pulse 1.6s ease-in-out infinite;
+}
+@keyframes tc-pulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+
+/* Bell-off icon for muted channels. */
+.tc-channel-muted {
+  display: inline-flex;
+  margin-left: auto;
+  margin-right: 2px;
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+/* Threads nested under their parent channel. */
+.tc-channel-thread {
+  padding-left: 22px;
+  font-size: 12px;
+}
+
+/* Member-list extras: search bar, presence dots, role icons. */
+.tc-member-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.tc-member-search {
+  flex: 0 0 auto;
+  padding: 6px 8px 4px;
+}
+.tc-member-search input {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  border-radius: 4px;
+  padding: 5px 8px;
+  outline: none;
+}
+.tc-member-search input:focus {
+  border-color: var(--accent);
+}
+.tc-member-avatar-wrap {
+  position: relative;
+  flex: 0 0 28px;
+  /* The avatar img inside .tc-avatar carries z-index: 1 (so it stacks
+     over the initials fallback). Without an explicit z-index here the
+     presence dot — a SIBLING of .tc-avatar — would lose to the avatar
+     img in stacking order and disappear behind it. Lift the wrap into
+     its own stacking context so the dot can render on top. */
+  z-index: 0;
+  isolation: isolate;
+}
+.tc-presence-dot {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(140, 145, 160, 0.5);
+  border: 2px solid var(--panel);
+  box-sizing: content-box;
+  z-index: 2;
+}
+.tc-presence-dot.is-online { background: #10b981; }
+.tc-member-name-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tc-member-role-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.tc-member-name.is-observer {
+  color: var(--text-dim);
+}
+.tc-member-status {
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-style: italic;
+}
+.tc-member-extra { opacity: 0.85; }
+
+/* Hover toolbar above each message — pinned to the message's top-right,
+   only fully visible on hover. */
+.tc-message { position: relative; }
+.tc-msg-toolbar {
+  position: absolute;
+  top: -10px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+  z-index: 4;
+}
+.tc-message:hover .tc-msg-toolbar {
+  opacity: 1;
+  pointer-events: auto;
+}
+.tc-msg-toolbar-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tc-msg-toolbar-btn:hover { background: var(--panel-2); }
+.tc-msg-toolbar-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+/* Reactions strip — rendered below the message body. */
+.tc-reactions-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.tc-reaction-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.tc-reaction-pill:hover { background: var(--panel); border-color: var(--accent); }
+.tc-reaction-pill.is-mine {
+  background: rgba(107, 123, 255, 0.15);
+  border-color: var(--accent);
+}
+.tc-reaction-emoji { line-height: 1; }
+.tc-reaction-count { font-size: 11px; color: var(--text-dim); }
+
+/* "(edited)" label */
+.tc-message-edited {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-left: 4px;
+  font-style: italic;
+}
+
+/* Inline edit mode. */
+.tc-edit-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tc-edit-textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 60px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13.5px;
+  padding: 8px 10px;
+  outline: none;
+}
+.tc-edit-textarea:focus { border-color: var(--accent); }
+.tc-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tc-edit-hint {
+  flex: 1 1 auto;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* Modal tabbed-picker UI. */
+.tc-modal-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.tc-tabbar {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.tc-tab {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.tc-tab:hover { color: var(--text); }
+.tc-tab.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.tc-tab-icon { display: inline-flex; }
+.tc-tab-panels {
+  max-height: 360px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+.tc-modal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tc-modal-list-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.tc-modal-list-row:hover { background: var(--panel-2); }
+.tc-modal-list-meta { flex: 1 1 auto; min-width: 0; }
+.tc-modal-list-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tc-modal-list-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tc-modal-list-cta {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+}
+.tc-modal-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Round 3 parity additions: spoilers, code-block toolbar, image
+ * lightbox, composer syntax overlay, agent-grouped DM list.
+ * ─────────────────────────────────────────────────────────────── */
+
+/* Spoiler — body covered until clicked. */
+.md-spoiler {
+  display: inline-block;
+  background: var(--panel-2);
+  color: var(--panel-2);
+  border-radius: 4px;
+  padding: 0 4px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.md-spoiler:hover { background: var(--border); }
+.md-spoiler .md-spoiler-inner { visibility: hidden; }
+.md-spoiler.is-revealed {
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: text;
+  user-select: text;
+}
+.md-spoiler.is-revealed .md-spoiler-inner { visibility: visible; }
+
+/* Fenced code block with a header toolbar. */
+.md-codeblock {
+  background: var(--code-bg, var(--panel-2));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 6px 0;
+  overflow: hidden;
+}
+.md-codeblock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.md-codeblock-lang {
+  color: var(--text-dim);
+  font-family: var(--mono, monospace);
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+}
+.md-codeblock-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.md-codeblock-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: inherit;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.md-codeblock-btn:hover {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--border);
+}
+.md-codeblock-pre {
+  margin: 0;
+  padding: 8px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  overflow-x: auto;
+  font-family: var(--mono, monospace);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.md-codeblock-pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  color: var(--text);
+}
+
+/* Click-to-expand image. */
+.tc-message-image {
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: 6px;
+  display: block;
+  margin: 4px 0;
+}
+
+/* Image lightbox overlay. */
+.tc-lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  cursor: zoom-out;
+}
+.tc-lightbox-img {
+  max-width: 92vw;
+  max-height: 92vh;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+}
+.tc-lightbox-close,
+.tc-lightbox-dl {
+  position: absolute;
+  top: 16px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  padding: 0;
+}
+.tc-lightbox-close { right: 16px; }
+.tc-lightbox-dl { right: 60px; }
+.tc-lightbox-close:hover,
+.tc-lightbox-dl:hover { background: rgba(0, 0, 0, 0.85); }
+
+/* Live composer overlay — sits behind the textarea and carries the
+   formatting preview. The textarea is transparent text + visible
+   caret so the user sees the styled overlay underneath. */
+.tc-composer-input-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+.tc-composer-overlay {
+  position: absolute;
+  inset: 0;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  overflow-y: hidden;
+  color: transparent;
+  pointer-events: none;
+  z-index: 1;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+.tc-composer-input-wrap .tc-composer-input {
+  position: relative;
+  z-index: 2;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  width: 100%;
+}
+/* Make the textarea text visible too — we COULD keep it transparent
+   like Discord and rely on the overlay, but in a webview the overlay
+   may not always line up perfectly across font fallbacks. Showing
+   both means the text is always readable; the overlay just adds the
+   colored markers / weight on top. The overlay's own colors shine
+   through where they're solid (mention/code/spoiler chips). */
+.tc-composer-input-wrap .tc-composer-input { color: var(--text); }
+.tc-composer-overlay .tc-cm-plain { color: transparent; }
+.tc-composer-overlay .tc-cm-bold { color: transparent; font-weight: 700; }
+.tc-composer-overlay .tc-cm-bold-open { color: var(--text-dim); font-weight: 700; }
+.tc-composer-overlay .tc-cm-italic { color: transparent; font-style: italic; }
+.tc-composer-overlay .tc-cm-italic-open { color: var(--text-dim); font-style: italic; }
+.tc-composer-overlay .tc-cm-underline { color: transparent; text-decoration: underline; }
+.tc-composer-overlay .tc-cm-underline-open { color: var(--text-dim); text-decoration: underline; }
+.tc-composer-overlay .tc-cm-strike { color: transparent; text-decoration: line-through; }
+.tc-composer-overlay .tc-cm-strike-open { color: var(--text-dim); text-decoration: line-through; }
+.tc-composer-overlay .tc-cm-code,
+.tc-composer-overlay .tc-cm-code-open {
+  background: var(--panel);
+  color: transparent;
+  border-radius: 3px;
+  font-family: var(--mono, monospace);
+}
+.tc-composer-overlay .tc-cm-spoiler,
+.tc-composer-overlay .tc-cm-spoiler-open {
+  background: var(--text-dim);
+  color: transparent;
+  border-radius: 3px;
+}
+.tc-composer-overlay .tc-cm-mention {
+  background: rgba(107, 123, 255, 0.18);
+  color: transparent;
+  border-radius: 3px;
+}
+/* When the overlay paints a "chip" (code/spoiler/mention) we want the
+   underlying textarea text to disappear so we don't get double text.
+   Easiest approach: only "chip" spans get visible backgrounds; the
+   textarea text on top reads against the chip background. */
+.tc-composer-input-wrap .tc-composer-input { caret-color: var(--text); }
+
+/* Agent-grouped DM rows. */
+.tc-agent-node {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  padding: 5px 6px;
+  border-radius: 5px;
+  color: var(--text-dim);
+}
+.tc-agent-node:hover { background: var(--panel-2); color: var(--text); }
+.tc-agent-node.is-active {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.tc-agent-node.has-unread { color: var(--text); font-weight: 600; }
+.tc-agent-chev {
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 120ms ease;
+}
+.tc-agent-chev:hover { color: var(--text); }
+.tc-agent-chev.is-expanded { transform: rotate(90deg); }
+.tc-agent-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  padding: 2px;
+}
+.tc-agent-name {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tc-agent-count {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 0 6px;
+  flex-shrink: 0;
+}
+.tc-agent-child {
+  padding-left: 26px;
+  font-size: 12px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Round 4 parity additions: mention chips, context-menu reaction row +
+ * icons, GIF auto-stop, channel drag-reorder, OG skeleton.
+ * ─────────────────────────────────────────────────────────────── */
+
+/* Mention chip — Discord-style accent pill with click + hover state. */
+.md-mention {
+  display: inline;
+  background: rgba(107, 123, 255, 0.22);
+  color: var(--text);
+  padding: 0 4px;
+  border-radius: 3px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+.md-mention:hover {
+  background: rgba(107, 123, 255, 0.38);
+}
+.md-mention:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.md-mention-agent {
+  background: rgba(16, 185, 129, 0.22);
+}
+.md-mention-agent:hover {
+  background: rgba(16, 185, 129, 0.4);
+}
+
+/* Context-menu inline reaction row (single horizontal strip). */
+.tc-ctxmenu-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+}
+.tc-ctxmenu-row-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+.tc-ctxmenu-row-btn:hover {
+  background: var(--panel-2);
+}
+
+/* Context-menu items grow a leading icon slot so they read like the
+   web's `<Icon className="mr-2 h-4 w-4" /> Label` layout. */
+.tc-ctxmenu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tc-ctxmenu-icon {
+  flex: 0 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+}
+.tc-ctxmenu-item:hover:not(.is-disabled) .tc-ctxmenu-icon {
+  color: var(--text);
+}
+.tc-ctxmenu-item.is-danger .tc-ctxmenu-icon { color: #ff8a96; }
+.tc-ctxmenu-label {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* GIF auto-stop player. */
+.tc-gif-wrap {
+  position: relative;
+  display: inline-block;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.tc-gif-img {
+  display: block;
+}
+.tc-gif-wrap.is-paused-fallback .tc-gif-img {
+  filter: brightness(0.55) saturate(0.65);
+}
+.tc-gif-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 30px;
+  height: 30px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.tc-gif-wrap:hover .tc-gif-overlay,
+.tc-gif-overlay.is-paused {
+  display: flex;
+}
+.tc-gif-wrap::after {
+  content: "GIF";
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+/* Channel drag-and-drop indicators. */
+.tc-channel-row[draggable="true"] {
+  cursor: grab;
+}
+.tc-channel-row.is-dragging {
+  opacity: 0.5;
+}
+.tc-channel-row.is-drop-above {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.tc-channel-row.is-drop-below {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* OG preview skeleton. */
+.tc-og-skel { pointer-events: none; }
+.tc-og-skel-img {
+  flex: 0 0 80px;
+  width: 80px;
+  height: 80px;
+  background: var(--panel);
+  border-radius: 3px;
+  animation: tc-skel-pulse 1.4s ease-in-out infinite;
+}
+.tc-og-skel-bar {
+  height: 12px;
+  background: var(--panel);
+  border-radius: 4px;
+  margin: 4px 0;
+  animation: tc-skel-pulse 1.4s ease-in-out infinite;
+}
+.tc-og-skel-bar-sm {
+  width: 40%;
+  height: 9px;
+}
+@keyframes tc-skel-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* Round 5: scroll-perf isolation + icon-only code-block buttons. */
+
+/* `contain: content` tells the engine that the message is a leaf — its
+   layout, paint, and size never affect siblings. Combined with the
+   IntersectionObserver-based lazy mount in team-chat.js this keeps
+   200-message channels smooth to scroll. content-visibility:auto
+   skips paint for off-screen rows entirely; the contain-intrinsic-size
+   gives the scroller a stable height estimate so the scrollbar
+   doesn't jitter. */
+.tc-message {
+  contain: layout style paint;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 80px;
+}
+.tc-messages-scroll {
+  contain: strict;
+  overflow-anchor: auto;
+}
+
+/* Icon-only code-block buttons — match the compact toolbar in
+   CodeBlock.tsx (icon, no label). */
+.md-codeblock-btn {
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.md-codeblock-btn.is-copied {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+/* Round 6: block spoiler, emoji picker popover, thread chip. */
+
+/* Block spoiler — wraps a full block render. Hidden until clicked,
+   then content visibility returns to normal so the nested code block
+   keeps its toolbar / formatting. */
+.md-spoiler-block {
+  display: block;
+  margin: 6px 0;
+  padding: 6px 8px;
+  cursor: pointer;
+  user-select: none;
+  background: var(--panel-2);
+  color: transparent; /* hides text content underneath */
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.md-spoiler-block .md-spoiler-inner {
+  visibility: hidden;
+}
+.md-spoiler-block.is-revealed {
+  color: var(--text);
+  cursor: text;
+  user-select: text;
+}
+.md-spoiler-block.is-revealed .md-spoiler-inner { visibility: visible; }
+/* When revealed, child code blocks need to "escape" the dimmed
+   spoiler background, so the codeblock chrome paints over it cleanly. */
+.md-spoiler-block.is-revealed .md-codeblock {
+  background: var(--code-bg, var(--panel-2));
+  border-color: var(--border);
+}
+
+/* Full emoji picker popover. */
+.tc-emoji-picker {
+  position: fixed;
+  width: 320px;
+  height: 360px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+  padding: 8px;
+  z-index: 250;
+}
+.tc-emoji-picker-search {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 13px;
+  margin-bottom: 6px;
+  outline: none;
+}
+.tc-emoji-picker-search:focus { border-color: var(--accent); }
+.tc-emoji-picker-grid {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  overflow-y: auto;
+  align-content: start;
+}
+.tc-emoji-picker-cell {
+  width: 100%;
+  aspect-ratio: 1;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  border-radius: 4px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tc-emoji-picker-cell:hover { background: var(--panel-2); }
+.tc-emoji-picker-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: var(--text-dim);
+  padding: 24px 12px;
+  font-size: 12px;
+}
+
+/* Thread chip — small button below a message that opens the thread. */
+.tc-thread-chip {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.tc-thread-chip:hover {
+  background: rgba(107, 123, 255, 0.08);
+  border-color: var(--accent);
+}
+.tc-thread-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
+}
+.tc-thread-chip-label { color: var(--text); font-weight: 600; }
+.tc-thread-chip-ts { color: var(--text-dim); }
+.tc-thread-chip-cta { color: var(--accent); margin-left: auto; }
+
+/* Round 7: threads-count badge on the header button + threads panel.
+   The earlier OG card variants were folded into the main card block
+   above (now image-on-top by default whenever an image is present). */
+
+/* Threads-count badge stamped onto the threads-toggle icon button. */
+.tc-icon-btn { position: relative; }
+.tc-icon-btn-count {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Threads panel popover (anchored under the threads-toggle button). */
+.tc-threads-panel {
+  position: fixed;
+  width: 320px;
+  max-height: 420px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  z-index: 220;
+}
+.tc-threads-panel-head {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+.tc-threads-panel-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 4px;
+}
+.tc-threads-panel-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.tc-threads-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.tc-threads-panel-row:hover { background: var(--panel-2); }
+.tc-threads-panel-icon { color: var(--accent); flex: 0 0 14px;
+                         display: inline-flex; align-items: center; }
+.tc-threads-panel-meta { flex: 1 1 auto; min-width: 0; }
+.tc-threads-panel-name {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tc-threads-panel-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+}

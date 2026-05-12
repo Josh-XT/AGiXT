@@ -418,7 +418,8 @@ on it in the agent's sandbox, then push it back; or vice versa.
   inside the Tauri webview because the user clicked something to
   start the session.
 * **Linux input**: cross-platform input automation comes through
-  `enigo` 0.2 + `screenshots` 0.8 — the same crates `rust_endpoint_agent`
-  uses. On X11 a brief 2 ms warp delay is inserted before each click.
-  Wayland portal fallbacks aren't ported because this client always
-  runs in the user's session, never as a system service.
+  `enigo` 0.2 + a local `screenshots` 0.8 patch - the same API
+  `rust_endpoint_agent` uses. On X11 a brief 2 ms warp delay is
+  inserted before each click. Wayland portal fallbacks aren't ported
+  because this client always runs in the user's session, never as a
+  system service.

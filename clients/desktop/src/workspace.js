@@ -9,7 +9,7 @@
  *   • Editor pane with toolbar: Back · file name (with unsaved marker) ·
  *     Edit/Split/Preview toggle · Revert · Download · Save (Ctrl+S).
  *   • Monaco code editor with the project's xt-dark / xt-light themes,
- *     workspace-wide model registry for cross-file go-to-definition and
+ *     bounded workspace model registry for cross-file go-to-definition and
  *     find-references.
  *   • Markdown / HTML files render to the preview pane via the existing
  *     AgixtMarkdown helper. Other files render as a fenced code block.
@@ -718,6 +718,7 @@
       window.AgixtWorkspaceModels.init(state.monaco);
       window.AgixtWorkspaceModels.ensureModelsLoaded(
         state.monaco, window.AgixtWorkspaceApi, state.cfg, state.conversationId, state.items,
+        { activePath: state.activeFile && state.activeFile.path },
       ).catch(() => {});
     }
   }
@@ -997,6 +998,7 @@
           // Kick off background load of all workspace models.
           window.AgixtWorkspaceModels.ensureModelsLoaded(
             monaco, window.AgixtWorkspaceApi, state.cfg, state.conversationId, state.items,
+            { activePath: state.activeFile && state.activeFile.path },
           ).catch(() => {});
         }
       } catch (err) {
@@ -1005,6 +1007,7 @@
         return;
       }
     }
+    if (window.AgixtWorkspaceModels) window.AgixtWorkspaceModels.init(monaco);
     if (!themesDefined) defineThemes(monaco);
     const themeId = isDarkTheme() ? 'xt-dark' : 'xt-light';
     monaco.editor.setTheme(themeId);
@@ -1197,6 +1200,9 @@
       await window.AgixtWindowMode.refresh();
     }
     closeActiveFile();
+    if (state.monaco && window.AgixtWorkspaceModels) {
+      window.AgixtWorkspaceModels.dispose(state.monaco);
+    }
     unbindKeyboard();
   }
 
@@ -1274,6 +1280,9 @@
     if (root) root.hidden = true;
     document.body.classList.remove('workspace-open');
     closeActiveFile();
+    if (state.monaco && window.AgixtWorkspaceModels) {
+      window.AgixtWorkspaceModels.dispose(state.monaco);
+    }
     unbindKeyboard();
   }
 

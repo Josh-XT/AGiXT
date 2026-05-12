@@ -232,14 +232,27 @@
       <section class="chat-screen" id="chat-screen" hidden>
         <nav class="sidenav" aria-label="Sections">
           <div class="sidenav-top" role="tablist">
-            <!-- Brand logo as the first sidenav item. Chat is always
-                 present in the application, so it doesn't need its own
-                 nav button — extension panes overlay alongside chat. -->
+            <!-- Brand logo as the first sidenav item. -->
             <div class="sidenav-brand" aria-hidden="true" title="AGiXT">
               <div class="brand-mark" id="sidenav-brand-mark">
                 <img src="assets/brands/agixt.svg" alt="" id="sidenav-brand-mark-img" />
               </div>
             </div>
+            <!-- Chat — pinned first sidenav item. Activates the team
+                 chat surface (companies → channels → members + content)
+                 while the agent chat slides over to the side pane, the
+                 same way extensions/chains do. The data-pinned-first
+                 attribute keeps it locked at index 1 even after the
+                 desktop-extensions overflow/reorder pass runs. -->
+            <button class="sidenav-btn" data-view="team-chat" type="button"
+                    role="tab" aria-selected="false" title="Chat"
+                    aria-label="Chat" data-tooltip="Chat"
+                    data-pinned-first="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                      d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>
+              </svg>
+            </button>
           </div>
           <div class="sidenav-bottom">
             <button class="sidenav-btn" data-view="chains" type="button"
@@ -372,6 +385,177 @@
                       stroke-linecap="round" stroke-linejoin="round" d="m15 18-6-6 6-6"/>
               </svg>
             </button>
+          </div>
+
+          <!-- Team chat pane — vanilla-JS port of the web's Discord-style
+               group chat (web/components/layout/GroupRail, ChannelList,
+               ChannelMemberList + web/app/chat). Three sub-columns:
+                 (1) company switcher rail (left, fixed)
+                 (2) channel / DM list (left-middle, collapsible)
+                 (3) channel content: header + messages + composer
+                 (4) member list (right, collapsible)
+               The existing agent chat pane (data-view="chat") stays
+               alongside as the side panel — same with-content-pane
+               layout used by extensions/chains/etc. Lazy-mounted by
+               app.js the first time the user opens it. -->
+          <div class="view-pane view-pane-team-chat" data-view="team-chat" hidden>
+            <div class="tc-body">
+              <aside class="tc-company-rail" id="tc-company-rail" aria-label="Companies">
+                <button class="tc-company tc-company-private" id="tc-company-private"
+                        type="button" title="Direct Messages"
+                        aria-label="Direct Messages">
+                  <span class="tc-company-pill" aria-hidden="true"></span>
+                  <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+                    <path fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"
+                          d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>
+                  </svg>
+                  <span class="tc-company-badge" id="tc-company-private-badge" hidden></span>
+                </button>
+                <div class="tc-company-sep" aria-hidden="true"></div>
+                <div class="tc-company-list" id="tc-company-list"></div>
+                <button class="tc-company tc-company-add" id="tc-company-add"
+                        type="button" title="Add a server"
+                        aria-label="Add a server" hidden>
+                  <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                    <path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"
+                          d="M12 5v14M5 12h14"/>
+                  </svg>
+                </button>
+              </aside>
+
+              <aside class="tc-channel-list" id="tc-channel-list" aria-label="Channels">
+                <header class="tc-channel-header">
+                  <span class="tc-channel-header-title" id="tc-channel-header-title">Direct Messages</span>
+                  <div class="tc-channel-header-actions">
+                    <button class="tc-icon-btn" id="tc-new-dm-btn"
+                            type="button" title="New direct message"
+                            aria-label="New direct message" hidden>
+                      <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                              d="M20 9V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v14l4-4h8M22 16v6M19 19h6"/>
+                      </svg>
+                    </button>
+                    <button class="tc-icon-btn" id="tc-channel-add"
+                            type="button" title="Create channel"
+                            aria-label="Create channel" hidden>
+                      <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M12 5v14M5 12h14"/>
+                      </svg>
+                    </button>
+                    <button class="tc-icon-btn" id="tc-channel-collapse"
+                            type="button" title="Collapse channel list"
+                            aria-label="Collapse channel list">
+                      <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m15 18-6-6 6-6"/>
+                      </svg>
+                    </button>
+                  </div>
+                </header>
+                <div class="tc-channel-scroll" id="tc-channel-scroll">
+                  <div class="tc-channel-empty">Loading…</div>
+                </div>
+              </aside>
+
+              <!-- Re-expand strip — visible only when channel list is
+                   collapsed. Click anywhere to bring the list back. -->
+              <button class="tc-channel-collapsed" id="tc-channel-collapsed"
+                      type="button" title="Show channels"
+                      aria-label="Show channels" hidden>
+                <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m9 6 6 6-6 6"/>
+                </svg>
+                <span class="tc-channel-collapsed-label" id="tc-channel-collapsed-label">Channels</span>
+              </button>
+
+              <main class="tc-content" id="tc-content">
+                <header class="tc-content-header">
+                  <div class="tc-content-title" id="tc-content-title">Select a channel</div>
+                  <div class="tc-content-actions">
+                    <button class="tc-icon-btn" id="tc-threads-toggle" type="button"
+                            title="Threads in this channel"
+                            aria-label="Threads in this channel">
+                      <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                              d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8 9h8M8 13h5"/>
+                      </svg>
+                      <span class="tc-icon-btn-count" id="tc-threads-count" hidden></span>
+                    </button>
+                    <button class="tc-icon-btn" id="tc-member-toggle" type="button"
+                            title="Toggle member list" aria-label="Toggle member list">
+                      <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                              d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/>
+                      </svg>
+                    </button>
+                  </div>
+                </header>
+                <div class="tc-content-body">
+                  <div class="tc-messages-scroll" id="tc-messages-scroll">
+                    <div class="tc-messages-empty" id="tc-messages-empty">
+                      Pick a channel or DM from the list on the left.
+                    </div>
+                    <div class="tc-messages" id="tc-messages" role="log" aria-live="polite"></div>
+                  </div>
+                  <div class="tc-attachments" id="tc-attachments" hidden></div>
+                  <footer class="tc-composer">
+                    <input type="file" id="tc-attach-input" multiple hidden />
+                    <button class="tc-icon-btn tc-composer-action" id="tc-attach-btn"
+                            type="button" title="Attach files"
+                            aria-label="Attach files">
+                      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                              d="M21 11l-9 9a5 5 0 0 1-7.07-7.07l9-9a3.5 3.5 0 0 1 4.95 4.95l-9 9a2 2 0 0 1-2.83-2.83l8.49-8.49"/>
+                      </svg>
+                    </button>
+                    <button class="tc-icon-btn tc-composer-action" id="tc-gif-btn"
+                            type="button" title="Send GIF"
+                            aria-label="Send GIF">
+                      <span class="tc-gif-label">GIF</span>
+                    </button>
+                    <div class="tc-composer-input-wrap">
+                      <div id="tc-composer-overlay" class="tc-composer-overlay" aria-hidden="true"></div>
+                      <textarea id="tc-composer-input" class="tc-composer-input"
+                                rows="1" placeholder="Send a message…"
+                                autocomplete="off" spellcheck="true"></textarea>
+                    </div>
+                    <button class="tc-send-btn" id="tc-send-btn"
+                            aria-label="Send" title="Send (Enter)" disabled>➤</button>
+                  </footer>
+                  <div class="tc-composer-status" id="tc-composer-status"></div>
+                </div>
+              </main>
+
+              <aside class="tc-member-list" id="tc-member-list" aria-label="Members">
+                <header class="tc-member-header">
+                  <span class="tc-member-header-title">Members</span>
+                  <div class="tc-member-header-actions">
+                    <button class="tc-icon-btn" id="tc-member-invite"
+                            type="button" title="Invite people"
+                            aria-label="Invite people">
+                      <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                              d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M19 8v6M22 11h-6M8.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/>
+                      </svg>
+                    </button>
+                    <button class="tc-icon-btn" id="tc-member-collapse"
+                            type="button" title="Collapse member list"
+                            aria-label="Collapse member list">
+                      <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+                        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m9 6 6 6-6 6"/>
+                      </svg>
+                    </button>
+                  </div>
+                </header>
+                <div class="tc-member-search">
+                  <input type="search" id="tc-member-search-input"
+                         placeholder="Search members" autocomplete="off" />
+                </div>
+                <div class="tc-member-scroll" id="tc-member-scroll">
+                  <div class="tc-member-empty">No channel selected.</div>
+                </div>
+              </aside>
+            </div>
+            <div class="tc-toast" id="tc-toast" hidden></div>
           </div>
 
           <!-- User settings pane — App / Account / Settings / Developer /
@@ -698,6 +882,14 @@
     <!-- Prompt Library pane — vanilla-JS port of the web's
          /settings/prompts route. Lazy-mounted by app.js. -->
     <script src="prompts.js"></script>
+    <!-- Team chat pane — port of the web's Discord-style group chat
+         (web/components/layout/GroupRail.tsx, ChannelList.tsx,
+         ChannelMemberList.tsx + web/app/chat). Lazy-mounted by app.js
+         the first time the user opens the Chat sidenav button. The
+         helpers module (md5/gravatar/emoji shortcodes/reply parsing)
+         loads first so team-chat.js can reach for them on mount. -->
+    <script src="team-chat-helpers.js"></script>
+    <script src="team-chat.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

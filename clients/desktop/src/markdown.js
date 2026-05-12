@@ -26,7 +26,18 @@
   function normalizeSafeUrl(url, media) {
     const raw = String(url || '').trim();
     if (!raw || /[\u0000-\u001f\u007f]/.test(raw)) return '';
-    if (/^data:/i.test(raw)) return '';
+    if (/^data:/i.test(raw)) {
+      // Allow data:image/* / data:audio/* / data:video/* only as media
+      // sources (never as link hrefs). SVG inside data:image/svg+xml
+      // can carry inline scripts so it's still refused. Pasted /
+      // attached files arrive through this path; without it, image
+      // attachments rendered as their alt text instead of an <img>.
+      if (!media) return '';
+      if (/^data:(image\/(?!svg\+xml)|audio\/|video\/)[a-z0-9.+-]+[;,]/i.test(raw)) {
+        return raw;
+      }
+      return '';
+    }
     if (media && raw.startsWith('/') && !raw.startsWith('//')) {
       return encodeURI(raw);
     }
@@ -65,6 +76,17 @@
     }
   }
 
+  // Mention resolver: when the renderer hits a `<@uuid>` token, it
+  // calls this with the uid and gets back { name, kind, onClick? }.
+  // Without a resolver, mentions render as `@user-id` for visibility.
+  // team-chat sets a resolver that maps to channel-participant display
+  // names + opens a DM on click; the chat (agent) pane leaves it
+  // unset so old conversations still render readably.
+  let mentionResolver = null;
+  function setMentionResolver(fn) {
+    mentionResolver = typeof fn === 'function' ? fn : null;
+  }
+
   function setTrustedMediaOrigins(origins) {
     trustedMediaOriginPrefixes.clear();
     (origins || []).forEach((origin) => {
@@ -79,6 +101,26 @@
 
   function setTrustedUrlAttribute(node, attr, value) {
     const safe = String(value || '');
+    // data: URLs that passed normalizeSafeUrl's media-only allowlist
+    // already have their MIME type validated; pass them through here
+    // so attached images / audio / video actually render.
+    if (/^data:(image\/(?!svg\+xml)|audio\/|video\/)/i.test(safe)) {
+      node.setAttribute(attr, safe);
+      return true;
+    }
+    // Media element src/href on a remote http(s) URL — this is what
+    // covers Tenor / Giphy / generic image hosts. The web app accepts
+    // these freely for media tags (img, video, audio) because they
+    // can't execute scripts. We restrict the same way: this branch only
+    // fires for media attribute setters (caller marks them via the
+    // node.tagName check), never for anchor hrefs (where they could
+    // proxy a phishing destination).
+    const tag = (node && node.tagName) ? node.tagName.toLowerCase() : '';
+    const isMediaTag = tag === 'img' || tag === 'video' || tag === 'audio' || tag === 'source';
+    if (isMediaTag && /^https?:\/\//i.test(safe)) {
+      node.setAttribute(attr, safe);
+      return true;
+    }
     for (const prefix of TRUSTED_MEDIA_PREFIXES) {
       if (safe.startsWith(prefix)) {
         node.setAttribute(attr, safe);
@@ -113,6 +155,9 @@
   function classifyMedia(url) {
     const clean = String(url || '').split('#')[0];
     if (!safeUrl(clean, true)) return null;
+    if (/^data:image\//i.test(clean)) return 'image';
+    if (/^data:video\//i.test(clean)) return 'video';
+    if (/^data:audio\//i.test(clean)) return 'audio';
     if (VIDEO_EXT.test(clean)) return 'video';
     if (AUDIO_EXT.test(clean)) return 'audio';
     if (IMG_EXT.test(clean) || GIF_HOST.test(clean)) return 'image';
@@ -144,6 +189,13 @@
       node = document.createElement('img');
       node.setAttribute('alt', alt || '');
       node.setAttribute('loading', 'lazy');
+      // Don't leak the user's location to third-party image hosts when
+      // someone pastes an external URL into the chat. Matches the
+      // referrerPolicy the web's MediaLightbox / MarkdownBlock applies.
+      node.setAttribute('referrerpolicy', 'no-referrer');
+      // Tag so team-chat / other consumers can attach a click-to-expand
+      // lightbox without re-parsing the message DOM.
+      node.classList.add('md-image');
       return setTrustedUrlAttribute(node, 'src', src) ? node : fallback;
     }
     if (alt && kind !== 'image') node.setAttribute('aria-label', alt);
@@ -182,9 +234,24 @@
       type: 'link',
       re: /\[([^\]\n]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g,
     },
+    // <@uuid> mention token. Resolved through the registered mention
+    // resolver (see setMentionResolver) so the renderer can paint a
+    // styled @DisplayName chip without a markdown-level rewrite of the
+    // raw text. UUIDv4 form matches the wire format the server stores.
+    {
+      type: 'mention',
+      re: /<@([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>/gi,
+    },
     { type: 'code', re: /`([^`\n]+)`/g },
+    // Discord-style spoilers — must come BEFORE bold so `||` doesn't
+    // try to match as nothing-then-italic. Allows newlines in the body
+    // for short multi-line spoilers (longer ones become block spoilers
+    // at the parser-block level).
+    { type: 'spoiler', re: /\|\|([^|]+(?:\|[^|]+)*)\|\|/g },
     { type: 'bold', re: /\*\*([^*]+)\*\*|__([^_]+)__/g },
+    { type: 'strike', re: /~~([^~\n]+)~~/g },
     { type: 'italic', re: /(^|[^*])\*([^*\n]+)\*/g },
+    { type: 'break', re: /  +\n/g },
     { type: 'url', re: /https?:\/\/[^\s<)]+/g },
   ];
 
@@ -221,6 +288,33 @@
         parent.appendChild(mediaNode(classifyMedia(url) || 'image', url, alt));
       } else if (token.type === 'link') {
         parent.appendChild(linkNode(m[1] || '', m[2] || ''));
+      } else if (token.type === 'mention') {
+        const uid = m[1] || '';
+        const resolved = mentionResolver ? mentionResolver(uid) : null;
+        const name = (resolved && resolved.name) || 'User';
+        const kind = (resolved && resolved.kind) || 'user';
+        const span = document.createElement('span');
+        span.className = 'md-mention md-mention-' + kind;
+        span.setAttribute('role', 'button');
+        span.setAttribute('tabindex', '0');
+        span.dataset.userId = uid;
+        span.textContent = '@' + name;
+        const onClick = resolved && typeof resolved.onClick === 'function'
+          ? resolved.onClick : null;
+        const onCtx = resolved && typeof resolved.onContextMenu === 'function'
+          ? resolved.onContextMenu : null;
+        if (onClick) {
+          span.addEventListener('click', (e) => { e.preventDefault(); onClick(e); });
+          span.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault(); onClick(e);
+            }
+          });
+        }
+        if (onCtx) {
+          span.addEventListener('contextmenu', (e) => { e.preventDefault(); onCtx(e); });
+        }
+        parent.appendChild(span);
       } else if (token.type === 'code') {
         const code = document.createElement('code');
         code.textContent = m[1] || '';
@@ -229,10 +323,39 @@
         const strong = document.createElement('strong');
         appendInline(strong, m[1] || m[2] || '');
         parent.appendChild(strong);
+      } else if (token.type === 'strike') {
+        const del = document.createElement('del');
+        appendInline(del, m[1] || '');
+        parent.appendChild(del);
+      } else if (token.type === 'spoiler') {
+        // Discord-style spoiler — hidden until clicked. The body still
+        // gets a recursive inline-render pass so bold / code / etc.
+        // inside the spoiler stay formatted once revealed.
+        const span = document.createElement('span');
+        span.className = 'md-spoiler';
+        span.setAttribute('role', 'button');
+        span.setAttribute('tabindex', '0');
+        span.setAttribute('aria-label', 'Spoiler — click to reveal');
+        const inner = document.createElement('span');
+        inner.className = 'md-spoiler-inner';
+        appendInline(inner, m[1] || '');
+        span.appendChild(inner);
+        const reveal = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          span.classList.add('is-revealed');
+        };
+        span.addEventListener('click', reveal);
+        span.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') reveal(e);
+        });
+        parent.appendChild(span);
       } else if (token.type === 'italic') {
         const em = document.createElement('em');
         appendInline(em, m[2] || '');
         parent.appendChild(em);
+      } else if (token.type === 'break') {
+        parent.appendChild(document.createElement('br'));
       } else if (token.type === 'url') {
         const url = m[0] || '';
         const kind = classifyMedia(url);
@@ -268,12 +391,207 @@
     }
   }
 
+  const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+
+  function listItemInfo(line) {
+    const m = line.match(LIST_RE);
+    if (!m) return null;
+    const indent = m[1].replace(/\t/g, '    ').length;
+    const ordered = /\d/.test(m[2]);
+    return { indent, ordered, marker: m[2], content: m[3] };
+  }
+
+  function isTableSeparator(line) {
+    return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+  }
+
+  function parseTableRow(line) {
+    let s = line.trim();
+    if (s.startsWith('|')) s = s.slice(1);
+    if (s.endsWith('|')) s = s.slice(0, -1);
+    return s.split('|').map((c) => c.trim());
+  }
+
+  function parseAlignments(line) {
+    return parseTableRow(line).map((cell) => {
+      const left = cell.startsWith(':');
+      const right = cell.endsWith(':');
+      if (left && right) return 'center';
+      if (right) return 'right';
+      if (left) return 'left';
+      return null;
+    });
+  }
+
+  function appendList(parent, lines, startIdx, baseIndent) {
+    const first = listItemInfo(lines[startIdx]);
+    const list = document.createElement(first.ordered ? 'ol' : 'ul');
+    let i = startIdx;
+    while (i < lines.length) {
+      const info = listItemInfo(lines[i]);
+      if (!info || info.indent < baseIndent) break;
+      if (info.indent > baseIndent) {
+        const nested = appendList(list.lastElementChild || list, lines, i, info.indent);
+        i = nested.next;
+        continue;
+      }
+      const li = document.createElement('li');
+      // Collect continuation lines (more-indented non-list-marker lines) into the item.
+      const itemLines = [info.content];
+      i++;
+      while (i < lines.length) {
+        if (/^\s*$/.test(lines[i])) break;
+        const nextInfo = listItemInfo(lines[i]);
+        if (nextInfo) break;
+        const leadMatch = lines[i].match(/^(\s*)/);
+        const lead = leadMatch ? leadMatch[1].replace(/\t/g, '    ').length : 0;
+        if (lead <= baseIndent) break;
+        itemLines.push(lines[i].replace(/^\s+/, ''));
+        i++;
+      }
+      appendInline(li, itemLines.join('  \n'));
+      list.appendChild(li);
+      // Look ahead past blank lines for nested list children.
+      let j = i;
+      while (j < lines.length && /^\s*$/.test(lines[j])) j++;
+      if (j < lines.length) {
+        const nextInfo = listItemInfo(lines[j]);
+        if (nextInfo && nextInfo.indent > baseIndent) {
+          const nested = appendList(li, lines, j, nextInfo.indent);
+          i = nested.next;
+        }
+      }
+    }
+    parent.appendChild(list);
+    return { next: i };
+  }
+
+  function buildBlockSpoiler(innerText) {
+    // Block spoiler — wraps a fully-recursive markdown render of the
+    // body so fenced code blocks, lists, tables, etc., all work once
+    // revealed. Mirrors the web's Spoiler.tsx behavior for block
+    // content. Inline spoilers (`||text||` with no newlines) still go
+    // through appendInline.
+    const span = document.createElement('div');
+    span.className = 'md-spoiler md-spoiler-block';
+    span.setAttribute('role', 'button');
+    span.setAttribute('tabindex', '0');
+    span.setAttribute('aria-label', 'Spoiler — click to reveal');
+    const inner = document.createElement('div');
+    inner.className = 'md-spoiler-inner';
+    appendBlocks(inner, innerText);
+    span.appendChild(inner);
+    const reveal = (e) => {
+      // Don't capture clicks INSIDE revealed content (Copy / Download
+      // buttons on nested code blocks, etc.).
+      if (span.classList.contains('is-revealed')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      span.classList.add('is-revealed');
+    };
+    span.addEventListener('click', reveal);
+    span.addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.key === ' ')
+          && !span.classList.contains('is-revealed')) reveal(e);
+    });
+    return span;
+  }
+
   function appendBlocks(parent, src) {
     const lines = String(src == null ? '' : src).replace(/\r\n?/g, '\n').split('\n');
     let i = 0;
 
     while (i < lines.length) {
       const line = lines[i];
+
+      // Block-level spoiler: opener line is exactly `||` (or `||\n`).
+      // Body collects every line until the closing `||` line. Body is
+      // rendered recursively so it can include fenced code blocks,
+      // lists, etc.
+      if (/^\|\|\s*$/.test(line)) {
+        const buf = [];
+        i++;
+        let closed = false;
+        while (i < lines.length) {
+          if (/^\|\|\s*$/.test(lines[i])) { closed = true; i++; break; }
+          buf.push(lines[i]);
+          i++;
+        }
+        if (closed) {
+          parent.appendChild(buildBlockSpoiler(buf.join('\n')));
+          continue;
+        }
+        // Unclosed — fall through; the bare `||` shows as text.
+      }
+
+      // `||...||` on one line — single-line block spoiler. If the body
+      // contains ``` it's promoted to block so fenced code renders;
+      // otherwise we hand it off to appendInline (which already does
+      // the right thing for short single-line spoilers).
+      if (line.startsWith('||') && line.endsWith('||') && line.length > 4) {
+        const body = line.slice(2, -2);
+        if (body.includes('```')) {
+          // Reshape `\`\`\`lang code \`\`\`` into the canonical
+          // multi-line form so the fenced-code parser inside
+          // appendBlocks can pick it up correctly. Without this the
+          // inline-code regex chews up two of the three backticks
+          // (matching `` `js code ` `` as inline) and the user sees a
+          // half-formatted blob.
+          const fenced = body.match(/^```(\w*)\s*([\s\S]*?)\s*```\s*$/);
+          if (fenced) {
+            const reformatted = '```' + (fenced[1] || '') + '\n'
+              + fenced[2] + '\n```';
+            parent.appendChild(buildBlockSpoiler(reformatted));
+            i++;
+            continue;
+          }
+          // Multiple fences in a row, or fences with surrounding text
+          // we can't cleanly re-split — fall back to splitting on
+          // every ``` and letting appendBlocks handle the run.
+          const exploded = body.replace(/```/g, '\n```\n').replace(/\n{3,}/g, '\n\n');
+          parent.appendChild(buildBlockSpoiler(exploded.trim()));
+          i++;
+          continue;
+        }
+        // No fenced code; let the inline path render it.
+      }
+
+      // `||...` opener without a closing `||` on the same line — body
+      // continues to a later line that ends with `||`. Common shape:
+      // `||\`\`\`js` then `foo()` then `\`\`\`||`. Reshape any inline
+      // fence markers (``` glued to the body) into block fences so
+      // appendBlocks lights up the code-block path.
+      if (line.startsWith('||') && !line.endsWith('||')) {
+        let j = i;
+        const buf = [lines[j].slice(2)];
+        j++;
+        let closed = false;
+        while (j < lines.length) {
+          const cur = lines[j];
+          const closeIdx = cur.indexOf('||');
+          if (closeIdx !== -1) {
+            if (closeIdx > 0) buf.push(cur.slice(0, closeIdx));
+            closed = true;
+            j++;
+            break;
+          }
+          buf.push(cur);
+          j++;
+        }
+        if (closed) {
+          let body = buf.join('\n').trim();
+          if (body.includes('```')) {
+            // Break inline `\`\`\`lang` openers into block form.
+            body = body.replace(/```(\w*)/g, '\n```$1\n').replace(/\n{3,}/g, '\n\n');
+          }
+          if (body.includes('\n') || body.includes('```')) {
+            parent.appendChild(buildBlockSpoiler(body.trim()));
+            i = j;
+            continue;
+          }
+        }
+        // Otherwise fall through to the regular paragraph path.
+      }
 
       const fence = line.match(/^```\s*([\w+-]*)\s*$/);
       if (fence) {
@@ -295,12 +613,94 @@
           buf.push(cur);
           i++;
         }
+        // Fenced code block container: <div.md-codeblock> wraps a
+        // header (language label + copy + download buttons) and the
+        // <pre><code>. Mirrors the chrome the web's CodeBlock.tsx
+        // renders so users get the same "pretty" code surface.
+        const wrap = document.createElement('div');
+        wrap.className = 'md-codeblock';
+        const header = document.createElement('div');
+        header.className = 'md-codeblock-head';
+        const langLabel = document.createElement('span');
+        langLabel.className = 'md-codeblock-lang';
+        langLabel.textContent = lang || 'text';
+        header.appendChild(langLabel);
+        const codeText = buf.join('\n');
+        const actions = document.createElement('div');
+        actions.className = 'md-codeblock-actions';
+        // Inline lucide-style icons keep the toolbar compact and match
+        // the web's CodeBlock chrome (icon-only buttons with tooltip).
+        const COPY_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">'
+          + '<rect x="9" y="9" width="13" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>'
+          + '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 15V5a2 2 0 0 1 2-2h10"/>'
+          + '</svg>';
+        const COPIED_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">'
+          + '<path fill="none" stroke="#10b981" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M20 6 9 17l-5-5"/>'
+          + '</svg>';
+        const DL_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">'
+          + '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>'
+          + '</svg>';
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'md-codeblock-btn';
+        copyBtn.title = 'Copy';
+        copyBtn.setAttribute('aria-label', 'Copy');
+        copyBtn.innerHTML = COPY_ICON;
+        copyBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(codeText).then(() => {
+                copyBtn.innerHTML = COPIED_ICON;
+                copyBtn.classList.add('is-copied');
+                setTimeout(() => {
+                  copyBtn.innerHTML = COPY_ICON;
+                  copyBtn.classList.remove('is-copied');
+                }, 1200);
+              });
+            }
+          } catch (_) {}
+        });
+        const dlBtn = document.createElement('button');
+        dlBtn.type = 'button';
+        dlBtn.className = 'md-codeblock-btn';
+        dlBtn.title = 'Download';
+        dlBtn.setAttribute('aria-label', 'Download');
+        dlBtn.innerHTML = DL_ICON;
+        dlBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          const extByLang = {
+            javascript: 'js', typescript: 'ts', python: 'py', rust: 'rs',
+            go: 'go', java: 'java', kotlin: 'kt', swift: 'swift',
+            c: 'c', cpp: 'cpp', csharp: 'cs', html: 'html', css: 'css',
+            json: 'json', yaml: 'yml', toml: 'toml', xml: 'xml',
+            sh: 'sh', bash: 'sh', zsh: 'sh', sql: 'sql', md: 'md',
+            markdown: 'md',
+          };
+          const ext = extByLang[(lang || '').toLowerCase()] || 'txt';
+          const blob = new Blob([codeText], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `snippet.${ext}`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 500);
+        });
+        actions.appendChild(copyBtn);
+        actions.appendChild(dlBtn);
+        header.appendChild(actions);
+        wrap.appendChild(header);
+
         const pre = document.createElement('pre');
+        pre.className = 'md-codeblock-pre';
         const code = document.createElement('code');
         if (lang) code.className = `language-${lang}`;
-        code.textContent = buf.join('\n');
+        code.textContent = codeText;
         pre.appendChild(code);
-        parent.appendChild(pre);
+        wrap.appendChild(pre);
+        parent.appendChild(wrap);
         continue;
       }
 
@@ -313,7 +713,7 @@
         continue;
       }
 
-      if (/^---+\s*$/.test(line)) {
+      if (/^---+\s*$/.test(line) || /^\*{3,}\s*$/.test(line) || /^_{3,}\s*$/.test(line)) {
         parent.appendChild(document.createElement('hr'));
         i++;
         continue;
@@ -331,27 +731,48 @@
         continue;
       }
 
-      if (/^\s*[-*+]\s+/.test(line)) {
-        const list = document.createElement('ul');
-        while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
-          const li = document.createElement('li');
-          appendInline(li, lines[i].replace(/^\s*[-*+]\s+/, ''));
-          list.appendChild(li);
+      // GFM tables: header row, separator row, then body rows.
+      if (line.includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+        const headers = parseTableRow(line);
+        const aligns = parseAlignments(lines[i + 1]);
+        i += 2;
+        const rows = [];
+        while (i < lines.length && lines[i].includes('|') && !/^\s*$/.test(lines[i])) {
+          if (listItemInfo(lines[i]) || /^#{1,6}\s/.test(lines[i]) || /^```/.test(lines[i])) break;
+          rows.push(parseTableRow(lines[i]));
           i++;
         }
-        parent.appendChild(list);
+        const table = document.createElement('table');
+        const thead = document.createElement('thead');
+        const trh = document.createElement('tr');
+        headers.forEach((h, idx) => {
+          const th = document.createElement('th');
+          appendInline(th, h);
+          if (aligns[idx]) th.style.textAlign = aligns[idx];
+          trh.appendChild(th);
+        });
+        thead.appendChild(trh);
+        table.appendChild(thead);
+        const tbody = document.createElement('tbody');
+        for (const row of rows) {
+          const tr = document.createElement('tr');
+          row.forEach((cell, idx) => {
+            const td = document.createElement('td');
+            appendInline(td, cell);
+            if (aligns[idx]) td.style.textAlign = aligns[idx];
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+        parent.appendChild(table);
         continue;
       }
 
-      if (/^\s*\d+\.\s+/.test(line)) {
-        const list = document.createElement('ol');
-        while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
-          const li = document.createElement('li');
-          appendInline(li, lines[i].replace(/^\s*\d+\.\s+/, ''));
-          list.appendChild(li);
-          i++;
-        }
-        parent.appendChild(list);
+      const liInfo = listItemInfo(line);
+      if (liInfo) {
+        const result = appendList(parent, lines, i, liInfo.indent);
+        i = result.next;
         continue;
       }
 
@@ -368,14 +789,17 @@
         && !/^```/.test(lines[i])
         && !/^#{1,6}\s/.test(lines[i])
         && !/^>\s/.test(lines[i])
-        && !/^\s*[-*+]\s/.test(lines[i])
-        && !/^\s*\d+\.\s/.test(lines[i])
+        && !listItemInfo(lines[i])
+        && !(lines[i].includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1]))
       ) {
         buf.push(lines[i]);
         i++;
       }
       const p = document.createElement('p');
-      appendInline(p, buf.join(' '));
+      // Preserve single newlines within a paragraph as hard breaks — matches
+      // the web client's MarkdownBlock preprocessor which converts soft
+      // breaks to "  \n" so they render as <br>.
+      appendInline(p, buf.join('  \n'));
       parent.appendChild(p);
     }
   }
@@ -413,5 +837,6 @@
     escapeHtml,
     classifyMedia,
     setTrustedMediaOrigins,
+    setMentionResolver,
   };
 })();

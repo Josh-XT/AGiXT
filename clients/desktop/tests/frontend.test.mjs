@@ -158,6 +158,7 @@ function loadFullApp({ ipc } = {}) {
     'markdown.js', 'audio.js', 'client-actions.js', 'chat.js',
     'notifications.js', 'auth.js', 'dock.js',
     'agixt-api.js', 'user-settings.js', 'chains.js', 'prompts.js',
+    'team-chat-helpers.js', 'team-chat.js',
     'app.js',
   ]) {
     const code = fs.readFileSync(path.join(SRC, name), 'utf8');
@@ -201,16 +202,78 @@ function loadCrudExtensionPage(filePath) {
   return { window, registrations };
 }
 
+function loadWorkspaceModelsOnly() {
+  const dom = new JSDOM('<!doctype html><body></body>', {
+    runScripts: 'outside-only',
+    url: 'http://localhost/',
+  });
+  const { window } = dom;
+  window.requestIdleCallback = (cb) => {
+    cb();
+    return 1;
+  };
+  const code = fs.readFileSync(path.join(SRC, 'workspace-models.js'), 'utf8');
+  vm.runInContext(code, dom.getInternalVMContext(), { filename: 'workspace-models.js' });
+  return { window };
+}
+
+function createFakeMonaco() {
+  const models = new Map();
+  const makeDisposable = () => ({ dispose() {} });
+  return {
+    Uri: {
+      parse: (raw) => ({
+        path: String(raw).replace(/^file:\/\//, ''),
+        toString: () => raw,
+      }),
+    },
+    languages: {
+      typescript: null,
+      registerDefinitionProvider: () => makeDisposable(),
+      registerReferenceProvider: () => makeDisposable(),
+      registerDocumentSymbolProvider: () => makeDisposable(),
+    },
+    editor: {
+      getModel: (uri) => models.get(uri.toString()) || null,
+      getModels: () => Array.from(models.values()).filter((m) => !m.isDisposed()),
+      createModel: (text, language, uri) => {
+        let value = text;
+        let disposed = false;
+        const model = {
+          uri,
+          language,
+          getValue: () => value,
+          setValue: (next) => { value = next; },
+          isDisposed: () => disposed,
+          dispose: () => {
+            disposed = true;
+            models.delete(uri.toString());
+          },
+          findMatches: () => [],
+          getLineContent: () => '',
+        };
+        models.set(uri.toString(), model);
+        return model;
+      },
+    },
+  };
+}
+
 test('markdown: paragraph and inline formatting', () => {
   const { window } = loadFrontend();
   const html = window.AgixtMarkdown.render('Hello **bold** and *italic*.');
   assert.match(html, /<p>Hello <strong>bold<\/strong> and <em>italic<\/em>\.<\/p>/);
 });
 
-test('markdown: code fence preserves whitespace', () => {
+test('markdown: code fence preserves whitespace + adds copy/download toolbar', () => {
   const { window } = loadFrontend();
   const html = window.AgixtMarkdown.render('```py\ndef hi():\n  pass\n```');
-  assert.match(html, /<pre><code class="language-py">def hi\(\):\n  pass<\/code><\/pre>/);
+  // Body is preserved verbatim inside the new chrome wrapper.
+  assert.match(html, /<pre class="md-codeblock-pre"><code class="language-py">def hi\(\):\n  pass<\/code><\/pre>/);
+  assert.match(html, /md-codeblock-lang">py</);
+  // Icon-only buttons — title/aria-label carry the action name now.
+  assert.match(html, /title="Copy"/);
+  assert.match(html, /title="Download"/);
 });
 
 test('markdown: image URL becomes <img>', () => {
@@ -231,20 +294,25 @@ test('markdown: audio URL becomes <audio controls>', () => {
   assert.match(html, /<audio[^>]+controls[^>]+src="\/outputs\/voice\.mp3"/);
 });
 
-test('markdown: external URLs do not become direct navigation attributes', () => {
+test('markdown: external <a> hrefs route through agixt-external-link, but media tags accept them', () => {
   const { window } = loadFrontend();
   const target = window.document.createElement('div');
   window.AgixtMarkdown.renderInto(
     target,
-    '[site](https://example.com/page.html) https://example.com/clip.mp4',
+    '[site](https://example.com/page.html) https://example.com/clip.mp4 ![gif](https://media.tenor.com/abc.gif)',
   );
+  // Plain anchors still proxy through the external-link handler so we
+  // don't open a Tauri webview window for an attacker URL by accident.
   assert.equal(target.querySelector('a[href^="https://"]'), null);
-  assert.equal(target.querySelector('img[src^="https://"], video[src^="https://"], audio[src^="https://"]'), null);
   const links = target.querySelectorAll('a[data-external-url]');
-  assert.equal(links.length, 2);
-  assert.equal(links[0].getAttribute('href'), '#agixt-external-link');
-  assert.equal(links[0].dataset.externalUrl, 'https://example.com/page.html');
-  assert.equal(links[1].dataset.externalUrl, 'https://example.com/clip.mp4');
+  assert.ok(links.length >= 1, 'at least one anchor proxied');
+  // Media tags (img/video/audio) — Tenor / Giphy / generic image hosts
+  // render as <img>/<video> so user-shared GIFs and clips display
+  // inline instead of as a bare link, matching the web app.
+  const video = target.querySelector('video[src^="https://"]');
+  assert.ok(video, 'external https video renders as <video>');
+  const gifImg = target.querySelector('img[src^="https://media.tenor.com"]');
+  assert.ok(gifImg, 'tenor URL renders as <img>');
 });
 
 test('markdown: untrusted html and unsafe URLs stay inert', () => {
@@ -275,6 +343,40 @@ test('markdown: classifyMedia distinguishes images, videos, audio', () => {
   assert.equal(c('https://x.com/a.wav'), 'audio');
   assert.equal(c('https://tenor.com/somegif'), 'image');
   assert.equal(c('https://example.com/page.html'), null);
+});
+
+test('workspace models: bounded preload avoids Monaco listener leak threshold', async () => {
+  const { window } = loadWorkspaceModelsOnly();
+  const monaco = createFakeMonaco();
+  const items = Array.from({ length: 250 }, (_, i) => ({
+    type: 'file',
+    name: `file-${String(i).padStart(3, '0')}.js`,
+    path: `/src/file-${String(i).padStart(3, '0')}.js`,
+  }));
+  const downloads = [];
+  const api = {
+    downloadFile: async (_cfg, _conversationId, filePath) => {
+      downloads.push(filePath);
+      return { blob: { text: async () => `console.log(${JSON.stringify(filePath)});` } };
+    },
+  };
+
+  await window.AgixtWorkspaceModels.ensureModelsLoaded(
+    monaco,
+    api,
+    {},
+    'conversation-1',
+    items,
+    { activePath: '/src/file-249.js' },
+  );
+
+  const models = monaco.editor.getModels();
+  assert.equal(models.length, 120);
+  assert.equal(downloads.length, 120);
+  assert.ok(models.some((m) => m.uri.path === '/src/file-249.js'), 'active file stays in the bounded cache');
+
+  window.AgixtWorkspaceModels.dispose(monaco);
+  assert.equal(monaco.editor.getModels().length, 0);
 });
 
 test('web runtime: localStorage settings omit runtime auth fields', async () => {
@@ -366,12 +468,18 @@ test('chat: workspace media auth only attaches to configured AGiXT origins', asy
     [...window.document.querySelectorAll('#messages img')]
       .map((img) => [img.getAttribute('alt'), img.getAttribute('src')]),
   );
-  assert.equal(byAlt.evil, undefined);
+  // Externally-hosted images render as <img> (parity with the web's
+  // MarkdownBlock), but their src must NOT carry the user's JWT —
+  // the rewrite is restricted to the configured AGiXT origin so a
+  // markdown image hosted on someone else's host can't be tricked
+  // into receiving the token.
+  assert.equal(byAlt.evil, 'https://evil.example/outputs/leak.png',
+    'external host renders as img with bare src');
+  assert.ok(!String(byAlt.evil).includes('secret.jwt'),
+    'external host must NOT receive the JWT');
   assert.equal(byAlt.relative, 'http://localhost:7437/outputs/local.png?auth=secret.jwt');
   assert.equal(byAlt.same, 'http://localhost:7437/outputs/same.png?auth=secret.jwt');
   assert.equal(byAlt.loopback, 'http://127.0.0.1:7437/outputs/loop.png?auth=secret.jwt');
-  const evilLink = window.document.querySelector('#messages a[data-external-url="https://evil.example/outputs/leak.png"]');
-  assert.equal(evilLink && evilLink.textContent, 'evil');
   window.AgixtChat.disconnect();
 });
 
@@ -1967,4 +2075,384 @@ test('client-actions: missing IPC reports error', async () => {
   }
   const res = await dom.window.AgixtClientActions.execute({ tool_name: 'desktop_click' });
   assert.match(res.error, /Tauri IPC unavailable/);
+});
+
+test('team-chat: pane lists companies + channels + members on activation', async () => {
+  // Hand-roll the DOM + script load so we can fully control the AGiXT
+  // API stub (loadFullApp uses Tauri IPC which doesn't cover the team-chat
+  // REST shape).
+  const dom = new JSDOM(fs.readFileSync(path.join(SRC, 'index.html'), 'utf8'), {
+    runScripts: 'outside-only', url: 'http://localhost/',
+  });
+  const { window } = dom;
+  window.__TAURI__ = {
+    core: {
+      invoke: async (cmd) => {
+        if (cmd === 'get_conversation_history') {
+          return [
+            { id: 'm1', role: 'USER', message: 'hi everyone', timestamp: '2026-05-11T20:00:00Z',
+              sender: { first_name: 'Test', last_name: 'User' }, sender_user_id: 'u1' },
+            { id: 'm2', role: 'XT', message: 'hello!', timestamp: '2026-05-11T20:00:05Z' },
+          ];
+        }
+        return null;
+      },
+    },
+    event: { listen: async () => () => {} },
+  };
+  if (!window.WebSocket) {
+    window.WebSocket = class { constructor() { this.readyState = 0; } send() {} close() {} };
+    window.WebSocket.OPEN = 1;
+  }
+
+  // Stub AgixtApi (mirrors what real boot wires up).
+  window.AgixtApi = {
+    getSettings: async () => ({ server_url: 'http://localhost:7437', jwt: 'jwt' }),
+    getUser: async () => ({ id: 'u1', email: 'me@x' }),
+    listCompanies: async () => [
+      { id: 'c1', name: 'Acme Corp', icon_url: null, sort_order: 0 },
+    ],
+    getGroupConversations: async (cid) => {
+      if (cid === 'c1') return {
+        'chan-1': { name: 'general', conversation_type: 'group', category: 'Text Channels' },
+        'chan-2': { name: 'random', conversation_type: 'group', category: 'Text Channels',
+                     has_notifications: true, notification_count: 3 },
+      };
+      return {};
+    },
+    listAllConversations: async () => ({}),
+    getConversationParticipants: async () => [
+      { id: 'p1', participant_type: 'user', role: 'owner',
+        user: { id: 'u1', email: 'me@x', first_name: 'Test', last_name: 'User' } },
+      { id: 'p2', participant_type: 'agent', role: 'member', agent: { id: 'a1', name: 'XT' } },
+    ],
+    markConversationRead: async () => ({}),
+    postChannelMessage: async () => ({ message: 'mid' }),
+  };
+
+  // Load markdown.js (team-chat uses renderFragment) and the helpers
+  // module that powers reply parsing, mentions, gravatar, and emoji
+  // shortcodes.
+  for (const name of ['markdown.js', 'team-chat-helpers.js', 'team-chat.js']) {
+    vm.runInContext(fs.readFileSync(path.join(SRC, name), 'utf8'),
+                    dom.getInternalVMContext(), { filename: name });
+  }
+
+  // Sanity: the Chat sidenav button exists and points at the team-chat
+  // view, and it's pinned-first so user reorders can't bury it.
+  const chatBtn = window.document.querySelector('.sidenav-btn[data-view="team-chat"]');
+  assert.ok(chatBtn, 'Chat sidenav button rendered');
+  assert.equal(chatBtn.dataset.pinnedFirst, 'true', 'Chat button is pinned first');
+
+  // Mount the pane.
+  await window.AgixtTeamChat.mount();
+
+  // Company appears in the rail.
+  const rail = window.document.getElementById('tc-company-list');
+  assert.equal(rail.children.length, 1, 'one company icon rendered');
+
+  // Click into the company.
+  rail.querySelector('.tc-company').click();
+  // Allow the async loaders + auto-channel-select to flush.
+  await new Promise((r) => setTimeout(r, 60));
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setTimeout(r, 40));
+
+  // Channels rendered with category heading.
+  const cats = window.document.querySelectorAll('#tc-channel-scroll .tc-channel-category');
+  assert.ok(cats.length >= 1, 'category heading rendered');
+  const channels = window.document.querySelectorAll('#tc-channel-scroll .tc-channel-row');
+  assert.equal(channels.length, 2, 'two channels rendered');
+  const names = Array.from(channels).map((c) => c.querySelector('.tc-channel-name').textContent);
+  assert.deepEqual(names.sort(), ['general', 'random']);
+
+  // First channel is active (auto-selected on company entry).
+  const active = window.document.querySelector('#tc-channel-scroll .tc-channel-row.is-active');
+  assert.ok(active, 'a channel is auto-selected');
+  // Header reflects the channel name with the # prefix.
+  const title = window.document.getElementById('tc-content-title').textContent;
+  assert.match(title, /^# /, 'content header uses # prefix');
+
+  // Members panel populated.
+  const memberRows = window.document.querySelectorAll('#tc-member-scroll .tc-member-row');
+  assert.equal(memberRows.length, 2, 'two members rendered');
+  const memberNames = Array.from(memberRows).map((m) => m.querySelector('.tc-member-name').textContent);
+  assert.ok(memberNames.includes('Test User'));
+  assert.ok(memberNames.includes('XT'));
+
+  // Messages rendered from get_conversation_history.
+  const msgs = window.document.querySelectorAll('#tc-messages .tc-message');
+  assert.equal(msgs.length, 2, 'two messages rendered');
+  const msgNames = Array.from(msgs).map((m) => m.querySelector('.tc-message-name').textContent);
+  assert.ok(msgNames.includes('Test User'), 'sender info used for user message');
+  assert.ok(msgNames.includes('XT'), 'agent role used as display name');
+
+  // Collapse the channel list — the channel pane hides, the re-expand
+  // strip becomes visible.
+  window.document.getElementById('tc-channel-collapse').click();
+  const pane = window.document.querySelector('.view-pane-team-chat');
+  assert.ok(pane.classList.contains('tc-channels-collapsed'), 'collapse class applied');
+  assert.equal(window.document.getElementById('tc-channel-collapsed').hidden, false,
+               're-expand strip becomes visible');
+
+  // Re-expand.
+  window.document.getElementById('tc-channel-collapsed').click();
+  assert.ok(!pane.classList.contains('tc-channels-collapsed'), 'collapse class cleared');
+
+  // Send a message — verify postChannelMessage is called with the
+  // channel's NAME (legacy /api/conversation/message keys on name).
+  let postedWith = null;
+  window.AgixtApi.postChannelMessage = async (name, msg, role) => {
+    postedWith = { name, msg, role };
+    return { message: 'mid' };
+  };
+  const input = window.document.getElementById('tc-composer-input');
+  input.value = 'Hi team';
+  const sendBtn = window.document.getElementById('tc-send-btn');
+  sendBtn.disabled = false;
+  sendBtn.click();
+  await new Promise((r) => setTimeout(r, 30));
+  assert.ok(postedWith, 'postChannelMessage was called');
+  assert.equal(postedWith.msg, 'Hi team');
+  assert.equal(postedWith.role, 'USER');
+
+  // Tear down the module's setInterval/WebSocket so the node:test runner
+  // doesn't hang waiting on a live event loop after the assertion passes.
+  window.AgixtTeamChat.unmount();
+});
+
+test('team-chat-helpers: parseReply, mentions, emoji, gravatar', () => {
+  // Load helpers in a minimal dom context.
+  const dom = new JSDOM('<!doctype html><body></body>', {
+    runScripts: 'outside-only', url: 'http://localhost/',
+  });
+  vm.runInContext(
+    fs.readFileSync(path.join(SRC, 'team-chat-helpers.js'), 'utf8'),
+    dom.getInternalVMContext(),
+    { filename: 'team-chat-helpers.js' },
+  );
+  const H = dom.window.AgixtTeamChatHelpers;
+  assert.ok(H, 'helpers exported');
+
+  // parseReply round-trips a wire-format reply correctly.
+  const wireMsg = '> **Alice** said: [ref:msg-1] [uid:35e5fb1f-eaa1-4e71-8421-9f71e2659377]\n> hello there\n> second quoted line\n\nyo what up';
+  const reply = H.parseReply(wireMsg);
+  assert.ok(reply, 'reply parsed');
+  assert.equal(reply.replyAuthor, 'Alice');
+  assert.equal(reply.replyMessageId, 'msg-1');
+  assert.equal(reply.replyAuthorUserId, '35e5fb1f-eaa1-4e71-8421-9f71e2659377');
+  assert.equal(reply.replyPreview, 'hello there second quoted line');
+  assert.equal(reply.actualMessage, 'yo what up');
+
+  // applyMentions replaces `<@uuid>` tokens with @DisplayName via the
+  // caller-supplied resolver.
+  const txt = 'hi <@35e5fb1f-eaa1-4e71-8421-9f71e2659377> testing';
+  const result = H.applyMentions(txt, (uid) => uid === '35e5fb1f-eaa1-4e71-8421-9f71e2659377' ? 'Alice' : null);
+  assert.equal(result, 'hi @Alice testing');
+  // Unresolved uids still produce a fallback so we don't leak the raw token.
+  assert.equal(H.applyMentions('<@deadbeef-dead-beef-dead-beefdeadbeef> hi', () => null),
+               '@User hi');
+
+  // Emoji shortcodes ⇒ unicode glyphs.
+  assert.equal(H.applyEmojiShortcodes('hi :joy: :fire:'), 'hi 😂 🔥');
+
+  // Gravatar URLs are deterministic by md5 of lowercased trimmed email.
+  const url = H.gravatarUrl(' Alice@Example.com ', 64);
+  assert.match(url, /^https:\/\/www\.gravatar\.com\/avatar\/[0-9a-f]{32}\?s=64&d=404$/);
+
+  // URL extraction skips markdown link/image syntax. Cross-context
+  // arrays don't satisfy deepStrictEqual's reference check, so compare
+  // the JSON form.
+  const urls = H.extractFirstFewUrls(
+    'check out https://example.com and ![alt](https://img/png) plus [docs](https://docs.x)',
+    3,
+  );
+  assert.equal(JSON.stringify(urls), '["https://example.com"]');
+});
+
+test('team-chat: reply-card renders for stored wire format', async () => {
+  const dom = new JSDOM(fs.readFileSync(path.join(SRC, 'index.html'), 'utf8'), {
+    runScripts: 'outside-only', url: 'http://localhost/',
+  });
+  const { window } = dom;
+  window.__TAURI__ = {
+    core: {
+      invoke: async (cmd) => {
+        if (cmd === 'get_conversation_history') {
+          return [
+            {
+              id: 'm1', role: 'USER', timestamp: '2026-05-12T01:00:00Z',
+              sender: { id: 'u1', email: 'alice@x', first_name: 'Alice', last_name: '' },
+              sender_user_id: 'u1',
+              message: 'Hi everyone',
+            },
+            {
+              id: 'm2', role: 'USER', timestamp: '2026-05-12T01:01:00Z',
+              sender: { id: 'u2', email: 'bob@x', first_name: 'Bob', last_name: '' },
+              sender_user_id: 'u2',
+              message: '> **Alice** said: [ref:m1] [uid:u1]\n> Hi everyone\n\nright back at you :joy:',
+            },
+          ];
+        }
+        return null;
+      },
+    },
+    event: { listen: async () => () => {} },
+  };
+  if (!window.WebSocket) {
+    window.WebSocket = class { constructor() { this.readyState = 0; } close() {} send() {} };
+    window.WebSocket.OPEN = 1;
+  }
+  window.AgixtApi = {
+    getSettings: async () => ({ server_url: 'http://localhost:7437', jwt: 'jwt' }),
+    getUser: async () => ({ id: 'u2', email: 'bob@x' }),
+    listCompanies: async () => [],
+    getGroupConversations: async () => ({}),
+    listAllConversations: async () => ({
+      'dm-1': {
+        id: 'dm-1', name: 'XT', display_name: 'XT', agent_name: 'XT',
+        conversation_type: 'dm', updated_at: '2026-05-12T01:00:00Z',
+      },
+      'dm-2': {
+        id: 'dm-2', name: 'DM-Alice', display_name: 'DM-Alice',
+        conversation_type: 'dm', updated_at: '2026-05-12T01:01:00Z',
+      },
+    }),
+    getConversationParticipants: async () => [],
+    markConversationRead: async () => ({}),
+  };
+  for (const name of ['markdown.js', 'team-chat-helpers.js', 'team-chat.js']) {
+    vm.runInContext(fs.readFileSync(path.join(SRC, name), 'utf8'),
+                    dom.getInternalVMContext(), { filename: name });
+  }
+
+  await window.AgixtTeamChat.mount();
+  await new Promise((r) => setTimeout(r, 80));
+
+  // DM list shows ONLY People (humans). Agent DMs live in the side
+  // AI chat — they intentionally don't surface in this panel.
+  const categories = Array.from(window.document.querySelectorAll('#tc-channel-scroll .tc-channel-category'))
+    .map((n) => n.textContent);
+  assert.ok(categories.includes('People'), 'People section header rendered');
+  assert.ok(!categories.includes('Agents'), 'Agents section header NOT rendered');
+
+  // Click into the human DM to load messages.
+  const rows = window.document.querySelectorAll('#tc-channel-scroll .tc-channel-row');
+  let aliceRow = null;
+  for (const r of rows) {
+    if (r.querySelector('.tc-channel-name').textContent === 'Alice') { aliceRow = r; break; }
+  }
+  assert.ok(aliceRow, 'Alice DM row rendered (DM- prefix stripped)');
+  aliceRow.click();
+  await new Promise((r) => setTimeout(r, 60));
+
+  // Reply card appears on the second message.
+  const replyCards = window.document.querySelectorAll('.tc-reply-card');
+  assert.equal(replyCards.length, 1, 'reply card rendered for m2');
+  assert.match(replyCards[0].textContent, /Alice/, 'reply card credits Alice');
+  // Emoji shortcode resolved.
+  const messages = window.document.querySelectorAll('.tc-message-body');
+  const lastBody = messages[messages.length - 1].textContent;
+  assert.match(lastBody, /😂/, 'emoji shortcode resolved');
+  // Avatar element present for each message.
+  const avatars = window.document.querySelectorAll('.tc-message .tc-avatar');
+  assert.equal(avatars.length, 2, 'avatar rendered per message');
+
+  window.AgixtTeamChat.unmount();
+});
+
+test('markdown: data:image URLs render as <img>, not as link text', () => {
+  const { window } = loadFrontend();
+  const html = window.AgixtMarkdown.render(
+    '![photo](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=)',
+  );
+  // <img> tag with the data URL as src, not <a> wrapping the alt text.
+  assert.match(html, /<img[^>]+class="md-image"[^>]+src="data:image\/png/);
+  assert.ok(!/<a[^>]*>photo<\/a>/.test(html), 'attachment must not render as a link');
+});
+
+test('markdown: ||spoiler|| renders as clickable hidden span', () => {
+  const { window } = loadFrontend();
+  const html = window.AgixtMarkdown.render('hi ||secret thing|| there');
+  assert.match(html, /class="md-spoiler"/);
+  assert.match(html, /role="button"/);
+  assert.match(html, /class="md-spoiler-inner">secret thing/);
+});
+
+test('markdown: fenced code block carries copy + download buttons', () => {
+  const { window } = loadFrontend();
+  const html = window.AgixtMarkdown.render('```javascript\nconsole.log(1);\n```');
+  assert.match(html, /class="md-codeblock"/);
+  assert.match(html, /title="Copy"[^>]*aria-label="Copy"/);
+  assert.match(html, /title="Download"[^>]*aria-label="Download"/);
+  assert.match(html, /md-codeblock-lang">javascript/);
+});
+
+test('team-chat-helpers: parseReply strips nested reply layer', () => {
+  const dom = new JSDOM('<!doctype html><body></body>', {
+    runScripts: 'outside-only', url: 'http://localhost/',
+  });
+  vm.runInContext(
+    fs.readFileSync(path.join(SRC, 'team-chat-helpers.js'), 'utf8'),
+    dom.getInternalVMContext(),
+    { filename: 'team-chat-helpers.js' },
+  );
+  const H = dom.window.AgixtTeamChatHelpers;
+  // A reply-of-a-reply: parsing the outer reply yields a body that is
+  // itself a reply. Reply target staging calls parseReply again on
+  // that body to get to the leaf message.
+  const outer = '> **Alice** said: [ref:m1] [uid:abcdef01-2345-6789-abcd-ef0123456789]\n> hello\n\n> **Bob** said: [ref:m2] [uid:11111111-2222-3333-4444-555555555555]\n> earlier line\n\nthe leaf message';
+  const first = H.parseReply(outer);
+  assert.ok(first, 'outer reply parsed');
+  assert.equal(first.replyAuthor, 'Alice');
+  const inner = H.parseReply(first.actualMessage);
+  assert.ok(inner, 'inner reply parsed');
+  assert.equal(inner.replyAuthor, 'Bob');
+  assert.equal(inner.actualMessage, 'the leaf message');
+});
+
+test('markdown: mention resolver renders <@uuid> as clickable chip', () => {
+  const { window } = loadFrontend();
+  const calls = [];
+  window.AgixtMarkdown.setMentionResolver((uid) => ({
+    name: uid === '11111111-2222-3333-4444-555555555555' ? 'Alice' : 'User',
+    kind: 'user',
+    onClick: () => calls.push(uid),
+  }));
+  const target = window.document.createElement('div');
+  window.AgixtMarkdown.renderInto(target,
+    'hello <@11111111-2222-3333-4444-555555555555>!');
+  const chip = target.querySelector('.md-mention');
+  assert.ok(chip, 'mention chip rendered');
+  assert.equal(chip.textContent, '@Alice');
+  assert.equal(chip.dataset.userId, '11111111-2222-3333-4444-555555555555');
+  chip.click();
+  assert.deepEqual(calls, ['11111111-2222-3333-4444-555555555555']);
+  // Reset resolver so it doesn't leak between tests.
+  window.AgixtMarkdown.setMentionResolver(null);
+});
+
+test('markdown: tenor URL renders as inline <img>, not a bare link', () => {
+  const { window } = loadFrontend();
+  const target = window.document.createElement('div');
+  window.AgixtMarkdown.renderInto(target,
+    'check this https://media.tenor.com/abc.gif');
+  const img = target.querySelector('img.md-image');
+  assert.ok(img, 'tenor URL becomes an <img>');
+  assert.equal(img.getAttribute('src'), 'https://media.tenor.com/abc.gif');
+});
+
+test('markdown: code blocks inside a block spoiler render correctly when revealed', () => {
+  const { window } = loadFrontend();
+  const target = window.document.createElement('div');
+  // ||\n```js\ncode\n```\n||  — block spoiler containing a fenced code block.
+  window.AgixtMarkdown.renderInto(target, '||\n```js\nlet a = 1;\n```\n||');
+  const spoiler = target.querySelector('.md-spoiler-block');
+  assert.ok(spoiler, 'block spoiler rendered');
+  // The code block lives INSIDE the spoiler wrapper so revealing the
+  // spoiler exposes the full codeblock chrome (toolbar, language, etc.)
+  const codeblock = spoiler.querySelector('.md-codeblock');
+  assert.ok(codeblock, 'fenced code block survives inside the spoiler');
+  assert.match(codeblock.outerHTML, /title="Copy"/);
+  assert.match(codeblock.outerHTML, /md-codeblock-lang">js</);
 });

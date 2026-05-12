@@ -630,6 +630,202 @@
     });
   }
 
+  // ----- Group chat / channels --------------------------------------------
+  // Mirrors the web's group-chat SDK methods (see web/lib/sdk.ts §
+  // "Group Chat / Channel Methods"). The desktop's team-chat pane uses
+  // these to render the Discord-style company → channel → member → message
+  // hierarchy without going through Tauri (no native state is involved —
+  // it's all HTTPS round-trips to /v1/conversation/*).
+
+  /** GET /v1/company/{id}/conversations — channels (group / dm / thread)
+   *  belonging to a company. Returns a map keyed by conversation id. */
+  async function getGroupConversations(companyId) {
+    if (!companyId) return {};
+    const data = await request('GET', '/v1/company/' + encodeURIComponent(companyId) + '/conversations');
+    return (data && data.conversations) || {};
+  }
+
+  /** POST /v1/conversation/group — create a new channel / dm / thread. */
+  async function createGroupConversation(payload) {
+    return request('POST', '/v1/conversation/group', { body: payload || {} });
+  }
+
+  /** PATCH /v1/conversation/{id}/channel — rename / re-category / re-describe. */
+  async function updateChannel(conversationId, patch) {
+    return request('PATCH', '/v1/conversation/' + encodeURIComponent(conversationId) + '/channel', {
+      body: patch || {},
+    });
+  }
+
+  /** DELETE /v1/conversation/{id} — used for both regular conversations
+   *  and channels (the latter just have conversation_type='group'). */
+  async function deleteConversation(conversationId) {
+    return request('DELETE', '/v1/conversation/' + encodeURIComponent(conversationId));
+  }
+
+  /** GET /v1/conversation/{id}/participants — users + agents in a channel. */
+  async function getConversationParticipants(conversationId) {
+    if (!conversationId || conversationId === '-') return [];
+    const data = await request('GET', '/v1/conversation/' + encodeURIComponent(conversationId) + '/participants');
+    if (Array.isArray(data)) return data;
+    return (data && data.participants) || [];
+  }
+
+  /** POST /v1/conversation/{id}/participants — add a user/agent. */
+  async function addConversationParticipant(conversationId, payload) {
+    return request('POST', '/v1/conversation/' + encodeURIComponent(conversationId) + '/participants', {
+      body: payload || {},
+    });
+  }
+
+  /** DELETE /v1/conversation/{id}/participants/{pid}. */
+  async function removeConversationParticipant(conversationId, participantId) {
+    return request(
+      'DELETE',
+      '/v1/conversation/' + encodeURIComponent(conversationId)
+        + '/participants/' + encodeURIComponent(participantId),
+    );
+  }
+
+  /** PATCH /v1/conversation/{id}/participants/{pid} — change role. */
+  async function updateParticipantRole(conversationId, participantId, role) {
+    return request(
+      'PATCH',
+      '/v1/conversation/' + encodeURIComponent(conversationId)
+        + '/participants/' + encodeURIComponent(participantId),
+      { body: { role } },
+    );
+  }
+
+  /** POST /v1/conversation/{id}/read — mark all messages as read. */
+  async function markConversationRead(conversationId) {
+    return request('POST', '/v1/conversation/' + encodeURIComponent(conversationId) + '/read');
+  }
+
+  /** PUT /v1/conversation/{id}/notification-settings. */
+  async function updateNotificationSettings(conversationId, mode) {
+    return request(
+      'PUT',
+      '/v1/conversation/' + encodeURIComponent(conversationId) + '/notification-settings',
+      { body: { notification_mode: mode } },
+    );
+  }
+
+  /** GET /v1/conversations — every conversation the user can see. Used to
+   *  list DMs in the private/no-server view of the team-chat pane.
+   *  Returns the raw `conversations` map (id -> details).
+   *
+   *  Paginates through `next_cursor` so users with > 500 conversations
+   *  don't silently lose history — the AGiXT server caps a single
+   *  response at ~500 rows and surfaces a cursor when more remain.
+   *  We cap at 5 page fetches (≈ 2,500 conversations) so a runaway
+   *  history doesn't stall a slow link forever. */
+  async function listAllConversations() {
+    let merged = {};
+    let cursor = null;
+    let pages = 0;
+    while (pages < 5) {
+      const qs = '?limit=500&include_counts=true'
+        + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+      const data = await request('GET', '/v1/conversations' + qs);
+      const page = (data && data.conversations) || {};
+      Object.assign(merged, page);
+      const next = data && (data.next_cursor || data.nextCursor);
+      if (!next) break;
+      cursor = next;
+      pages++;
+    }
+    return merged;
+  }
+
+  /** POST /api/conversation/message — append a plain message (no LLM
+   *  completion). This is the endpoint the web uses for "channel message
+   *  without @mention" (see web/components/conversation/conversation.tsx
+   *  isChannelLike branch). Agent responses go through chat/completions
+   *  separately; for the desktop first cut, mentions are typed but the
+   *  agent isn't invoked. */
+  async function postChannelMessage(conversationName, message, role) {
+    return request('POST', '/api/conversation/message', {
+      body: {
+        role: role || 'USER',
+        message: message || '',
+        conversation_name: conversationName || '',
+      },
+    });
+  }
+
+  /** DELETE /v1/conversation/{id}/message/{mid} — remove a single
+   *  message from a channel. Used by the message context menu. */
+  async function deleteMessage(conversationId, messageId) {
+    return request(
+      'DELETE',
+      '/v1/conversation/' + encodeURIComponent(conversationId)
+        + '/message/' + encodeURIComponent(messageId),
+    );
+  }
+
+  /** PUT /api/conversation/message/{mid} — edit a message body. */
+  async function editMessage(conversationName, messageId, newMessage) {
+    return request('PUT', '/api/conversation/message/' + encodeURIComponent(messageId), {
+      body: {
+        conversation_name: conversationName,
+        new_message: newMessage,
+      },
+    });
+  }
+
+  /** POST /v1/conversation/{id}/message/{mid}/reactions — toggle. */
+  async function toggleReaction(conversationId, messageId, emoji) {
+    return request(
+      'POST',
+      '/v1/conversation/' + encodeURIComponent(conversationId)
+        + '/message/' + encodeURIComponent(messageId) + '/reactions',
+      { body: { emoji } },
+    );
+  }
+
+  /** PUT /v1/conversation/{id}/message/{mid}/pin — toggle pin state. */
+  async function togglePinMessage(conversationId, messageId) {
+    return request(
+      'PUT',
+      '/v1/conversation/' + encodeURIComponent(conversationId)
+        + '/message/' + encodeURIComponent(messageId) + '/pin',
+    );
+  }
+
+  /** GET /v1/conversation/{id}/threads — list of threads under a channel. */
+  async function getThreads(conversationId) {
+    if (!conversationId) return [];
+    try {
+      const data = await request('GET',
+        '/v1/conversation/' + encodeURIComponent(conversationId) + '/threads');
+      const arr = (data && data.threads) || (Array.isArray(data) ? data : []);
+      return Array.isArray(arr) ? arr : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /** POST /v1/conversation/{parentId}/threads — start a thread under
+   *  a channel, optionally anchored at a specific parent message. */
+  async function createThread(parentConversationId, payload) {
+    return request('POST',
+      '/v1/conversation/' + encodeURIComponent(parentConversationId) + '/threads',
+      { body: payload || {} });
+  }
+
+  /** GET /v1/companies/{id}/members — list of people who can be invited
+   *  to a channel from this company. */
+  async function getCompanyAgents(companyId) {
+    if (!companyId) return [];
+    try {
+      const data = await request('GET', '/v1/companies/' + encodeURIComponent(companyId));
+      return (data && data.agents) || [];
+    } catch (_) {
+      return [];
+    }
+  }
+
   // ----- Webhooks ---------------------------------------------------------
   // The webhook endpoints sit under `/api/webhooks/...` (not /v1/) — see
   // AGiXT/agixt/endpoints/Webhook.py and the web SDK methods around line
@@ -1036,6 +1232,26 @@
     renamePrompt,
     deletePrompt,
     runPrompt,
+    // Group chat / channels
+    getGroupConversations,
+    createGroupConversation,
+    updateChannel,
+    deleteConversation,
+    getConversationParticipants,
+    addConversationParticipant,
+    removeConversationParticipant,
+    updateParticipantRole,
+    markConversationRead,
+    updateNotificationSettings,
+    listAllConversations,
+    postChannelMessage,
+    deleteMessage,
+    editMessage,
+    toggleReaction,
+    togglePinMessage,
+    getThreads,
+    createThread,
+    getCompanyAgents,
     // Webhooks
     listOutgoingWebhooks,
     createOutgoingWebhook,

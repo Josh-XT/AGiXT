@@ -1,9 +1,10 @@
 /* Monaco workspace model manager — port of useWorkspaceModels.ts.
  *
- * Maintains an in-memory Monaco model for every text file in the
+ * Maintains an in-memory Monaco model cache for text files in the
  * conversation workspace so cross-file features (go-to-definition,
  * find-references, workspace symbol search, TS/JS intellisense) work
- * across the whole tree.
+ * across a useful slice of the tree without tripping Monaco's listener
+ * leak guard in large workspaces.
  *
  * Loads via the AMD `vs/loader.js` already booted by workspace.js.
  *
@@ -52,6 +53,19 @@
     dockerfile:'dockerfile',makefile:'shell',gemfile:'ruby',
     rakefile:'ruby',procfile:'shell',vagrantfile:'ruby',
   };
+  const SOURCE_EXTENSIONS = new Set([
+    'js','jsx','ts','tsx','mjs','mts','cjs','cts',
+    'py','pyw','pyi','rs','go','java','kt','scala','c','cpp','h','hpp',
+    'rb','php','swift','dart','lua','r','vue','svelte',
+  ]);
+  const SUPPORT_EXTENSIONS = new Set([
+    'json','jsonc','json5','xml','svg','html','htm','css','scss','less','sass',
+    'yaml','yml','toml','ini','conf','cfg','env','properties',
+    'sh','bash','zsh','fish','ps1','bat','cmd','sql','graphql','gql',
+    'tf','hcl','proto','makefile','cmake','dockerfile',
+  ]);
+  const LOW_PRIORITY_EXTENSIONS = new Set(['md','mdx','txt','csv','log']);
+  const MAX_WORKSPACE_MODELS = 120;
 
   function getMonacoLanguageForFile(name) {
     const lower = String(name).toLowerCase();
@@ -60,6 +74,35 @@
     }
     const ext = lower.split('.').pop() || '';
     return MONACO_LANG_MAP[ext] || 'plaintext';
+  }
+
+  function getFileExtension(name) {
+    const lower = String(name || '').toLowerCase();
+    if (!lower.includes('.') || (lower.startsWith('.') && !lower.slice(1).includes('.'))) return '';
+    return lower.split('.').pop() || '';
+  }
+
+  function getModelPriority(file, activePath) {
+    if (activePath && file.path === activePath) return 0;
+    const lower = String(file.name || '').toLowerCase();
+    const ext = getFileExtension(file.name);
+    if (!ext && lower in EXTENSIONLESS_LANG) return 1;
+    if (SOURCE_EXTENSIONS.has(ext)) return 1;
+    if (SUPPORT_EXTENSIONS.has(ext)) return 2;
+    if (LOW_PRIORITY_EXTENSIONS.has(ext)) return 4;
+    return 3;
+  }
+
+  function selectModelFiles(files, activePath) {
+    return [...files]
+      .sort((a, b) => {
+        const priority = getModelPriority(a, activePath) - getModelPriority(b, activePath);
+        if (priority) return priority;
+        const depth = String(a.path || '').split('/').length - String(b.path || '').split('/').length;
+        if (depth) return depth;
+        return String(a.path || '').localeCompare(String(b.path || ''));
+      })
+      .slice(0, MAX_WORKSPACE_MODELS);
   }
 
   function isTextFile(name) {
@@ -72,17 +115,18 @@
   }
 
   function collectTextFiles(items) {
-    const out = [];
+    const byPath = new Map();
     function walk(list) {
       for (const item of list || []) {
         if (item.type === 'file' && isTextFile(item.name)) {
-          out.push({ path: item.path, name: item.name });
+          const path = String(item.path || '');
+          if (path && !byPath.has(path)) byPath.set(path, { path, name: item.name });
         }
         if (item.children && item.children.length) walk(item.children);
       }
     }
     walk(items);
-    return out;
+    return Array.from(byPath.values());
   }
 
   // --- Singleton state -----------------------------------------------
@@ -92,6 +136,8 @@
   const providerDisposables = [];
   let activeConversationId = null;
   let loading = false;
+  let queuedLoad = null;
+  let loadVersion = 0;
 
   function configureTypeScriptDefaults(monaco) {
     if (tsConfigured) return;
@@ -227,65 +273,108 @@
     registerCrossFileProviders(monaco);
   }
 
-  /** Load all text-file models for the current workspace. */
-  async function ensureModelsLoaded(monaco, api, cfg, conversationId, items) {
-    if (loading) return;
+  function disposeLoadedModels(monaco) {
+    if (monaco) {
+      for (const path of Array.from(loadedPaths)) {
+        const uri = monaco.Uri.parse(`file://${path}`);
+        const m = monaco.editor.getModel(uri);
+        if (m) m.dispose();
+      }
+    }
+    loadedPaths.clear();
+  }
+
+  async function loadModelsForRequest(request) {
+    const { monaco, api, cfg, conversationId, items, activePath } = request;
+    if (!monaco || !api || !conversationId) return;
+
+    // If conversation changed, drop existing models so they don't leak.
+    if (activeConversationId && activeConversationId !== conversationId) {
+      disposeLoadedModels(monaco);
+      loadVersion += 1;
+    }
+    activeConversationId = conversationId;
+    const version = loadVersion;
+
+    const textFiles = collectTextFiles(items);
+    const modelFiles = selectModelFiles(textFiles, activePath);
+    const managedPaths = new Set(modelFiles.map((f) => f.path));
+
+    // Keep Monaco comfortably below its listener leak threshold. The active
+    // editor model is created by workspace.js even if it falls outside this
+    // background cache.
+    for (const path of Array.from(loadedPaths)) {
+      if (!managedPaths.has(path)) {
+        const uri = monaco.Uri.parse(`file://${path}`);
+        const m = monaco.editor.getModel(uri);
+        if (m) m.dispose();
+        loadedPaths.delete(path);
+      }
+    }
+
+    const toLoad = modelFiles.filter((f) => !loadedPaths.has(f.path));
+
+    const BATCH = 2;
+    for (let i = 0; i < toLoad.length; i += BATCH) {
+      if (version !== loadVersion || activeConversationId !== conversationId) return;
+      const batch = toLoad.slice(i, i + BATCH);
+      const results = await Promise.allSettled(batch.map(async (f) => {
+        try {
+          const result = await api.downloadFile(cfg, conversationId, f.path);
+          if (!result) return null;
+          return { path: f.path, name: f.name, text: await result.blob.text() };
+        } catch { return null; }
+      }));
+      if (version !== loadVersion || activeConversationId !== conversationId) return;
+      for (const r of results) {
+        if (r.status !== 'fulfilled' || !r.value) continue;
+        const { path, name, text } = r.value;
+        const uri = monaco.Uri.parse(`file://${path}`);
+        const existing = monaco.editor.getModel(uri);
+        if (existing) {
+          if (existing.getValue() !== text) existing.setValue(text);
+        } else {
+          monaco.editor.createModel(text, getMonacoLanguageForFile(name), uri);
+        }
+        loadedPaths.add(path);
+      }
+      // Yield to UI thread between batches.
+      if (i + BATCH < toLoad.length) {
+        await new Promise((res) => {
+          if (typeof requestIdleCallback !== 'undefined') requestIdleCallback(() => res(), { timeout: 200 });
+          else setTimeout(res, 50);
+        });
+      }
+    }
+
+    // Prune models for files that no longer exist.
+    for (const path of Array.from(loadedPaths)) {
+      if (!managedPaths.has(path)) {
+        const uri = monaco.Uri.parse(`file://${path}`);
+        const m = monaco.editor.getModel(uri);
+        if (m) m.dispose();
+        loadedPaths.delete(path);
+      }
+    }
+  }
+
+  /** Load bounded text-file models for the current workspace. */
+  async function ensureModelsLoaded(monaco, api, cfg, conversationId, items, opts) {
+    const request = {
+      monaco, api, cfg, conversationId, items,
+      activePath: opts && opts.activePath ? opts.activePath : null,
+    };
+    if (loading) {
+      queuedLoad = request;
+      return;
+    }
     loading = true;
     try {
-      // If conversation changed, drop existing models so they don't leak.
-      if (activeConversationId && activeConversationId !== conversationId) {
-        for (const path of loadedPaths) {
-          const uri = monaco.Uri.parse(`file://${path}`);
-          const model = monaco.editor.getModel(uri);
-          if (model) model.dispose();
-        }
-        loadedPaths.clear();
-      }
-      activeConversationId = conversationId;
-
-      const textFiles = collectTextFiles(items);
-      const toLoad = textFiles.filter((f) => !loadedPaths.has(f.path));
-
-      const BATCH = 2;
-      for (let i = 0; i < toLoad.length; i += BATCH) {
-        const batch = toLoad.slice(i, i + BATCH);
-        const results = await Promise.allSettled(batch.map(async (f) => {
-          try {
-            const result = await api.downloadFile(cfg, conversationId, f.path);
-            if (!result) return null;
-            return { path: f.path, name: f.name, text: await result.blob.text() };
-          } catch { return null; }
-        }));
-        for (const r of results) {
-          if (r.status !== 'fulfilled' || !r.value) continue;
-          const { path, name, text } = r.value;
-          const uri = monaco.Uri.parse(`file://${path}`);
-          const existing = monaco.editor.getModel(uri);
-          if (existing) {
-            if (existing.getValue() !== text) existing.setValue(text);
-          } else {
-            monaco.editor.createModel(text, getMonacoLanguageForFile(name), uri);
-          }
-          loadedPaths.add(path);
-        }
-        // Yield to UI thread between batches.
-        if (i + BATCH < toLoad.length) {
-          await new Promise((res) => {
-            if (typeof requestIdleCallback !== 'undefined') requestIdleCallback(() => res(), { timeout: 200 });
-            else setTimeout(res, 50);
-          });
-        }
-      }
-
-      // Prune models for files that no longer exist.
-      const current = new Set(textFiles.map((f) => f.path));
-      for (const path of Array.from(loadedPaths)) {
-        if (!current.has(path)) {
-          const uri = monaco.Uri.parse(`file://${path}`);
-          const m = monaco.editor.getModel(uri);
-          if (m) m.dispose();
-          loadedPaths.delete(path);
-        }
+      let current = request;
+      while (current) {
+        queuedLoad = null;
+        await loadModelsForRequest(current);
+        current = queuedLoad;
       }
     } finally {
       loading = false;
@@ -302,17 +391,12 @@
 
   /** Tear down everything (called when workspace closes / convo switches). */
   function dispose(monaco) {
+    loadVersion += 1;
+    queuedLoad = null;
     for (const d of providerDisposables) { try { d.dispose(); } catch {} }
     providerDisposables.length = 0;
     providersRegistered = false;
-    if (monaco) {
-      for (const path of loadedPaths) {
-        const uri = monaco.Uri.parse(`file://${path}`);
-        const m = monaco.editor.getModel(uri);
-        if (m) m.dispose();
-      }
-    }
-    loadedPaths.clear();
+    disposeLoadedModels(monaco);
     activeConversationId = null;
   }
 

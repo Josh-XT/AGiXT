@@ -329,20 +329,29 @@
   // Re-order DOM children of `.sidenav-top` to match the persisted
   // order. Chat stays first; entries not in the saved list go to the
   // end (newly registered extensions append after the user's order).
+  // Buttons marked `data-pinned-first="true"` (currently the Chat icon)
+  // stay locked at the start of the rail regardless of the user's saved
+  // drag-order. They're also excluded from the persisted order list so a
+  // capture pass after the user reorders other buttons can't accidentally
+  // drop them out of the pinned slot.
+  function isPinnedFirst(btn) {
+    return !!(btn && btn.dataset && btn.dataset.pinnedFirst === 'true');
+  }
   function applySidenavOrder() {
     const top = document.querySelector('.sidenav-top');
     if (!top) return;
     const order = loadSidenavOrder();
-    const chat = top.querySelector('.sidenav-btn[data-view="chat"]');
+    const pinned = Array.from(top.querySelectorAll('.sidenav-btn[data-view]'))
+      .filter(isPinnedFirst);
     const all = Array.from(top.querySelectorAll('.sidenav-btn[data-view]'))
-      .filter((b) => b.dataset.view !== 'chat');
+      .filter((b) => !isPinnedFirst(b));
     const orderedKnown = order
       .map((id) => all.find((b) => b.dataset.view === id))
       .filter(Boolean);
     const newcomers = all.filter((b) => order.indexOf(b.dataset.view) === -1);
     // Re-append in the desired order. appendChild on existing nodes
     // moves them, doesn't duplicate.
-    if (chat) top.appendChild(chat);
+    for (const b of pinned)       top.appendChild(b);
     for (const b of orderedKnown) top.appendChild(b);
     for (const b of newcomers)    top.appendChild(b);
   }
@@ -353,8 +362,9 @@
     const top = document.querySelector('.sidenav-top');
     if (!top) return;
     const ids = Array.from(top.querySelectorAll('.sidenav-btn[data-view]'))
+      .filter((b) => !isPinnedFirst(b))
       .map((b) => b.dataset.view)
-      .filter((id) => id && id !== 'chat');
+      .filter(Boolean);
     saveSidenavOrder(ids);
   }
 
@@ -793,9 +803,16 @@
       const top = btn.parentElement;
       if (!top || dragging.parentElement !== top) return;
       const rect = btn.getBoundingClientRect();
-      const before = e.clientY < rect.top + rect.height / 2;
+      let before = e.clientY < rect.top + rect.height / 2;
+      // Pinned-first buttons (Chat) stay at the start of the rail; refuse
+      // any drop that would land before them and fall through to placing
+      // the dragged item immediately after them instead. applySidenavOrder
+      // would re-pin them on the next reflow anyway, but doing it here
+      // keeps the visual transition smooth.
+      if (before && isPinnedFirst(btn)) before = false;
       top.insertBefore(dragging, before ? btn : btn.nextSibling);
       captureSidenavOrder();
+      applySidenavOrder();
       reflowSidenavOverflow();
     });
   }

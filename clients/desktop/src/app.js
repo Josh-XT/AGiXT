@@ -1862,6 +1862,16 @@
         console.warn('AgixtPrompts.mount', err);
       });
     }
+    // Team chat pane — Discord-style group chat. Lazy-mounted on first
+    // activation so its API round-trips (companies / channels / members)
+    // don't fire until the user actually opens the pane.
+    if (targetPane === 'team-chat'
+        && window.AgixtTeamChat
+        && typeof window.AgixtTeamChat.mount === 'function') {
+      Promise.resolve(window.AgixtTeamChat.mount()).catch((err) => {
+        console.warn('AgixtTeamChat.mount', err);
+      });
+    }
     // Server-delivered desktop extensions are mounted by the extension
     // loader. Trigger it from the central view switcher too, so panes
     // opened programmatically or restored from overflow cannot become
@@ -2241,6 +2251,12 @@
         && typeof window.AgixtDesktopExtensions.start === 'function') {
       window.AgixtDesktopExtensions.start();
     }
+    // Default landing surface = team chat. The agent chat slides into
+    // the side pane via with-content-pane, mirroring the web's default
+    // `/chat` redirect (web/app/page.tsx:246).
+    if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
+      window.AgixtSidenav.setActiveView('team-chat');
+    }
   }
 
   (async () => {
@@ -2264,6 +2280,10 @@
       updateConvoLabel();
       if (settings.conversation_id) {
         await window.AgixtChat.loadHistory(settings.conversation_id);
+      }
+      // Default landing surface = team chat (matches web /chat redirect).
+      if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
+        setTimeout(() => window.AgixtSidenav.setActiveView('team-chat'), 0);
       }
       startNotifications();
       scheduleDesktopAutoUpdateCheck();

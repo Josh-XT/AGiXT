@@ -226,13 +226,53 @@
   background: var(--bg, #0a0a0a);
 }
 .wk-prose { font-size: 13px; line-height: 1.55; max-width: 980px; }
+.wk-prose p { margin: 0 0 0.9em 0; }
 .wk-prose pre {
   background: var(--panel, #0d1117); border: 1px solid var(--border, #1a1f24);
   border-radius: 6px; padding: 10px 12px; overflow: auto; font-size: 12px;
+  margin: 0.6em 0;
 }
-.wk-prose code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.93em; }
-.wk-prose h1, .wk-prose h2, .wk-prose h3 { margin-top: 1.2em; margin-bottom: 0.6em; }
-.wk-prose a { color: var(--accent, #4f8cff); }
+.wk-prose pre code { background: transparent; padding: 0; border: 0; font-size: 12px; }
+.wk-prose code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em;
+  background: var(--panel, rgba(110,118,129,0.18));
+  border: 1px solid var(--border, rgba(110,118,129,0.25));
+  border-radius: 4px; padding: 0.12em 0.36em;
+}
+.wk-prose h1, .wk-prose h2, .wk-prose h3, .wk-prose h4, .wk-prose h5, .wk-prose h6 {
+  margin-top: 1.2em; margin-bottom: 0.5em; line-height: 1.25;
+}
+.wk-prose h1 { font-size: 1.8em; border-bottom: 1px solid var(--border, #1a1f24); padding-bottom: 0.3em; }
+.wk-prose h2 { font-size: 1.45em; border-bottom: 1px solid var(--border, #1a1f24); padding-bottom: 0.3em; }
+.wk-prose h3 { font-size: 1.2em; }
+.wk-prose h4 { font-size: 1.05em; }
+.wk-prose h5, .wk-prose h6 { font-size: 0.95em; opacity: 0.85; }
+.wk-prose a { color: var(--accent, #4f8cff); text-decoration: none; }
+.wk-prose a:hover { text-decoration: underline; }
+.wk-prose ul, .wk-prose ol { margin: 0.4em 0 0.9em 0; padding-left: 1.6em; }
+.wk-prose ul ul, .wk-prose ul ol, .wk-prose ol ul, .wk-prose ol ol { margin: 0.2em 0; }
+.wk-prose li { margin: 0.15em 0; }
+.wk-prose li > p { margin: 0 0 0.4em 0; }
+.wk-prose blockquote {
+  margin: 0.6em 0; padding: 0.2em 0.9em;
+  border-left: 3px solid var(--border, #2a2f36);
+  color: var(--muted, #9aa3ad);
+}
+.wk-prose hr {
+  border: 0; border-top: 1px solid var(--border, #1a1f24);
+  margin: 1.2em 0;
+}
+.wk-prose table {
+  border-collapse: collapse; margin: 0.6em 0;
+  display: block; overflow-x: auto;
+}
+.wk-prose th, .wk-prose td {
+  border: 1px solid var(--border, #1a1f24);
+  padding: 6px 10px; text-align: left;
+}
+.wk-prose th { background: var(--panel, #0d1117); font-weight: 600; }
+.wk-prose img { max-width: 100%; height: auto; }
+.wk-prose del { opacity: 0.65; }
 
 .wk-preview {
   flex: 1; min-height: 0; overflow: auto;
