@@ -684,7 +684,11 @@ BotsView.prototype.renderTable = function () {
   }).join('');
   const bodyRows = rows.length
     ? rows.map((b) => this.rowHtml(b)).join('')
-    : '<tr><td colspan="' + BOT_COLS.length + '" class="bt-empty">No deployed agents.</td></tr>';
+    : '<tr><td colspan="' + BOT_COLS.length + '" class="bt-empty">'
+      + (this.scope === 'server'
+          ? 'No server-wide bots are deployed. Use “Deploy agent” to start a Discord / Slack / Telegram bot that serves every company on this server.'
+          : 'No company bots are deployed yet. Pick a platform below to deploy your first agent. OAuth platforms need a connected provider in <strong>Account → Connections</strong> before deployment will succeed.')
+      + '</td></tr>';
   this.tableEl.innerHTML = '<table class="bt-table"><thead><tr>' + headers + '</tr></thead><tbody>' + bodyRows + '</tbody></table>';
 
   this.tableEl.querySelectorAll('.bt-th.is-sortable').forEach((th) => {

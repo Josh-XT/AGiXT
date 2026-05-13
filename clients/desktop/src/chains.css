@@ -1229,6 +1229,63 @@
   overflow-y: auto;
 }
 
+/* ----- Step mini-map / overview --------------------------------------- */
+.cn-step-map {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 10px;
+  margin: 0 0 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  align-items: center;
+}
+.cn-step-map-pill {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.cn-step-map-pill:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+}
+.cn-step-map-num {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 700;
+}
+.cn-step-map-type {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--panel);
+}
+.cn-step-map-prompt .cn-step-map-type { color: #5b8eff; background: rgba(91, 142, 255, 0.16); }
+.cn-step-map-command .cn-step-map-type { color: #62c886; background: rgba(98, 200, 134, 0.16); }
+.cn-step-map-chain .cn-step-map-type { color: #b095f0; background: rgba(176, 149, 240, 0.16); }
+.cn-step-card-flash {
+  animation: cn-step-card-flash-anim 800ms ease-out;
+}
+@keyframes cn-step-card-flash-anim {
+  0% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
 /* ----- Tight responsive layout (when chat is open beside) -------------- */
 @media (max-width: 900px) {
   .cn-list { width: 220px; }

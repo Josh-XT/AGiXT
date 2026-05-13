@@ -1358,31 +1358,41 @@
   }
 
   // Banner DOM: surfaced at the top of the billing panel when a pending
-  // payment marker exists. The caller passes the current balance so we
-  // can render the right kind ("pending"/"completed"/"cancelled").
+  // payment marker exists. Distinguishes four phases:
+  //   pending (<5 min)     → "Finishing your payment…"
+  //   waiting (5-15 min)   → "Still waiting…" with Refresh
+  //   likely canceled (>15 min) → "Looks like the checkout was abandoned"
+  //   completed            → balance jumped past baseline
   function renderPaymentReturnBanner(payment, currentBalanceTokens, onRefresh, onDismiss) {
     const baseline = Number(payment.baseline_balance_tokens || 0);
     const balance = Number(currentBalanceTokens || 0);
     const completed = balance > baseline;
     const elapsedMin = Math.max(0, Math.round((Date.now() - payment.started_at) / 60000));
-    const stale = !completed && elapsedMin >= 10;
+    const waiting = !completed && elapsedMin >= 5 && elapsedMin < 15;
+    const likelyCanceled = !completed && elapsedMin >= 15;
 
-    const variant = completed ? 'success' : (stale ? 'warn' : 'info');
+    const variant = completed ? 'success'
+      : likelyCanceled ? 'bad'
+      : waiting ? 'warn'
+      : 'info';
     const icon = completed
       ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
-      : stale
+      : likelyCanceled
+      ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>'
+      : waiting
       ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>'
       : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
-    const title = completed
-      ? 'Payment completed'
-      : stale
-      ? 'Still waiting on your payment'
+    const title = completed ? 'Payment completed'
+      : likelyCanceled ? 'Checkout appears canceled'
+      : waiting ? 'Still waiting on your payment'
       : 'Finishing your payment…';
     const kindLabel = payment.kind === 'plan' ? 'subscription change' : 'token top-up';
     const body = completed
       ? 'Your ' + kindLabel + ' came through — the new balance is loaded above.'
-      : stale
-      ? 'It has been about ' + elapsedMin + ' minutes since you opened Stripe. If you cancelled or closed the tab, dismiss this and try again.'
+      : likelyCanceled
+      ? 'It has been ' + elapsedMin + ' minutes since you opened Stripe and no payment landed. The checkout was likely canceled or failed. Retry from the top-up form below, or dismiss this banner.'
+      : waiting
+      ? 'It has been about ' + elapsedMin + ' minutes since you opened Stripe. If you completed checkout, the new balance should appear after a quick refresh.'
       : 'When you finish the ' + kindLabel + ' in your browser, return here and we will pick up the new balance automatically.';
 
     const wrap = el('div', { class: 'us-payment-banner us-payment-banner-' + variant });
@@ -1401,6 +1411,23 @@
         },
       });
       actions.appendChild(refreshBtn);
+    }
+    if (likelyCanceled) {
+      const retryBtn = btn('Start a new checkout', {
+        kind: 'primary',
+        onclick: () => {
+          // Clear the marker so a fresh attempt starts with a new
+          // baseline. The user uses the top-up form to open checkout again.
+          clearPendingPayment();
+          onDismiss();
+          // Scroll to the topup section so they see the button.
+          const topupSection = document.querySelector('.us-panel[data-us-panel="billing"] .us-section');
+          if (topupSection && typeof topupSection.scrollIntoView === 'function') {
+            try { topupSection.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) {}
+          }
+        },
+      });
+      actions.appendChild(retryBtn);
     }
     const dismissBtn = btn(completed ? 'Got it' : 'Dismiss', {
       kind: completed ? 'primary' : 'ghost',

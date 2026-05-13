@@ -2881,6 +2881,14 @@ body.window-mode.chat-collapsed .chat-resize-handle {
   color: #5dd28f;
   background: color-mix(in srgb, #5dd28f 22%, var(--panel));
 }
+.us-payment-banner-bad {
+  border-color: color-mix(in srgb, #ff8a96 32%, var(--border));
+  background: color-mix(in srgb, #ff8a96 10%, var(--panel-2));
+}
+.us-payment-banner-bad .us-payment-banner-icon {
+  color: #ff8a96;
+  background: color-mix(in srgb, #ff8a96 22%, var(--panel));
+}
 
 .us-grid-2 {
   display: grid;
