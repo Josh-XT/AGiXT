@@ -957,6 +957,35 @@
     const steps = (STATE.activeChain.steps || []).slice().sort((a, b) =>
       (a.step || 0) - (b.step || 0));
 
+    // Compact mini-map / step overview — clickable pills above the
+    // step stack that scroll to a step card. Approximates the web's
+    // React Flow canvas in a strip layout.
+    if (steps.length > 1) {
+      const map = el('div', { class: 'cn-step-map' });
+      steps.forEach((step) => {
+        const eff = effectiveStep(step);
+        const t = eff.promptType || 'Prompt';
+        const pill = el('button', {
+          type: 'button',
+          class: 'cn-step-map-pill cn-step-map-' + String(t).toLowerCase(),
+          title: 'Step ' + step.step + ' · ' + t + (eff.targetName ? ': ' + eff.targetName : ''),
+          onclick: () => {
+            const targetEl = document.getElementById('cn-step-card-' + step.step);
+            if (targetEl && typeof targetEl.scrollIntoView === 'function') {
+              targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              targetEl.classList.add('cn-step-card-flash');
+              setTimeout(() => targetEl.classList.remove('cn-step-card-flash'), 800);
+            }
+          },
+        }, [
+          el('span', { class: 'cn-step-map-num' }, String(step.step)),
+          el('span', { class: 'cn-step-map-type' }, t.charAt(0)),
+        ]);
+        map.appendChild(pill);
+      });
+      stack.appendChild(map);
+    }
+
     if (steps.length === 0) {
       stack.appendChild(el('div', { class: 'cn-list-empty cn-steps-empty' }, [
         el('div', { class: 'cn-list-empty-title' }, 'No steps yet'),
@@ -1040,6 +1069,7 @@
     const badge = STEP_TYPE_BADGE[eff.promptType] || STEP_TYPE_BADGE.Prompt;
 
     const card = el('div', {
+      id: 'cn-step-card-' + stepNum,
       class: 'cn-step '
         + (badge.cls || '')
         + (dirty ? ' is-modified' : '')

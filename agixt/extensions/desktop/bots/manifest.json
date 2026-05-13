@@ -4,7 +4,7 @@
   "icon": "team",
   "icon_svg": "<rect x='4' y='10' width='16' height='10' rx='2'/><path d='M12 6v4'/><circle cx='12' cy='4' r='2'/><circle cx='9' cy='14' r='1'/><circle cx='15' cy='14' r='1'/><path d='M9 18h6'/>",
   "layout": "framed",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "entry": "main.js",
   "requires": {}
 }
