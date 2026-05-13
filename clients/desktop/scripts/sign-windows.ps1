@@ -114,7 +114,7 @@ function Invoke-ArtifactSigning {
         Endpoint = $endpoint
         CodeSigningAccountName = $account
         CertificateProfileName = $profile
-        Files = ($Files -join [Environment]::NewLine)
+        Files = $Files
         FileDigest = "SHA256"
         TimestampRfc3161 = $timestamp
         TimestampDigest = "SHA256"
