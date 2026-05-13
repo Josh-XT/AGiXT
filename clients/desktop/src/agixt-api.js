@@ -748,12 +748,27 @@
     return merged;
   }
 
-  /** POST /api/conversation/message — append a plain message (no LLM
-   *  completion). This is the endpoint the web uses for "channel message
-   *  without @mention" (see web/components/conversation/conversation.tsx
-   *  isChannelLike branch). Agent responses go through chat/completions
-   *  separately; for the desktop first cut, mentions are typed but the
-   *  agent isn't invoked. */
+  /** POST /v1/conversation/{id}/message — append a plain channel/DM
+   *  message (no LLM completion). This is the endpoint the web uses for
+   *  "channel-like" messages because it addresses the shared conversation
+   *  by ID, enforces participant speaking roles, and broadcasts to every
+   *  participant. */
+  async function postConversationMessage(conversationId, message, role) {
+    return request(
+      'POST',
+      '/v1/conversation/' + encodeURIComponent(conversationId) + '/message',
+      {
+        body: {
+          role: role || 'USER',
+          message: message || '',
+        },
+      },
+    );
+  }
+
+  /** Legacy name-based append. Keep this around for older desktop code
+   *  paths, but team-chat should use postConversationMessage() so DMs and
+   *  channel membership semantics match the web UI. */
   async function postChannelMessage(conversationName, message, role) {
     return request('POST', '/api/conversation/message', {
       body: {
@@ -1600,6 +1615,7 @@
     markConversationRead,
     updateNotificationSettings,
     listAllConversations,
+    postConversationMessage,
     postChannelMessage,
     deleteMessage,
     editMessage,

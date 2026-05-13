@@ -2127,6 +2127,7 @@ test('team-chat: pane lists companies + channels + members on activation', async
       { id: 'p2', participant_type: 'agent', role: 'member', agent: { id: 'a1', name: 'XT' } },
     ],
     markConversationRead: async () => ({}),
+    postConversationMessage: async () => ({ message: 'mid' }),
     postChannelMessage: async () => ({ message: 'mid' }),
   };
 
@@ -2199,11 +2200,11 @@ test('team-chat: pane lists companies + channels + members on activation', async
   window.document.getElementById('tc-channel-collapsed').click();
   assert.ok(!pane.classList.contains('tc-channels-collapsed'), 'collapse class cleared');
 
-  // Send a message — verify postChannelMessage is called with the
-  // channel's NAME (legacy /api/conversation/message keys on name).
+  // Send a message — verify the shared channel/DM path is called with
+  // the channel ID so participant permissions + notifications match web.
   let postedWith = null;
-  window.AgixtApi.postChannelMessage = async (name, msg, role) => {
-    postedWith = { name, msg, role };
+  window.AgixtApi.postConversationMessage = async (conversationId, msg, role) => {
+    postedWith = { conversationId, msg, role };
     return { message: 'mid' };
   };
   const input = window.document.getElementById('tc-composer-input');
@@ -2212,13 +2213,105 @@ test('team-chat: pane lists companies + channels + members on activation', async
   sendBtn.disabled = false;
   sendBtn.click();
   await new Promise((r) => setTimeout(r, 30));
-  assert.ok(postedWith, 'postChannelMessage was called');
+  assert.ok(postedWith, 'postConversationMessage was called');
+  assert.equal(postedWith.conversationId, 'chan-1');
   assert.equal(postedWith.msg, 'Hi team');
   assert.equal(postedWith.role, 'USER');
 
   // Tear down the module's setInterval/WebSocket so the node:test runner
   // doesn't hang waiting on a live event loop after the assertion passes.
   window.AgixtTeamChat.unmount();
+});
+
+test('team-chat: teammate DM row creates participant DM with company context', async (t) => {
+  const dom = new JSDOM(fs.readFileSync(path.join(SRC, 'index.html'), 'utf8'), {
+    runScripts: 'outside-only', url: 'http://localhost/',
+  });
+  const { window } = dom;
+  const historyRequests = [];
+  window.__TAURI__ = {
+    core: {
+      invoke: async (cmd, args) => {
+        if (cmd === 'get_conversation_history') {
+          historyRequests.push(args.conversationId);
+          return [];
+        }
+        return null;
+      },
+    },
+    event: { listen: async () => () => {} },
+  };
+  if (!window.WebSocket) {
+    window.WebSocket = class { constructor() { this.readyState = 0; } close() {} send() {} };
+    window.WebSocket.OPEN = 1;
+  }
+
+  let createdPayload = null;
+  let addedParticipant = null;
+  let postedMessage = null;
+  window.AgixtApi = {
+    getSettings: async () => ({ server_url: 'http://localhost:7437', jwt: 'jwt' }),
+    getUser: async () => ({ id: 'u1', email: 'me@x' }),
+    listCompanies: async () => [
+      {
+        id: 'c1',
+        name: 'Acme Corp',
+        icon_url: null,
+        sort_order: 0,
+        users: [
+          { id: 'u1', email: 'me@x', first_name: 'Me', last_name: '' },
+          { id: 'u2', email: 'bob@x', first_name: 'Bob', last_name: 'Smith' },
+        ],
+      },
+    ],
+    getGroupConversations: async () => ({}),
+    listAllConversations: async () => ({}),
+    createGroupConversation: async (payload) => {
+      createdPayload = payload;
+      return { conversation_id: 'dm-new', name: payload.conversation_name, company_id: payload.company_id };
+    },
+    addConversationParticipant: async (conversationId, payload) => {
+      addedParticipant = { conversationId, payload };
+      return { participant_id: 'p2' };
+    },
+    getConversationParticipants: async () => [],
+    markConversationRead: async () => ({}),
+    postConversationMessage: async (conversationId, msg, role) => {
+      postedMessage = { conversationId, msg, role };
+      return { message: 'mid' };
+    },
+  };
+  for (const name of ['markdown.js', 'team-chat-helpers.js', 'team-chat.js']) {
+    vm.runInContext(fs.readFileSync(path.join(SRC, name), 'utf8'),
+                    dom.getInternalVMContext(), { filename: name });
+  }
+
+  await window.AgixtTeamChat.mount();
+  t.after(() => window.AgixtTeamChat.unmount());
+  await new Promise((r) => setTimeout(r, 80));
+
+  const rows = Array.from(window.document.querySelectorAll('#tc-channel-scroll .tc-channel-row'));
+  const bobRow = rows.find((r) => r.querySelector('.tc-channel-name')?.textContent === 'Bob Smith');
+  assert.ok(bobRow, 'teammate row rendered before DM exists');
+  bobRow.click();
+  await new Promise((r) => setTimeout(r, 80));
+
+  assert.equal(createdPayload.conversation_name, 'DM-Bob Smith');
+  assert.equal(createdPayload.company_id, 'c1');
+  assert.equal(createdPayload.conversation_type, 'dm');
+  assert.equal(addedParticipant.conversationId, 'dm-new');
+  assert.equal(addedParticipant.payload.user_id, 'u2');
+  assert.equal(addedParticipant.payload.participant_type, 'user');
+  assert.ok(historyRequests.includes('dm-new'), 'new DM selected and history loaded');
+  assert.equal(window.document.getElementById('tc-content-title').textContent, '@ Bob Smith');
+
+  const input = window.document.getElementById('tc-composer-input');
+  input.value = 'hey Bob';
+  window.document.getElementById('tc-send-btn').click();
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(postedMessage.conversationId, 'dm-new');
+  assert.equal(postedMessage.msg, 'hey Bob');
+  assert.equal(postedMessage.role, 'USER');
 });
 
 test('team-chat-helpers: parseReply, mentions, emoji, gravatar', () => {

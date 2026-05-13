@@ -29,8 +29,8 @@
  *                                                        gif picker, send)
  *   - web/components/conversation/input/GifPicker.tsx → openGifPicker()
  *
- * Message flow for plain channel posts is the AGiXT pattern:
- *   1) POST /api/conversation/message  (append, no LLM)
+ * Message flow for plain channel/DM posts is the AGiXT pattern:
+ *   1) POST /v1/conversation/{id}/message  (append, no LLM)
  *   2) Live updates arrive over the existing WS protocol
  *      (ws://…/v1/conversation/{id}/stream) — same protocol chat.js uses.
  *
@@ -55,6 +55,10 @@
   let companies = [];
   let channelsByCompany = new Map(); // companyId -> [channel, ...]
   let allConversationsCache = null;   // for the private/DM view
+  // Flattened, de-duplicated list of every human teammate across the
+  // user's companies. Populated by loadTeammates() so the DM list can
+  // surface people you can message even before a DM conversation exists.
+  let allTeammates = [];
   let activeCompanyId = null;          // null = DM mode
   let activeChannelId = null;
   let participantsByChannel = new Map(); // channelId -> [participant, ...]
@@ -386,6 +390,10 @@
         icon_url: c.icon_url || null,
         sort_order: c.sort_order != null ? c.sort_order : 0,
         agents: c.agents || [],
+        // Preserve the embedded member roster when the server ships it
+        // (newer /v1/companies shape). The DM list uses this to render
+        // a row per teammate without needing a per-company members fetch.
+        users: Array.isArray(c.users) ? c.users : null,
       })).sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
     } catch (e) {
       console.warn('team-chat: loadCompanies failed', e);
@@ -477,6 +485,66 @@
       allConversationsCache = [];
       return [];
     }
+  }
+
+  function ensurePrivateConversationCached(conversation) {
+    if (!conversation || !conversation.id) return;
+    const current = Array.isArray(allConversationsCache)
+      ? allConversationsCache.slice()
+      : [];
+    const idx = current.findIndex((c) => c.id === conversation.id);
+    if (idx >= 0) current[idx] = Object.assign({}, current[idx], conversation);
+    else current.unshift(conversation);
+    allConversationsCache = current;
+  }
+
+  // Build the flat teammate roster the DM list uses. Mirrors the
+  // dedupe-by-user-id pass that NewDMDialog does on web: collapse the
+  // same person showing up in multiple companies into a single entry,
+  // skip the current user, and fall back to per-company fetches if the
+  // /v1/companies payload didn't ship members embedded.
+  async function loadTeammates() {
+    const byId = new Map();
+    const needsFallback = [];
+    function addMember(u, company) {
+      if (!u || !u.id) return;
+      if (currentUser && u.id === currentUser.id) return;
+      const existing = byId.get(u.id) || {};
+      const merged = Object.assign({}, existing, u);
+      const ids = Array.isArray(existing.company_ids) ? existing.company_ids.slice() : [];
+      const names = Array.isArray(existing.company_names) ? existing.company_names.slice() : [];
+      if (company && company.id && !ids.includes(company.id)) ids.push(company.id);
+      if (company && company.name && !names.includes(company.name)) names.push(company.name);
+      merged.company_ids = ids;
+      merged.company_names = names;
+      byId.set(u.id, merged);
+    }
+    for (const company of companies) {
+      if (Array.isArray(company.users) && company.users.length) {
+        for (const u of company.users) addMember(u, company);
+      } else if (company.users === null) {
+        needsFallback.push(company.id);
+      }
+    }
+    if (needsFallback.length && window.AgixtApi
+        && typeof window.AgixtApi.getCompanyMembers === 'function') {
+      const fetched = await Promise.all(needsFallback.map((id) =>
+        window.AgixtApi.getCompanyMembers(id)
+          .then((members) => ({ company: companies.find((c) => c.id === id), members }))
+          .catch(() => ({ company: companies.find((c) => c.id === id), members: [] }))));
+      for (const group of fetched) {
+        if (!Array.isArray(group.members)) continue;
+        for (const u of group.members) addMember(u, group.company);
+      }
+    }
+    allTeammates = Array.from(byId.values()).sort((a, b) => {
+      const an = ((a.first_name || '') + ' ' + (a.last_name || '')).trim()
+        || a.email || '';
+      const bn = ((b.first_name || '') + ' ' + (b.last_name || '')).trim()
+        || b.email || '';
+      return an.localeCompare(bn);
+    });
+    return allTeammates;
   }
 
   async function loadParticipants(channelId) {
@@ -719,38 +787,117 @@
     return { peopleConvos, agentConvos };
   }
 
+  function teammateDisplayName(u) {
+    const full = ((u.first_name || '') + ' ' + (u.last_name || '')).trim();
+    return full || u.email || 'User';
+  }
+
+  function renderTeammateRow(member) {
+    // A "pre-DM" row: a teammate the current user can message but hasn't
+    // yet. Click opens (or creates) the underlying DM via startUserDM.
+    const name = teammateDisplayName(member);
+    const row = ce('button', {
+      type: 'button',
+      class: 'tc-channel-row tc-channel-teammate',
+      title: name + (member.email ? ` — ${member.email}` : ''),
+      on: {
+        click: () => startUserDM(member),
+        contextmenu: (e) => {
+          e.preventDefault();
+          showCtxMenu(e.clientX, e.clientY, [
+            { heading: name },
+            { label: 'Send DM', onClick: () => startUserDM(member) },
+            '-',
+            { label: 'Copy email',
+              onClick: () => member.email && copyToClipboard(member.email),
+              disabled: !member.email },
+          ]);
+        },
+      },
+    });
+    const icon = ce('span', { class: 'tc-channel-icon tc-channel-icon-avatar' });
+    icon.appendChild(buildAvatar({
+      name, email: member.email, avatarUrl: member.avatar_url, size: 18,
+    }));
+    row.appendChild(icon);
+    row.appendChild(ce('span', { class: 'tc-channel-name', text: name }));
+    return row;
+  }
+
   function renderDMList(wrap) {
     // Agent DMs already live in the side AI chat (existing chat pane +
     // topbar agent/conversation switchers); duplicating them here just
-    // clutters the panel. So this list is humans-only: one row per
-    // distinct person you've DM'd.
+    // clutters the panel. So this list is humans-only.
+    //
+    // Sources merged into the "People" section:
+    //   1. Every teammate across the user's companies (allTeammates) —
+    //      so the DM list works as a contact picker even before any DM
+    //      conversation exists.
+    //   2. Every existing human DM conversation — matched to a teammate
+    //      by display name where possible (so we render the DM row, not
+    //      the bare teammate row, and surface unread state). Orphan DMs
+    //      that don't match any current teammate still appear so older
+    //      DMs aren't hidden.
     const { peopleConvos } = classifyConversations();
 
-    if (!peopleConvos.length) {
-      wrap.appendChild(ce('div', { class: 'tc-channel-empty',
-        text: 'No direct messages yet — click + to start one.' }));
-      return;
-    }
-
-    const seen = new Map();
+    // Latest DM per cleaned-name key (lowercased), so we can match
+    // teammates to their most-recent DM.
+    const dmByKey = new Map();
     for (const c of peopleConvos) {
       const name = c.display_name || c.displayName || c.name || '';
       const cleaned = name.startsWith('DM-') ? name.slice(3)
         : name.startsWith('DM with ') ? name.slice(8) : name;
-      const key = cleaned.toLowerCase() || c.id;
-      const existing = seen.get(key);
-      // Keep the most recently updated DM as the primary row for each
-      // person — older sibling conversations could surface as
-      // "history" rows in a future pass.
+      const key = cleaned.toLowerCase().trim() || c.id;
+      const existing = dmByKey.get(key);
       if (!existing
           || (c.updated_at || c.updatedAt || '')
              > (existing.updated_at || existing.updatedAt || '')) {
-        seen.set(key, c);
+        dmByKey.set(key, c);
       }
     }
-    wrap.appendChild(ce('div', { class: 'tc-channel-category', text: 'People' }));
-    for (const c of seen.values()) {
-      wrap.appendChild(renderChannelRow(c, /*isDM*/ true));
+
+    // Walk teammates first so the picker shows everyone you can DM,
+    // with existing-DM rows taking precedence (they carry unread state).
+    const usedKeys = new Set();
+    const teammateRows = [];
+    for (const m of allTeammates) {
+      const display = teammateDisplayName(m);
+      const nameKey = display.toLowerCase().trim();
+      const emailKey = (m.email || '').toLowerCase().trim();
+      const matchKey = (nameKey && dmByKey.has(nameKey)) ? nameKey
+        : (emailKey && dmByKey.has(emailKey)) ? emailKey
+        : null;
+      if (matchKey) {
+        usedKeys.add(matchKey);
+        teammateRows.push(renderChannelRow(dmByKey.get(matchKey), /*isDM*/ true));
+      } else {
+        teammateRows.push(renderTeammateRow(m));
+      }
+    }
+
+    // Orphan DMs — existing conversations whose other party isn't a
+    // current teammate (different company, ex-member, agent-less legacy
+    // shape). Keep them visible so we don't lose history.
+    const orphanRows = [];
+    for (const [key, c] of dmByKey) {
+      if (usedKeys.has(key)) continue;
+      orphanRows.push(renderChannelRow(c, /*isDM*/ true));
+    }
+
+    if (!teammateRows.length && !orphanRows.length) {
+      wrap.appendChild(ce('div', { class: 'tc-channel-empty',
+        text: 'No teammates or direct messages yet — click + to start one.' }));
+      return;
+    }
+
+    if (teammateRows.length) {
+      wrap.appendChild(ce('div', { class: 'tc-channel-category', text: 'People' }));
+      for (const r of teammateRows) wrap.appendChild(r);
+    }
+    if (orphanRows.length) {
+      wrap.appendChild(ce('div', { class: 'tc-channel-category',
+        text: teammateRows.length ? 'Other' : 'People' }));
+      for (const r of orphanRows) wrap.appendChild(r);
     }
   }
 
@@ -2857,7 +3004,7 @@
     renderMembers();
     renderMessages();
     if (activeCompanyId) await loadChannelsForCompany(activeCompanyId);
-    else await loadPrivateConversations();
+    else await Promise.all([loadPrivateConversations(), loadTeammates()]);
     renderChannelList();
     const lastId = lsGet(STORAGE_LAST_CHANNEL_PREFIX + (activeCompanyId || 'private'));
     const channels = activeCompanyId
@@ -3226,16 +3373,8 @@
   async function openNewDMDialog() {
     // Humans-only picker. Agent DMs aren't surfaced in this panel —
     // they live in the side AI chat alongside every page.
-    let companyId = activeCompanyId;
-    if (!companyId && currentUser && currentUser.companies && currentUser.companies.length) {
-      companyId = (currentUser.companies.find((c) => c.primary) || currentUser.companies[0]).id;
-    }
-    let members = [];
-    if (companyId) {
-      try {
-        members = await window.AgixtApi.getCompanyMembers(companyId);
-      } catch (_) {}
-    }
+    let members = allTeammates;
+    if (!members.length) members = await loadTeammates();
     function fmtName(u) {
       const n = ((u.first_name || '') + ' ' + (u.last_name || '')).trim();
       return n || u.email || 'User';
@@ -3265,6 +3404,9 @@
             const list = ce('div', { class: 'tc-modal-list' });
             for (const m of filtered) {
               const name = fmtName(m);
+              const companyNames = Array.isArray(m.company_names)
+                ? m.company_names.filter(Boolean)
+                : [];
               const row = ce('button', {
                 type: 'button', class: 'tc-modal-list-row',
                 on: { click: () => {
@@ -3278,7 +3420,8 @@
               }));
               const meta = ce('div', { class: 'tc-modal-list-meta' });
               meta.appendChild(ce('div', { class: 'tc-modal-list-name', text: name }));
-              if (m.email) meta.appendChild(ce('div', { class: 'tc-modal-list-sub', text: m.email }));
+              const sub = [m.email, companyNames.join(', ')].filter(Boolean).join(' · ');
+              if (sub) meta.appendChild(ce('div', { class: 'tc-modal-list-sub', text: sub }));
               row.appendChild(meta);
               list.appendChild(row);
             }
@@ -3655,10 +3798,8 @@
     if (!text && !pendingAttachments.length) return;
 
     // Inline attachments as markdown image / link blocks (matches what
-    // the web does for non-image attachments). The web sends them as a
-    // separate uploadedFiles object; AGiXT's /api/conversation/message
-    // doesn't take that field, so we embed them as data: URLs the way
-    // any chat client would.
+    // the web does for non-image attachments). The channel-message
+    // endpoint extracts data: URLs to workspace files server-side.
     if (pendingAttachments.length) {
       const blocks = pendingAttachments.map((att) => {
         const isImage = att.dataUrl.startsWith('data:image/')
@@ -3696,7 +3837,11 @@
         : (allConversationsCache || []);
       const ch = channels.find((c) => c.id === activeChannelId);
       const convName = (ch && (ch.name || ch.display_name || ch.displayName)) || activeChannelId;
-      await window.AgixtApi.postChannelMessage(convName, toSend, 'USER');
+      if (window.AgixtApi.postConversationMessage) {
+        await window.AgixtApi.postConversationMessage(activeChannelId, toSend, 'USER');
+      } else {
+        await window.AgixtApi.postChannelMessage(convName, toSend, 'USER');
+      }
       if (status) status.textContent = '';
     } catch (e) {
       if (status) {
@@ -4518,13 +4663,16 @@
     const name = (user.first_name || user.last_name)
       ? ((user.first_name || '') + ' ' + (user.last_name || '')).trim()
       : (user.email || 'User');
+    const companyId = (Array.isArray(user.company_ids) && user.company_ids[0])
+      || activeCompanyId
+      || '';
     try {
       const result = await window.AgixtApi.createGroupConversation({
         conversation_name: 'DM-' + name,
-        company_id: activeCompanyId || '',
+        company_id: companyId,
         conversation_type: 'dm',
       });
-      const id = result && result.id;
+      const id = result && (result.id || result.conversation_id);
       if (id) {
         await window.AgixtApi.addConversationParticipant(id, {
           user_id: user.id,
@@ -4534,7 +4682,15 @@
         activeCompanyId = null;
         lsSet(STORAGE_ACTIVE_COMPANY, 'private');
         renderCompanyRail();
-        await loadPrivateConversations();
+        await Promise.all([loadPrivateConversations(), loadTeammates()]);
+        ensurePrivateConversationCached({
+          id,
+          name: (result && result.name) || 'DM-' + name,
+          display_name: name,
+          conversation_type: 'dm',
+          company_id: (result && result.company_id) || companyId || null,
+          updated_at: new Date().toISOString(),
+        });
         renderChannelList();
         await selectChannel(id);
       }
@@ -4545,19 +4701,29 @@
 
   async function startAgentDM(agent) {
     if (!agent || !agent.name) return;
+    const companyId = agent.company_id || activeCompanyId || '';
     try {
       const result = await window.AgixtApi.createGroupConversation({
         conversation_name: agent.name,
-        company_id: activeCompanyId || '',
+        company_id: companyId,
         conversation_type: 'dm',
         agent_names: [agent.name],
       });
-      const id = result && result.id;
+      const id = result && (result.id || result.conversation_id);
       if (id) {
         activeCompanyId = null;
         lsSet(STORAGE_ACTIVE_COMPANY, 'private');
         renderCompanyRail();
         await loadPrivateConversations();
+        ensurePrivateConversationCached({
+          id,
+          name: (result && result.name) || agent.name,
+          display_name: agent.name,
+          agent_name: agent.name,
+          conversation_type: 'dm',
+          company_id: (result && result.company_id) || companyId || null,
+          updated_at: new Date().toISOString(),
+        });
         renderChannelList();
         await selectChannel(id);
       }
@@ -4594,7 +4760,7 @@
       if (activeCompanyId) {
         await loadChannelsForCompany(activeCompanyId);
       } else {
-        await loadPrivateConversations();
+        await Promise.all([loadPrivateConversations(), loadTeammates()]);
       }
       renderChannelList();
     } catch (_) {}
@@ -4604,7 +4770,7 @@
     if (mounted) {
       try {
         if (activeCompanyId) await loadChannelsForCompany(activeCompanyId);
-        else await loadPrivateConversations();
+        else await Promise.all([loadPrivateConversations(), loadTeammates()]);
         renderChannelList();
         if (activeChannelId) loadParticipants(activeChannelId).then(renderMembers);
       } catch (_) {}
@@ -4779,7 +4945,7 @@
     } else {
       activeCompanyId = null;
       renderCompanyRail();
-      await loadPrivateConversations();
+      await Promise.all([loadPrivateConversations(), loadTeammates()]);
       renderChannelList();
       const lastId = lsGet(STORAGE_LAST_CHANNEL_PREFIX + 'private');
       const convos = allConversationsCache || [];
