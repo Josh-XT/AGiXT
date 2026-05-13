@@ -114,14 +114,16 @@ function Invoke-ArtifactSigning {
         Endpoint = $endpoint
         CodeSigningAccountName = $account
         CertificateProfileName = $profile
-        Files = $Files
         FileDigest = "SHA256"
         TimestampRfc3161 = $timestamp
         TimestampDigest = "SHA256"
     }
 
     Write-Host "Signing $($Files.Count) file(s) with Azure Artifact Signing..."
-    Invoke-TrustedSigning @params
+    foreach ($file in $Files) {
+        $params.Files = $file
+        Invoke-TrustedSigning @params
+    }
     return $true
 }
 
