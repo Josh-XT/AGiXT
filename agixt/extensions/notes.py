@@ -26,7 +26,7 @@ from Extensions import Extensions
 from DB import get_session, ExtensionDatabaseMixin, Base
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
-from MagicalAuth import verify_api_key
+from MagicalAuth import get_user_id, verify_api_key
 from WebhookManager import webhook_emitter
 
 # Suppress the specific SQLAlchemy warning about duplicate class registration
@@ -153,6 +153,10 @@ class notes(Extensions, ExtensionDatabaseMixin):
         self.router = APIRouter(prefix="/notes", tags=["Notes"])
         self._setup_routes()
 
+    def _get_request_extension(self, user):
+        """Create a request-scoped extension instance with the authenticated user."""
+        return notes(user_id=str(get_user_id(user)), ApiClient=self.ApiClient)
+
     def _setup_routes(self):
         """Set up FastAPI routes for the notes extension"""
 
@@ -161,7 +165,8 @@ class notes(Extensions, ExtensionDatabaseMixin):
             note_data: NoteCreate, user=Depends(verify_api_key)
         ):
             """Create a new note via REST API"""
-            result = await self.create_note(
+            ext = self._get_request_extension(user)
+            result = await ext.create_note(
                 title=note_data.title,
                 content=note_data.content,
                 tags=note_data.tags or [],
@@ -174,7 +179,8 @@ class notes(Extensions, ExtensionDatabaseMixin):
         @self.router.get("/{note_id}", response_model=NoteResponse)
         async def get_note_endpoint(note_id: int, user=Depends(verify_api_key)):
             """Get a specific note by ID via REST API"""
-            result = await self.get_note(note_id=note_id)
+            ext = self._get_request_extension(user)
+            result = await ext.get_note(note_id=note_id)
             result_data = json.loads(result)
             if not result_data.get("success"):
                 raise HTTPException(status_code=404, detail=result_data.get("error"))
@@ -193,7 +199,8 @@ class notes(Extensions, ExtensionDatabaseMixin):
             if note_data.tags is not None:
                 update_args["tags"] = note_data.tags
 
-            result = await self.update_note(**update_args)
+            ext = self._get_request_extension(user)
+            result = await ext.update_note(**update_args)
             result_data = json.loads(result)
             if not result_data.get("success"):
                 raise HTTPException(status_code=400, detail=result_data.get("error"))
@@ -202,7 +209,8 @@ class notes(Extensions, ExtensionDatabaseMixin):
         @self.router.delete("/{note_id}")
         async def delete_note_endpoint(note_id: int, user=Depends(verify_api_key)):
             """Delete a note via REST API"""
-            result = await self.delete_note(note_id=note_id)
+            ext = self._get_request_extension(user)
+            result = await ext.delete_note(note_id=note_id)
             result_data = json.loads(result)
             if not result_data.get("success"):
                 raise HTTPException(status_code=404, detail=result_data.get("error"))
@@ -215,7 +223,8 @@ class notes(Extensions, ExtensionDatabaseMixin):
             user=Depends(verify_api_key),
         ):
             """List notes with pagination via REST API"""
-            result = await self.list_notes(limit=limit, offset=offset)
+            ext = self._get_request_extension(user)
+            result = await ext.list_notes(limit=limit, offset=offset)
             result_data = json.loads(result)
             if not result_data.get("success"):
                 raise HTTPException(status_code=400, detail=result_data.get("error"))
@@ -228,7 +237,8 @@ class notes(Extensions, ExtensionDatabaseMixin):
             user=Depends(verify_api_key),
         ):
             """Search notes via REST API"""
-            result = await self.search_notes(query=query, limit=limit)
+            ext = self._get_request_extension(user)
+            result = await ext.search_notes(query=query, limit=limit)
             result_data = json.loads(result)
             if not result_data.get("success"):
                 raise HTTPException(status_code=400, detail=result_data.get("error"))

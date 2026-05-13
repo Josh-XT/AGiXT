@@ -1,0 +1,463 @@
+"""
+Desktop client extensions — discovery + asset delivery.
+
+The AGiXT Desktop client exposes optional pages in its sidenav (a
+"Machines" page, a "GitHub" page, etc.). The pages themselves are
+shipped as plain JS modules from the extensions hub: each extension
+that wants a UI page drops `desktop/<id>/manifest.json` and
+`desktop/<id>/main.js` into the hub.
+
+This router serves two endpoints:
+
+  GET /v1/desktop/extensions
+      Returns the manifest of pages the authenticated client should
+      render, gated by the per-extension `requires` block:
+        company_scope   — list of scopes the user must hold on the
+                          requested company (e.g. ["ext:machines:read"])
+        user_oauth      — provider name(s) the user must have connected
+        agent_extension — Extension class name(s) enabled on the
+                          requested agent
+      Caller passes optional `?company_id=...&agent_id=...`. When
+      missing, the user's primary company / default agent is used.
+
+  GET /v1/desktop/extensions/{id}/main.js
+      Returns the raw JS bytes for the page's entry module. The same
+      `requires` block is re-checked here so a client can't fetch a
+      page it isn't entitled to by guessing the URL.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import os
+import re
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
+
+from ApiClient import verify_api_key
+from ExtensionsHub import ExtensionsHub
+from MagicalAuth import MagicalAuth
+
+app = APIRouter()
+logger = logging.getLogger(__name__)
+
+# Only allow these characters in an extension id — guards path traversal
+# and keeps URLs predictable.
+_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_\-]{0,63}$")
+
+
+def _list_extension_dirs() -> List[Tuple[str, Path]]:
+    """Yield `(extension_id, manifest_dir)` pairs across every hub the
+    server is configured against. First match wins on collision so the
+    user's local hub can shadow a public one."""
+    seen: Dict[str, Path] = {}
+    for hub_root in ExtensionsHub().get_extension_search_paths():
+        desktop_root = Path(hub_root) / "desktop"
+        if not desktop_root.is_dir():
+            continue
+        for entry in sorted(desktop_root.iterdir()):
+            if not entry.is_dir():
+                continue
+            ext_id = entry.name
+            if not _ID_RE.match(ext_id):
+                continue
+            if ext_id in seen:
+                continue
+            if not (entry / "manifest.json").is_file():
+                continue
+            seen[ext_id] = entry
+    return list(seen.items())
+
+
+def _load_manifest(manifest_dir: Path) -> Optional[Dict[str, Any]]:
+    try:
+        with (manifest_dir / "manifest.json").open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception as exc:
+        logger.warning("desktop ext: bad manifest in %s: %s", manifest_dir, exc)
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def _meets_requires(
+    auth: MagicalAuth,
+    requires: Dict[str, Any],
+    company_id: Optional[str],
+    agent_id: Optional[str],
+) -> bool:
+    """Return True iff the authenticated user satisfies `requires`. Each
+    block is optional; an empty `requires` means everyone gets it."""
+    if not isinstance(requires, dict) or not requires:
+        return True
+
+    if requires.get("server_admin") and not auth.is_super_admin():
+        return False
+
+    company_scope = requires.get("company_scope") or []
+    if isinstance(company_scope, str):
+        company_scope = [company_scope]
+    for scope in company_scope:
+        if not auth.has_scope(scope, company_id):
+            return False
+
+    oauth_providers = requires.get("user_oauth") or []
+    if isinstance(oauth_providers, str):
+        oauth_providers = [oauth_providers]
+    if oauth_providers and not _user_has_oauth(auth, oauth_providers):
+        return False
+
+    agent_exts = requires.get("agent_extension") or []
+    if isinstance(agent_exts, str):
+        agent_exts = [agent_exts]
+    if agent_exts and not _agent_has_extension(auth, agent_id, agent_exts):
+        return False
+
+    # Per-extension out-of-band connection state. Some extensions
+    # (audible) drive their auth through a Connect button in the agent
+    # settings drawer rather than AGiXT's OAuth provider table. The
+    # sidebar entry should stay hidden until that state is satisfied,
+    # otherwise users land on an empty page wondering what to do. A
+    # check is registered here per extension class name; missing keys
+    # are silently ignored so manifests remain forward-compatible.
+    connection_checks = requires.get("connection_check") or []
+    if isinstance(connection_checks, str):
+        connection_checks = [connection_checks]
+    for name in connection_checks:
+        check = _CONNECTION_CHECKS.get(str(name).lower())
+        if check is None:
+            continue
+        try:
+            if not check(auth, agent_id):
+                return False
+        except Exception as exc:
+            logger.warning(
+                "desktop ext: connection_check %s raised %s — treating as not connected",
+                name,
+                exc,
+            )
+            return False
+
+    return True
+
+
+def _audible_is_connected(auth: MagicalAuth, agent_id: Optional[str]) -> bool:
+    """True iff the requested agent has a usable AUDIBLE_AUTH setting.
+
+    Connection state lives on the agent (per-user isolation), not on
+    disk. We pull the agent's settings, JSON-decode the blob, and ask
+    the audible package to materialize an Authenticator from it; any
+    failure means "not connected".
+    """
+    if not agent_id or not auth.email:
+        return False
+    try:
+        from ApiClient import Agent
+
+        agent = Agent(agent_id=agent_id, user=auth.email, ApiClient=None)
+        settings = (agent.AGENT_CONFIG or {}).get("settings") or {}
+        raw = settings.get("AUDIBLE_AUTH")
+        if not raw:
+            return False
+        data = json.loads(raw)
+        from audible import Authenticator  # type: ignore
+
+        Authenticator.from_dict(data)
+        return True
+    except Exception:
+        return False
+
+
+# Map of `requires.connection_check` value (lowercased) -> callable
+# `(auth, agent_id) -> bool` returning True when the extension's
+# external auth is in place. Add new entries here when an extension
+# needs to gate its sidebar visibility on out-of-band state.
+_CONNECTION_CHECKS = {
+    "audible": _audible_is_connected,
+}
+
+
+def _user_has_oauth(auth: MagicalAuth, providers: List[str]) -> bool:
+    """True iff the authenticated user has connected at least one of
+    the listed OAuth providers (case-insensitive on provider name)."""
+    if not auth.user_id:
+        return False
+    from DB import OAuthProvider, UserOAuth, get_db_session
+
+    wanted = {p.lower() for p in providers if isinstance(p, str)}
+    if not wanted:
+        return False
+    try:
+        with get_db_session() as session:
+            row = (
+                session.query(UserOAuth)
+                .join(OAuthProvider, OAuthProvider.id == UserOAuth.provider_id)
+                .filter(UserOAuth.user_id == auth.user_id)
+                .filter(OAuthProvider.name.in_(list(wanted)))
+                .first()
+            )
+            return row is not None
+    except Exception as exc:
+        logger.warning("desktop ext: oauth lookup failed: %s", exc)
+        return False
+
+
+def _agent_has_extension(
+    auth: MagicalAuth, agent_id: Optional[str], ext_names: List[str]
+) -> bool:
+    """True iff the requested agent has *any* command from one of the
+    listed extension class names enabled.
+
+    `Agent.get_agent_extensions()` returns the canonical view: a list of
+    extension dicts where each `commands[*].enabled` reflects the
+    agent's saved toggle state. We accept a name match against the
+    extension's class name (e.g. "audible") or its lowercased
+    `friendly_name` (e.g. "github"), which keeps manifest authoring
+    forgiving regardless of the casing/spacing convention an extension
+    chose.
+    """
+    if not agent_id or not auth.email:
+        return False
+    try:
+        from ApiClient import Agent
+
+        agent = Agent(agent_id=agent_id, user=auth.email, ApiClient=None)
+        agent_extensions = agent.get_agent_extensions() or []
+    except Exception as exc:
+        logger.warning("desktop ext: agent extension lookup failed: %s", exc)
+        return False
+
+    wanted = {n.lower() for n in ext_names if isinstance(n, str)}
+    for ext in agent_extensions:
+        names = {
+            str(ext.get("extension_name") or "").lower(),
+            str(ext.get("friendly_name") or "").lower(),
+            str(ext.get("name") or "").lower(),
+        }
+        if not (names & wanted):
+            continue
+        for cmd in ext.get("commands") or []:
+            if cmd.get("enabled"):
+                return True
+    return False
+
+
+def _normalize_entry(item: Dict[str, Any], ext_id: str) -> Dict[str, Any]:
+    """Produce the slim object the desktop client consumes. We deliberately
+    don't echo `requires` back — the server has already filtered the list."""
+    version = str(item.get("version") or "0.0.0")
+    out: Dict[str, Any] = {
+        "id": ext_id,
+        "label": str(item.get("label") or ext_id.title()),
+        "icon": item.get("icon") or "",
+        "version": version,
+        "entry_url": f"/v1/desktop/extensions/{ext_id}/main.js?v={version}",
+    }
+    # Optional placement hint — values: "admin" pins the button above
+    # the settings gear in the sidenav. Anything else means the
+    # default middle group, which is user-sortable.
+    if item.get("slot"):
+        out["slot"] = str(item["slot"])
+    # Inline SVG path data — overrides the named icon registry on the
+    # client when an extension wants to ship a bespoke glyph.
+    if item.get("icon_svg"):
+        out["icon_svg"] = str(item["icon_svg"])
+    # Optional layout hint — `"framed"` opts the extension into the
+    # host-rendered header strip (label from manifest, actions slot
+    # exposed on ctx). Anything else (including unset) keeps the
+    # legacy single-container pane the extension fully owns.
+    if item.get("layout"):
+        out["layout"] = str(item["layout"])
+    return out
+
+
+def _manifest_etag(items: List[Dict[str, Any]]) -> str:
+    payload = json.dumps(items, sort_keys=True).encode("utf-8")
+    return '"' + hashlib.sha256(payload).hexdigest()[:16] + '"'
+
+
+@app.get(
+    "/v1/desktop/extensions",
+    tags=["DesktopExtensions"],
+    dependencies=[Depends(verify_api_key)],
+    summary="List the extension pages this client is entitled to render.",
+)
+async def list_desktop_extensions(
+    request: Request,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+    company_id: Optional[str] = Query(None),
+    agent_id: Optional[str] = Query(None),
+    if_none_match: Optional[str] = Header(None, alias="If-None-Match"),
+):
+    auth = MagicalAuth(token=authorization)
+    if auth.user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    items: List[Dict[str, Any]] = []
+    for ext_id, manifest_dir in _list_extension_dirs():
+        manifest = _load_manifest(manifest_dir)
+        if manifest is None:
+            continue
+        if manifest.get("id") and manifest.get("id") != ext_id:
+            # Manifest can reaffirm its id, but it must agree with the
+            # directory name. Disagreement is a config error.
+            logger.warning(
+                "desktop ext: id mismatch — dir=%s manifest=%s",
+                ext_id,
+                manifest.get("id"),
+            )
+            continue
+        if not _meets_requires(
+            auth, manifest.get("requires") or {}, company_id, agent_id
+        ):
+            continue
+        items.append(_normalize_entry(manifest, ext_id))
+
+    etag = _manifest_etag(items)
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    if if_none_match and if_none_match.strip() == etag:
+        return Response(status_code=304, headers=headers)
+    return JSONResponse(
+        content={"extensions": items, "etag": etag},
+        headers=headers,
+    )
+
+
+# Common file extensions we'll serve from extensions. Anything outside
+# this list returns 415 — we don't want extensions to accidentally turn
+# into a generic file-server for the user's machine.
+_ALLOWED_ASSET_EXTS = {
+    ".js": "application/javascript",
+    ".mjs": "application/javascript",
+    ".css": "text/css",
+    ".json": "application/json",
+    ".html": "text/html",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+    ".otf": "font/otf",
+    ".map": "application/json",
+    ".wasm": "application/wasm",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+}
+
+
+def _resolve_asset(ext_id: str, rel_path: str):
+    """Return `(target_path, media_type, manifest_dir)` for a file under
+    the extension's directory, or raise an HTTPException."""
+    if not _ID_RE.match(ext_id):
+        raise HTTPException(status_code=400, detail="invalid extension id")
+    rel = (rel_path or "").strip().lstrip("/")
+    if not rel:
+        rel = "main.js"
+    suffix = "." + rel.rsplit(".", 1)[-1].lower() if "." in rel else ""
+    media_type = _ALLOWED_ASSET_EXTS.get(suffix)
+    if media_type is None:
+        raise HTTPException(status_code=415, detail="extension type not allowed")
+
+    for found_id, manifest_dir in _list_extension_dirs():
+        if found_id != ext_id:
+            continue
+        target = (manifest_dir / rel).resolve()
+        try:
+            target.relative_to(manifest_dir.resolve())
+        except ValueError:
+            raise HTTPException(status_code=400, detail="path escapes extension dir")
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="asset not found")
+        return target, media_type, manifest_dir
+    raise HTTPException(status_code=404, detail="extension not found")
+
+
+@app.get(
+    "/v1/desktop/extensions/{ext_id}/main.js",
+    tags=["DesktopExtensions"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Serve an extension's main.js bytes (gated by its requires block).",
+)
+async def serve_desktop_extension_js(
+    ext_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+    company_id: Optional[str] = Query(None),
+    agent_id: Optional[str] = Query(None),
+):
+    auth = MagicalAuth(token=authorization)
+    if auth.user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    target, media_type, manifest_dir = _resolve_asset(ext_id, "main.js")
+
+    # Re-check the requires block here so the entry URL alone can't be
+    # used to bypass scope gating (a sibling asset request below shares
+    # the same check).
+    manifest = _load_manifest(manifest_dir)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="manifest unreadable")
+    if not _meets_requires(auth, manifest.get("requires") or {}, company_id, agent_id):
+        raise HTTPException(status_code=403, detail="not entitled")
+
+    # If the manifest specifies a different entry, prefer that path.
+    entry = manifest.get("entry")
+    if entry and entry != "main.js":
+        target, media_type, _ = _resolve_asset(ext_id, entry)
+
+    return FileResponse(
+        str(target),
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=300"},
+    )
+
+
+@app.get(
+    "/v1/desktop/extensions/{ext_id}/assets/{asset_path:path}",
+    tags=["DesktopExtensions"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Serve a sibling asset file (vendor JS/CSS, images, fonts).",
+)
+async def serve_desktop_extension_asset(
+    ext_id: str,
+    asset_path: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+    company_id: Optional[str] = Query(None),
+    agent_id: Optional[str] = Query(None),
+):
+    """Return a file under `<extension>/assets/<path>` so an extension
+    can ship a vendored JS bundle or a CSS file alongside main.js. The
+    `requires` block of the parent extension still gates access — same
+    rationale as the main.js route."""
+    auth = MagicalAuth(token=authorization)
+    if auth.user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    target, media_type, manifest_dir = _resolve_asset(
+        ext_id,
+        "assets/" + asset_path,
+    )
+    manifest = _load_manifest(manifest_dir)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="manifest unreadable")
+    if not _meets_requires(auth, manifest.get("requires") or {}, company_id, agent_id):
+        raise HTTPException(status_code=403, detail="not entitled")
+
+    return FileResponse(
+        str(target),
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )

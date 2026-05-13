@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; img-src 'self' data: blob: https: http:; media-src 'self' data: blob: https: http:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http: https: ws: wss:; font-src 'self' data:;" />
+    <title>Agent Settings — AGiXT</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="agent-settings.css" />
+    <!-- Theme bootstrap. Standalone window shares the user's theme
+         preference with the main popover via localStorage so opening
+         "Configure Agent…" doesn't flash the wrong palette. Mirrors the
+         identical block in index.html — kept inline (rather than an
+         external file) because it has to run before paint. -->
+    <script>
+      (function () {
+        try {
+          var pref = localStorage.getItem('agixt.theme') || 'system';
+          var prefersDark = window.matchMedia
+            ? window.matchMedia('(prefers-color-scheme: dark)')
+            : null;
+          var KNOWN = { light: 1, dark: 1, gray: 1 };
+          var resolve = function (p) {
+            if (p && KNOWN[p]) return p;
+            return prefersDark && prefersDark.matches ? 'gray' : 'light';
+          };
+          document.documentElement.setAttribute('data-theme', resolve(pref));
+          if (prefersDark && typeof prefersDark.addEventListener === 'function') {
+            prefersDark.addEventListener('change', function () {
+              var current = localStorage.getItem('agixt.theme') || 'system';
+              if (current === 'system') {
+                document.documentElement.setAttribute('data-theme', resolve('system'));
+              }
+            });
+          }
+        } catch (e) { /* ignore — leave default dark theme */ }
+      })();
+    </script>
+  </head>
+  <body class="as-body">
+    <header class="as-header">
+      <div class="as-header-left">
+        <h1 class="as-title">Agent Settings</h1>
+        <div class="as-subtitle" id="as-subtitle">—</div>
+      </div>
+      <nav class="as-tabs" role="tablist">
+        <button class="as-tab is-active" id="as-tab-extensions" role="tab" aria-selected="true" data-tab="extensions">Extensions</button>
+        <button class="as-tab" id="as-tab-training" role="tab" aria-selected="false" data-tab="training">Training</button>
+      </nav>
+    </header>
+
+    <main class="as-main">
+      <!-- Extensions tab -->
+      <section class="as-panel is-active" id="as-panel-extensions" role="tabpanel" aria-labelledby="as-tab-extensions">
+        <div class="as-panel-toolbar">
+          <div class="as-search-wrap">
+            <input type="search" id="ext-search" class="as-input" placeholder="Search extensions…" autocomplete="off" />
+          </div>
+          <label class="as-check">
+            <input type="checkbox" id="ext-only-enabled" />
+            <span>Show only enabled</span>
+          </label>
+          <div class="as-stats" id="ext-stats">—</div>
+        </div>
+        <div class="ext-chips" id="ext-chips" role="tablist" aria-label="Filter by category" hidden></div>
+        <div class="as-panel-body" id="ext-body">
+          <div class="as-empty" id="ext-loading">Loading extensions…</div>
+        </div>
+      </section>
+
+      <!-- Extension detail drawer (slides in over the panel area) -->
+      <div class="ext-drawer-backdrop" id="ext-drawer-backdrop" hidden></div>
+      <aside class="ext-drawer" id="ext-drawer" hidden aria-hidden="true" aria-labelledby="ext-drawer-title" role="dialog">
+        <div class="ext-drawer-header">
+          <div class="ext-drawer-icon" id="ext-drawer-icon"></div>
+          <div class="ext-drawer-meta">
+            <h2 class="ext-drawer-title" id="ext-drawer-title">—</h2>
+            <div class="ext-drawer-sub" id="ext-drawer-sub"></div>
+          </div>
+          <button class="ext-drawer-close" id="ext-drawer-close" type="button" aria-label="Close">×</button>
+        </div>
+        <div class="ext-drawer-body" id="ext-drawer-body"></div>
+      </aside>
+
+      <!-- Training tab -->
+      <section class="as-panel" id="as-panel-training" role="tabpanel" aria-labelledby="as-tab-training" hidden>
+        <div class="as-panel-body" id="train-body">
+          <section class="as-section">
+            <h2 class="as-section-title">Mandatory Context</h2>
+            <p class="as-section-blurb">This text is included with every interaction. Use it to define your agent's personality, knowledge domain, or anything it should always remember.</p>
+            <textarea id="train-persona" class="as-textarea" rows="6" placeholder="Enter mandatory context…"></textarea>
+            <div class="as-row as-row-end">
+              <button class="btn btn-secondary" id="train-persona-cancel" hidden>Cancel</button>
+              <button class="btn btn-primary" id="train-persona-save" hidden>Save</button>
+            </div>
+          </section>
+
+          <section class="as-section">
+            <h2 class="as-section-title">Training Documents</h2>
+            <p class="as-section-blurb">Upload documents to train your agent. Supported: PDF, Word, Text, Markdown, CSV, JSON, Excel.</p>
+            <div class="as-row">
+              <input type="file" id="train-file" accept=".pdf,.doc,.docx,.txt,.md,.csv,.json,.xlsx,.xls" hidden />
+              <button class="btn btn-secondary" id="train-file-pick">Upload Document</button>
+              <span class="as-status" id="train-file-status"></span>
+            </div>
+            <progress class="as-progress" id="train-file-progress" value="0" max="100" hidden></progress>
+          </section>
+
+          <section class="as-section">
+            <h2 class="as-section-title">Learn from URL</h2>
+            <p class="as-section-blurb">Train your agent with content from a website or article.</p>
+            <div class="as-row as-row-tight">
+              <input type="url" id="train-url" class="as-input" placeholder="https://example.com/article" />
+              <button class="btn btn-primary" id="train-url-go">Learn</button>
+            </div>
+            <span class="as-status" id="train-url-status"></span>
+          </section>
+
+          <section class="as-section">
+            <div class="as-row as-row-between">
+              <h2 class="as-section-title">Learned Sources</h2>
+              <input type="search" id="train-source-search" class="as-input as-input-narrow" placeholder="Search sources…" hidden />
+            </div>
+            <div id="train-sources" class="as-sources">
+              <div class="as-empty" id="train-sources-empty">No sources yet.</div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <div class="as-toast" id="as-toast" hidden></div>
+
+    <script src="frontend-log.js"></script>
+    <script src="markdown.js"></script>
+    <script src="agixt-api.js"></script>
+    <script src="settings-extensions.js"></script>
+    <script src="settings-connections.js"></script>
+    <script src="settings-training.js"></script>
+    <script src="agent-settings.js"></script>
+  </body>
+</html>

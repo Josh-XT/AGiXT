@@ -313,9 +313,36 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         self.user = kwargs.get("user", None)
         self.output_url = kwargs.get("output_url", "")
         self.api_key = kwargs.get("api_key", "")
+        # Capture GitHub token from agent settings or SSO credentials for SafeExecute
+        self.github_token = (
+            kwargs.get("GITHUB_API_KEY") or kwargs.get("GITHUB_ACCESS_TOKEN") or None
+        )
 
         # Register models with ExtensionDatabaseMixin
         self.register_models()
+
+    def get_extension_context(self) -> str:
+        """Provide context about available tools in the workspace terminal."""
+        parts = []
+        if self.github_token:
+            parts.append(
+                "## GitHub CLI & Git\n"
+                "The user's GitHub account is connected. The workspace terminal "
+                "has `git` and the GitHub CLI (`gh`) pre-installed with the user's "
+                "credentials automatically configured as environment variables "
+                "(`GITHUB_TOKEN` / `GH_TOKEN`). You can use the **Use Terminal in "
+                "Workspace** command to interact with the user's GitHub repositories "
+                "directly, for example:\n"
+                "- `gh repo list` — list the user's repositories\n"
+                "- `gh repo clone owner/repo` — clone a private or public repo\n"
+                "- `git clone https://github.com/owner/repo` — clone with auto-auth\n"
+                "- `gh issue list -R owner/repo` — list issues\n"
+                "- `gh pr list -R owner/repo` — list pull requests\n"
+                "- `gh pr create -R owner/repo --title '...' --body '...'` — create a PR\n"
+                "- `gh api /user` — query the GitHub API\n\n"
+                "Authentication is handled automatically; do not ask the user for tokens."
+            )
+        return "\n\n".join(parts)
 
     async def download_file_from_url(
         self, url: str, filename: str = "", headers: str = ""
@@ -412,7 +439,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
             logging.info(f"Successfully downloaded {filename} ({file_size_mb:.2f} MB)")
 
-            return f"Successfully downloaded file to workspace: {filename} ({file_size_mb:.2f} MB)\n\nDownload link: {self.output_url}/{filename}"
+            return f"Successfully downloaded file to workspace: {filename} ({file_size_mb:.2f} MB)\n\nDownload link: {self.output_url}{filename}"
 
         except requests.exceptions.Timeout:
             return f"Error: Request timed out while trying to download from {url}"
@@ -469,6 +496,14 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
             raise PermissionError(
                 f"Path traversal detected: refusing to access path outside workspace"
             )
+        # Reject symlinks to prevent TOCTOU bypass and symlink-based escapes
+        raw_path = os.path.normpath(
+            os.path.join(self.WORKING_DIRECTORY, *paths.split("/"))
+        )
+        if os.path.islink(raw_path):
+            raise PermissionError(
+                "Symlinks are not allowed in the workspace for security reasons"
+            )
         # If the file doesn't exist, search the workspace for a matching suffix
         if not os.path.exists(new_path) and paths:
             normalized_suffix = paths.replace("\\", "/").strip("/")
@@ -486,8 +521,136 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
                             )
                             return candidate
         path_dir = os.path.dirname(new_path)
-        os.makedirs(path_dir, exist_ok=True)
+        if path_dir:
+            try:
+                os.makedirs(path_dir, exist_ok=True)
+            except PermissionError:
+                if not self._repair_workspace_permissions():
+                    raise
+                os.makedirs(path_dir, exist_ok=True)
         return new_path
+
+    def _repair_workspace_permissions(self) -> bool:
+        """Best-effort repair for workspace files created by root sandbox containers."""
+        try:
+            from safeexecute import repair_workspace_permissions
+
+            if repair_workspace_permissions(self.WORKING_DIRECTORY):
+                return True
+        except Exception as e:
+            logging.warning(
+                f"Unable to repair workspace permissions with SafeExecute: {e}"
+            )
+
+        try:
+            uid = os.getuid()
+            gid = os.getgid()
+        except AttributeError:
+            uid = 0
+            gid = 0
+
+        if uid != 0:
+            try:
+                import docker
+
+                image_name = "joshxt/safeexecute:latest"
+                try:
+                    import safeexecute
+
+                    image_name = getattr(safeexecute, "IMAGE_NAME", image_name)
+                except Exception:
+                    pass
+
+                docker_volume_path = self.WORKING_DIRECTORY
+                if os.path.exists("/.dockerenv"):
+                    host_workspace = os.environ.get("WORKING_DIRECTORY")
+                    if host_workspace:
+                        workspace_marker = "/WORKSPACE"
+                        if workspace_marker in self.WORKING_DIRECTORY:
+                            relative_part = self.WORKING_DIRECTORY.split(
+                                workspace_marker, 1
+                            )[1]
+                            docker_volume_path = (
+                                host_workspace.rstrip("/") + relative_part
+                            )
+                        else:
+                            docker_volume_path = host_workspace
+
+                client = docker.from_env()
+                try:
+                    client.images.get(image_name)
+                except Exception:
+                    client.images.pull(image_name)
+
+                repair_script = f"""
+find /workspace -xdev \\( -uid 0 -o -gid 0 \\) -exec chown -h {uid}:{gid} {{}} + 2>/dev/null || true
+find /workspace -xdev -type d -uid {uid} -exec chmod u+rwx {{}} + 2>/dev/null || true
+find /workspace -xdev -type f -uid {uid} -exec chmod u+rw {{}} + 2>/dev/null || true
+""".strip()
+                container = client.containers.run(
+                    image_name,
+                    ["bash", "-c", repair_script],
+                    volumes={
+                        os.path.abspath(docker_volume_path): {
+                            "bind": "/workspace",
+                            "mode": "rw",
+                        }
+                    },
+                    working_dir="/workspace",
+                    stderr=True,
+                    stdout=True,
+                    detach=True,
+                )
+                result = container.wait()
+                exit_code = result.get("StatusCode", 0)
+                logs = container.logs().decode("utf-8", errors="replace")
+                container.remove(force=True)
+                if exit_code == 0:
+                    return True
+                logging.warning(
+                    f"Docker workspace permission repair exited with {exit_code}: {logs}"
+                )
+            except Exception as e:
+                logging.warning(
+                    f"Unable to repair workspace permissions with Docker: {e}"
+                )
+
+        repaired_any = False
+        try:
+            for root, dirs, files in os.walk(self.WORKING_DIRECTORY):
+                for dirname in dirs:
+                    try:
+                        os.chmod(os.path.join(root, dirname), 0o755)
+                        repaired_any = True
+                    except Exception:
+                        continue
+                for filename in files:
+                    try:
+                        os.chmod(os.path.join(root, filename), 0o644)
+                        repaired_any = True
+                    except Exception:
+                        continue
+        except Exception as e:
+            logging.warning(f"Unable to chmod workspace files: {e}")
+        return repaired_any
+
+    def _run_with_permission_repair(self, action):
+        try:
+            return action()
+        except PermissionError:
+            if not self._repair_workspace_permissions():
+                raise
+            return action()
+
+    def _write_text_file(self, filepath: str, content: str) -> None:
+        def write_file():
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(content)
+
+        self._run_with_permission_repair(write_file)
+
+    def _remove_file(self, filepath: str) -> None:
+        self._run_with_permission_repair(lambda: os.remove(filepath))
 
     @staticmethod
     def we_are_running_in_a_docker_container() -> bool:
@@ -544,14 +707,14 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         """
         Read a file in the workspace, optionally reading only specific line ranges.
 
-        **IMPORTANT**: This command returns a maximum of 100 lines at a time to manage context size.
-        If a file is larger than 100 lines, it will be truncated and you will need to make additional
+        **IMPORTANT**: This command returns a maximum of 500 lines at a time to manage context size.
+        If a file is larger than 500 lines, it will be truncated and you will need to make additional
         calls with different line ranges to see the full content.
 
         Args:
         filename (str): The name of the file to read
         line_start (int): The starting line number (1-indexed). If "None", starts from beginning
-        line_end (int): The ending line number (1-indexed, inclusive). If "None", reads to end (max 100 lines)
+        line_end (int): The ending line number (1-indexed, inclusive). If "None", reads to end (max 500 lines)
 
         Returns:
         str: The content of the file or specified line range
@@ -564,7 +727,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         - For CSV/data files, use Execute Python Code with pandas to analyze data efficiently
         - XLSX/XLS files are automatically converted to CSV format for reading
         """
-        MAX_LINES = 100  # Maximum lines to return per read
+        MAX_LINES = 500  # Maximum lines to return per read
         try:
             line_start = int(line_start)
         except:
@@ -699,8 +862,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         """
         try:
             filepath = self.safe_join(filename)
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(text)
+            self._write_text_file(filepath, text)
             return f"File {filename} written successfully. The user can access it at {self.output_url}{filename}"
         except Exception as e:
             return f"Error writing file: {str(e)}"
@@ -1211,8 +1373,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
             modified_content = content.replace(old_text, new_text)
 
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(modified_content)
+            self._write_text_file(filepath, modified_content)
 
             return f"File {filename} modified successfully. The user can access it at {self.output_url}{filename}"
         except Exception as e:
@@ -1233,7 +1394,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
         try:
             filepath = self.safe_join(filename)
             if os.path.exists(filepath):
-                os.remove(filepath)
+                self._remove_file(filepath)
                 return f"File {filename} deleted successfully."
             else:
                 return f"Error: File {filename} does not exist."
@@ -1264,7 +1425,11 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
 
         with open(file_path, "r") as f:
             code = f.read()
-        return execute_python_code(code=code, working_directory=self.WORKING_DIRECTORY)
+        return execute_python_code(
+            code=code,
+            working_directory=self.WORKING_DIRECTORY,
+            github_token=self.github_token,
+        )
 
     async def execute_shell(self, command_line: str) -> str:
         """
@@ -1339,6 +1504,7 @@ class essential_abilities(Extensions, ExtensionDatabaseMixin):
                 working_directory=self.WORKING_DIRECTORY,
                 agent_id=self.agent_name,
                 conversation_id=self.conversation_id,
+                github_token=self.github_token,
             )
 
             return result
@@ -1379,7 +1545,9 @@ print(output)
             # Execute the code in a sandboxed environment
             try:
                 result = execute_python_code(
-                    code=sandboxed_code, working_directory=self.WORKING_DIRECTORY
+                    code=sandboxed_code,
+                    working_directory=self.WORKING_DIRECTORY,
+                    github_token=self.github_token,
                 )
                 return result
             except Exception as e:
@@ -1616,6 +1784,7 @@ print(output)
         execution_response = execute_python_code(
             code=code,
             working_directory=self.WORKING_DIRECTORY,
+            github_token=self.github_token,
         )
         return execution_response
 
@@ -1963,7 +2132,10 @@ print(output)
         Note: Do not include a path in the output_file, just the file name. The file will be saved in the agent's workspace and a link to download returned.
         """
         try:
-            # Make sure the output directory exists
+            # Sanitize output_file to prevent path traversal
+            output_file = os.path.basename(output_file)
+            if not output_file:
+                return "Error: Invalid output file name"
             output_path = os.path.join(self.WORKING_DIRECTORY, output_file)
             os.makedirs(
                 os.path.dirname(output_path) if os.path.dirname(output_path) else ".",
@@ -2013,7 +2185,10 @@ print(output)
         Note: Do not include a path in the output_file, just the file name. The file will be saved in the agent's workspace and a link to download returned.
         """
         try:
-            # Make sure the output directory exists
+            # Sanitize output_file to prevent path traversal
+            output_file = os.path.basename(output_file)
+            if not output_file:
+                return "Error: Invalid output file name"
             output_path = os.path.join(self.WORKING_DIRECTORY, output_file)
             os.makedirs(
                 os.path.dirname(output_path) if os.path.dirname(output_path) else ".",
@@ -2067,7 +2242,10 @@ print(output)
         try:
             import pandas as pd
 
-            # Make sure the output directory exists
+            # Sanitize output_file to prevent path traversal
+            output_file = os.path.basename(output_file)
+            if not output_file:
+                return "Error: Invalid output file name"
             output_path = os.path.join(self.WORKING_DIRECTORY, output_file)
             os.makedirs(
                 os.path.dirname(output_path) if os.path.dirname(output_path) else ".",
@@ -2145,7 +2323,10 @@ print(output)
         Note: Do not include a path in the output_file, just the file name. The file will be saved in the agent's workspace and a link to download returned.
         """
         try:
-            # Make sure the output directory exists
+            # Sanitize output_file to prevent path traversal
+            output_file = os.path.basename(output_file)
+            if not output_file:
+                return "Error: Invalid output file name"
             output_path = os.path.join(self.WORKING_DIRECTORY, output_file)
             os.makedirs(
                 os.path.dirname(output_path) if os.path.dirname(output_path) else ".",
@@ -4946,8 +5127,7 @@ On the sidebar, expanding `Automation` reveals the following pages:
             for op in validated:
                 try:
                     new_content = op["content"].replace(op["old_text"], op["new_text"])
-                    with open(op["full_path"], "w", encoding="utf-8") as f:
-                        f.write(new_content)
+                    self._write_text_file(op["full_path"], new_content)
                     successful.append(op)
                 except Exception as e:
                     errors.append(f"Failed to write '{op['file']}': {str(e)}")
@@ -5561,8 +5741,11 @@ On the sidebar, expanding `Automation` reveals the following pages:
             elif files:
                 file_list = files.split()
                 for file in file_list:
+                    # Prevent argument injection via file names
+                    if file.startswith("-"):
+                        return f"Error: File path cannot start with '-': {file}"
                     result = subprocess.run(
-                        ["git", "add", file],
+                        ["git", "add", "--", file],
                         cwd=self.WORKING_DIRECTORY,
                         capture_output=True,
                         text=True,
@@ -5631,6 +5814,9 @@ On the sidebar, expanding `Automation` reveals the following pages:
                 cmd.append("--staged")
 
             if commit:
+                # Prevent argument injection via commit hash
+                if commit.startswith("-"):
+                    return "Error: Commit hash cannot start with '-'"
                 cmd.append(commit)
 
             if file_path:
@@ -5778,7 +5964,9 @@ On the sidebar, expanding `Automation` reveals the following pages:
                 else:
                     return f"Error: `{path}` exists but is a file, not a directory."
 
-            os.makedirs(full_path, exist_ok=True)
+            self._run_with_permission_repair(
+                lambda: os.makedirs(full_path, exist_ok=True)
+            )
             return f"✅ Created directory: `{path}`"
 
         except Exception as e:
@@ -5812,9 +6000,13 @@ On the sidebar, expanding `Automation` reveals the following pages:
             # Create destination directory if needed
             dest_dir = os.path.dirname(full_new_path)
             if dest_dir:
-                os.makedirs(dest_dir, exist_ok=True)
+                self._run_with_permission_repair(
+                    lambda: os.makedirs(dest_dir, exist_ok=True)
+                )
 
-            os.rename(full_old_path, full_new_path)
+            self._run_with_permission_repair(
+                lambda: os.rename(full_old_path, full_new_path)
+            )
             return f"✅ Renamed `{old_path}` to `{new_path}`"
 
         except Exception as e:
@@ -5851,12 +6043,18 @@ On the sidebar, expanding `Automation` reveals the following pages:
                 else full_dest
             )
             if dest_dir:
-                os.makedirs(dest_dir, exist_ok=True)
+                self._run_with_permission_repair(
+                    lambda: os.makedirs(dest_dir, exist_ok=True)
+                )
 
             if os.path.isdir(full_source):
-                shutil.copytree(full_source, full_dest)
+                self._run_with_permission_repair(
+                    lambda: shutil.copytree(full_source, full_dest)
+                )
             else:
-                shutil.copy2(full_source, full_dest)
+                self._run_with_permission_repair(
+                    lambda: shutil.copy2(full_source, full_dest)
+                )
 
             return f"✅ Copied `{source}` to `{destination}`"
 
@@ -6171,8 +6369,7 @@ On the sidebar, expanding `Automation` reveals the following pages:
             else:
                 lines.insert(idx, content)
 
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.writelines(lines)
+            self._write_text_file(full_path, "".join(lines))
 
             return f"✅ Inserted content at line {line_number} in `{file_path}`\n\n- New total lines: {len(lines)}"
 
@@ -6223,8 +6420,7 @@ On the sidebar, expanding `Automation` reveals the following pages:
             deleted = lines[start_idx:end_idx]
             del lines[start_idx:end_idx]
 
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.writelines(lines)
+            self._write_text_file(full_path, "".join(lines))
 
             return f"✅ Deleted lines {start_line}-{end_line} from `{file_path}`\n\n- Lines deleted: {len(deleted)}\n- Original lines: {original_count}\n- New lines: {len(lines)}"
 
@@ -6316,8 +6512,7 @@ On the sidebar, expanding `Automation` reveals the following pages:
             # Perform replacement
             new_content = re.sub(pattern, replacement, content, flags=re_flags)
 
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.write(new_content)
+            self._write_text_file(full_path, new_content)
 
             return f"✅ Replaced {match_count} occurrence(s) in `{file_path}`\n\n- Pattern: `{pattern}`\n- Replacement: `{replacement}`"
 
@@ -6680,20 +6875,23 @@ On the sidebar, expanding `Automation` reveals the following pages:
             - Restricted to agent workspace
         """
         try:
+            # Prevent argument injection via branch_name
+            if branch_name and branch_name.startswith("-"):
+                return "Error: Branch name cannot start with '-'"
             if action == "list":
                 cmd = ["git", "branch", "-a"]
             elif action == "create":
                 if not branch_name:
                     return "Error: Branch name required for create action"
-                cmd = ["git", "branch", branch_name]
+                cmd = ["git", "branch", "--", branch_name]
             elif action == "switch":
                 if not branch_name:
                     return "Error: Branch name required for switch action"
-                cmd = ["git", "checkout", branch_name]
+                cmd = ["git", "checkout", "--", branch_name]
             elif action == "delete":
                 if not branch_name:
                     return "Error: Branch name required for delete action"
-                cmd = ["git", "branch", "-d", branch_name]
+                cmd = ["git", "branch", "-d", "--", branch_name]
             else:
                 return f"Unknown action: {action}. Use: list, create, switch, delete"
 
@@ -6739,6 +6937,9 @@ On the sidebar, expanding `Automation` reveals the following pages:
             - Restricted to agent workspace
         """
         try:
+            # Prevent argument injection via message
+            if message and message.startswith("-"):
+                return "Error: Stash message cannot start with '-'"
             if action == "list":
                 cmd = ["git", "stash", "list"]
             elif action == "push":
@@ -8360,6 +8561,9 @@ On the sidebar, expanding `Automation` reveals the following pages:
             - Restricted to agent workspace
         """
         try:
+            # Prevent argument injection via remote name
+            if remote and remote.startswith("-"):
+                return "Error: Remote name cannot start with '-'"
             cmd = ["git", "fetch", remote]
             if prune:
                 cmd.append("--prune")
@@ -8402,6 +8606,11 @@ On the sidebar, expanding `Automation` reveals the following pages:
             - Restricted to agent workspace
         """
         try:
+            # Prevent argument injection via remote/branch names
+            if remote and remote.startswith("-"):
+                return "Error: Remote name cannot start with '-'"
+            if branch and branch.startswith("-"):
+                return "Error: Branch name cannot start with '-'"
             cmd = ["git", "pull"]
             if rebase:
                 cmd.append("--rebase")
@@ -8449,11 +8658,17 @@ On the sidebar, expanding `Automation` reveals the following pages:
             - Restricted to agent workspace
         """
         try:
-            cmd = ["git", "merge", branch]
+            # Prevent argument injection via branch name
+            if branch and branch.startswith("-"):
+                return "Error: Branch name cannot start with '-'"
+            if message and message.startswith("-"):
+                return "Error: Merge message cannot start with '-'"
+            cmd = ["git", "merge"]
             if no_ff:
                 cmd.append("--no-ff")
             if message:
                 cmd.extend(["-m", message])
+            cmd.extend(["--", branch])
 
             result = subprocess.run(
                 cmd,
@@ -8493,6 +8708,9 @@ On the sidebar, expanding `Automation` reveals the following pages:
             - Restricted to agent workspace
         """
         try:
+            # Prevent argument injection via commit hash
+            if commit and commit.startswith("-"):
+                return "Error: Commit hash cannot start with '-'"
             cmd = ["git", "revert", commit]
             if no_commit:
                 cmd.append("--no-commit")
@@ -8533,6 +8751,9 @@ On the sidebar, expanding `Automation` reveals the following pages:
             - Restricted to agent workspace
         """
         try:
+            # Prevent argument injection via commit hash
+            if commit and commit.startswith("-"):
+                return "Error: Commit hash cannot start with '-'"
             cmd = ["git", "cherry-pick", commit]
             if no_commit:
                 cmd.append("--no-commit")

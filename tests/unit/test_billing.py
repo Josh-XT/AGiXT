@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import text
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if PROJECT_ROOT not in sys.path:
@@ -64,6 +65,7 @@ def test_price_service_quote_stable_coin():
 def test_crypto_invoice_persists_record():
     service = PriceService()
     crypto = CryptoPaymentService(price_service=service)
+    ensure_user("user-test", "user-test@example.com")
 
     invoice = asyncio.run(
         crypto.create_invoice(
@@ -99,6 +101,8 @@ def test_crypto_invoice_persists_record():
 def test_verify_transaction_enforces_user(monkeypatch):
     service = PriceService()
     crypto = CryptoPaymentService(price_service=service)
+    ensure_user("user-1", "user-1@example.com")
+    ensure_user("user-2", "user-2@example.com")
 
     invoice = asyncio.run(
         crypto.create_invoice(
@@ -153,6 +157,26 @@ def test_verify_transaction_enforces_user(monkeypatch):
         )
         if record:
             session.delete(record)
+            session.commit()
+    finally:
+        session.close()
+
+
+def ensure_user(user_id: str, email: str):
+    session = get_session()
+    try:
+        existing = session.execute(
+            text('SELECT id FROM "user" WHERE id = :user_id'), {"user_id": user_id}
+        ).fetchone()
+        if not existing:
+            session.execute(
+                text(
+                    'INSERT INTO "user" '
+                    "(id, email, first_name, last_name, admin, mfa_enabled, is_active) "
+                    "VALUES (:id, :email, 'Billing', 'Test', 0, 0, 1)"
+                ),
+                {"id": user_id, "email": email},
+            )
             session.commit()
     finally:
         session.close()

@@ -18,7 +18,7 @@ from typing import Dict, Optional
 from dataclasses import dataclass
 from datetime import datetime
 
-from DB import get_session, CompanyExtensionSetting, Company, User
+from DB import get_session, CompanyExtensionSetting, Company, User, decrypt_config_value
 from Globals import getenv
 from MagicalAuth import impersonate_user
 from InternalClient import InternalClient
@@ -284,7 +284,14 @@ class SendGridEmailBotManager:
 
             config = {}
             for setting in settings:
-                config[setting.setting_name] = setting.setting_value
+                setting_key = getattr(setting, "setting_key", None) or getattr(
+                    setting, "setting_name", None
+                )
+                if setting_key:
+                    value = setting.setting_value
+                    if getattr(setting, "is_sensitive", False) and value:
+                        value = decrypt_config_value(value)
+                    config[setting_key] = value
 
             if config.get("sendgrid_email_bot_enabled", "").lower() != "true":
                 return None
@@ -303,6 +310,7 @@ class SendGridEmailBotManager:
                     "sendgrid_email_bot_permission_mode", "recognized_users"
                 ),
                 "owner_id": config.get("sendgrid_email_bot_owner_id"),
+                "allowlist": config.get("sendgrid_email_bot_allowlist"),
             }
 
     def start_bot_for_company(self, company_id: str, company_name: str = None):
@@ -329,6 +337,7 @@ class SendGridEmailBotManager:
             bot_agent_id=config.get("agent_id"),
             bot_permission_mode=config.get("permission_mode", "recognized_users"),
             bot_owner_id=config.get("owner_id"),
+            bot_allowlist=config.get("allowlist"),
         )
 
         self._bots[company_id] = bot
@@ -357,8 +366,7 @@ class SendGridEmailBotManager:
                 db.query(CompanyExtensionSetting)
                 .filter(
                     CompanyExtensionSetting.extension_name == "sendgrid_email",
-                    CompanyExtensionSetting.setting_name
-                    == "sendgrid_email_bot_enabled",
+                    CompanyExtensionSetting.setting_key == "sendgrid_email_bot_enabled",
                     CompanyExtensionSetting.setting_value == "true",
                 )
                 .all()

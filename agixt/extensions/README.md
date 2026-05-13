@@ -4,17 +4,42 @@ Extensions are the way to extend AGiXT's functionality with external APIs, servi
 
 ## Table of Contents
 
-1. [Extension Types](#extension-types)
-2. [Basic Extension Structure](#basic-extension-structure)
-3. [Function Signature Requirements](#function-signature-requirements)
-4. [Authentication Patterns](#authentication-patterns)
-5. [OAuth Integration](#oauth-integration)
-6. [Command Implementation](#command-implementation)
-7. [Error Handling](#error-handling)
-8. [Database-Enabled Extensions](#database-enabled-extensions)
-9. [Webhook Support for Extensions](#webhook-support-for-extensions)
-10. [Best Practices](#best-practices)
-11. [Examples](#examples)
+1. [Extension Capabilities](#extension-capabilities)
+2. [Extension Types](#extension-types)
+3. [Basic Extension Structure](#basic-extension-structure)
+4. [Full-Stack Extension Build Checklist](#full-stack-extension-build-checklist)
+5. [Function Signature Requirements](#function-signature-requirements)
+6. [Authentication Patterns](#authentication-patterns)
+7. [OAuth Integration](#oauth-integration)
+8. [Command Implementation](#command-implementation)
+9. [Error Handling](#error-handling)
+10. [Database-Enabled Extensions](#database-enabled-extensions)
+11. [Webhook Support for Extensions](#webhook-support-for-extensions)
+12. [Best Practices](#best-practices)
+13. [Extension Hubs](#extension-hubs)
+14. [Adding UI to Extensions](#adding-ui-to-extensions)
+15. [Examples](#examples)
+16. [API Endpoint-Enabled Extensions](#api-endpoint-enabled-extensions)
+
+## Extension Capabilities
+
+An AGiXT extension can be a simple agent tool, a service connector, a data-backed application module, or a full UI-backed microservice. Mix only the capabilities your extension needs.
+
+| Capability | How to Build It | What It Enables |
+| --- | --- | --- |
+| Agent commands | Add async or sync methods to `self.commands` | AI agents can call external APIs, internal workflows, and local Python logic. |
+| Service authentication | Use explicit `__init__` settings, OAuth helpers, or service-specific auth | API keys, OAuth 2.0, OAuth 1.0a, direct credentials, and custom token flows. |
+| Runtime user/company context | Read AGiXT-provided values from `**kwargs` such as `user_id`, `email`, `companies`, `company_id`, and `ApiClient` | Multi-tenant data isolation, company-aware commands, audit trails, and per-user behavior. |
+| Custom REST endpoints | Attach `self.router = APIRouter(...)` and define FastAPI routes | Direct APIs for web apps, desktop UI pages, external integrations, CRUD resources, and automation. |
+| WebSocket endpoints | Add `@self.router.websocket(...)` routes | Real-time streams such as terminals, remote UI control, live monitor views, or event feeds. |
+| Persistent data | Inherit `ExtensionDatabaseMixin`, define SQLAlchemy models, set `extension_models`, and call `register_models()` | Extension-owned tables for contacts, tickets, assets, secrets, activity logs, invoices, and similar app data. |
+| Webhook events | Define `webhook_events` and emit events with `webhook_emitter` | Downstream automations can react to extension activity. |
+| Inbound webhooks | Expose custom router endpoints or use AGiXT webhook endpoints | External services can push updates into the extension. |
+| Desktop UI pages | Add `desktop/<id>/manifest.json` and `desktop/<id>/main.js` in an extension search path | AGiXT Desktop can show extension-specific pages backed by extension APIs. |
+| Extension hubs | Package Python files, desktop UI bundles, and optional `pricing.json` outside the core repo | Private, customer-specific, or app-specific extension distribution. |
+| Categories and scopes | Set `CATEGORY`; AGiXT generates `ext:<extension>:read`, `ext:<extension>:execute`, `ext:<extension>:configure`, and command-derived feature scopes | Cleaner extension settings, role assignment, desktop UI gating, and endpoint authorization. |
+
+Common full-featured hub extensions combine several of these at once: a Python extension class with agent commands, SQLAlchemy models, `webhook_events`, a `self.router` exposing `/v1/...` endpoints, and a desktop UI bundle that calls those endpoints with the authenticated user's JWT.
 
 ## Extension Types
 
@@ -69,6 +94,8 @@ class your_service(Extensions):
     - Authentication method used
     """
 
+    CATEGORY = "Productivity"
+
     def __init__(self, REQUIRED_PARAM1: str, REQUIRED_PARAM2: str, OPTIONAL_PARAM: str = "default", **kwargs):
         """
         Initialize the extension with required parameters as arguments
@@ -85,6 +112,14 @@ class your_service(Extensions):
         self.param1 = REQUIRED_PARAM1
         self.param2 = REQUIRED_PARAM2
         self.optional_param = OPTIONAL_PARAM
+
+        # Runtime context provided by AGiXT. These are optional and depend on
+        # where the extension is instantiated from.
+        self.user_id = kwargs.get("user_id", kwargs.get("user", None))
+        self.email = kwargs.get("email", None)
+        self.companies = kwargs.get("companies", [])
+        self.company_id = kwargs.get("company_id", None)
+        self.ApiClient = kwargs.get("ApiClient", None)
         
         # Always initialize commands dictionary (no conditional logic)
         self.commands = {
@@ -112,9 +147,26 @@ class your_service(Extensions):
         # Command implementation
 ```
 
+Use explicit named `__init__` parameters for extension settings that AGiXT should collect from the user, such as API keys, host names, client IDs, client secrets, or account IDs. Use `**kwargs` for AGiXT runtime context such as the current user, company, agent, and API client.
+
+## Full-Stack Extension Build Checklist
+
+Use this checklist when building anything more than a simple API wrapper:
+
+1. Name the file and class consistently. A file such as `contacts.py` should expose a class named `contacts` that inherits from `Extensions`.
+2. Add a concise class docstring and set `CATEGORY` so the extension appears in the right settings group.
+3. Define explicit required settings in `__init__`, then read AGiXT runtime context from `**kwargs`.
+4. Add agent-facing commands in `self.commands`; command names should be clear because AGiXT uses them for discovery, settings, and feature-scope generation.
+5. If the extension owns data, inherit `ExtensionDatabaseMixin`, define SQLAlchemy models, set `extension_models`, and call `self.register_models()` during initialization.
+6. If direct HTTP access is useful, attach `self.router = APIRouter(...)` and define REST or WebSocket routes with FastAPI.
+7. Protect every endpoint with AGiXT authentication and company/user checks. Desktop UI visibility is not a substitute for backend authorization.
+8. If other systems should react to extension activity, define `webhook_events` and emit events after important state changes.
+9. If the extension needs a native page, add a desktop UI bundle under `desktop/<id>/` and call the extension's REST endpoints from `main.js`.
+10. Package customer-specific or private extensions in an extension hub, configure `EXTENSIONS_HUB`, restart or hot reload, and verify command discovery, endpoint availability, scopes, and UI manifest access.
+
 ## Function Signature Requirements
 
-**CRITICAL REQUIREMENT**: All AGiXT extensions must use explicit required parameters in their `__init__` method instead of environment variables or kwargs-based parameter extraction.
+**CRITICAL REQUIREMENT**: All required extension settings must use explicit parameters in `__init__` instead of environment variables or kwargs-based extraction. AGiXT runtime context is the exception: keep `**kwargs` for values AGiXT injects at runtime, such as `user_id`, `user`, `email`, `companies`, `company_id`, `agent_name`, `conversation_id`, and `ApiClient`.
 
 ### ✅ Correct Pattern
 
@@ -128,6 +180,12 @@ class my_extension(Extensions):
         self.username = USERNAME
         self.password = PASSWORD
         self.port = PORT
+
+        # Runtime context is optional and provided by AGiXT when available
+        self.user_id = kwargs.get("user_id", kwargs.get("user", None))
+        self.email = kwargs.get("email", None)
+        self.companies = kwargs.get("companies", [])
+        self.company_id = kwargs.get("company_id", None)
         
         # Always initialize commands - no conditional logic
         self.commands = {
@@ -158,7 +216,7 @@ def __init__(self, **kwargs):
         self.commands = {}
         logging.warning("Extension disabled - missing credentials")
 
-# DON'T DO THIS - kwargs-based parameter extraction  
+# DON'T DO THIS - kwargs-based extraction for required settings
 def __init__(self, **kwargs):
     self.username = kwargs.get("username")
     self.password = kwargs.get("password")
@@ -183,8 +241,32 @@ def __init__(self, **kwargs):
 - Use descriptive, service-specific parameter names (e.g., `GITHUB_TOKEN`, `SLACK_WEBHOOK_URL`)
 - Use type hints for all parameters
 - Provide default values for optional parameters
-- Keep `**kwargs` for backward compatibility and additional options
+- Keep `**kwargs` for AGiXT runtime context and backward compatibility
+- Do not read required service credentials from `getenv()` or `kwargs`; make those explicit named parameters
 - Document all parameters in the docstring
+
+### Categories, Commands, and Scopes
+
+AGiXT uses extension metadata for settings, role permissions, and desktop UI access:
+
+```python
+class contacts(Extensions):
+    CATEGORY = "Core Abilities"
+
+    def __init__(self, **kwargs):
+        self.commands = {
+            "Create Contact": self.create_contact,
+            "Get Contact": self.get_contact,
+            "Search Contacts": self.search_contacts,
+        }
+```
+
+- `CATEGORY` places the extension in the right settings category. If omitted, AGiXT falls back to a default category.
+- `self.commands` is the agent command surface and the source of command settings.
+- AGiXT generates base scopes for every discovered extension: `ext:<extension_name>:read`, `ext:<extension_name>:execute`, and `ext:<extension_name>:configure`.
+- AGiXT also derives feature scopes from command names, such as `ext:contacts:contacts:read` or `ext:tickets:tickets:write`, so descriptive command names improve permission clarity.
+- Desktop UI manifests can require these scopes with `requires.company_scope`.
+- Endpoint code should enforce the same scopes or stricter checks before returning company data or performing writes.
 
 ## Authentication Patterns
 
@@ -1381,6 +1463,257 @@ def __init__(self, **kwargs):
 - Use environment variables for all sensitive configuration
 - Validate all user inputs in command functions
 
+## Extension Hubs
+
+Extension hubs let a deployment load extensions, pricing configuration, and desktop UI bundles from repositories or local directories outside the core AGiXT source tree. Use a hub when an extension is customer-specific, app-specific, private, or needs to ship alongside a custom UI page.
+
+### What Can Live in a Hub
+
+```text
+my-extension-hub/
+    custom_service.py
+    nested_folder/
+        another_service.py
+    pricing.json
+    desktop/
+        custom_service/
+            manifest.json
+            main.js
+            assets/
+                styles.css
+                logo.svg
+```
+
+- Python extension files are discovered recursively from each extension search path, excluding common folders such as `__pycache__`, `tests`, and `.git`.
+- Desktop UI bundles live under `desktop/<extension_ui_id>/` and are served by the desktop extension endpoints.
+- `pricing.json` is optional and can customize billing/trial metadata for the deployment.
+- Keep runtime secrets out of the hub. GitHub hub clones remove sensitive top-level files such as `.env`, `docker-compose.yml`, `Dockerfile`, and common credential file names.
+
+### Configure Hubs
+
+Set `EXTENSIONS_HUB` to a comma-separated list of local paths or GitHub repository URLs:
+
+```env
+EXTENSIONS_HUB=/opt/agixt/extensions,https://github.com/example/agixt-extension-hub.git
+EXTENSIONS_HUB_TOKEN=github_pat_or_fine_grained_token_for_private_repos
+EXTENSIONS_HUB_BRANCH=main
+```
+
+Configuration notes:
+
+- Local paths must be absolute or begin with `./` or `../`. They are added directly to the extension search path.
+- GitHub sources must use `https://github.com/owner/repo` or `https://github.com/owner/repo.git`. Do not embed credentials in the URL.
+- Use `EXTENSIONS_HUB_TOKEN` for private GitHub repositories. AGiXT passes it to `git clone` through an HTTP extra header instead of writing it into the URL.
+- `EXTENSIONS_HUB_BRANCH` is optional and applies to GitHub hub clones when a branch other than the default branch should be used.
+- Multiple hubs are searched in order after the built-in extensions directory. For desktop UI bundles, the first matching `desktop/<id>/manifest.json` wins.
+
+On startup, AGiXT clones or refreshes GitHub hubs and adds local hub paths to the extension search path. Updating `EXTENSIONS_HUB` through server configuration triggers a hot reload that invalidates extension caches, rediscovers extensions, reseeds extension scopes, and re-registers routers. Restarting AGiXT also applies hub changes.
+
+### Hub Development Workflow
+
+1. Create the hub directory or repository.
+2. Add Python extension files using the same class naming and `__init__` signature rules as built-in extensions.
+3. Add optional desktop UI bundles under `desktop/<id>/`.
+4. Configure `EXTENSIONS_HUB` with the local path while developing.
+5. Restart AGiXT or update the server setting to hot reload the hub.
+6. Verify the extension appears in settings, agent commands, and, if applicable, the desktop UI manifest.
+
+For local development in this repository, a hub path can point directly at a sibling folder such as `/home/josh/repos/xtsys/xtsystems_extensions`.
+
+## Adding UI to Extensions
+
+AGiXT desktop can render extension-provided UI pages from any extension search path. The UI is a browser JavaScript bundle served by AGiXT and mounted inside the desktop client's existing navigation shell. It is separate from the Python extension class, but it normally talks to REST endpoints exposed by the extension or by AGiXT.
+
+### Desktop UI Loading Flow
+
+1. The authenticated desktop client calls `GET /v1/desktop/extensions?company_id=...&agent_id=...`.
+2. AGiXT scans every extension search path for `desktop/<id>/manifest.json`.
+3. Each manifest's `requires` block is checked against the current user, company, and agent.
+4. The desktop client adds an eligible sidenav button and lazy-loads the entry module when the user opens it.
+5. The entry module calls `window.AgixtRegisterExtension(id, controller)` and AGiXT invokes `controller.mount(container, ctx)`.
+
+The same `requires` checks are repeated when serving `main.js` and files under `assets/`, so users cannot fetch a UI bundle they are not entitled to by guessing its URL.
+
+### UI Directory Structure
+
+```text
+desktop/
+    contacts/
+        manifest.json
+        main.js
+        assets/
+            contacts.css
+```
+
+The directory name is the desktop extension ID. Keep it lowercase and URL-safe: start with a lowercase letter or number, then use lowercase letters, numbers, underscores, or hyphens.
+
+### Manifest File
+
+Create `desktop/<id>/manifest.json`:
+
+```json
+{
+    "id": "contacts",
+    "label": "Contacts",
+    "icon": "contacts",
+    "version": "0.1.0",
+    "entry": "main.js",
+    "requires": {
+        "company_scope": ["ext:contacts:read"]
+    }
+}
+```
+
+Manifest fields:
+
+- `id`: Optional but recommended. If present, it must match the folder name.
+- `label`: The sidenav tooltip and accessible label.
+- `icon`: A named desktop icon such as `contacts`, `companies`, `machines`, `tickets`, `monitors`, `deployments`, `patches`, `network`, `dashboard`, `secrets`, `assets`, `webhooks`, `tasks`, `team`, or `billing`.
+- `icon_svg`: Optional SVG child markup for a custom 24x24 icon. Use this instead of `icon` when the built-in names are not enough. Provide path/shape markup, not a full `<svg>` wrapper.
+- `version`: Used by the desktop client to invalidate its cached module. Bump this when `main.js` or assets change.
+- `entry`: Optional entry file path under the UI directory. Defaults to `main.js`.
+- `slot`: Optional placement hint. Use `admin` to pin the button near the settings area; omit it for the sortable main sidenav group.
+- `requires`: Optional access rules. If omitted or empty, any authenticated user can see the page.
+
+The `requires` block supports:
+
+```json
+{
+    "requires": {
+        "company_scope": ["ext:contacts:read", "ext:contacts:contacts:read"],
+        "user_oauth": ["github"],
+        "agent_extension": ["contacts"]
+    }
+}
+```
+
+- `company_scope`: The user must have every listed scope for the selected company.
+- `user_oauth`: The user must have connected at least one listed OAuth provider.
+- `agent_extension`: The selected agent must have at least one enabled command from one listed extension class.
+- When multiple `requires` keys are present, all blocks must pass.
+
+### Entry Module Contract
+
+The desktop client expects `main.js` to register a controller at module evaluation time:
+
+```javascript
+window.AgixtRegisterExtension("contacts", {
+    mount(container, ctx) {
+        const view = new ContactsView(container, ctx);
+        container._contactsView = view;
+        view.start();
+    },
+    unmount() {
+        const root = document.querySelector(
+            '.chat-screen-main .view-pane[data-view="contacts"]'
+        );
+        if (root && root._contactsView) {
+            root._contactsView.stop();
+            root._contactsView = null;
+        }
+    }
+});
+
+class ContactsView {
+    constructor(container, ctx) {
+        this.container = container;
+        this.ctx = ctx;
+    }
+
+    start() {
+        this.container.innerHTML = `
+            <section class="contacts-ui">
+                <header>
+                    <h1>Contacts</h1>
+                    <button type="button" data-action="refresh">Refresh</button>
+                </header>
+                <div data-region="content">Loading...</div>
+            </section>
+        `;
+        this.container
+            .querySelector('[data-action="refresh"]')
+            .addEventListener("click", () => this.refresh());
+        this.refresh();
+    }
+
+    stop() {
+        this.container.innerHTML = "";
+    }
+
+    async fetchJson(path, options = {}) {
+        const response = await fetch(new URL(path, this.ctx.serverUrl), {
+            method: options.method || "GET",
+            headers: {
+                Authorization: `Bearer ${this.ctx.jwt}`,
+                ...(options.body ? { "Content-Type": "application/json" } : {})
+            },
+            body: options.body ? JSON.stringify(options.body) : undefined
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return response.status === 204 ? null : response.json();
+    }
+
+    async refresh() {
+        const content = this.container.querySelector('[data-region="content"]');
+        try {
+            const contacts = await this.fetchJson("/v1/contacts");
+            content.textContent = JSON.stringify(contacts, null, 2);
+        } catch (error) {
+            content.textContent = error.message;
+        }
+    }
+}
+```
+
+The `ctx` object passed to `mount(container, ctx)` includes:
+
+- `serverUrl`: AGiXT API base URL.
+- `webUrl`: Web app base URL, when configured.
+- `jwt`: Bearer token for authenticated API calls.
+- `agentId` and `agentName`: The currently selected agent.
+- `companyId` and `companyName`: The currently selected company.
+- `conversationId`: The active conversation ID.
+- `invoke`: Tauri invoke function for desktop shell calls, when available.
+- `openExternal(url)`: Opens a URL in the user's default browser.
+
+### Assets
+
+Files in `desktop/<id>/assets/` are served at:
+
+```text
+/v1/desktop/extensions/<id>/assets/<asset_path>
+```
+
+Allowed asset extensions include JavaScript, CSS, JSON, HTML, SVG, common image formats, fonts, source maps, WebAssembly, text, and Markdown. Assets are auth-gated by the same `requires` block as the entry module. If you need CSS or vendored JavaScript, fetch it with the bearer token from `main.js`, then inject it into the page rather than assuming a plain `<link>` or `<script>` tag can send authorization headers.
+
+### Connect UI to Extension Data
+
+For data-backed UIs, expose a REST API from the Python extension using the API endpoint pattern below, then call those endpoints from `main.js` with `ctx.jwt`. The desktop UI manifest controls whether the page is visible, but backend endpoints must still enforce authentication and authorization with AGiXT dependencies such as `verify_api_key`.
+
+### Testing Desktop UI Extensions
+
+After adding or changing a UI bundle:
+
+1. Bump `version` in `manifest.json`.
+2. Restart AGiXT or hot reload the hub configuration.
+3. Verify discovery:
+
+```bash
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+    "http://localhost:7437/v1/desktop/extensions?company_id=COMPANY_ID&agent_id=AGENT_ID"
+```
+
+4. Verify the entry module:
+
+```bash
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+    "http://localhost:7437/v1/desktop/extensions/contacts/main.js"
+```
+
+5. Open the desktop client or call `window.AgixtDesktopExtensions.refresh()` from its developer console after changing active agent/company permissions.
+
 ## Examples
 
 ### Simple API Key Extension
@@ -1444,23 +1777,30 @@ AGiXT supports extensions that can expose their own REST API endpoints, allowing
 - Providing RESTful APIs for extension resources
 - Enabling CRUD operations on extension-managed data
 - Direct API access without going through an AI agent
+- Streaming or realtime workflows with WebSocket routes
 
 ### How Endpoint Extensions Work
 
 1. **Extension defines a FastAPI router** (optional feature)
 2. **AGiXT automatically discovers** extensions with routers during startup
-3. **Routes are registered** at `/api/extensions/{extension_name}/`
+3. **Routes are registered exactly as defined** by the router prefix and route decorators
 4. **Authentication is enforced** using AGiXT's existing auth system
-5. **User isolation is maintained** automatically
+5. **User and company isolation is enforced** by the endpoint logic you write
+
+AGiXT does not add an automatic `/api/extensions/{extension_name}` prefix when it includes an extension router. If your router is `APIRouter(prefix="")` and your route is `@self.router.get("/v1/contacts")`, the endpoint is `GET /v1/contacts`. If your router is `APIRouter(prefix="/notes")` and your route is `@self.router.get("/{note_id}")`, the endpoint is `GET /notes/{note_id}`.
+
+For app-like extensions, prefer stable `/v1/<resource>` paths because desktop UI bundles, external clients, and OpenAPI users can call them directly. Use tags to keep OpenAPI grouped by extension.
 
 ### Creating an Endpoint-Enabled Extension
 
 #### Step 1: Import Required Dependencies
 
 ```python
-from fastapi import APIRouter, HTTPException, Depends, Query
+import json
+from fastapi import APIRouter, HTTPException, Depends, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from MagicalAuth import verify_api_key
+from Extensions import Extensions
+from MagicalAuth import MagicalAuth, verify_api_key
 from typing import List, Optional
 ```
 
@@ -1494,6 +1834,8 @@ class my_extension(Extensions):
     def __init__(self, **kwargs):
         # Standard extension initialization
         self.user_id = kwargs.get("user_id", kwargs.get("user", "default"))
+        self.email = kwargs.get("email", None)
+        self.company_id = kwargs.get("company_id", None)
         
         # Define agent commands
         self.commands = {
@@ -1501,20 +1843,26 @@ class my_extension(Extensions):
             "Get Item": self.get_item,
         }
         
-        # Set up FastAPI router for REST endpoints
-        self.router = APIRouter(prefix="/items", tags=["My Extension"])
+        # Set up FastAPI router for REST endpoints. Prefix is optional;
+        # AGiXT includes this router exactly as defined.
+        self.router = APIRouter(prefix="", tags=["My Extension"])
         self._setup_routes()
     
     def _setup_routes(self):
         """Set up FastAPI routes for the extension"""
         
-        @self.router.post("/", response_model=ItemResponse)
+        @self.router.post("/v1/items", response_model=ItemResponse)
         async def create_item_endpoint(
             item_data: ItemCreate, 
             user=Depends(verify_api_key)
         ):
             """Create a new item via REST API"""
-            result = await self.create_item(
+            xts = type(self)(
+                user_id=user["id"],
+                email=user.get("email"),
+                company_id=self.company_id,
+            )
+            result = await xts.create_item(
                 name=item_data.name,
                 description=item_data.description,
                 tags=item_data.tags or []
@@ -1524,18 +1872,25 @@ class my_extension(Extensions):
                 raise HTTPException(status_code=400, detail=result_data.get("error"))
             return result_data["item"]
         
-        @self.router.get("/{item_id}", response_model=ItemResponse)
+        @self.router.get("/v1/items/{item_id}", response_model=ItemResponse)
         async def get_item_endpoint(
             item_id: int, 
             user=Depends(verify_api_key)
         ):
             """Get a specific item by ID via REST API"""
-            result = await self.get_item(item_id=item_id)
+            xts = type(self)(
+                user_id=user["id"],
+                email=user.get("email"),
+                company_id=self.company_id,
+            )
+            result = await xts.get_item(item_id=item_id)
             result_data = json.loads(result)
             if not result_data.get("success"):
                 raise HTTPException(status_code=404, detail=result_data.get("error"))
             return result_data["item"]
 ```
+
+The router is discovered from a startup-time extension instance, but endpoint requests belong to a specific authenticated user. If the endpoint reads or writes user/company data, either create a request-scoped extension object as shown above or pass `user["id"]`, `user["email"]`, and `company_id` into shared helper functions. When the extension has explicit service settings, pass those through from `self` to the request-scoped instance.
 
 #### Step 4: Implement Both Agent Commands and API Logic
 
@@ -1589,12 +1944,19 @@ class Note(Base):
 - `Search Notes` - Search notes by content/tags
 
 **REST API Endpoints:** (for direct HTTP access)
-- `POST /api/extensions/notes/` - Create note
-- `GET /api/extensions/notes/{id}` - Get note
-- `PUT /api/extensions/notes/{id}` - Update note
-- `DELETE /api/extensions/notes/{id}` - Delete note
-- `GET /api/extensions/notes/` - List notes (with pagination)
-- `GET /api/extensions/notes/search/` - Search notes
+- `POST /notes/` - Create note
+- `GET /notes/{id}` - Get note
+- `PUT /notes/{id}` - Update note
+- `DELETE /notes/{id}` - Delete note
+- `GET /notes/` - List notes with pagination
+- `GET /notes/search/` - Search notes
+
+Common hub-style endpoint patterns include:
+
+- Resource CRUD APIs such as `/v1/contacts`, `/v1/assets`, `/v1/secrets`, `/v1/tickets`, and `/v1/invoices`.
+- Action APIs such as `/v1/machine/execute`, `/v1/machine/screenshot`, or `/v1/invoices/{invoice_id}/send`.
+- Admin or reporting APIs such as `/activity-logs`, `/v1/monitors`, or `/v1/alerts`.
+- WebSocket APIs such as `/v1/machine/terminal/{terminal_id}/ws` or `/v1/machine/ui/{session_id}/view` for realtime streams.
 
 ### Endpoint Registration Process
 
@@ -1602,23 +1964,53 @@ AGiXT automatically handles endpoint registration:
 
 1. **During startup**, `app.py` calls `Extensions().get_extension_routers()`
 2. **Each extension** is checked for a `router` attribute
-3. **Found routers** are registered with FastAPI using the pattern `/api/extensions/{extension_name}/`
+3. **Found routers** are registered with FastAPI using `app.include_router(router)` without an added prefix
 4. **Routes become available** immediately at startup
 
 ### Authentication and Security
 
-All extension endpoints automatically use AGiXT's authentication:
+Extension endpoints should use AGiXT authentication and scope checks:
 
 ```python
-# Every endpoint must include this dependency
+# Every protected HTTP endpoint should include this dependency
 user=Depends(verify_api_key)
 
 # This ensures:
 # - Valid API key is required
 # - User context is available 
-# - User isolation is enforced
 # - Existing AGiXT auth flows work
 ```
+
+For company-scoped APIs, also verify that the authenticated user can access the target company and action. You can use AGiXT scopes such as `ext:contacts:read`, `ext:contacts:write`, or feature-level scopes generated from command names. The desktop UI `requires.company_scope` field controls whether a page appears in the UI, but the API endpoint must still enforce authorization.
+
+For WebSocket endpoints, validate authentication before accepting or immediately after accepting the socket. Common approaches are an `authorization` header, a short-lived query token, or a pre-created session ID that is checked against the database before streaming data.
+
+### WebSocket Endpoints
+
+Use WebSocket routes when an extension needs realtime communication, such as terminal sessions, remote screen viewing, live monitoring, or progress streams:
+
+```python
+@self.router.websocket("/v1/items/{item_id}/stream")
+async def item_stream_endpoint(websocket: WebSocket, item_id: str):
+    await websocket.accept()
+
+    auth_header = websocket.headers.get("authorization")
+    token = auth_header or websocket.query_params.get("token")
+    auth = MagicalAuth(token=token)
+
+    if not auth.user_id or not auth.has_scope("ext:my_extension:read"):
+        await websocket.close(code=1008, reason="Unauthorized")
+        return
+
+    try:
+        while True:
+            message = await websocket.receive_json()
+            await websocket.send_json({"received": message, "item_id": item_id})
+    except WebSocketDisconnect:
+        pass
+```
+
+For long-lived streams, also validate that the requested resource belongs to a company the user can access, enforce session expiration, and clean up in-memory queues or background tasks when the socket disconnects.
 
 ### Best Practices for Endpoint Extensions
 
@@ -1634,7 +2026,7 @@ class my_extension(Extensions):
         }
         
         # REST API (for direct HTTP access)
-        self.router = APIRouter(prefix="/items", tags=["Items"])
+        self.router = APIRouter(prefix="", tags=["Items"])
         self._setup_routes()
     
     async def create_item(self, name: str, description: str) -> str:
@@ -1655,7 +2047,7 @@ async def create_item(self, name: str) -> str:
     })
 
 # API endpoint parses and returns appropriate response
-@router.post("/")
+@router.post("/v1/items")
 async def create_item_endpoint(item_data: ItemCreate, user=Depends(verify_api_key)):
     result = await self.create_item(name=item_data.name)
     result_data = json.loads(result)
@@ -1668,7 +2060,7 @@ async def create_item_endpoint(item_data: ItemCreate, user=Depends(verify_api_ke
 Convert extension errors to appropriate HTTP status codes:
 
 ```python
-@router.get("/{item_id}")
+@router.get("/v1/items/{item_id}")
 async def get_item_endpoint(item_id: int, user=Depends(verify_api_key)):
     result = await self.get_item(item_id=item_id)
     result_data = json.loads(result)
@@ -1705,7 +2097,7 @@ class NoteCreate(BaseModel):
 For extensions with databases, ensure proper session management:
 
 ```python
-@router.post("/")
+@router.post("/v1/items")
 async def create_item_endpoint(item_data: ItemCreate, user=Depends(verify_api_key)):
     # Let the agent command handle database operations
     result = await self.create_item(
@@ -1726,7 +2118,7 @@ Once your extension is created and AGiXT is started, you can test the endpoints:
 **Using curl:**
 ```bash
 # Create a note
-curl -X POST "http://localhost:7437/api/extensions/notes/" \
+curl -X POST "http://localhost:7437/notes/" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1736,11 +2128,11 @@ curl -X POST "http://localhost:7437/api/extensions/notes/" \
   }'
 
 # Get a note  
-curl -X GET "http://localhost:7437/api/extensions/notes/1" \
+curl -X GET "http://localhost:7437/notes/1" \
   -H "Authorization: Bearer YOUR_API_KEY"
 
 # List notes
-curl -X GET "http://localhost:7437/api/extensions/notes/?limit=5&offset=0" \
+curl -X GET "http://localhost:7437/notes/?limit=5&offset=0" \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
@@ -1752,7 +2144,7 @@ headers = {"Authorization": "Bearer YOUR_API_KEY"}
 
 # Create note
 response = requests.post(
-    "http://localhost:7437/api/extensions/notes/",
+    "http://localhost:7437/notes/",
     headers=headers,
     json={
         "title": "My Note",
@@ -1774,4 +2166,4 @@ print(response.json())
 
 This feature transforms AGiXT extensions from simple agent tools into full-featured microservices while maintaining the existing agent command interface for AI interactions.
 
-This comprehensive guide provides all the patterns and best practices needed to create robust, secure, and maintainable AGiXT extensions with proper authentication, error handling, OAuth integration, and REST API endpoints.
+This comprehensive guide provides all the patterns and best practices needed to create robust, secure, and maintainable AGiXT extensions with proper authentication, error handling, OAuth integration, extension hubs, desktop UI bundles, and REST API endpoints.

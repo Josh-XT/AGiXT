@@ -10,6 +10,7 @@ from sqlalchemy import (
     Text,
     String,
     Integer,
+    BigInteger,
     ForeignKey,
     DateTime,
     Boolean,
@@ -170,15 +171,21 @@ try:
         @event.listens_for(engine, "connect")
         def set_sqlite_pragma(dbapi_connection, connection_record):
             cursor = dbapi_connection.cursor()
-            # Use DELETE mode instead of WAL for simpler multi-process consistency
-            # WAL mode can cause read/write visibility issues with multiple processes
-            cursor.execute("PRAGMA journal_mode=DELETE")
-            # Synchronous FULL ensures data is written to disk before continuing
-            cursor.execute("PRAGMA synchronous=FULL")
+            # WAL mode allows concurrent readers while a single writer is active.
+            # This is critical for multi-worker performance: machine agents poll
+            # every few seconds (writing last_checkin), and without WAL those writes
+            # block all reads — causing 7+ second delays on GET /v1/machines.
+            cursor.execute("PRAGMA journal_mode=WAL")
+            # NORMAL is safe with WAL (data is durable after each transaction)
+            # and significantly faster than FULL (no fsync on every commit).
+            cursor.execute("PRAGMA synchronous=NORMAL")
             # Enable foreign keys
             cursor.execute("PRAGMA foreign_keys=ON")
-            # Set busy timeout to 30 seconds (in milliseconds)
-            cursor.execute("PRAGMA busy_timeout=30000")
+            # Set busy timeout to 10 seconds (in milliseconds); WAL contention is
+            # rare so a shorter timeout catches real deadlocks faster.
+            cursor.execute("PRAGMA busy_timeout=10000")
+            # Keep WAL file small; checkpoint after 1000 pages (~4MB)
+            cursor.execute("PRAGMA wal_autocheckpoint=1000")
             cursor.close()
 
     else:
@@ -421,11 +428,11 @@ class Company(Base):
     notes = Column(Text, nullable=True, default=None)
     user_limit = Column(Integer, nullable=True, default=1)
     # Token-based billing fields
-    token_balance = Column(Integer, nullable=False, default=0)  # Tokens remaining
+    token_balance = Column(BigInteger, nullable=False, default=0)  # Tokens remaining
     token_balance_usd = Column(Float, nullable=False, default=0.0)  # USD value
-    tokens_used_total = Column(Integer, nullable=False, default=0)  # Lifetime usage
+    tokens_used_total = Column(BigInteger, nullable=False, default=0)  # Lifetime usage
     last_low_balance_warning = Column(
-        Integer, nullable=True
+        BigInteger, nullable=True
     )  # Last balance when warning shown
     # Auto top-up subscription fields
     auto_topup_enabled = Column(Boolean, nullable=False, default=False)
@@ -466,16 +473,16 @@ class Company(Base):
         Integer, nullable=False, default=0
     )  # Current registered device count
     storage_limit_bytes = Column(
-        Integer, nullable=True, default=None
+        BigInteger, nullable=True, default=None
     )  # Maximum storage in bytes from plan
     storage_used_bytes = Column(
-        Integer, nullable=False, default=0
+        BigInteger, nullable=False, default=0
     )  # Current storage used in bytes
     monthly_token_limit = Column(
-        Integer, nullable=True, default=None
+        BigInteger, nullable=True, default=None
     )  # Tokens included per billing period
     tokens_used_this_period = Column(
-        Integer, nullable=False, default=0
+        BigInteger, nullable=False, default=0
     )  # Tokens used in current billing period
     current_period_start = Column(
         DateTime, nullable=True, default=None
@@ -488,10 +495,10 @@ class Company(Base):
         Integer, nullable=False, default=0
     )  # Additional devices from addons
     addon_tokens = Column(
-        Integer, nullable=False, default=0
+        BigInteger, nullable=False, default=0
     )  # Additional monthly tokens from addons
     addon_storage_bytes = Column(
-        Integer, nullable=False, default=0
+        BigInteger, nullable=False, default=0
     )  # Additional storage from addons in bytes
     # NurseXT bed-based billing
     bed_count = Column(
@@ -628,6 +635,9 @@ class User(Base):
     status_mode = Column(
         String(20), nullable=True, default="online"
     )  # Presence mode: online, away, dnd, invisible
+    knowledge = Column(
+        Text, nullable=True, default=None
+    )  # Agent-maintained observations about the user (preferences, personal details, etc.)
     user_companys = relationship("UserCompany", back_populates="user")
 
 
@@ -2960,11 +2970,33 @@ def get_extension_features(extension_name: str) -> dict:
     return features
 
 
+# Disk cache for extension scopes to avoid re-parsing every startup
+_extension_scopes_cache_file = os.path.join(
+    os.path.dirname(__file__), "models", ".extension_scopes_cache.json"
+)
+
+
 def generate_extension_scopes():
     """
     Generate per-extension scopes dynamically based on discovered extensions.
     Each extension gets three scopes: read, execute, and configure.
+    Uses a disk cache keyed on the newest extension file mtime to avoid
+    re-parsing all extension files on every startup.
     """
+    # Try disk cache first
+    try:
+        if os.path.exists(_extension_scopes_cache_file):
+            with open(_extension_scopes_cache_file, "r") as f:
+                cached = json.load(f)
+            # Check staleness by comparing to newest extension file mtime
+            from Extensions import _get_newest_extension_mtime
+
+            newest_mtime = _get_newest_extension_mtime()
+            if newest_mtime <= cached.get("built_at", 0):
+                return cached["scopes"]
+    except Exception as e:
+        logging.debug(f"Could not load extension scopes cache: {e}")
+
     extension_scopes = []
     extension_names = get_extension_names()
 
@@ -3036,6 +3068,17 @@ def generate_extension_scopes():
                         "category": "Extensions",
                     }
                 )
+
+    # Save to disk cache
+    try:
+        import time as _time
+
+        cache_data = {"built_at": _time.time(), "scopes": extension_scopes}
+        os.makedirs(os.path.dirname(_extension_scopes_cache_file), exist_ok=True)
+        with open(_extension_scopes_cache_file, "w") as f:
+            json.dump(cache_data, f)
+    except Exception as e:
+        logging.debug(f"Could not save extension scopes cache: {e}")
 
     return extension_scopes
 
@@ -3845,13 +3888,13 @@ def migrate_company_table():
                         elif column_name == "user_limit":
                             pg_column_def = "INTEGER DEFAULT 1"
                         elif column_name == "token_balance":
-                            pg_column_def = "INTEGER DEFAULT 0"
+                            pg_column_def = "BIGINT DEFAULT 0"
                         elif column_name == "token_balance_usd":
                             pg_column_def = "DOUBLE PRECISION DEFAULT 0.0"
                         elif column_name == "tokens_used_total":
-                            pg_column_def = "INTEGER DEFAULT 0"
+                            pg_column_def = "BIGINT DEFAULT 0"
                         elif column_name == "last_low_balance_warning":
-                            pg_column_def = "INTEGER"
+                            pg_column_def = "BIGINT"
                         elif column_name == "auto_topup_enabled":
                             pg_column_def = "BOOLEAN DEFAULT false"
                         elif column_name == "auto_topup_amount_usd":
@@ -3867,16 +3910,22 @@ def migrate_company_table():
                             "device_count",
                             "storage_used_bytes",
                             "tokens_used_this_period",
-                            "addon_users",
-                            "addon_devices",
                             "addon_tokens",
                             "addon_storage_bytes",
                         ):
+                            pg_column_def = "BIGINT DEFAULT 0"
+                        elif column_name in (
+                            "addon_users",
+                            "addon_devices",
+                        ):
                             pg_column_def = "INTEGER DEFAULT 0"
                         elif column_name in (
-                            "device_limit",
                             "storage_limit_bytes",
                             "monthly_token_limit",
+                        ):
+                            pg_column_def = "BIGINT"
+                        elif column_name in (
+                            "device_limit",
                             "bed_count",
                             "bed_limit",
                         ):
@@ -3895,6 +3944,61 @@ def migrate_company_table():
 
     except Exception as e:
         logging.warning(f"Company table migration error: {e}", exc_info=True)
+
+
+COMPANY_BIGINT_COLUMNS = (
+    "token_balance",
+    "tokens_used_total",
+    "last_low_balance_warning",
+    "storage_limit_bytes",
+    "storage_used_bytes",
+    "monthly_token_limit",
+    "tokens_used_this_period",
+    "addon_tokens",
+    "addon_storage_bytes",
+)
+
+
+def migrate_company_large_integer_columns():
+    """
+    Widen company billing counters that can exceed 32-bit integers.
+
+    Storage limits are stored in bytes, so even a 10GB plan exceeds a PostgreSQL
+    INTEGER. SQLite INTEGER is already a signed 64-bit value, so only PostgreSQL
+    needs an explicit ALTER COLUMN migration.
+    """
+    if engine is None or DATABASE_TYPE == "sqlite":
+        return
+
+    try:
+        with get_db_session() as session:
+            for column_name in COMPANY_BIGINT_COLUMNS:
+                data_type = session.execute(
+                    text(
+                        """
+                        SELECT data_type
+                        FROM information_schema.columns
+                        WHERE table_name = 'Company'
+                        AND column_name = :column_name
+                        """
+                    ),
+                    {"column_name": column_name},
+                ).scalar()
+                if data_type == "bigint" or data_type is None:
+                    continue
+                session.execute(
+                    text(
+                        f'ALTER TABLE "Company" ALTER COLUMN {column_name} '
+                        f"TYPE BIGINT USING {column_name}::bigint"
+                    )
+                )
+                logging.info(f"Altered Company.{column_name} to BIGINT")
+
+            session.commit()
+    except Exception as e:
+        logging.warning(
+            f"Company large integer column migration error: {e}", exc_info=True
+        )
 
 
 def migrate_payment_transaction_table():
@@ -4139,11 +4243,10 @@ def migrate_extensions_to_new_categories():
     extensions from extension hubs that may not be directly importable.
     """
     try:
-        # Load the extension metadata cache (AST-parsed, includes hub extensions)
-        from Extensions import _build_extension_metadata_cache
+        # Load the extension metadata cache (uses disk cache if available)
+        from Extensions import _get_extension_metadata_cache
 
-        # Force rebuild to get fresh category info
-        metadata = _build_extension_metadata_cache()
+        metadata = _get_extension_metadata_cache()
 
         with get_db_session() as session:
             # Build a map of category names to IDs
@@ -4200,6 +4303,7 @@ def migrate_user_table():
         with get_db_session() as session:
             columns_to_add = [
                 ("tos_accepted_at", "TIMESTAMP"),
+                ("knowledge", "TEXT"),
             ]
 
             if DATABASE_TYPE == "sqlite":
@@ -4963,9 +5067,11 @@ def setup_default_scopes():
     all_scopes = default_scopes + extension_scopes
 
     with get_session() as db:
+        # Batch-load existing scope names to avoid N queries
+        existing_scope_names = {s.name for s in db.query(Scope.name).all()}
+
         for scope_data in all_scopes:
-            existing_scope = db.query(Scope).filter_by(name=scope_data["name"]).first()
-            if not existing_scope:
+            if scope_data["name"] not in existing_scope_names:
                 new_scope = Scope(
                     name=scope_data["name"],
                     resource=scope_data["resource"],
@@ -4990,6 +5096,11 @@ def setup_default_role_scopes():
         # Get all scopes for pattern matching
         all_scopes = db.query(Scope).all()
         scope_map = {s.name: s for s in all_scopes}
+
+        # Batch-load ALL existing role-scope mappings to avoid N queries per role
+        existing_mappings = set()
+        for rs in db.query(DefaultRoleScope.role_id, DefaultRoleScope.scope_id).all():
+            existing_mappings.add((str(rs.role_id), str(rs.scope_id)))
 
         for role_id, scope_patterns in default_role_scopes.items():
             # Get the role
@@ -5027,18 +5138,13 @@ def setup_default_role_scopes():
                     if pattern in scope_map:
                         scopes_to_assign.add(pattern)
 
-            # Create DefaultRoleScope entries
+            # Create DefaultRoleScope entries (skip existing via in-memory set)
             for scope_name in scopes_to_assign:
                 scope = scope_map.get(scope_name)
                 if not scope:
                     continue
 
-                existing = (
-                    db.query(DefaultRoleScope)
-                    .filter_by(role_id=role_id, scope_id=scope.id)
-                    .first()
-                )
-                if not existing:
+                if (str(role_id), str(scope.id)) not in existing_mappings:
                     role_scope = DefaultRoleScope(
                         role_id=role_id,
                         scope_id=scope.id,
@@ -6411,6 +6517,95 @@ def migrate_performance_indexes():
         logging.warning(f"Performance indexes migration error: {e}", exc_info=True)
 
 
+def migrate_search_indexes():
+    """Speed up conversation + message text search.
+
+    /v1/conversations/search runs ILIKE %q% across Conversation.name,
+    Conversation.summary, and Message.content. Without an index those scans
+    are O(n) and unbearable once a user has tens of thousands of messages.
+
+    On PostgreSQL we install ``pg_trgm`` and create GIN indexes that the
+    planner can use for ILIKE queries verbatim — no query rewrite needed
+    on the application side. On SQLite we fall back to LOWER()-based btree
+    indexes which are still faster than table scans for simple ILIKE.
+    Idempotent (CREATE INDEX IF NOT EXISTS / pg_trgm CREATE EXTENSION IF NOT EXISTS).
+    """
+    if engine is None:
+        return
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                # SQLite doesn't have a trigram index, but a btree on LOWER()
+                # of the searchable column is still useful for prefix queries
+                # the search UI is likely to issue.
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_name_lower "
+                        "ON conversation(LOWER(name))"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_summary_lower "
+                        "ON conversation(LOWER(summary))"
+                    )
+                )
+                # Message.content is too long for a useful btree on LOWER()
+                # in SQLite — leave the LIKE scan unindexed there. Most users
+                # run Postgres in production and get the trigram benefit.
+            else:
+                # PostgreSQL: enable pg_trgm and add GIN indexes that match
+                # ILIKE queries verbatim.
+                try:
+                    session.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+                except Exception as exc:
+                    # Some Postgres deployments don't allow CREATE EXTENSION
+                    # from the application role. Roll back the failed transaction
+                    # and create lightweight fallback indexes so migration checks
+                    # do not force this same failed extension attempt every boot.
+                    session.rollback()
+                    logging.info(
+                        f"pg_trgm extension unavailable, search will use seq scan: {exc}"
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_conversation_name_lower "
+                            "ON conversation(LOWER(name))"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS ix_conversation_summary_lower "
+                            "ON conversation(LOWER(summary))"
+                        )
+                    )
+                    session.commit()
+                    return
+
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_name_trgm "
+                        "ON conversation USING gin (name gin_trgm_ops)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_conversation_summary_trgm "
+                        "ON conversation USING gin (summary gin_trgm_ops)"
+                    )
+                )
+                session.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_message_content_trgm "
+                        "ON message USING gin (content gin_trgm_ops)"
+                    )
+                )
+            session.commit()
+            logging.info("Search indexes migration complete")
+    except Exception as e:
+        logging.warning(f"Search indexes migration error: {e}", exc_info=True)
+
+
 def migrate_extract_data_urls_from_messages():
     """
     One-time migration to extract inline base64 data URLs from existing messages
@@ -7043,16 +7238,6 @@ SERVER_CONFIG_DEFINITIONS = [
         "description": "Maximum tokens for ezLocalai responses",
         "value_type": "integer",
         "default_value": "16000",
-        "is_sensitive": False,
-        "is_required": False,
-    },
-    # General AI Settings
-    {
-        "name": "SMARTEST_PROVIDER",
-        "category": "ai_providers",
-        "description": "The AI provider to use for complex reasoning tasks",
-        "value_type": "string",
-        "default_value": "anthropic",
         "is_sensitive": False,
         "is_required": False,
     },
@@ -7771,9 +7956,11 @@ def get_server_config_encryption_key():
     # Get AGIXT_API_KEY from environment
     api_key = os.getenv("AGIXT_API_KEY", "")
     if not api_key:
-        # Fallback to a default key if AGIXT_API_KEY not set
-        # This is less secure but allows the system to function
-        api_key = "default-agixt-key-please-set-env"
+        raise ValueError(
+            "AGIXT_API_KEY environment variable is not set. "
+            "A strong API key is required for encryption. "
+            "Please set AGIXT_API_KEY before starting the server."
+        )
 
     # Derive a Fernet-compatible key (32 bytes, base64 encoded) from the API key
     # Using PBKDF2 with SHA256 for secure key derivation instead of plain SHA256
@@ -7804,13 +7991,12 @@ def decrypt_config_value(encrypted_value: str) -> str:
         # If decryption fails, the encryption key has likely changed.
         # Return empty string so callers treat this as "not configured"
         # rather than leaking the raw Fernet ciphertext to external APIs.
-        # Only log once per process to avoid startup spam.
+        # Values with matching env vars will be auto-re-encrypted on next startup.
         if not getattr(decrypt_config_value, "_warned", False):
             decrypt_config_value._warned = True
-            logging.warning(
+            logging.debug(
                 "Failed to decrypt one or more sensitive config values. "
-                "The AGIXT_API_KEY may have changed since these values were encrypted. "
-                "Please re-save the affected settings to re-encrypt them with the current key."
+                "Values with matching environment variables will be re-encrypted automatically on startup."
             )
         return ""
 
@@ -7964,6 +8150,20 @@ def seed_server_config_from_env():
                     existing.value = new_value
                     updated_count += 1
                     logging.info(f"Synced {name} from environment variable")
+            elif is_sensitive and existing.value and env_value:
+                # For sensitive values, verify we can still decrypt them.
+                # If decryption fails (e.g. AGIXT_API_KEY changed), re-encrypt
+                # from the environment variable with the current key.
+                try:
+                    key = get_server_config_encryption_key()
+                    f = Fernet(key)
+                    f.decrypt(existing.value.encode())
+                except Exception:
+                    existing.value = encrypt_config_value(env_value)
+                    updated_count += 1
+                    logging.info(
+                        f"Re-encrypted {name} from environment (encryption key changed)"
+                    )
             elif env_value and not existing.value:
                 # Update existing entry with empty value if env has a value
                 # This handles the case where token was added after initial setup
@@ -8321,6 +8521,109 @@ def migrate_bot_instance_id():
                     logging.info(
                         "Added bot_instance_id column to company_extension_setting"
                     )
+
+                # SQLite cannot drop a UNIQUE constraint that was created as
+                # part of the table definition. Older local databases can
+                # therefore still have UNIQUE(company_id, extension_name,
+                # setting_key), which breaks multiple bot instances even after
+                # the bot_instance_id column exists. Rebuild the table when
+                # that legacy constraint is present.
+                index_rows = session.execute(
+                    text("PRAGMA index_list(company_extension_setting)")
+                ).fetchall()
+                needs_rebuild = False
+                has_instance_unique = False
+                for index_row in index_rows:
+                    index_name = index_row[1]
+                    is_unique = bool(index_row[2])
+                    if not is_unique:
+                        continue
+                    safe_index_name = str(index_name).replace("'", "''")
+                    column_rows = session.execute(
+                        text(f"PRAGMA index_info('{safe_index_name}')")
+                    ).fetchall()
+                    columns = [column_row[2] for column_row in column_rows]
+                    if columns == ["company_id", "extension_name", "setting_key"]:
+                        needs_rebuild = True
+                    if columns == [
+                        "company_id",
+                        "extension_name",
+                        "setting_key",
+                        "bot_instance_id",
+                    ]:
+                        has_instance_unique = True
+
+                if needs_rebuild or not has_instance_unique:
+                    logging.info(
+                        "Rebuilding company_extension_setting to include "
+                        "bot_instance_id in SQLite unique constraint"
+                    )
+                    session.execute(text("PRAGMA foreign_keys=OFF"))
+                    session.execute(
+                        text("DROP TABLE IF EXISTS company_extension_setting_new")
+                    )
+                    session.execute(
+                        text(
+                            """
+                            CREATE TABLE company_extension_setting_new (
+                                id TEXT PRIMARY KEY,
+                                company_id TEXT NOT NULL,
+                                extension_name TEXT NOT NULL,
+                                setting_key TEXT NOT NULL,
+                                setting_value TEXT,
+                                is_sensitive BOOLEAN DEFAULT 0,
+                                description TEXT,
+                                bot_instance_id TEXT NOT NULL DEFAULT 'default',
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                FOREIGN KEY (company_id) REFERENCES Company(id),
+                                UNIQUE(company_id, extension_name, setting_key, bot_instance_id)
+                            )
+                            """
+                        )
+                    )
+                    session.execute(
+                        text(
+                            """
+                            INSERT OR IGNORE INTO company_extension_setting_new
+                                (id, company_id, extension_name, setting_key,
+                                 setting_value, is_sensitive, description,
+                                 bot_instance_id, created_at, updated_at)
+                            SELECT id, company_id, extension_name, setting_key,
+                                   setting_value, COALESCE(is_sensitive, 0),
+                                   description, COALESCE(bot_instance_id, 'default'),
+                                   created_at, updated_at
+                            FROM company_extension_setting
+                            """
+                        )
+                    )
+                    session.execute(text("DROP TABLE company_extension_setting"))
+                    session.execute(
+                        text(
+                            "ALTER TABLE company_extension_setting_new "
+                            "RENAME TO company_extension_setting"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS "
+                            "idx_company_ext_setting_company "
+                            "ON company_extension_setting(company_id)"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS "
+                            "idx_company_ext_setting_name "
+                            "ON company_extension_setting(extension_name)"
+                        )
+                    )
+                    session.execute(text("PRAGMA foreign_keys=ON"))
+                    session.commit()
+                    logging.info(
+                        "Rebuilt company_extension_setting unique constraint "
+                        "for bot_instance_id"
+                    )
             else:
                 # PostgreSQL
                 result = session.execute(
@@ -8364,5 +8667,316 @@ def migrate_bot_instance_id():
                     logging.info(
                         "Added bot_instance_id column to company_extension_setting (PostgreSQL)"
                     )
+                constraint_columns = session.execute(
+                    text(
+                        """
+                        SELECT kcu.column_name
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                          ON tc.constraint_name = kcu.constraint_name
+                         AND tc.table_schema = kcu.table_schema
+                        WHERE tc.table_name = 'company_extension_setting'
+                          AND tc.constraint_type = 'UNIQUE'
+                          AND tc.constraint_name = 'uix_company_ext_setting'
+                        ORDER BY kcu.ordinal_position
+                        """
+                    )
+                ).fetchall()
+                constraint_columns = [row[0] for row in constraint_columns]
+                expected_columns = [
+                    "company_id",
+                    "extension_name",
+                    "setting_key",
+                    "bot_instance_id",
+                ]
+                if constraint_columns != expected_columns:
+                    session.execute(
+                        text(
+                            "ALTER TABLE company_extension_setting "
+                            "DROP CONSTRAINT IF EXISTS uix_company_ext_setting"
+                        )
+                    )
+                    session.execute(
+                        text(
+                            "ALTER TABLE company_extension_setting "
+                            "ADD CONSTRAINT uix_company_ext_setting "
+                            "UNIQUE (company_id, extension_name, setting_key, bot_instance_id)"
+                        )
+                    )
+                    session.commit()
+                    logging.info(
+                        "Ensured company_extension_setting unique constraint "
+                        "includes bot_instance_id (PostgreSQL)"
+                    )
     except Exception as e:
         logging.warning(f"bot_instance_id migration error: {e}", exc_info=True)
+
+
+def check_schema_migrations_needed():
+    """
+    Fast check to determine if schema migrations have already been applied.
+    Checks for indicators from the most recent migrations - if they all exist,
+    all earlier migrations have been applied too.
+
+    Returns True if migrations need to run, False if they can be skipped.
+    """
+    if engine is None:
+        return False
+
+    try:
+        with get_db_session() as session:
+            if DATABASE_TYPE == "sqlite":
+                # Check for knowledge column in user table (newest migration)
+                try:
+                    result = session.execute(text('PRAGMA table_info("user")'))
+                    columns = {row[1] for row in result.fetchall()}
+                    if "knowledge" not in columns:
+                        return True
+                except Exception:
+                    return True
+
+                # Check for bot_instance_id in company_extension_setting
+                try:
+                    result = session.execute(
+                        text("PRAGMA table_info(company_extension_setting)")
+                    )
+                    columns = {row[1] for row in result.fetchall()}
+                    if "bot_instance_id" not in columns:
+                        return True
+                    index_rows = session.execute(
+                        text("PRAGMA index_list(company_extension_setting)")
+                    ).fetchall()
+                    has_instance_unique = False
+                    for index_row in index_rows:
+                        index_name = index_row[1]
+                        is_unique = bool(index_row[2])
+                        if not is_unique:
+                            continue
+                        safe_index_name = str(index_name).replace("'", "''")
+                        column_rows = session.execute(
+                            text(f"PRAGMA index_info('{safe_index_name}')")
+                        ).fetchall()
+                        unique_columns = [column_row[2] for column_row in column_rows]
+                        if unique_columns == [
+                            "company_id",
+                            "extension_name",
+                            "setting_key",
+                        ]:
+                            return True
+                        if unique_columns == [
+                            "company_id",
+                            "extension_name",
+                            "setting_key",
+                            "bot_instance_id",
+                        ]:
+                            has_instance_unique = True
+                    if not has_instance_unique:
+                        return True
+                except Exception:
+                    return True
+
+                # Check for sort_order in UserCompany
+                try:
+                    result = session.execute(text('PRAGMA table_info("UserCompany")'))
+                    columns = {row[1] for row in result.fetchall()}
+                    if "sort_order" not in columns:
+                        return True
+                except Exception:
+                    return True
+
+                # Sentinel for the search-index migration. If absent, run.
+                try:
+                    result = session.execute(
+                        text(
+                            "SELECT 1 FROM sqlite_master "
+                            "WHERE type='index' AND name='ix_conversation_name_lower'"
+                        )
+                    )
+                    if not result.fetchone():
+                        return True
+                except Exception:
+                    return True
+            else:
+                # PostgreSQL - check for latest migration indicators
+                result = session.execute(
+                    text(
+                        """
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'user'
+                        AND column_name = 'knowledge'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    return True
+
+                constraint_columns = session.execute(
+                    text(
+                        """
+                        SELECT kcu.column_name
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                          ON tc.constraint_name = kcu.constraint_name
+                         AND tc.table_schema = kcu.table_schema
+                        WHERE tc.table_name = 'company_extension_setting'
+                          AND tc.constraint_type = 'UNIQUE'
+                          AND tc.constraint_name = 'uix_company_ext_setting'
+                        ORDER BY kcu.ordinal_position
+                        """
+                    )
+                ).fetchall()
+                constraint_columns = [row[0] for row in constraint_columns]
+                if constraint_columns != [
+                    "company_id",
+                    "extension_name",
+                    "setting_key",
+                    "bot_instance_id",
+                ]:
+                    return True
+
+                result = session.execute(
+                    text(
+                        """
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'company_extension_setting'
+                        AND column_name = 'bot_instance_id'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    return True
+
+                result = session.execute(
+                    text(
+                        """
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'UserCompany'
+                        AND column_name = 'sort_order'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    return True
+
+                # Sentinel for the search-index migration. Prefer the trigram
+                # index, but accept the lower() fallback index created when the
+                # app role cannot install pg_trgm.
+                result = session.execute(
+                    text(
+                        """
+                        SELECT 1 FROM pg_indexes
+                        WHERE indexname IN (
+                            'ix_conversation_name_trgm',
+                            'ix_conversation_name_lower'
+                        )
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    return True
+
+                for column_name in COMPANY_BIGINT_COLUMNS:
+                    data_type = session.execute(
+                        text(
+                            """
+                            SELECT data_type
+                            FROM information_schema.columns
+                            WHERE table_name = 'Company'
+                            AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    ).scalar()
+                    if data_type != "bigint":
+                        return True
+
+            return False
+    except Exception as e:
+        logging.warning(f"Could not check migration status, will run migrations: {e}")
+        return True
+
+
+def run_all_schema_migrations():
+    """
+    Run all schema and data migrations in dependency order.
+
+    Called only when check_schema_migrations_needed() returns True, which means
+    either this is a fresh install or an upgrade from an older version.
+    On established servers where all migrations have been applied, this function
+    is skipped entirely via the fast check.
+    """
+    logging.info("Running schema migrations...")
+
+    # Phase 1: Core table column additions (order matters for FK dependencies)
+    migrate_company_table()
+    migrate_company_large_integer_columns()
+    migrate_payment_transaction_table()
+    migrate_extension_table()
+    migrate_user_table()
+
+    # Phase 2: Independent schema migrations (all idempotent)
+    migrate_auth_username_password()
+    migrate_group_chat_tables()
+    migrate_message_reaction_table()
+    migrate_message_pinning()
+    migrate_conversation_table()
+    migrate_discarded_context_table()
+    migrate_extension_settings_tables()
+    migrate_company_storage_settings_table()
+    migrate_role_table()
+    migrate_tiered_prompts_chains_tables()
+    migrate_response_cache_table()
+    migrate_task_item_table()
+    migrate_user_oauth_table()
+    migrate_conversation_participant_notification_mode()
+    migrate_user_company_sort_order()
+    migrate_bot_instance_id()
+
+    # Phase 3: Performance indexes
+    migrate_performance_indexes()
+    migrate_search_indexes()
+
+    # Phase 4: One-time data cleanup migrations
+    migrate_cleanup_duplicate_wallet_settings()
+    migrate_extract_data_urls_from_messages()
+    migrate_backfill_channel_participants()
+    migrate_remove_outreach_bot_settings()
+
+    logging.info("All schema migrations complete")
+
+
+def migrate_remove_outreach_bot_settings():
+    """
+    Migration to remove all outreach bot configuration. The outreach bot has
+    been disabled because it was eating tokens without producing useful results.
+
+    Removes:
+      - All CompanyExtensionSetting rows where extension_name == 'outreach'
+      - All ServerExtensionSetting rows where extension_name == 'outreach'
+
+    Idempotent: safe to run repeatedly. Cheap when nothing matches.
+    """
+    if engine is None:
+        return
+
+    try:
+        with get_db_session() as session:
+            company_deleted = (
+                session.query(CompanyExtensionSetting)
+                .filter(CompanyExtensionSetting.extension_name == "outreach")
+                .delete(synchronize_session=False)
+            )
+            server_deleted = (
+                session.query(ServerExtensionSetting)
+                .filter(ServerExtensionSetting.extension_name == "outreach")
+                .delete(synchronize_session=False)
+            )
+            session.commit()
+            total = (company_deleted or 0) + (server_deleted or 0)
+            if total > 0:
+                logging.info(
+                    f"Removed {total} outreach bot setting(s) "
+                    f"(company={company_deleted}, server={server_deleted})"
+                )
+    except Exception as e:
+        logging.error(f"Error removing outreach bot settings: {e}")

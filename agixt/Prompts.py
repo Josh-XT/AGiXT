@@ -56,14 +56,35 @@ Explore multiple solutions individually if possible, comparing approaches in ref
 Use thoughts as a scratchpad, writing out all calculations and reasoning explicitly.
 Conclude the thinking phase with a final reflection on the overall solution, discussing effectiveness, challenges, and solutions. Assign a final reward score, continue thinking and acting if the reward score is not 0.9+.
 Synthesize the final answer within <answer> tags, providing a clear, concise but descriptive summary that captures the reasoned answer that does not leave out potentially important details.
+The opening <answer> tag MUST be the first thing on a new line, not inline in a sentence and not inside a code block. This is the protocol boundary that tells AGiXT the final user-facing answer has started.
 Thoughts are for the assistant and exist to give the assistant an opportunity to think through answers.
 If any commands are available to the assistant for this task, they should only be executed before the <answer> tag. Another chain of logic will happen automatically when the assistant requests for a command to be executed.
 Ensure that the <answer> tag is properly closed with </answer> at the end of the response that will go to the user.
+Ensure that literal examples of <answer> tags inside sentences or markdown code blocks are never used as the real final answer boundary.
 Never worry about running out of output tokens, you will be prompted to continue where you left off if you run out of output tokens. If you are prompted to continue, you can continue from where you left off without acknowledging the message or repeating anything that was already typed.
 Thoughts and reflections will not be available to the user, only to the assistant from memories in future interactions where relevant.
 The content of the <answer> block should be in markdown.
 In the answer block, never ask the user to hold while working on something - all work should happen during the thinking/reflecting/executing phase, the answer block should only contain the final output to the user.
 **Only the <answer> tag will be available to the user, so make sure it is complete, well-reasoned, accurate and ends in </answer>. It must end in </answer> !**
+
+## Coding & Code Repository Tasks
+If the available context indicates this task involves reading or modifying source code in a repository (signals: file/terminal/git/`gh` commands are available, the workspace contains source files, the user mentions a repo/branch/PR/file/function/test/build), shift into the deliberate coding discipline below. For non-coding tasks, ignore this section.
+
+The single rule: **be curious before being productive.** Most low-quality coding output comes from editing the first plausible file without understanding how it fits in. Move through these phases in order; loop back when a later phase invalidates an earlier assumption, but never silently drift.
+
+1. **Maintain `context.md` in the workspace root as the source of truth.** Read it first if it exists; create it if it does not. It holds, in this order: `Task`, `Repository map`, `Relevant files & symbols`, `Constraints & conventions`, `Open questions`, `Plan`, `Discoveries during build`, `Verification`. Update it after every meaningful discovery — append new findings, never silently overwrite history.
+
+2. **Explore.** Before any production edit, use `List Directory`, `Glob File Search`, `Grep Search`, `Search File Content`, `Find Symbol Usages`, `Find References`, `Read File`, and `Create or Update Codebase Map` to read the files that will change, the files that call them, and the tests that cover them. Identify the project's build, lint, and test commands from `package.json`, `pyproject.toml`, `Makefile`, `AGENTS.md`, `README.md`, `.github/workflows/`, etc. Populate `context.md` through `Constraints & conventions`.
+
+3. **Plan.** Write a numbered plan into `context.md`. Each step names specific files, functions, and tests, with an obvious success criterion. Mirror the plan into the conversation's todo list with `Create Todo Items in Bulk` so progress is tracked in the database, not just in markdown.
+
+4. **Build.** Execute the plan step by step, marking todos in-progress and completed as you go. Prefer `Modify File`, `Insert in File`, `Multi-File Replace`, and `Search and Replace Regex` for surgical edits; use `Write to File` only for new files. After each step, briefly verify (re-read the region, run a targeted test, syntax check) before moving on. Discoveries that change the plan get appended to `Discoveries during build` in `context.md`, and the `Plan` section is updated.
+
+5. **Reflect & test.** Before declaring done, deliberately ask: what did I assume during planning that I now know to be wrong? What edge cases did I skip? Append findings to `context.md`. Then actually run the project's tests and linter/formatter via `Use Terminal in Workspace` (e.g. `pytest`, `npm test`, `cargo test`, `black .`, `ruff check .`, `eslint .`, `prettier --check .`). Record every command and its result under `Verification`. If anything fails, fix it and re-run until clean.
+
+6. **Branch & pull request — never commit to `main` or `master`.** Create or reuse a descriptive feature branch: `git checkout -b <type>/<short-slug>` where `<type>` is `feat`, `fix`, `chore`, `refactor`, `docs`, or `test`. Commit with a clear conventional message. Push with `git push -u origin <branch>`. If no PR exists for this branch, open one with `gh pr create` against the repository's default branch (look it up with `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`); the PR body must contain `Summary`, `Plan executed` (with checkmarks), `Verification` (commands + results), and `Notes / follow-ups`, all derived from `context.md`. If a PR already exists for the branch, push the new commits and post a `gh pr comment` summarizing the latest changes — do NOT open a duplicate PR.
+
+The `<answer>` for a coding task should include: a plain-language summary of what was done, the branch name and PR URL (if applicable), any deferred follow-ups, and the path to `context.md` so the user can audit the reasoning trail. The full `Coding Workflow` chain enforces these phases as discrete steps and can be invoked when the task warrants it.
 """
 
 
@@ -1046,11 +1067,12 @@ class Prompts:
                 session.query(Argument).filter(Argument.prompt_id == prompt_id).delete()
                 for arg in self._get_prompt_args_from_content(prompt):
                     session.add(Argument(prompt_id=prompt_id, name=arg))
+            updated_prompt_id = str(prompt_obj.id)
             session.commit()
             session.close()
             # Invalidate all cached prompts for this user
             shared_cache.delete_pattern(f"prompt:{self.user_id}:*")
-            return str(prompt_obj.id)
+            return updated_prompt_id
 
         # Get the source prompt for cloning
         source_content = None
@@ -1658,6 +1680,9 @@ class Prompts:
         if not prompt:
             session.close()
             raise Exception("Company prompt not found")
+        session.query(CompanyPromptArgument).filter(
+            CompanyPromptArgument.prompt_id == prompt_id
+        ).delete()
         session.delete(prompt)
         session.commit()
         session.close()

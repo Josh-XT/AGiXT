@@ -201,6 +201,40 @@ class SharedCache:
             }
         return True
 
+    def set_if_not_exists(self, key: str, value: Any, ttl: int = 0) -> bool:
+        """
+        Set a value only if the key does not already exist (atomic).
+        Returns True if the value was set, False if the key already existed.
+        """
+        full_key = self._make_key(key)
+
+        try:
+            serialized = json.dumps(value)
+        except (TypeError, ValueError):
+            return False
+
+        if self._redis is not None:
+            try:
+                if ttl > 0:
+                    result = self._redis.set(full_key, serialized, nx=True, ex=ttl)
+                else:
+                    result = self._redis.set(full_key, serialized, nx=True)
+                return bool(result)
+            except Exception as e:
+                logger.debug(f"SharedCache Redis setnx error: {e}")
+
+        # Local cache fallback
+        with self._local_cache_lock:
+            if full_key in self._local_cache:
+                entry = self._local_cache[full_key]
+                if entry["expires_at"] is None or time.time() <= entry["expires_at"]:
+                    return False
+            self._local_cache[full_key] = {
+                "value": value,
+                "expires_at": time.time() + ttl if ttl > 0 else None,
+            }
+        return True
+
     def delete(self, key: str) -> bool:
         """
         Delete a key from the cache.

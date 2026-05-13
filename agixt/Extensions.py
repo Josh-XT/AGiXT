@@ -919,23 +919,11 @@ class Extensions:
                 )
             )
 
-        # Add chains as commands
-        # Use _chains_with_args directly to avoid triggering lazy load during load_commands()
-        if self._chains_with_args:
-            for chain in self._chains_with_args:
-                chain_name = chain["chain_name"]
-                commands.append(
-                    (
-                        chain_name,
-                        self.execute_chain,
-                        "execute_chain",
-                        {
-                            "chain_name": chain_name,
-                            "user_input": "",
-                            **{arg: "" for arg in chain["args"]},
-                        },
-                    )
-                )
+        # NOTE: Chains are NOT added eagerly here. Computing chains_with_args is
+        # expensive (queries chains/steps/args/prompts) and Extensions() is
+        # instantiated frequently (per agent, per company, per request). Chains
+        # are looked up lazily in find_command() as a fallback when the command
+        # isn't found among the cached extension commands.
         return commands
 
     def find_command(self, command_name: str):
@@ -1001,6 +989,19 @@ class Extensions:
                         command_function = getattr(module, function_name)
                         return command_function, module, params
 
+        # Fallback: command not found in extensions cache. Check if it's a chain.
+        # Lazy-loaded here so the expensive chains_with_args computation only
+        # runs when an unknown command is being resolved.
+        if command_name in (self.chains or []):
+            for chain in self.chains_with_args or []:
+                if chain["chain_name"] == command_name:
+                    params = {
+                        "chain_name": command_name,
+                        "user_input": "",
+                        **{arg: "" for arg in chain["args"]},
+                    }
+                    return self.execute_chain, None, params
+
         return None, None, None
 
     def get_extension_settings(self):
@@ -1063,7 +1064,7 @@ class Extensions:
                 agent_workspace, self.conversation_id
             ),
             # Use raw agent_id UUID in URL - serve_file route hashes it internally
-            "output_url": f"{agixt_server}/outputs/{self.agent_id}/{self.conversation_id}",
+            "output_url": f"{agixt_server}/outputs/{self.agent_id}/{self.conversation_id}/",
             **self.agent_config["settings"],
             **credentials,
         }
@@ -1456,11 +1457,11 @@ class Extensions:
                     }
                 )
 
-        # Add Custom Automation as an extension only if chains_with_args is initialized
-        # Use _chains_with_args directly to avoid triggering lazy load during get_extensions()
-        if self._chains_with_args:
+        # Add Custom Automation as an extension if user has chains with args
+        chains_with_args = self.chains_with_args
+        if chains_with_args:
             chain_commands = []
-            for chain in self._chains_with_args:
+            for chain in chains_with_args:
                 chain_commands.append(
                     {
                         "friendly_name": chain["chain_name"],
@@ -1518,23 +1519,36 @@ class Extensions:
                 continue
 
             try:
-                # Check if the class exists and is a subclass of Extensions
+                candidates = []
                 attr = getattr(module, class_name, None)
                 if (
                     attr is not None
                     and inspect.isclass(attr)
                     and issubclass(attr, Extensions)
                 ):
-                    command_class = attr(**settings)
+                    candidates.append((class_name, attr))
+                else:
+                    for candidate_name, candidate in inspect.getmembers(
+                        module, inspect.isclass
+                    ):
+                        if candidate is Extensions:
+                            continue
+                        if getattr(candidate, "__module__", None) != module.__name__:
+                            continue
+                        if issubclass(candidate, Extensions):
+                            candidates.append((candidate_name, candidate))
+
+                for extension_name, extension_class in candidates:
+                    command_class = extension_class(**settings)
                     # Check if the extension has a router attribute
                     if hasattr(command_class, "router"):
                         routers.append(
                             {
-                                "extension_name": class_name,
+                                "extension_name": extension_name,
                                 "router": command_class.router,
                             }
                         )
-                        # logging.info(f"Found router for extension: {class_name}")
+                        # logging.info(f"Found router for extension: {extension_name}")
             except Exception as e:
                 logging.error(f"Error loading router from extension {class_name}: {e}")
                 continue

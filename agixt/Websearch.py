@@ -432,32 +432,32 @@ class Websearch:
         return message
 
     async def ddg_search(self, query: str, proxy=None) -> List[str]:
-        from playwright.async_api import async_playwright
+        import requests
+        from bs4 import BeautifulSoup
 
-        async with async_playwright() as p:
-            launch_options = {}
-            if proxy:
-                launch_options["proxy"] = {"server": proxy}
-            browser = await p.chromium.launch(**launch_options)
-            context = await browser.new_context()
-            page = await context.new_page()
-            url = f"https://lite.duckduckgo.com/lite/?q={query}"
-            await page.goto(url)
-            links = await page.query_selector_all("a")
+        url = f"https://lite.duckduckgo.com/lite/?q={urllib.parse.quote_plus(query)}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        try:
+            response = await asyncio.to_thread(requests.get, url, headers=headers, proxies={"http": proxy, "https": proxy} if proxy else None, timeout=10)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, "html.parser")
             results = []
-            for link in links:
-                summary = await page.evaluate("(link) => link.textContent", link)
-                summary = summary.replace("\n", "").replace("\t", "").replace("  ", "")
-                href = await page.evaluate("(link) => link.href", link)
+            for a_tag in soup.find_all("a", class_="result__a"):
+                summary = a_tag.get_text(strip=True).replace("\n", "").replace("\t", "").replace("  ", "")
+                href = a_tag.get("href", "")
                 parsed_url = urllib.parse.urlparse(href)
                 query_params = urllib.parse.parse_qs(parsed_url.query)
                 uddg = query_params.get("uddg", [None])[0]
                 if uddg:
-                    href = urllib.parse.unquote(uddg)
-                if summary:
+                    href = urllib.parse.unquote(urllib.parse.unquote(uddg))
+                if summary and href:
                     results.append(f"{summary} - {href}")
-            await browser.close()
-        return results
+            return results
+        except Exception as e:
+            logging.error(f"DDG Search Error: {e}")
+            return []
 
     async def google_search(
         self,

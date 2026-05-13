@@ -64,6 +64,7 @@ import time
 import asyncio
 import hashlib
 import uuid as uuid_module
+import inspect
 from solders.keypair import Keypair
 from typing import Tuple
 import binascii
@@ -78,6 +79,87 @@ logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
+
+
+def _extract_token(chunk) -> str:
+    """Extract text token from a stream chunk (handles multiple formats)."""
+    if isinstance(chunk, str):
+        return chunk
+    if hasattr(chunk, "choices") and len(chunk.choices) > 0:
+        delta = chunk.choices[0].delta
+        if hasattr(delta, "content") and delta.content:
+            return delta.content
+        if hasattr(delta, "reasoning_content") and delta.reasoning_content:
+            return delta.reasoning_content
+    # Gemini response chunks
+    if hasattr(chunk, "text"):
+        try:
+            return chunk.text or ""
+        except Exception:
+            return ""
+    return ""
+
+
+async def _collect_stream_to_string(stream_obj) -> str:
+    """
+    Collect a streaming inference response into a complete string.
+
+    All internal inference in AGiXT uses streaming HTTP calls to providers.
+    When a caller needs the full string response, this function collects
+    the stream chunks into a single string.
+
+    Handles async iterators, sync iterators (via threading), and direct strings.
+    """
+    import queue
+    import threading
+
+    if stream_obj is None:
+        return ""
+    if isinstance(stream_obj, str):
+        return stream_obj
+
+    collected = []
+
+    if hasattr(stream_obj, "__aiter__"):
+        async for chunk in stream_obj:
+            token = _extract_token(chunk)
+            if token:
+                collected.append(token)
+    else:
+        # Sync iterator (e.g., requests-based SSE stream)
+        chunk_queue = queue.Queue()
+        done_event = threading.Event()
+
+        def _sync_iter():
+            try:
+                for chunk in stream_obj:
+                    chunk_queue.put(("chunk", chunk))
+                chunk_queue.put(("done", None))
+            except Exception as e:
+                chunk_queue.put(("error", e))
+            finally:
+                done_event.set()
+
+        thread = threading.Thread(target=_sync_iter, daemon=True)
+        thread.start()
+
+        while True:
+            try:
+                msg_type, msg_data = chunk_queue.get_nowait()
+                if msg_type == "chunk":
+                    token = _extract_token(msg_data)
+                    if token:
+                        collected.append(token)
+                elif msg_type == "done":
+                    break
+                elif msg_type == "error":
+                    raise msg_data
+            except queue.Empty:
+                if done_event.is_set():
+                    break
+                await asyncio.sleep(0.005)
+
+    return "".join(collected)
 
 
 _command_owner_cache = None
@@ -391,7 +473,9 @@ def check_and_onboard_agents(user_id: str) -> bool:
     This is a lightweight check designed to be called from /v1/user endpoint
     to ensure Core Abilities commands get enabled for new agents.
 
-    Uses flag agentonboarded01292026 to track onboarding state.
+    Uses flag agentonboarded04182026 to track onboarding state.
+    This flag also triggers cleanup of Custom Automation commands that were
+    incorrectly auto-enabled for all agents in previous versions.
 
     Returns True if any agents were onboarded, False otherwise.
     """
@@ -412,9 +496,9 @@ def check_and_onboard_agents(user_id: str) -> bool:
         agents_needing_onboard = []
         for agent in agents:
             settings_dict = {s.name: s.value for s in agent.settings}
-            agentonboarded01292026 = settings_dict.get("agentonboarded01292026")
+            agentonboarded04182026 = settings_dict.get("agentonboarded04182026")
 
-            if not agentonboarded01292026 or agentonboarded01292026.lower() != "true":
+            if not agentonboarded04182026 or agentonboarded04182026.lower() != "true":
                 agents_needing_onboard.append(agent.id)
 
         if agents_needing_onboard:
@@ -449,7 +533,10 @@ def get_agent_commands_only(agent_id: str, user_id: str) -> dict:
         agent = session.query(AgentModel).filter(AgentModel.id == agent_id).first()
         if not agent:
             return {}
-
+        if str(agent.user_id) != str(user_id):
+            can_access, _, _ = can_user_access_agent(user_id=user_id, agent_id=agent_id)
+            if not can_access:
+                return {}
         # Get all commands using cache
         all_commands = get_all_commands_cached(session)
 
@@ -975,10 +1062,6 @@ class AIProviderManager:
             "websearch_depth",
             "analyze_user_input",
             "complexity_scaling_enabled",
-            "thinking_budget_enabled",
-            "thinking_budget_override",
-            "answer_review_enabled",
-            "planning_phase_enabled",
             "SMARTEST_PROVIDER",
         ]
         for key in non_provider_keys:
@@ -1759,8 +1842,9 @@ def get_agents(user=DEFAULT_USER, company=None):
         # Use pre-loaded settings instead of separate query
         settings_dict = {s.name: s.value for s in agent.settings}
         company_id = settings_dict.get("company_id")
-        # Check for the new onboarding flag (01292026) that handles newly moved Core Abilities extensions
-        agentonboarded01292026 = settings_dict.get("agentonboarded01292026")
+        # Check for the onboarding flag (04182026) that excludes Custom Automation
+        # from auto-enabling and cleans up incorrectly auto-enabled chain commands
+        agentonboarded04182026 = settings_dict.get("agentonboarded04182026")
 
         if company_id and company:
             if company_id != company:
@@ -1772,7 +1856,7 @@ def get_agents(user=DEFAULT_USER, company=None):
             company_id = str(auth.company_id) if auth.company_id is not None else None
 
         # Queue agents needing onboarding instead of processing inline
-        if not agentonboarded01292026 or agentonboarded01292026.lower() != "true":
+        if not agentonboarded04182026 or agentonboarded04182026.lower() != "true":
             agents_needing_onboard.append(agent.id)
 
         is_owner = agent.user_id == user_id
@@ -1818,8 +1902,9 @@ def _batch_onboard_agents(session, agent_ids):
     Batch onboard multiple agents - enables Core Abilities commands.
     This is more efficient than processing one at a time.
 
-    Uses flag agentonboarded01292026 to track onboarding state for the latest
-    Core Abilities extensions (including Tickets, Assets, Machines, etc.).
+    Uses flag agentonboarded04182026 to track onboarding state.
+    Excludes Custom Automation (chain) commands from auto-enabling since those
+    are user-specific and should only be enabled explicitly per-agent.
     """
     if not agent_ids:
         return
@@ -1836,7 +1921,7 @@ def _batch_onboard_agents(session, agent_ids):
         for agent_id in agent_ids:
             agent_setting = AgentSettingModel(
                 agent_id=agent_id,
-                name="agentonboarded01292026",
+                name="agentonboarded04182026",
                 value="true",
             )
             session.add(agent_setting)
@@ -1844,10 +1929,15 @@ def _batch_onboard_agents(session, agent_ids):
         return
 
     # Get all Core Abilities commands in one query
+    # Exclude "Custom Automation" (chain commands) - those are user-specific
+    # and should not be auto-enabled for all agents during onboarding
     core_commands = (
         session.query(Command)
         .join(Extension)
-        .filter(Extension.category_id == core_abilities_category.id)
+        .filter(
+            Extension.category_id == core_abilities_category.id,
+            Extension.name != "Custom Automation",
+        )
         .all()
     )
 
@@ -1856,7 +1946,7 @@ def _batch_onboard_agents(session, agent_ids):
         for agent_id in agent_ids:
             agent_setting = AgentSettingModel(
                 agent_id=agent_id,
-                name="agentonboarded01292026",
+                name="agentonboarded04182026",
                 value="true",
             )
             session.add(agent_setting)
@@ -1884,17 +1974,19 @@ def _batch_onboard_agents(session, agent_ids):
         # Mark agent as onboarded with the new flag
         agent_setting = AgentSettingModel(
             agent_id=agent_id,
-            name="agentonboarded01292026",
+            name="agentonboarded04182026",
             value="true",
         )
         session.add(agent_setting)
 
-    # Enable any disabled commands
+    core_command_ids = {c.id for c in core_commands}
+
+    # Enable any disabled core commands (excluding Custom Automation)
     for ac in existing_agent_commands:
-        if ac.agent_id in agent_ids and not ac.state:
-            # Check if this is a core command
-            if ac.command_id in {c.id for c in core_commands}:
-                ac.state = True
+        if ac.agent_id not in agent_ids:
+            continue
+        if not ac.state and ac.command_id in core_command_ids:
+            ac.state = True
 
     session.commit()
 
@@ -2664,13 +2756,17 @@ class Agent:
                     )
                     return stream_obj
                 else:
-                    # Non-streaming path
-                    answer = await provider.inference(
+                    # Non-streaming path — uses streaming HTTP calls internally
+                    # to avoid long-blocking requests and enable early timeout.
+                    # The stream is collected into a complete string before returning.
+                    stream_obj = await provider.inference(
                         prompt=prompt,
                         tokens=input_tokens,
                         images=images,
+                        stream=True,
                         use_smartest=use_smartest,
                     )
+                    answer = await _collect_stream_to_string(stream_obj)
                     output_tokens = get_tokens(answer)
                     self.auth.increase_token_counts(
                         input_tokens=input_tokens, output_tokens=output_tokens
@@ -2755,12 +2851,15 @@ class Agent:
 
         provider_name = provider.__class__.__name__.replace("aiprovider_", "")
         try:
-            answer = await provider.inference(
+            # Always use streaming HTTP calls to avoid long-blocking requests
+            stream_obj = await provider.inference(
                 prompt=prompt,
                 tokens=input_tokens,
                 images=images,
+                stream=True,
                 use_smartest=use_smartest,
             )
+            answer = await _collect_stream_to_string(stream_obj)
             output_tokens = get_tokens(answer)
             self.auth.increase_token_counts(
                 input_tokens=input_tokens, output_tokens=output_tokens
@@ -2824,6 +2923,62 @@ class Agent:
         # Get the base64 encoded image from the provider
         image_content = await provider.generate_image(prompt=prompt)
 
+        # Vision verification loop: verify image matches the prompt spec
+        # and edit with feedback if it doesn't, up to 3 attempts.
+        vision_provider = self.ai_provider_manager.get_provider_for_service("vision")
+        has_edit = hasattr(provider, "edit_image") and callable(
+            getattr(provider, "edit_image", None)
+        )
+        if vision_provider is not None and has_edit:
+            max_edits = 3
+            for attempt in range(max_edits):
+                data_url = f"data:image/png;base64,{image_content}"
+                verification_prompt = (
+                    f"You are an image QA reviewer. The user requested this image:\n\n"
+                    f'"{prompt}"\n\n'
+                    f"Look at the generated image carefully. Does it match the request? "
+                    f"If it matches well enough, respond with exactly: PASS\n"
+                    f"If it does NOT match, respond with a brief description of what "
+                    f"specifically needs to change (do NOT say PASS). Focus only on the "
+                    f"most important differences from the request."
+                )
+                try:
+                    verdict = await self.vision_inference(
+                        prompt=verification_prompt,
+                        images=[data_url],
+                    )
+                except Exception as e:
+                    logging.warning(f"[generate_image] Vision verification failed: {e}")
+                    break
+
+                verdict_stripped = verdict.strip()
+                if verdict_stripped.upper().startswith("PASS"):
+                    logging.info(
+                        f"[generate_image] Image passed vision verification on attempt {attempt + 1}."
+                    )
+                    break
+
+                logging.info(
+                    f"[generate_image] Vision verification attempt {attempt + 1}/{max_edits}: "
+                    f"needs edits — {verdict_stripped[:200]}"
+                )
+
+                # Edit the image with the feedback
+                edit_prompt = (
+                    f"Original request: {prompt}\n"
+                    f"Required changes: {verdict_stripped}"
+                )
+                try:
+                    image_content = await provider.edit_image(
+                        prompt=edit_prompt,
+                        image=image_content,
+                    )
+                except Exception as e:
+                    logging.warning(
+                        f"[generate_image] Image edit failed on attempt {attempt + 1}: {e}"
+                    )
+                    break
+
         # Handle the image storage similar to TTS
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
@@ -2832,6 +2987,9 @@ class Agent:
 
         safe_agent_id = Agent.sanitize_path_component(self.agent_id)
         safe_conversation_id = Agent.sanitize_path_component(conversation_id)
+        # Use hashed agent folder name to match serve_file/_get_local_cache_path
+        agent_hash = hashlib.sha256(str(self.agent_id).encode()).hexdigest()[:16]
+        agent_folder = f"agent_{agent_hash}"
 
         with tempfile.TemporaryDirectory() as temp_base:
             secure_filename = f"image_{timestamp}.png"
@@ -2853,12 +3011,12 @@ class Agent:
                 return resolved
 
             workspace_outputs = safe_workspace_path(
-                workspace_base, safe_agent_id, safe_conversation_id
+                workspace_base, agent_folder, safe_conversation_id
             )
             os.makedirs(workspace_outputs, exist_ok=True)
 
             final_image_path = safe_workspace_path(
-                workspace_base, safe_agent_id, safe_conversation_id, secure_filename
+                workspace_base, agent_folder, safe_conversation_id, secure_filename
             )
             shutil.move(temp_image_path, final_image_path)
 
@@ -2879,84 +3037,91 @@ class Agent:
 
         # Get TTS provider from AI Provider Manager
         tts_provider = self.ai_provider_manager.get_provider_for_service("tts")
+        if tts_provider is None:
+            raise HTTPException(
+                status_code=400,
+                detail="No TTS provider configured for this agent.",
+            )
 
-        if tts_provider is not None:
-            if "```" in text:
-                text = re.sub(
-                    r"```[^```]+```",
-                    "See the chat for the full code block.",
-                    text,
-                )
-            # If links are in there, replace them with a placeholder "The link provided in the chat."
-            if "https://" in text:
-                text = re.sub(
-                    r"https://[^\s]+",
-                    "The link provided in the chat.",
-                    text,
-                )
-            if "http://" in text:
-                text = re.sub(
-                    r"http://[^\s]+",
-                    "The link provided in the chat.",
-                    text,
-                )
-            tts_content = await tts_provider.text_to_speech(text=text)
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        if "```" in text:
+            text = re.sub(
+                r"```[^```]+```",
+                "See the chat for the full code block.",
+                text,
+            )
+        # If links are in there, replace them with a placeholder "The link provided in the chat."
+        if "https://" in text:
+            text = re.sub(
+                r"https://[^\s]+",
+                "The link provided in the chat.",
+                text,
+            )
+        if "http://" in text:
+            text = re.sub(
+                r"http://[^\s]+",
+                "The link provided in the chat.",
+                text,
+            )
+        tts_content = await tts_provider.text_to_speech(text=text)
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
 
-            # CodeQL ultra-safe pattern: Complete data flow isolation
-            import tempfile
-            import shutil
+        # CodeQL ultra-safe pattern: Complete data flow isolation
+        import tempfile
+        import shutil
 
-            # Validate agent_id and conversation_id to prevent path traversal
-            safe_agent_id = Agent.sanitize_path_component(self.agent_id)
-            safe_conversation_id = Agent.sanitize_path_component(conversation_id)
+        # Validate agent_id and conversation_id to prevent path traversal
+        safe_agent_id = Agent.sanitize_path_component(self.agent_id)
+        safe_conversation_id = Agent.sanitize_path_component(conversation_id)
+        # Use hashed agent folder name to match serve_file/_get_local_cache_path
+        agent_hash = hashlib.sha256(str(self.agent_id).encode()).hexdigest()[:16]
+        agent_folder = f"agent_{agent_hash}"
 
-            # Create secure temporary directory completely isolated from user input
-            with tempfile.TemporaryDirectory() as temp_base:
-                # Create secure filename using only system-generated data
-                secure_filename = f"agent_{timestamp}.wav"
+        # Create secure temporary directory completely isolated from user input
+        with tempfile.TemporaryDirectory() as temp_base:
+            # Create secure filename using only system-generated data
+            secure_filename = f"agent_{timestamp}.wav"
 
-                # Write audio data to secure temp file
-                temp_audio_path = f"{temp_base}/{secure_filename}"
-                with open(temp_audio_path, "wb") as f:
-                    f.write(base64.b64decode(tts_content))
+            # Write audio data to secure temp file
+            temp_audio_path = f"{temp_base}/{secure_filename}"
+            with open(temp_audio_path, "wb") as f:
+                f.write(base64.b64decode(tts_content))
 
-                # Create final secure location in workspace using validated paths only
-                workspace_base = os.path.realpath("WORKSPACE")
+            # Create final secure location in workspace using validated paths only
+            workspace_base = os.path.realpath("WORKSPACE")
 
-                # Use a safe path construction helper to isolate tainted data
-                def safe_workspace_path(base: str, *components: str) -> str:
-                    """Construct a safe path within workspace, preventing traversal."""
-                    # Build path from sanitized components only
-                    constructed = os.path.join(base, *components)
-                    resolved = os.path.realpath(constructed)
-                    # Verify resolved path stays within base
-                    if not resolved.startswith(
-                        os.path.realpath(base) + os.sep
-                    ) and resolved != os.path.realpath(base):
-                        raise ValueError("Path traversal attempt blocked")
-                    return resolved
+            # Use a safe path construction helper to isolate tainted data
+            def safe_workspace_path(base: str, *components: str) -> str:
+                """Construct a safe path within workspace, preventing traversal."""
+                # Build path from sanitized components only
+                constructed = os.path.join(base, *components)
+                resolved = os.path.realpath(constructed)
+                # Verify resolved path stays within base
+                if not resolved.startswith(
+                    os.path.realpath(base) + os.sep
+                ) and resolved != os.path.realpath(base):
+                    raise ValueError("Path traversal attempt blocked")
+                return resolved
 
-                # Construct paths using only sanitized components
-                workspace_outputs = safe_workspace_path(
-                    workspace_base, safe_agent_id, safe_conversation_id
-                )
-                os.makedirs(
-                    workspace_outputs, exist_ok=True
-                )  # nosec B108 - path validated by safe_workspace_path
+            # Construct paths using only sanitized components
+            workspace_outputs = safe_workspace_path(
+                workspace_base, agent_folder, safe_conversation_id
+            )
+            os.makedirs(
+                workspace_outputs, exist_ok=True
+            )  # nosec B108 - path validated by safe_workspace_path
 
-                # Construct final path using only validated components
-                final_audio_path = safe_workspace_path(
-                    workspace_base, safe_agent_id, safe_conversation_id, secure_filename
-                )
-                shutil.move(
-                    temp_audio_path, final_audio_path
-                )  # nosec B108 - path validated by safe_workspace_path
-                agixt_uri = getenv("AGIXT_URI")
-                output_url = f"{agixt_uri}/outputs/{safe_agent_id}/{safe_conversation_id}/{secure_filename}"
-                return output_url
+            # Construct final path using only validated components
+            final_audio_path = safe_workspace_path(
+                workspace_base, agent_folder, safe_conversation_id, secure_filename
+            )
+            shutil.move(
+                temp_audio_path, final_audio_path
+            )  # nosec B108 - path validated by safe_workspace_path
+            agixt_uri = getenv("AGIXT_URI")
+            output_url = f"{agixt_uri}/outputs/{safe_agent_id}/{safe_conversation_id}/{secure_filename}"
+            return output_url
 
-    async def text_to_speech_stream(self, text: str):
+    async def text_to_speech_stream(self, text: str, audio_format: str = "pcm"):
         """
         Stream TTS audio as it's generated, chunk by chunk.
 
@@ -3011,7 +3176,14 @@ class Agent:
                 text,
             )
 
-        async for chunk in tts_provider.text_to_speech_stream(text=text):
+        stream_kwargs = {"text": text}
+        provider_params = inspect.signature(
+            tts_provider.text_to_speech_stream
+        ).parameters
+        if "audio_format" in provider_params:
+            stream_kwargs["audio_format"] = audio_format or "pcm"
+
+        async for chunk in tts_provider.text_to_speech_stream(**stream_kwargs):
             yield chunk
 
     def get_agent_extensions(self):
@@ -4040,11 +4212,30 @@ class Agent:
                     f"[get_commands_prompt] Found {len(client_commands)} client-defined tools: {[c['friendly_name'] for c in client_commands]}"
                 )
 
-            agent_commands = "## Available Commands\n\n**See command execution examples of commands that the assistant has access to below:**\n"
+            agent_commands = (
+                "## Available Commands\n\n"
+                "**See command execution examples of commands that the assistant has access to below:**\n\n"
+                "**STRICT ARGUMENT RULES — read carefully:**\n"
+                "- For each command, you MUST use the EXACT XML argument tag names shown in its execution format below. "
+                "Do NOT rename, abbreviate, or invent argument tags (e.g. do not send `<task>` when the format shows `<prompt>`, "
+                "do not send `<file>` when it shows `<filename>`).\n"
+                "- If you previously called a command and it appears to have done the wrong thing, the most likely cause is "
+                "that you used a wrong argument tag name. Re-check the command's execution format below before retrying.\n"
+                "- If an argument is optional you may omit its tag entirely; never send placeholder text like `null`, `none`, "
+                "or `The assistant will fill in the value`.\n\n"
+            )
 
             # First add client-defined tools as a special extension section
             if client_commands:
-                agent_commands += f"\n### Client-Defined Tools\nDescription: These commands are executed on the client's machine (e.g., CLI terminal).\n"
+                agent_commands += (
+                    "\n### Client-Defined Tools\n"
+                    "Description: These commands are executed on the client's machine "
+                    "(e.g., desktop app, mobile app, or CLI terminal). Use exactly the "
+                    "<execute> XML command execution format shown below for these tools. "
+                    "Do not print model-internal tool-call protocol markers such as "
+                    "`<|tool_calls_section_begin|>`, `<|tool_call_begin|>`, or "
+                    "`<tool_call_path|>` in the assistant message.\n"
+                )
                 for command in client_commands:
                     if running_command and command["friendly_name"] == running_command:
                         continue
@@ -4114,9 +4305,13 @@ class Agent:
                             )
                     agent_commands += "</execute>\n"
 
-            # Gather extension context from extensions that provide it
+            # Gather extension context from ALL active extensions, not just
+            # the selected ones. Extension context (e.g. machine hostnames, connected
+            # accounts, device lists) helps the agent understand the user's environment
+            # even if the ability selection phase didn't pick commands from that extension.
+            # Without this, a missed selection cascades into missing context too.
             extension_context = self._get_extension_contexts(
-                agent_extensions, command_list, selected_commands
+                agent_extensions, command_list
             )
             if extension_context:
                 agent_commands += extension_context

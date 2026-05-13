@@ -23,13 +23,18 @@ import sys
 import time
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
 from typing import Optional
+import getpass
 import platform
 import random
 import socket
+import tarfile
+import tempfile
+import zipfile
 from dotenv import load_dotenv
 
 
@@ -45,6 +50,10 @@ LOCAL_PID_FILE = STATE_DIR / "agixt-local.pid"
 LOCAL_LOG_FILE = STATE_DIR / f"agixt-local-{int(time.time())}.log"
 WEB_PID_FILE = STATE_DIR / "agixt-web.pid"
 CREDENTIALS_FILE = STATE_DIR / "credentials.json"
+DESKTOP_CLIENT_DIR = REPO_ROOT / "clients" / "desktop"
+DESKTOP_TAURI_DIR = DESKTOP_CLIENT_DIR / "src-tauri"
+DESKTOP_INSTALL_STATE_FILE = STATE_DIR / "desktop-install.json"
+DESKTOP_DOWNLOAD_TIMEOUT_SECONDS = 60
 
 
 class CLIError(RuntimeError):
@@ -111,49 +120,127 @@ def get_default_conversation() -> str:
     return creds.get("conversation", "-")
 
 
+# ========== HTTP Helpers ==========
+
+
+def _api_request(url, method="GET", data=None, headers=None, timeout=30):
+    """Make an HTTP request and return (status_code, response_dict)."""
+    hdrs = {"Content-Type": "application/json"}
+    if headers:
+        hdrs.update(headers)
+    body = json.dumps(data).encode("utf-8") if data else None
+    req = urllib.request.Request(url, data=body, headers=hdrs, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8") if e.fp else ""
+        try:
+            return e.code, json.loads(error_body)
+        except json.JSONDecodeError:
+            return e.code, {"detail": error_body or e.reason}
+
+
+def _normalize_server(server: str) -> str:
+    if not server.startswith(("http://", "https://")):
+        server = f"http://{server}"
+    return server.rstrip("/")
+
+
 # ========== Login Command ==========
 
 
-def _login(server: str, email: str, otp: str) -> int:
+def _login(
+    server: str,
+    email: Optional[str] = None,
+    password: Optional[str] = None,
+    otp: Optional[str] = None,
+    mfa_token: Optional[str] = None,
+    magic_link: bool = False,
+) -> int:
     """
-    Login to an AGiXT server with email and OTP.
+    Login to an AGiXT server.
 
-    This uses the AGiXT login endpoint to authenticate and stores
-    the JWT token for future use.
+    Supports three authentication modes:
+    1. Username/password login (primary) — with optional MFA token
+    2. Magic link request — sends a login link to the user's email
+    3. Legacy OTP login — email + TOTP code (backward compat)
     """
-    # Normalize server URL
-    if not server.startswith(("http://", "https://")):
-        server = f"http://{server}"
-    server = server.rstrip("/")
+    server = _normalize_server(server)
 
-    print(f"🔐 Logging in to {server}...")
-
-    try:
-        # Make login request
-        login_data = json.dumps({"email": email, "token": otp}).encode("utf-8")
-        req = urllib.request.Request(
-            f"{server}/v1/login",
-            data=login_data,
-            headers={"Content-Type": "application/json"},
+    # --- Mode 1: Magic link request ---
+    if magic_link:
+        if not email:
+            email = input("Email or username: ").strip()
+            if not email:
+                print("❌ Email or username is required.")
+                return 1
+        print(f"📧 Requesting login link from {server}...")
+        status, resp = _api_request(
+            f"{server}/v1/login/request-link",
             method="POST",
+            data={"email": email},
         )
+        if status == 200:
+            detail = resp.get("detail", "Request processed")
+            print(f"✅ {detail}")
+            print("   Check your email for a login link.")
+            print()
+            pasted = input(
+                "Paste the login link from your email here (or press Enter to skip): "
+            ).strip()
+            if pasted:
+                # Extract JWT token from the pasted URL
+                token = None
+                if "?token=" in pasted:
+                    token = pasted.split("token=")[1].split("&")[0].split("#")[0]
+                elif "?jwt=" in pasted:
+                    token = pasted.split("jwt=")[1].split("&")[0].split("#")[0]
+                if token:
+                    token = urllib.parse.unquote(token)
+                    creds = load_credentials()
+                    creds["server"] = server
+                    creds["token"] = token
+                    creds["email"] = email
+                    save_credentials(creds)
+                    print(f"✅ Successfully logged in as {email}")
+                    print(f"   Credentials saved to: {CREDENTIALS_FILE}")
+                    return 0
+                else:
+                    print("⚠️  Could not extract token from that URL.")
+                    print("   You can log in with password instead:")
+                    print(f"   agixt login --server {server} --email {email}")
+                    return 1
+            else:
+                # Save server for convenience even if they skip
+                creds = load_credentials()
+                creds["server"] = server
+                creds["email"] = email
+                save_credentials(creds)
+                print("   Saved server for later. Once you have the link, run:")
+                print(f"   agixt login --server {server} --email {email} --magic-link")
+                return 0
+        else:
+            print(f"❌ Failed: {resp.get('detail', 'Unknown error')}")
+            return 1
 
-        with urllib.request.urlopen(req, timeout=30) as response:
-            response_data = json.loads(response.read().decode("utf-8"))
-
-        # Extract token from response
-        if "detail" in response_data:
-            detail = response_data["detail"]
+    # --- Mode 2: Legacy OTP login (backward compat) ---
+    if otp and not password:
+        print(f"🔐 Logging in to {server} (legacy OTP)...")
+        status, resp = _api_request(
+            f"{server}/v1/login/magic-link",
+            method="POST",
+            data={"email": email, "token": otp},
+        )
+        if status == 200:
+            detail = resp.get("detail", "")
             if "?token=" in detail:
                 token = detail.split("token=")[1]
-
-                # Save credentials
                 creds = load_credentials()
                 creds["server"] = server
                 creds["token"] = token
                 creds["email"] = email
                 save_credentials(creds)
-
                 print(f"✅ Successfully logged in as {email}")
                 print(f"   Server: {server}")
                 print(f"   Credentials saved to: {CREDENTIALS_FILE}")
@@ -162,155 +249,306 @@ def _login(server: str, email: str, otp: str) -> int:
                 print(f"ℹ️  Server response: {detail}")
                 return 1
         else:
-            print(f"❌ Unexpected response: {response_data}")
+            print(f"❌ Login failed: {resp.get('detail', 'Unknown error')}")
             return 1
 
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8") if e.fp else ""
-        print(f"❌ HTTP Error {e.code}: {e.reason}")
-        if error_body:
-            try:
-                error_json = json.loads(error_body)
-                print(f"   {error_json.get('detail', error_body)}")
-            except json.JSONDecodeError:
-                print(f"   {error_body}")
-        return 1
-    except urllib.error.URLError as e:
-        print(f"❌ Connection error: {e.reason}")
-        print(f"   Could not connect to {server}")
-        return 1
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        return 1
+    # --- Mode 3: Username/password login (primary) ---
+    if not email:
+        email = input("Email or username: ").strip()
+        if not email:
+            print("❌ Email or username is required.")
+            return 1
+
+    if not password:
+        password = getpass.getpass("Password: ")
+        if not password:
+            print("❌ Password is required.")
+            return 1
+
+    print(f"🔐 Logging in to {server}...")
+
+    login_data = {
+        "username": email,
+        "password": password,
+    }
+    if mfa_token:
+        login_data["mfa_token"] = mfa_token
+
+    status, resp = _api_request(
+        f"{server}/v1/login",
+        method="POST",
+        data=login_data,
+    )
+
+    if status == 200:
+        token = resp.get("token")
+        if token:
+            creds = load_credentials()
+            creds["server"] = server
+            creds["token"] = token
+            creds["email"] = resp.get("email", email)
+            if resp.get("username"):
+                creds["username"] = resp["username"]
+            save_credentials(creds)
+            print(f"✅ Successfully logged in as {resp.get('email', email)}")
+            print(f"   Server: {server}")
+            print(f"   Credentials saved to: {CREDENTIALS_FILE}")
+            return 0
+        else:
+            print(f"❌ Unexpected response (no token): {resp}")
+            return 1
+
+    # Handle MFA required
+    if resp.get("mfa_required"):
+        if resp.get("mfa_setup_required"):
+            print(
+                "⚠️  MFA setup is required. Please complete MFA setup in the web UI first."
+            )
+            return 1
+        print("🔐 MFA is required for this account.")
+        if not mfa_token:
+            mfa_token = input("Enter your 6-digit MFA code: ").strip()
+            if not mfa_token:
+                print("❌ MFA code is required.")
+                return 1
+            # Retry with MFA token
+            return _login(
+                server=server,
+                email=email,
+                password=password,
+                mfa_token=mfa_token,
+            )
+
+    print(f"❌ Login failed: {resp.get('detail', 'Unknown error')}")
+    return 1
 
 
 # ========== Register Command ==========
 
 
-def _register(server: str, email: str, first_name: str, last_name: str) -> int:
+def _register(
+    server: str,
+    email: str,
+    first_name: str = "",
+    last_name: str = "",
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    organization: Optional[str] = None,
+    invitation: Optional[str] = None,
+    phone: Optional[str] = None,
+    timezone: Optional[str] = None,
+) -> int:
     """
     Register a new user on an AGiXT server.
 
-    This creates a new user account and automatically logs in using the
-    generated TOTP secret. The magic link URL is also printed for web login.
+    Supports full registration with username/password or legacy email-only flow.
     """
-    # Normalize server URL
-    if not server.startswith(("http://", "https://")):
-        server = f"http://{server}"
-    server = server.rstrip("/")
+    server = _normalize_server(server)
+
+    # Interactive password prompt if not provided
+    if not password:
+        print(
+            "Password requirements: 12+ characters, uppercase, lowercase, digit, special character"
+        )
+        password = getpass.getpass("Password: ")
+        if not password:
+            print("❌ Password is required.")
+            return 1
+        confirm = getpass.getpass("Confirm password: ")
+        if password != confirm:
+            print("❌ Passwords do not match.")
+            return 1
 
     print(f"📝 Registering new user on {server}...")
 
-    try:
-        # Make registration request
-        register_data = json.dumps(
-            {
-                "email": email,
-                "first_name": first_name,
-                "last_name": last_name,
-            }
-        ).encode("utf-8")
+    register_data = {
+        "email": email,
+        "password": password,
+        "confirm_password": password,
+        "first_name": first_name,
+        "last_name": last_name,
+    }
+    if username:
+        register_data["username"] = username
+    if organization:
+        register_data["organization_name"] = organization
+    if invitation:
+        register_data["invitation_id"] = invitation
+    if phone:
+        register_data["phone_number"] = phone
+    if timezone:
+        register_data["timezone"] = timezone
 
-        req = urllib.request.Request(
-            f"{server}/v1/user",
-            data=register_data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+    status, resp = _api_request(
+        f"{server}/v1/user",
+        method="POST",
+        data=register_data,
+    )
 
-        with urllib.request.urlopen(req, timeout=30) as response:
-            response_data = json.loads(response.read().decode("utf-8"))
+    if status == 200:
+        print(f"✅ User registered successfully!")
+        print(f"   Email: {email}")
+        if first_name or last_name:
+            print(f"   Name: {first_name} {last_name}")
 
-        # Check for otp_uri in response (successful registration)
-        if "otp_uri" in response_data:
-            otp_uri = response_data["otp_uri"]
+        # Try to auto-login with the returned token
+        token = resp.get("token")
+        if token:
+            creds = load_credentials()
+            creds["server"] = server
+            creds["token"] = token
+            creds["email"] = email
+            if resp.get("username"):
+                creds["username"] = resp["username"]
+            save_credentials(creds)
+            print(f"   Logged in automatically!")
+            print(f"   Credentials saved to: {CREDENTIALS_FILE}")
 
-            # Extract the TOTP secret from the otp_uri
-            # Format: otpauth://totp/AGiXT:email?secret=XXXXX&issuer=AGiXT
-            if "secret=" in otp_uri:
-                mfa_secret = otp_uri.split("secret=")[1].split("&")[0]
-
-                print(f"✅ User registered successfully!")
-                print(f"   Email: {email}")
-                print(f"   Name: {first_name} {last_name}")
+            # Show MFA setup info if available
+            otp_uri = resp.get("otp_uri")
+            if otp_uri:
                 print()
-
-                # Generate OTP and login
-                try:
-                    import pyotp
-
-                    totp = pyotp.TOTP(mfa_secret)
-                    otp = totp.now()
-
-                    print("🔐 Logging in with generated OTP...")
-                    return _login(server, email, otp)
-
-                except ImportError:
-                    # pyotp not available, provide manual instructions
-                    print("⚠️  pyotp not installed - cannot auto-login")
-                    print()
-                    print("📱 To set up 2FA, scan this QR code or add manually:")
-                    print(f"   {otp_uri}")
-                    print()
-                    print("Then login with:")
-                    print(
-                        f"   agixt login --server {server} --email {email} --otp <YOUR_OTP>"
-                    )
-
-                    # Save server to credentials for convenience
-                    creds = load_credentials()
-                    creds["server"] = server
-                    creds["email"] = email
-                    save_credentials(creds)
-
-                    return 0
-            else:
-                print(f"⚠️  Unexpected otp_uri format: {otp_uri}")
-                return 1
-
-        # Check for magic link response (alternative registration flow)
-        elif "detail" in response_data:
-            detail = response_data["detail"]
-            print(f"✅ Registration initiated!")
-            print(f"   {detail}")
-
-            # If there's a magic link, extract and show it
-            if "?token=" in detail:
-                print()
-                print("🔗 Magic link for web login:")
-                print(f"   {detail}")
-
+                print("📱 MFA setup (add to your authenticator app):")
+                print(f"   {otp_uri}")
             return 0
-        else:
-            print(f"❌ Unexpected response: {response_data}")
-            return 1
 
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8") if e.fp else ""
-        print(f"❌ HTTP Error {e.code}: {e.reason}")
-        if error_body:
+        # Fallback: try legacy auto-login with OTP
+        otp_uri = resp.get("otp_uri")
+        if otp_uri and "secret=" in otp_uri:
+            mfa_secret = otp_uri.split("secret=")[1].split("&")[0]
+            print()
+            print("📱 MFA setup (add to your authenticator app):")
+            print(f"   {otp_uri}")
+
             try:
-                error_json = json.loads(error_body)
-                detail = error_json.get("detail", error_body)
-                print(f"   {detail}")
+                import pyotp
 
-                # If user already exists, suggest login instead
-                if "already" in str(detail).lower() or "exists" in str(detail).lower():
-                    print()
-                    print("💡 User may already exist. Try logging in:")
+                totp = pyotp.TOTP(mfa_secret)
+                otp_code = totp.now()
+                print("\n🔐 Logging in with generated OTP...")
+                return _login(server=server, email=email, otp=otp_code)
+            except ImportError:
+                print("\n⚠️  pyotp not installed — cannot auto-login")
+                print("   Login with:")
+                print(
+                    f"   agixt login --server {server} --email {email} --password <your-password>"
+                )
+                creds = load_credentials()
+                creds["server"] = server
+                creds["email"] = email
+                save_credentials(creds)
+                return 0
+
+        # Magic link fallback
+        magic_link = resp.get("magic_link")
+        if magic_link:
+            print()
+            print("🔗 Magic link for web login:")
+            print(f"   {magic_link}")
+
+        return 0
+
+    elif status == 400 or status == 409:
+        detail = resp.get("detail", "Registration failed")
+        print(f"❌ {detail}")
+        if "already" in str(detail).lower() or "exists" in str(detail).lower():
+            print()
+            print("💡 Try logging in instead:")
+            print(f"   agixt login --server {server} --email {email}")
+        return 1
+    else:
+        print(
+            f"❌ Registration failed (HTTP {status}): {resp.get('detail', 'Unknown error')}"
+        )
+        return 1
+
+
+# ========== Logout Command ==========
+
+
+def _logout() -> int:
+    """Logout by blacklisting the current JWT token on the server."""
+    creds = load_credentials()
+    token = creds.get("token")
+    server = creds.get("server")
+
+    if not token:
+        print("ℹ️  Not logged in.")
+        # Clean up any stale credentials
+        if CREDENTIALS_FILE.exists():
+            CREDENTIALS_FILE.unlink()
+            print("   Cleared credentials file.")
+        return 0
+
+    if server:
+        # Try to blacklist the token on the server
+        print(f"🔐 Logging out from {server}...")
+        try:
+            status, resp = _api_request(
+                f"{server}/v1/logout",
+                method="POST",
+                headers={"Authorization": token},
+            )
+            if status == 200:
+                print(f"✅ {resp.get('detail', 'Logged out successfully')}")
+            else:
+                # Token might already be expired/invalid — that's fine
+                print(f"ℹ️  Server response: {resp.get('detail', 'Token cleared')}")
+        except Exception:
+            # Server might be unreachable — still clear local credentials
+            print("⚠️  Could not reach server. Clearing local credentials.")
+
+    # Always clear local credentials
+    if CREDENTIALS_FILE.exists():
+        CREDENTIALS_FILE.unlink()
+    print("   Local credentials cleared.")
+    return 0
+
+
+# ========== User Info Command ==========
+
+
+def _whoami() -> int:
+    """Show current login status and user info."""
+    creds = load_credentials()
+    token = creds.get("token")
+    server = creds.get("server")
+
+    if not token:
+        print("Not logged in. Run 'agixt login' to authenticate.")
+        return 1
+
+    print(f"Server:  {server}")
+    print(f"Email:   {creds.get('email', 'unknown')}")
+    if creds.get("username"):
+        print(f"User:    {creds['username']}")
+    print(f"Agent:   {creds.get('agent', 'XT')}")
+    conv = creds.get("conversation", "-")
+    print(f"Convo:   {conv if conv != '-' else '(new each time)'}")
+
+    # Verify token is still valid
+    if server:
+        try:
+            status, resp = _api_request(
+                f"{server}/v1/user",
+                method="GET",
+                headers={"Authorization": token},
+            )
+            if status == 200:
+                print(f"Status:  ✅ authenticated")
+                if resp.get("first_name") or resp.get("last_name"):
                     print(
-                        f"   agixt login --server {server} --email {email} --otp <YOUR_OTP>"
+                        f"Name:    {resp.get('first_name', '')} {resp.get('last_name', '')}"
                     )
-            except json.JSONDecodeError:
-                print(f"   {error_body}")
-        return 1
-    except urllib.error.URLError as e:
-        print(f"❌ Connection error: {e.reason}")
-        print(f"   Could not connect to {server}")
-        return 1
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        return 1
+            elif status in (401, 403):
+                print(f"Status:  ❌ token expired or invalid — run 'agixt login'")
+                return 1
+            else:
+                print(f"Status:  ⚠️  could not verify (HTTP {status})")
+        except Exception:
+            print(f"Status:  ⚠️  server unreachable")
+
+    return 0
 
 
 # ========== Conversations Command ==========
@@ -2255,7 +2493,7 @@ def get_default_env_vars():
         "MAIN_GPU": "0",
         "NGROK_TOKEN": "",
         "EZLOCALAI_URL": "http://localhost:8091",
-        "DEFAULT_MODEL": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+        "DEFAULT_MODEL": "unsloth/Qwen3.6-3.5B-A3B-GGUF",
         "VISION_MODEL": "",
         "IMG_MODEL": "",
         "WHISPER_MODEL": "base",
@@ -2467,7 +2705,6 @@ def set_environment(env_updates=None, mode="docker"):
                 print(f"Warning: Failed to pull Docker images: {e}")
 
     if str(env_vars["WITH_EZLOCALAI"]).lower() == "true":
-        print("Starting ezLocalai, this can take several minutes...")
         start_ezlocalai()
 
     return env_vars
@@ -2475,7 +2712,7 @@ def set_environment(env_updates=None, mode="docker"):
 
 def start_ezlocalai():
     """Start ezLocalai using the ezlocalai CLI."""
-    print("Starting ezLocalai...")
+    print("Starting ezLocalai, this can take several minutes...")
     try:
         subprocess.run(["ezlocalai", "start"], check=True)
     except FileNotFoundError:
@@ -2508,6 +2745,663 @@ def _is_ezlocalai_enabled() -> bool:
     """Check if ezLocalai integration is enabled via environment."""
     load_dotenv(ENV_FILE)
     return os.getenv("WITH_EZLOCALAI", "true").lower() == "true"
+
+
+def _env_truthy(name: str, default: bool = True) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    stripped = value.strip().lower()
+    if stripped == "":
+        return default
+    return stripped not in {"0", "false", "no", "off"}
+
+
+def _has_desktop_session() -> bool:
+    if not _env_truthy("AGIXT_DESKTOP_INSTALL", default=True):
+        return False
+    if _env_truthy("CI", default=False):
+        return False
+
+    system = platform.system().lower()
+    if system == "linux":
+        return any(
+            os.getenv(name) for name in ("DISPLAY", "WAYLAND_DISPLAY", "MIR_SOCKET")
+        )
+    if system in {"darwin", "windows"}:
+        return True
+    return False
+
+
+def _desktop_download_base_url() -> str:
+    return os.getenv("AGIXT_DESKTOP_DOWNLOAD_BASE_URL", "https://d.devxt.com").rstrip(
+        "/"
+    )
+
+
+def _desktop_os_type() -> str:
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if system == "linux":
+        return "linux-arm64" if machine in {"aarch64", "arm64"} else "linux"
+    if system == "darwin":
+        return "macos-x86" if machine in {"x86_64", "amd64"} else "macos"
+    if system == "windows":
+        return "windows"
+    raise CLIError(f"AGiXT Desktop downloads are not available for {system}.")
+
+
+def _desktop_binary_name() -> str:
+    return (
+        "agixt-desktop.exe"
+        if platform.system().lower() == "windows"
+        else "agixt-desktop"
+    )
+
+
+def _desktop_installed_binary_path() -> Path:
+    system = platform.system().lower()
+    binary_name = _desktop_binary_name()
+    if system == "windows":
+        base_dir = Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base_dir / "AGiXT" / "Desktop" / binary_name
+    if system == "darwin":
+        return (
+            Path.home()
+            / "Applications"
+            / "AGiXT Desktop.app"
+            / "Contents"
+            / "MacOS"
+            / binary_name
+        )
+    return Path.home() / ".local" / "bin" / binary_name
+
+
+def _desktop_candidate_binary_paths() -> list[Path]:
+    system = platform.system().lower()
+    binary_name = _desktop_binary_name()
+    if system == "linux":
+        return [
+            _desktop_installed_binary_path(),
+            Path("/usr/bin") / binary_name,
+            Path("/usr/local/bin") / binary_name,
+            Path("/usr/bin") / "agixt",
+            Path("/usr/local/bin") / "agixt",
+        ]
+    if system == "darwin":
+        return [
+            _desktop_installed_binary_path(),
+            Path("/Applications")
+            / "AGiXT Desktop.app"
+            / "Contents"
+            / "MacOS"
+            / binary_name,
+        ]
+    return [_desktop_installed_binary_path()]
+
+
+def _find_desktop_installed_binary() -> Optional[Path]:
+    seen: set[str] = set()
+    for path in _desktop_candidate_binary_paths():
+        path_key = str(path)
+        if path_key in seen:
+            continue
+        seen.add(path_key)
+        if path.exists() and path.is_file():
+            return path
+
+    found = shutil.which(_desktop_binary_name())
+    return Path(found) if found else None
+
+
+def _read_desktop_install_state() -> dict:
+    if not DESKTOP_INSTALL_STATE_FILE.exists():
+        return {}
+    try:
+        return json.loads(DESKTOP_INSTALL_STATE_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _desktop_local_build_should_be_replaced(installed_binary: Path) -> bool:
+    if _env_truthy("AGIXT_DESKTOP_FORCE_DOWNLOAD", default=False):
+        return True
+    if platform.system().lower() != "linux":
+        return False
+    try:
+        if installed_binary.resolve() != _desktop_installed_binary_path().resolve():
+            return False
+    except OSError:
+        return False
+    install_state = _read_desktop_install_state()
+    return bool(install_state and install_state.get("source") != "download")
+
+
+def _install_desktop_linux_launcher(
+    binary_path: Path, icon_path: Optional[Path] = None
+) -> None:
+    applications_dir = Path.home() / ".local" / "share" / "applications"
+    applications_dir.mkdir(parents=True, exist_ok=True)
+    icon_name_or_path = None
+    if icon_path is None:
+        repo_icon_path = DESKTOP_TAURI_DIR / "icons" / "icon.png"
+        icon_path = repo_icon_path if repo_icon_path.exists() else None
+    if icon_path is not None and icon_path.exists():
+        hicolor_icon = (
+            Path.home()
+            / ".local"
+            / "share"
+            / "icons"
+            / "hicolor"
+            / "128x128"
+            / "apps"
+            / "agixt.png"
+        )
+        try:
+            hicolor_icon.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(icon_path, hicolor_icon)
+            icon_name_or_path = "agixt"
+        except OSError:
+            icon_name_or_path = str(icon_path)
+
+    entries = [
+        "[Desktop Entry]",
+        "Type=Application",
+        "Name=AGiXT Desktop",
+        "Comment=Native AGiXT desktop client",
+        f'Exec="{binary_path}" %u',
+    ]
+    if icon_name_or_path:
+        entries.append(f"Icon={icon_name_or_path}")
+    entries.extend(
+        [
+            "Terminal=false",
+            "Categories=Utility;Network;",
+            "StartupNotify=true",
+            "StartupWMClass=agixt",
+            "MimeType=x-scheme-handler/agixt;",
+            "",
+        ]
+    )
+    desktop_file = applications_dir / "agixt.desktop"
+    desktop_file.write_text(
+        "\n".join(entries),
+        encoding="utf-8",
+    )
+    desktop_file.chmod(0o755)
+    legacy_desktop_file = applications_dir / "agixt-desktop.desktop"
+    if legacy_desktop_file.exists():
+        try:
+            legacy_desktop_file.unlink()
+        except OSError:
+            pass
+    if shutil.which("update-desktop-database"):
+        subprocess.run(
+            ["update-desktop-database", str(applications_dir)],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    if shutil.which("gtk-update-icon-cache"):
+        subprocess.run(
+            [
+                "gtk-update-icon-cache",
+                "-f",
+                "-t",
+                str(Path.home() / ".local" / "share" / "icons" / "hicolor"),
+            ],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+
+def _install_desktop_macos_launcher(binary_path: Path) -> None:
+    app_dir = binary_path.parents[2]
+    contents_dir = app_dir / "Contents"
+    resources_dir = contents_dir / "Resources"
+    resources_dir.mkdir(parents=True, exist_ok=True)
+    icon_source = DESKTOP_TAURI_DIR / "icons" / "icon.icns"
+    if icon_source.exists():
+        shutil.copy2(icon_source, resources_dir / "icon.icns")
+    (contents_dir / "Info.plist").write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDisplayName</key>
+  <string>AGiXT Desktop</string>
+  <key>CFBundleExecutable</key>
+  <string>agixt-desktop</string>
+  <key>CFBundleIdentifier</key>
+  <string>systems.xt.agixt.desktop</string>
+  <key>CFBundleName</key>
+  <string>AGiXT Desktop</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundleVersion</key>
+  <string>0.1.0</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>10.15</string>
+</dict>
+</plist>
+""",
+        encoding="utf-8",
+    )
+
+
+def _desktop_artifact_suffix(path: Path) -> str:
+    name = path.name.lower()
+    for suffix in (
+        ".app.tar.gz",
+        ".tar.gz",
+        ".appimage",
+        ".deb",
+        ".dmg",
+        ".msi",
+        ".exe",
+        ".rpm",
+        ".zip",
+    ):
+        if name.endswith(suffix):
+            return suffix
+    return path.suffix.lower()
+
+
+def _install_raw_desktop_binary(
+    source: Path, destination: Optional[Path] = None
+) -> Path:
+    installed_binary = destination or _desktop_installed_binary_path()
+    installed_binary.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, installed_binary)
+    try:
+        installed_binary.chmod(installed_binary.stat().st_mode | 0o755)
+    except OSError:
+        pass
+    return installed_binary
+
+
+def _find_extracted_desktop_binary(root: Path) -> Path:
+    binary_name = _desktop_binary_name()
+    preferred_names = [
+        binary_name,
+        "agixt",
+        "agixt.exe",
+        "AGiXT Desktop",
+        "AGiXT Desktop.exe",
+    ]
+
+    def is_desktop_binary(candidate: Path) -> bool:
+        if not candidate.is_file():
+            return False
+        name = candidate.name.lower()
+        if "cli" in name or name.endswith((".desktop", ".png", ".ico", ".icns")):
+            return False
+        return name in {item.lower() for item in preferred_names} or name.startswith(
+            "agixt-desktop"
+        )
+
+    for name in preferred_names:
+        for candidate in root.rglob(name):
+            if is_desktop_binary(candidate):
+                return candidate
+    for candidate in root.rglob("agixt*"):
+        if is_desktop_binary(candidate):
+            return candidate
+    raise CLIError(
+        "Downloaded AGiXT Desktop artifact did not contain a runnable binary."
+    )
+
+
+def _copy_extracted_linux_icon(root: Path) -> Optional[Path]:
+    icon_candidates = [path for path in root.rglob("*.png") if path.is_file()]
+    if not icon_candidates:
+        return None
+
+    def icon_score(path: Path) -> tuple[int, int]:
+        text = str(path).lower()
+        name_score = 0 if "agixt" in text or "systems.xt.agixt.desktop" in text else 1
+        try:
+            size_score = -path.stat().st_size
+        except OSError:
+            size_score = 0
+        return (name_score, size_score)
+
+    icon_source = sorted(icon_candidates, key=icon_score)[0]
+    icon_dest = Path.home() / ".local" / "share" / "icons" / "agixt-desktop.png"
+    icon_dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(icon_source, icon_dest)
+    return icon_dest
+
+
+def _install_desktop_deb_artifact(artifact_path: Path) -> Path:
+    if shutil.which("dpkg-deb") is None:
+        raise CLIError(
+            "Downloaded a Debian package, but dpkg-deb is not available to install it without sudo."
+        )
+
+    with tempfile.TemporaryDirectory(prefix="agixt-desktop-deb-") as temp_dir:
+        extract_dir = Path(temp_dir) / "extract"
+        result = subprocess.run(
+            ["dpkg-deb", "-x", str(artifact_path), str(extract_dir)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise CLIError(
+                "Failed to extract AGiXT Desktop Debian package: "
+                f"{result.stderr.strip() or result.stdout.strip()}"
+            )
+        binary = _find_extracted_desktop_binary(extract_dir)
+        installed_binary = _install_raw_desktop_binary(binary)
+        icon_path = _copy_extracted_linux_icon(extract_dir)
+        _install_desktop_linux_launcher(installed_binary, icon_path=icon_path)
+        return installed_binary
+
+
+def _safe_extract_tar(archive_path: Path, extract_dir: Path) -> None:
+    extract_root = extract_dir.resolve()
+    with tarfile.open(archive_path) as archive:
+        for member in archive.getmembers():
+            member_path = (extract_dir / member.name).resolve()
+            try:
+                member_path.relative_to(extract_root)
+            except ValueError as exc:
+                raise CLIError(
+                    "Refusing to extract unsafe AGiXT Desktop archive."
+                ) from exc
+        archive.extractall(extract_dir)
+
+
+def _safe_extract_zip(archive_path: Path, extract_dir: Path) -> None:
+    extract_root = extract_dir.resolve()
+    with zipfile.ZipFile(archive_path) as archive:
+        for member in archive.namelist():
+            member_path = (extract_dir / member).resolve()
+            try:
+                member_path.relative_to(extract_root)
+            except ValueError as exc:
+                raise CLIError(
+                    "Refusing to extract unsafe AGiXT Desktop archive."
+                ) from exc
+        archive.extractall(extract_dir)
+
+
+def _install_desktop_archive_artifact(artifact_path: Path) -> Path:
+    with tempfile.TemporaryDirectory(prefix="agixt-desktop-archive-") as temp_dir:
+        extract_dir = Path(temp_dir) / "extract"
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        suffix = _desktop_artifact_suffix(artifact_path)
+        if suffix in {".tar.gz", ".app.tar.gz"}:
+            _safe_extract_tar(artifact_path, extract_dir)
+        elif suffix == ".zip":
+            _safe_extract_zip(artifact_path, extract_dir)
+        else:
+            raise CLIError(f"Unsupported AGiXT Desktop archive format: {suffix}")
+
+        system = platform.system().lower()
+        if system == "darwin":
+            mac_apps = [path for path in extract_dir.rglob("*.app") if path.is_dir()]
+            if mac_apps:
+                app_dir = _desktop_installed_binary_path().parents[2]
+                if app_dir.exists():
+                    shutil.rmtree(app_dir)
+                shutil.copytree(mac_apps[0], app_dir)
+                return _desktop_installed_binary_path()
+
+        binary = _find_extracted_desktop_binary(extract_dir)
+        installed_binary = _install_raw_desktop_binary(binary)
+        if system == "linux":
+            icon_path = _copy_extracted_linux_icon(extract_dir)
+            _install_desktop_linux_launcher(installed_binary, icon_path=icon_path)
+        elif system == "darwin":
+            _install_desktop_macos_launcher(installed_binary)
+        return installed_binary
+
+
+def _install_desktop_artifact(artifact_path: Path, os_type: str) -> Path:
+    suffix = _desktop_artifact_suffix(artifact_path)
+    system = platform.system().lower()
+    needs_launcher = False
+
+    if suffix == ".deb":
+        installed_binary = _install_desktop_deb_artifact(artifact_path)
+    elif suffix in {".zip", ".tar.gz", ".app.tar.gz"}:
+        installed_binary = _install_desktop_archive_artifact(artifact_path)
+    elif suffix == ".dmg":
+        subprocess.Popen(
+            ["open", str(artifact_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+        )
+        raise CLIError(
+            "Downloaded the AGiXT Desktop disk image and opened it. Finish the installer, then run AGiXT again."
+        )
+    elif suffix == ".msi":
+        subprocess.run(
+            ["msiexec", "/i", str(artifact_path), "/qn", "/norestart"],
+            check=True,
+        )
+        installed_binary = _find_desktop_installed_binary()
+        if installed_binary is None:
+            raise CLIError(
+                "AGiXT Desktop MSI completed, but no installed binary was found."
+            )
+    else:
+        installed_binary = _install_raw_desktop_binary(artifact_path)
+        needs_launcher = True
+
+    if needs_launcher and system == "linux":
+        _install_desktop_linux_launcher(installed_binary)
+    elif needs_launcher and system == "darwin":
+        _install_desktop_macos_launcher(installed_binary)
+
+    return installed_binary
+
+
+def _desktop_response_filename(response, os_type: str) -> str:
+    content_disposition = response.headers.get("Content-Disposition", "")
+    filename_match = re.search(
+        r"filename\*?=(?:UTF-8''|\"?)([^\";]+)", content_disposition
+    )
+    if filename_match:
+        filename = urllib.parse.unquote(filename_match.group(1).strip().strip('"'))
+    else:
+        filename = Path(urllib.parse.urlparse(response.geturl()).path).name
+    filename = Path(filename).name.lstrip(".")
+    if filename and re.fullmatch(r"[A-Za-z0-9._+-]+", filename):
+        return filename
+
+    fallback_extension = ".exe" if os_type == "windows" else ""
+    return f"agixt-desktop-{os_type}{fallback_extension}"
+
+
+def _download_desktop_artifact(os_type: str) -> tuple[Path, str, str]:
+    url = f"{_desktop_download_base_url()}/desktop/{urllib.parse.quote(os_type)}"
+    downloads_dir = STATE_DIR / "desktop-downloads"
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/octet-stream",
+            "User-Agent": "agixt-cli",
+        },
+    )
+    print(f"Downloading AGiXT Desktop from {url}...")
+    try:
+        with urllib.request.urlopen(
+            request, timeout=DESKTOP_DOWNLOAD_TIMEOUT_SECONDS
+        ) as response:
+            filename = _desktop_response_filename(response, os_type)
+            destination = downloads_dir / filename
+            temp_destination = destination.with_name(f".{destination.name}.tmp")
+            with temp_destination.open("wb") as output:
+                shutil.copyfileobj(response, output)
+            temp_destination.replace(destination)
+            build_id = response.headers.get("X-Desktop-Build-ID", "unknown")
+            artifact_name = response.headers.get("X-Artifact-Name", filename)
+            return destination, build_id, artifact_name
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", errors="replace").strip()
+        except Exception:
+            body = ""
+        detail = body or getattr(exc, "reason", "")
+        raise CLIError(f"AGiXT Desktop download failed ({exc.code}): {detail}") from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise CLIError(f"AGiXT Desktop download failed: {exc}") from exc
+
+
+def _desktop_process_is_running() -> bool:
+    system = platform.system().lower()
+    try:
+        if system in {"linux", "darwin"} and shutil.which("pgrep"):
+            for process_name in ("agixt-desktop", "agixt"):
+                result = subprocess.run(
+                    ["pgrep", "-x", process_name],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+                if result.returncode == 0:
+                    return True
+        if system == "windows":
+            for process_name in ("agixt-desktop.exe", "agixt.exe"):
+                result = subprocess.run(
+                    ["tasklist", "/FI", f"IMAGENAME eq {process_name}", "/NH"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if process_name in result.stdout.lower():
+                    return True
+    except (subprocess.SubprocessError, OSError):
+        return False
+    return False
+
+
+def _desktop_launch_environment(system: str) -> dict[str, str]:
+    env = os.environ.copy()
+    if system != "linux":
+        return env
+
+    # VS Code installed through Snap exports GTK/module/library paths that
+    # point at the snap runtime. A native Tauri binary launched from that
+    # terminal can then load snap core libraries and crash before startup.
+    snap_polluted = any(key.startswith("SNAP") for key in env)
+    original_xdg_data_dirs = env.get("XDG_DATA_DIRS_VSCODE_SNAP_ORIG")
+    original_xdg_config_dirs = env.get("XDG_CONFIG_DIRS_VSCODE_SNAP_ORIG")
+    for key in list(env):
+        if key.startswith("SNAP"):
+            env.pop(key, None)
+        elif key.endswith("_VSCODE_SNAP_ORIG"):
+            env.pop(key, None)
+        elif key in {
+            "GDK_PIXBUF_MODULEDIR",
+            "GDK_PIXBUF_MODULE_FILE",
+            "GTK_EXE_PREFIX",
+            "GTK_IM_MODULE_FILE",
+            "GTK_PATH",
+            "SNAP_LIBRARY_PATH",
+        }:
+            env.pop(key, None)
+
+    if snap_polluted:
+        if original_xdg_data_dirs:
+            env["XDG_DATA_DIRS"] = original_xdg_data_dirs
+        if original_xdg_config_dirs:
+            env["XDG_CONFIG_DIRS"] = original_xdg_config_dirs
+        if "/snap/" in env.get("LD_LIBRARY_PATH", ""):
+            env.pop("LD_LIBRARY_PATH", None)
+    return env
+
+
+def _launch_desktop_app(binary_path: Path) -> None:
+    if _desktop_process_is_running():
+        print("AGiXT Desktop app is already running.")
+        return
+
+    system = platform.system().lower()
+    if system == "windows":
+        os.startfile(str(binary_path))  # type: ignore[attr-defined]
+        print("AGiXT Desktop app launched.")
+        return
+
+    launch_target = binary_path
+    command = [str(binary_path)]
+    if system == "darwin":
+        for parent in binary_path.parents:
+            if parent.suffix == ".app":
+                launch_target = parent
+                command = ["open", str(parent)]
+                break
+
+    popen_kwargs = {
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "stdin": subprocess.DEVNULL,
+        "env": _desktop_launch_environment(system),
+    }
+    if system != "windows":
+        popen_kwargs["start_new_session"] = True
+    subprocess.Popen(command, **popen_kwargs)
+    print(f"AGiXT Desktop app launched from {launch_target}.")
+
+
+def _write_desktop_install_state(
+    build_id: str, artifact_name: str, installed_binary: Path, os_type: str
+) -> None:
+    DESKTOP_INSTALL_STATE_FILE.write_text(
+        json.dumps(
+            {
+                "source": "download",
+                "version": build_id,
+                "artifact": artifact_name,
+                "os_type": os_type,
+                "installed_binary": str(installed_binary),
+                "installed_at": int(time.time()),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _maybe_install_desktop_app() -> None:
+    if not _has_desktop_session():
+        return
+
+    try:
+        installed_binary = _find_desktop_installed_binary()
+        if (
+            installed_binary is not None
+            and not _desktop_local_build_should_be_replaced(installed_binary)
+        ):
+            _launch_desktop_app(installed_binary)
+            return
+
+        if installed_binary is not None:
+            print("Replacing local AGiXT Desktop build with the prebuilt download.")
+
+        os_type = _desktop_os_type()
+        artifact_path, build_id, artifact_name = _download_desktop_artifact(os_type)
+        installed_binary = _install_desktop_artifact(artifact_path, os_type=os_type)
+        _write_desktop_install_state(
+            build_id=build_id,
+            artifact_name=artifact_name,
+            installed_binary=installed_binary,
+            os_type=os_type,
+        )
+        print(f"AGiXT Desktop app installed at {installed_binary}")
+        _launch_desktop_app(installed_binary)
+    except CLIError as exc:
+        print(f"Warning: {exc}")
+    except Exception as exc:
+        print(f"Warning: Failed to prepare AGiXT Desktop app: {exc}")
 
 
 # Redis container management for local mode
@@ -2802,10 +3696,15 @@ def _start_all(local: bool = False, env_updates: Optional[dict] = None) -> None:
     print("\n" + "=" * 80)
     print("All services started successfully!")
     print("=" * 80)
+    local_ip = get_local_ip()
+    agixt_port = os.getenv("AGIXT_PORT", "7437")
+    app_port = os.getenv("AGIXT_INTERACTIVE_PORT", "3437")
+    api_url = os.getenv("AGIXT_URI", f"http://{local_ip}:{agixt_port}")
+    app_url = os.getenv("APP_URI", f"http://{local_ip}:{app_port}")
     print("\nService URLs:")
-    print(f"  AGiXT API:        http://localhost:7437")
-    print(f"  Web Interface:    http://localhost:3437")
-    print(f"  ezLocalai API:    http://localhost:8091")
+    print(f"  AGiXT API:        {api_url}")
+    print(f"  Web Interface:    {app_url}")
+    print(f"  ezLocalai API:    http://{local_ip}:8091")
     print("=" * 80)
 
 
@@ -3040,9 +3939,17 @@ def _start_local(env_updates: Optional[dict] = None) -> None:
             except requests.RequestException:
                 response = requests.Response()
                 response.status_code = 500
+    local_ip = get_local_ip()
+    agixt_port = os.getenv("AGIXT_PORT", "7437")
+    app_port = os.getenv("AGIXT_INTERACTIVE_PORT", "3437")
+    api_url = os.getenv("AGIXT_URI", f"http://{local_ip}:{agixt_port}")
+    app_url = os.getenv("APP_URI", f"http://{local_ip}:{app_port}")
     print(f"AGiXT started successfully!")
-    print(f"View logs at: {LOCAL_LOG_FILE}")
+    print(f"  API:  {api_url}")
+    print(f"  App:  {app_url}")
+    print(f"  Logs: {LOCAL_LOG_FILE}")
     cleanup_log_files()
+    _maybe_install_desktop_app()
 
 
 def _stop_local(stop_ezlocalai_too: bool = True, stop_redis_too: bool = False) -> None:
@@ -3176,7 +4083,15 @@ def _start_docker(env_updates: Optional[dict] = None) -> None:
     try:
         command = f"docker compose -f {dockerfile} up -d"
         subprocess.run(command, shell=True, cwd=REPO_ROOT, check=True)
+        local_ip = get_local_ip()
+        agixt_port = env_vars.get("AGIXT_PORT", "7437")
+        app_port = env_vars.get("AGIXT_INTERACTIVE_PORT", "3437")
+        api_url = env_vars.get("AGIXT_URI", f"http://{local_ip}:{agixt_port}")
+        app_url = env_vars.get("APP_URI", f"http://{local_ip}:{app_port}")
         print("AGiXT Docker services started successfully.")
+        print(f"  API: {api_url}")
+        print(f"  App: {app_url}")
+        _maybe_install_desktop_app()
     except KeyboardInterrupt:
         print("\nStopping AGiXT containers...")
         subprocess.run(
@@ -3413,9 +4328,14 @@ Examples:
   agixt stop                               Stop AGiXT
   agixt logs -f                            Follow AGiXT logs
 
+  # Authentication
+  agixt register --email user@example.com  Register (prompts for password)
+  agixt login --email user@example.com     Login (prompts for password)
+  agixt login --email user@example.com --magic-link  Request email login link
+  agixt whoami                             Show current login status
+  agixt logout                             Logout and clear credentials
+
   # Client mode (lightweight - works with remote server)
-  agixt register --email user@example.com --firstname John --lastname Doe
-  agixt login --email user@example.com --otp 123456
   agixt conversations                      List and select a conversation
   agixt conversations -                    Start a new conversation
   agixt prompt "Hello, how are you?"
@@ -3562,8 +4482,8 @@ Configuration:
     register_parser = subparsers.add_parser(
         "register",
         help="Register a new user on an AGiXT server",
-        description="Create a new user account on an AGiXT server. "
-        "After registration, automatically logs in using the generated TOTP.",
+        description="Create a new user account on an AGiXT server with username/password. "
+        "After registration, automatically logs in.",
     )
     register_parser.add_argument(
         "--server",
@@ -3580,21 +4500,54 @@ Configuration:
     register_parser.add_argument(
         "--firstname",
         "-f",
-        required=True,
+        default="",
         help="First name",
     )
     register_parser.add_argument(
         "--lastname",
         "-l",
-        required=True,
+        default="",
         help="Last name",
+    )
+    register_parser.add_argument(
+        "--username",
+        "-u",
+        default=None,
+        help="Username (auto-generated from email if not provided)",
+    )
+    register_parser.add_argument(
+        "--password",
+        "-p",
+        default=None,
+        help="Password (will prompt securely if not provided)",
+    )
+    register_parser.add_argument(
+        "--organization",
+        default=None,
+        help="Organization/company name for new organization",
+    )
+    register_parser.add_argument(
+        "--invitation",
+        default=None,
+        help="Invitation ID for joining an existing company",
+    )
+    register_parser.add_argument(
+        "--phone",
+        default=None,
+        help="Phone number with country code (e.g., +1 555 123 4567)",
+    )
+    register_parser.add_argument(
+        "--timezone",
+        default=None,
+        help="Timezone (e.g., America/New_York)",
     )
 
     # Login command
     login_parser = subparsers.add_parser(
         "login",
         help="Login to an AGiXT server",
-        description="Authenticate with an AGiXT server using email and OTP. "
+        description="Authenticate with an AGiXT server. Supports username/password, "
+        "magic link (email), and legacy OTP login. "
         "Credentials are saved for future use with 'agixt prompt'.",
     )
     login_parser.add_argument(
@@ -3606,14 +4559,45 @@ Configuration:
     login_parser.add_argument(
         "--email",
         "-e",
-        required=True,
-        help="Your email address",
+        default=None,
+        help="Your email address or username",
+    )
+    login_parser.add_argument(
+        "--password",
+        "-p",
+        default=None,
+        help="Your password (will prompt securely if not provided)",
     )
     login_parser.add_argument(
         "--otp",
         "-o",
-        required=True,
-        help="One-time password from your authenticator app",
+        default=None,
+        help="One-time password for legacy MFA login",
+    )
+    login_parser.add_argument(
+        "--mfa",
+        default=None,
+        help="MFA token from authenticator app (for accounts with 2FA enabled)",
+    )
+    login_parser.add_argument(
+        "--magic-link",
+        action="store_true",
+        help="Request a login link via email instead of using password",
+    )
+
+    # Logout command
+    subparsers.add_parser(
+        "logout",
+        help="Logout and invalidate current session",
+        description="Logout from the AGiXT server by blacklisting the current JWT "
+        "token and clearing local credentials.",
+    )
+
+    # Whoami command
+    subparsers.add_parser(
+        "whoami",
+        help="Show current login status and user info",
+        description="Display the current logged-in user, server, and session status.",
     )
 
     # Prompt command
@@ -3692,6 +4676,12 @@ def main(argv: Optional[list[str]] = None) -> int:
                 email=args.email,
                 first_name=args.firstname,
                 last_name=args.lastname,
+                username=args.username,
+                password=args.password,
+                organization=args.organization,
+                invitation=args.invitation,
+                phone=args.phone,
+                timezone=args.timezone,
             )
 
         # Handle login command
@@ -3704,8 +4694,19 @@ def main(argv: Optional[list[str]] = None) -> int:
             return _login(
                 server=server,
                 email=args.email,
+                password=args.password,
                 otp=args.otp,
+                mfa_token=args.mfa,
+                magic_link=args.magic_link,
             )
+
+        # Handle logout command
+        if args.action == "logout":
+            return _logout()
+
+        # Handle whoami command
+        if args.action == "whoami":
+            return _whoami()
 
         # Handle prompt command
         if args.action == "prompt":

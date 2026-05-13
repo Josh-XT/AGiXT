@@ -570,6 +570,15 @@ class DiscordErrorMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             return response
         except Exception as e:
+            # Ignore ClientDisconnect - these are normal when clients close connections
+            from starlette.requests import ClientDisconnect
+
+            if isinstance(e, ClientDisconnect) or "ClientDisconnect" in str(type(e)):
+                self.logger.debug(
+                    f"Client disconnected during {request.method} {request.url.path}"
+                )
+                raise
+
             # Log the error locally
             self.logger.error(
                 f"Unhandled exception in {request.method} {request.url.path}: {e}"

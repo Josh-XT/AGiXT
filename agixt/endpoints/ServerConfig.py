@@ -7,6 +7,8 @@ through the UI instead of requiring environment variable changes.
 
 import os
 import ast
+import asyncio
+import time
 from fastapi import APIRouter, Header, HTTPException, Depends, Request
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
@@ -237,6 +239,97 @@ async def get_all_server_config(
                 )
 
     return ServerConfigResponse(configs=configs, categories=sorted(list(categories)))
+
+
+@app.get(
+    "/v1/server/config/categories",
+    tags=["Server Config"],
+    summary="Get available configuration categories",
+    description="Get a list of all configuration categories for UI organization.",
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_config_categories(
+    authorization: str = Header(None),
+):
+    """
+    Get a list of all configuration categories.
+    """
+    verify_super_admin(authorization)
+
+    categories = set()
+    for definition in SERVER_CONFIG_DEFINITIONS:
+        categories.add(definition.get("category", "general"))
+
+    # Category metadata for UI
+    category_info = {
+        "app_settings": {
+            "name": "Application Settings",
+            "description": "General application configuration",
+            "icon": "settings",
+        },
+        "uris": {
+            "name": "Server URIs",
+            "description": "API and application endpoint URLs",
+            "icon": "globe",
+        },
+        "ai_providers": {
+            "name": "AI Providers",
+            "description": "API keys and models for AI services",
+            "icon": "brain",
+        },
+        "oauth": {
+            "name": "OAuth Providers",
+            "description": "OAuth client credentials for SSO",
+            "icon": "key",
+        },
+        "storage": {
+            "name": "Storage",
+            "description": "S3, Azure, and other storage backends",
+            "icon": "database",
+        },
+        "billing": {
+            "name": "Billing",
+            "description": "Token pricing and payment settings",
+            "icon": "credit-card",
+        },
+        "extensions": {
+            "name": "Extensions Hub",
+            "description": "Extension repository configuration",
+            "icon": "puzzle",
+        },
+        "notifications": {
+            "name": "Notifications",
+            "description": "Webhook and notification settings",
+            "icon": "bell",
+        },
+        "agent_defaults": {
+            "name": "Agent Defaults",
+            "description": "Default settings for new agents",
+            "icon": "bot",
+        },
+        "features": {
+            "name": "Feature Flags",
+            "description": "Enable/disable UI features",
+            "icon": "toggle-left",
+        },
+    }
+
+    return {
+        "categories": [
+            {
+                "key": cat,
+                **category_info.get(
+                    cat,
+                    {
+                        "name": cat.replace("_", " ").title(),
+                        "description": "",
+                        "icon": "folder",
+                    },
+                ),
+            }
+            for cat in sorted(categories)
+        ]
+    }
 
 
 @app.get(
@@ -488,97 +581,6 @@ async def bulk_update_server_config(
     return result
 
 
-@app.get(
-    "/v1/server/config/categories",
-    tags=["Server Config"],
-    summary="Get available configuration categories",
-    description="Get a list of all configuration categories for UI organization.",
-    dependencies=[Depends(verify_api_key)],
-)
-async def get_config_categories(
-    authorization: str = Header(None),
-):
-    """
-    Get a list of all configuration categories.
-    """
-    verify_super_admin(authorization)
-
-    categories = set()
-    for definition in SERVER_CONFIG_DEFINITIONS:
-        categories.add(definition.get("category", "general"))
-
-    # Category metadata for UI
-    category_info = {
-        "app_settings": {
-            "name": "Application Settings",
-            "description": "General application configuration",
-            "icon": "settings",
-        },
-        "uris": {
-            "name": "Server URIs",
-            "description": "API and application endpoint URLs",
-            "icon": "globe",
-        },
-        "ai_providers": {
-            "name": "AI Providers",
-            "description": "API keys and models for AI services",
-            "icon": "brain",
-        },
-        "oauth": {
-            "name": "OAuth Providers",
-            "description": "OAuth client credentials for SSO",
-            "icon": "key",
-        },
-        "storage": {
-            "name": "Storage",
-            "description": "S3, Azure, and other storage backends",
-            "icon": "database",
-        },
-        "billing": {
-            "name": "Billing",
-            "description": "Token pricing and payment settings",
-            "icon": "credit-card",
-        },
-        "extensions": {
-            "name": "Extensions Hub",
-            "description": "Extension repository configuration",
-            "icon": "puzzle",
-        },
-        "notifications": {
-            "name": "Notifications",
-            "description": "Webhook and notification settings",
-            "icon": "bell",
-        },
-        "agent_defaults": {
-            "name": "Agent Defaults",
-            "description": "Default settings for new agents",
-            "icon": "bot",
-        },
-        "features": {
-            "name": "Feature Flags",
-            "description": "Enable/disable UI features",
-            "icon": "toggle-left",
-        },
-    }
-
-    return {
-        "categories": [
-            {
-                "key": cat,
-                **category_info.get(
-                    cat,
-                    {
-                        "name": cat.replace("_", " ").title(),
-                        "description": "",
-                        "icon": "folder",
-                    },
-                ),
-            }
-            for cat in sorted(categories)
-        ]
-    }
-
-
 # ============================================================================
 # Server Extension Settings Endpoints
 # ============================================================================
@@ -589,6 +591,63 @@ from DB import (
     get_new_id,
 )
 from Extensions import Extensions
+
+
+ALT_ENV_VAR_NAMES = {
+    "EZLOCALAI_API_URI": ["EZLOCALAI_URI"],
+    "OPENAI_API_URI": ["OPENAI_BASE_URI", "OPENAI_URI"],
+    "OPENAI_AI_MODEL": ["OPENAI_MODEL"],
+    "ANTHROPIC_AI_MODEL": ["ANTHROPIC_MODEL"],
+    "GOOGLE_AI_MODEL": ["GOOGLE_MODEL"],
+    "AZURE_AI_MODEL": ["AZURE_MODEL"],
+    "XAI_AI_MODEL": ["XAI_MODEL"],
+    "DEEPSEEK_AI_MODEL": ["DEEPSEEK_MODEL"],
+}
+
+_EXTENSION_METADATA_CACHE_TTL = 30
+_extension_metadata_cache = {
+    "expires_at": 0.0,
+    "settings": None,
+    "extensions": None,
+    "meta": None,
+}
+
+
+def get_cached_extension_metadata():
+    """Cache extension metadata briefly to avoid re-importing extensions per request."""
+    now = time.time()
+    if (
+        _extension_metadata_cache["settings"] is not None
+        and _extension_metadata_cache["extensions"] is not None
+        and _extension_metadata_cache["meta"] is not None
+        and _extension_metadata_cache["expires_at"] > now
+    ):
+        return (
+            _extension_metadata_cache["settings"],
+            _extension_metadata_cache["extensions"],
+            _extension_metadata_cache["meta"],
+        )
+
+    ext = Extensions(agent_config={})
+    all_settings = ext.get_extension_settings()
+    extensions_data = ext.get_extensions()
+    extension_meta = {}
+    for ext_data in extensions_data:
+        extension_meta[ext_data["extension_name"].lower()] = {
+            "friendly_name": ext_data.get("friendly_name")
+            or ext_data["extension_name"],
+            "category": ext_data.get("category") or "Other",
+        }
+
+    _extension_metadata_cache.update(
+        {
+            "expires_at": now + _EXTENSION_METADATA_CACHE_TTL,
+            "settings": all_settings,
+            "extensions": extensions_data,
+            "meta": extension_meta,
+        }
+    )
+    return all_settings, extensions_data, extension_meta
 
 
 class ExtensionSettingItem(BaseModel):
@@ -647,20 +706,8 @@ async def get_server_extension_settings(
     """
     verify_super_admin(authorization)
 
-    # Get all available extension settings from Extensions class
-    ext = Extensions()
-    all_settings = ext.get_extension_settings()
-
-    # Also get extension metadata for friendly names and categories
-    # Use lowercase keys for case-insensitive matching
-    extensions_data = ext.get_extensions()
-    extension_meta = {}
-    for ext_data in extensions_data:
-        extension_meta[ext_data["extension_name"].lower()] = {
-            "friendly_name": ext_data.get("friendly_name")
-            or ext_data["extension_name"],
-            "category": ext_data.get("category") or "Other",
-        }
+    # Get all available extension settings and metadata from a short-lived cache.
+    all_settings, _, extension_meta = get_cached_extension_metadata()
 
     # Get current server-level values from database
     with get_session() as db:
@@ -677,6 +724,16 @@ async def get_server_extension_settings(
                 "description": setting.description,
             }
 
+    # Pre-compute env/server-config fallbacks once. Many extensions share the
+    # same setting keys, so doing this outside the extension loop avoids repeated
+    # getenv/cache lookups for every extension card on the settings page.
+    env_key_candidates = set()
+    for settings in all_settings.values():
+        for setting_key in settings.keys():
+            env_key_candidates.add(setting_key)
+            env_key_candidates.update(ALT_ENV_VAR_NAMES.get(setting_key, []))
+    env_values = {key: getenv(key) for key in env_key_candidates}
+
     # Build response
     extensions = []
     for extension_name, settings in all_settings.items():
@@ -685,19 +742,6 @@ async def get_server_extension_settings(
         category = meta.get("category") or "Other"
 
         setting_items = []
-        # Map of alternative env var names for common settings
-        # Some env vars use different naming conventions (e.g., EZLOCALAI_URI vs EZLOCALAI_API_URI)
-        ALT_ENV_VAR_NAMES = {
-            "EZLOCALAI_API_URI": ["EZLOCALAI_URI"],
-            "OPENAI_API_URI": ["OPENAI_BASE_URI", "OPENAI_URI"],
-            "OPENAI_AI_MODEL": ["OPENAI_MODEL"],
-            "ANTHROPIC_AI_MODEL": ["ANTHROPIC_MODEL"],
-            "GOOGLE_AI_MODEL": ["GOOGLE_MODEL"],
-            "AZURE_AI_MODEL": ["AZURE_MODEL"],
-            "XAI_AI_MODEL": ["XAI_MODEL"],
-            "DEEPSEEK_AI_MODEL": ["DEEPSEEK_MODEL"],
-        }
-
         for setting_key, default_value in settings.items():
             db_key = f"{extension_name}:{setting_key}"
             db_data = db_values.get(db_key, {})
@@ -725,11 +769,11 @@ async def get_server_extension_settings(
             current_value = db_data.get("value") if db_key in db_values else None
             if current_value is None:
                 # Fall back to server config (checks env vars then database)
-                env_value = getenv(setting_key)
+                env_value = env_values.get(setting_key)
                 if not env_value:
                     # Check alternative env var names
                     for alt_name in ALT_ENV_VAR_NAMES.get(setting_key, []):
-                        env_value = getenv(alt_name)
+                        env_value = env_values.get(alt_name)
                         if env_value:
                             break
                 if env_value:
@@ -1895,86 +1939,19 @@ BOT_PLATFORM_SETTINGS = {
         "allowlist_placeholder": "octocat, my-org, owner/repo",
         "allowlist_help": "Enter GitHub usernames, organization names, or repository names (owner/repo) separated by commas.",
     },
-    "outreach": {
-        "required": [],  # Zero-config: no API keys, no tokens, just works
-        "optional": [
-            "outreach_bot_enabled",
-            "outreach_bot_agent_id",
-            "outreach_bot_owner_id",
-            "outreach_product_name",  # What you're selling (optional, agent will ask)
-            "outreach_product_description",  # One-liner (optional, agent will ask)
-            "outreach_website_urls",  # Comma-separated business URLs for research context
-            "outreach_github_repos",  # Comma-separated GitHub repo URLs (owner/repo or full URL)
-            "outreach_additional_context",  # Free-text context about the business, features, audience, etc.
-            "outreach_target_competitors",  # Comma-separated (optional, agent researches)
-            "outreach_target_subreddits",  # Comma-separated (optional, agent discovers)
-            "outreach_monitoring_keywords",  # Comma-separated (optional, autogenerated)
-            "outreach_poll_interval_hours",  # How often to run (default: 4 hours)
-            "outreach_tasks",  # monitor,follow_ups,content,reviews,report
-        ],
-        "extension_name": "outreach",
-        "oauth_provider": None,
-        "description": "Zero-config growth outreach bot. No API keys needed — uses the agent's built-in web browser to monitor social media for warm leads, mine competitor reviews, generate content, and manage outreach. Provide your product name, website URLs, and GitHub repos so the agent can research your business deeply and write informed, authentic content.",
-        "allowlist_type": None,
-        "allowlist_placeholder": "",
-        "allowlist_help": "",
-    },
+    # NOTE: The "outreach" bot platform has been DISABLED. It consumed
+    # excessive tokens without producing useful results. Its entry has been
+    # removed from BOT_PLATFORM_SETTINGS so the UI no longer offers it and
+    # any code that iterates over platforms skips it. Existing settings are
+    # purged at startup by DB.migrate_remove_outreach_bot_settings().
 }
 
 # Commands that each bot platform needs auto-enabled on the agent.
-# Only outreach needs this since other bots are message-response based
-# and rely on the agent's existing commands. The outreach bot proactively
-# runs tasks that require specific Marketing & Growth extensions.
-BOT_REQUIRED_COMMANDS = {
-    "outreach": [
-        # Lead Tracker
-        "Leads - Add Lead",
-        "Leads - Update Lead Status",
-        "Leads - Log Interaction",
-        "Leads - Schedule Follow Up",
-        "Leads - Get Follow Ups Due",
-        "Leads - Get Lead Details",
-        "Leads - Search Leads",
-        "Leads - Get Pipeline Summary",
-        "Leads - Get Channel Stats",
-        "Leads - List All Leads",
-        # Content Repurpose
-        "Content - Reddit to Twitter Thread",
-        "Content - Twitter to LinkedIn Post",
-        "Content - Post to Video Script",
-        "Content - Generate Reddit Post",
-        "Content - Generate Comparison Post",
-        "Content - Generate Build in Public Post",
-        "Content - Repurpose to All Platforms",
-        "Content - Generate Outreach DM",
-        # Social Monitor
-        "Monitor - Create Watch Rule",
-        "Monitor - List Watch Rules",
-        "Monitor - Delete Watch Rule",
-        "Monitor - Check Reddit",
-        "Monitor - Check Twitter",
-        "Monitor - Check All Platforms",
-        "Monitor - Get New Matches",
-        "Monitor - Generate Warm Leads Report",
-        # Review Sites
-        "Reviews - Search G2",
-        "Reviews - Search Capterra",
-        "Reviews - Search Trustpilot",
-        "Reviews - Get G2 Reviews",
-        "Reviews - Get Capterra Reviews",
-        "Reviews - Get Trustpilot Reviews",
-        "Reviews - Analyze Complaints",
-        "Reviews - Find Reviewer Profile",
-        # SEO Research
-        "SEO - Get Autocomplete Suggestions",
-        "SEO - Get People Also Ask",
-        "SEO - Get Related Searches",
-        "SEO - Get SERP Results",
-        "SEO - Generate Comparison Pages",
-        "SEO - Generate Blog Topics",
-        "SEO - Analyze Competitor Content",
-        "SEO - Find Content Gaps",
-    ],
+# Currently empty: only the outreach bot used this mechanism, and the
+# outreach bot has been disabled.
+BOT_REQUIRED_COMMANDS: dict = {
+    # "outreach" entry removed — bot disabled. Previously listed Lead Tracker,
+    # Content Repurpose, Social Monitor, Review Sites, and SEO Research commands.
 }
 
 
@@ -2059,8 +2036,7 @@ def _get_bot_manager(platform: str):
 
             return asyncio.get_event_loop().run_until_complete(get_github_bot_manager())
         elif platform == "outreach":
-            # Outreach bot manager runs in parent process, not uvicorn workers.
-            # Return None here; status is handled via Redis in _get_bot_status_for_platform.
+            # Outreach bot is disabled — no manager exists. Return None.
             return None
         return None
     except Exception as e:
@@ -2114,30 +2090,14 @@ def _get_bot_status_for_platform(
                 ),
             )
 
-        # Special handling for Outreach - it also uses Redis for cross-process status
+        # Outreach bot is disabled — always report not running.
         if platform == "outreach":
-            from OutreachBotManager import get_outreach_bot_status_from_redis
-
-            status = get_outreach_bot_status_from_redis(
-                company_id, instance_id=instance_id
+            return BotStatusResponse(
+                company_id=company_id,
+                company_name=company_name,
+                platform=platform,
+                is_running=False,
             )
-            if not status:
-                return BotStatusResponse(
-                    company_id=company_id,
-                    company_name=company_name,
-                    platform=platform,
-                    is_running=False,
-                )
-
-            extra = {}
-            if status.tasks_completed:
-                extra["tasks_completed"] = status.tasks_completed
-            if status.leads_found:
-                extra["leads_found"] = status.leads_found
-            if status.last_scan:
-                extra["last_scan"] = status.last_scan.isoformat()
-            if status.next_scan:
-                extra["next_scan"] = status.next_scan.isoformat()
             if status.active_tasks:
                 extra["active_tasks"] = status.active_tasks
 
@@ -2788,13 +2748,9 @@ async def get_bot_activity_log(
             detail="Access denied. Only company admins can view bot activity logs.",
         )
 
+    # Outreach bot is disabled — no activity log available.
     if platform == "outreach":
-        from OutreachBotManager import get_outreach_bot_activity_log
-
-        entries = get_outreach_bot_activity_log(
-            company_id, limit=min(limit, 200), instance_id=instance_id
-        )
-        return {"entries": entries, "platform": platform, "company_id": company_id}
+        return {"entries": [], "platform": platform, "company_id": company_id}
 
     return {"entries": [], "platform": platform, "company_id": company_id}
 
@@ -3103,15 +3059,13 @@ async def pause_company_bot(
 
         db.commit()
 
-    # Signal the outreach bot manager to re-sync immediately so the
-    # pause/unpause takes effect within seconds instead of up to 60s.
-    if platform == "outreach":
-        try:
-            from OutreachBotManager import request_outreach_sync
-
-            request_outreach_sync()
-        except Exception:
-            pass
+    # Outreach bot is disabled — no manager to sync.
+    # if platform == "outreach":
+    #     try:
+    #         from OutreachBotManager import request_outreach_sync
+    #         request_outreach_sync()
+    #     except Exception:
+    #         pass
 
     action = "paused" if request.paused else "unpaused"
     platform_name = _get_platform_display_name(platform)
@@ -4392,11 +4346,9 @@ async def get_server_extension_commands(
     """
     verify_super_admin(authorization)
 
-    # Import Extensions class to get available extensions and commands
-    from Extensions import Extensions
-
-    extensions_manager = Extensions(agent_config={})
-    available_extensions = extensions_manager.get_extensions()
+    # Reuse short-lived extension metadata cache so aggregate settings requests
+    # don't import/inspect extensions multiple times in the same page load.
+    _, available_extensions, _ = get_cached_extension_metadata()
 
     # Load server-level command states
     with get_session() as db:
@@ -4588,6 +4540,15 @@ class OAuthProvidersResponse(BaseModel):
     providers: List[OAuthProviderItem]
 
 
+class ServerSettingsAggregateResponse(BaseModel):
+    """Aggregated settings payload for the web settings page."""
+
+    extension_settings: ServerExtensionSettingsResponse
+    extension_commands: Dict[str, Any]
+    server_config: ServerConfigResponse
+    oauth_providers: Optional[OAuthProvidersResponse] = None
+
+
 class OAuthProviderSettingUpdate(BaseModel):
     """Request to update an OAuth provider setting."""
 
@@ -4664,6 +4625,14 @@ async def get_server_oauth_providers(
 
     providers = []
     extension_files = find_extension_files()
+    with get_session() as db:
+        oauth_db_settings = db.query(ServerExtensionSetting).all()
+    oauth_db_values = {}
+    for setting in oauth_db_settings:
+        value = setting.setting_value
+        if setting.is_sensitive and value:
+            value = decrypt_config_value(value)
+        oauth_db_values[(setting.extension_name, setting.setting_key)] = value
 
     for extension_file in extension_files:
         filename = os.path.basename(extension_file)
@@ -4734,20 +4703,10 @@ async def get_server_oauth_providers(
             env_value = os.getenv(setting_key)
             if env_value:
                 return env_value
-            # Then check ServerExtensionSetting table
-            with get_session() as db:
-                setting = (
-                    db.query(ServerExtensionSetting)
-                    .filter(
-                        ServerExtensionSetting.extension_name == provider_name,
-                        ServerExtensionSetting.setting_key == setting_key,
-                    )
-                    .first()
-                )
-                if setting and setting.setting_value:
-                    if setting.is_sensitive:
-                        return decrypt_config_value(setting.setting_value)
-                    return setting.setting_value
+            # Then check preloaded ServerExtensionSetting rows
+            value = oauth_db_values.get((provider_name, setting_key))
+            if value:
+                return value
             return None
 
         client_id = get_oauth_setting(module_name, client_id_key)
@@ -4812,6 +4771,50 @@ async def get_server_oauth_providers(
     providers.sort(key=lambda x: (not x.is_configured, x.friendly_name))
 
     return OAuthProvidersResponse(providers=providers)
+
+
+@app.get(
+    "/v1/server/settings-aggregate",
+    tags=["Server Config"],
+    response_model=ServerSettingsAggregateResponse,
+    summary="Get aggregated server settings (super admin only)",
+    description=(
+        "Returns server extension settings, extension commands, server config, "
+        "and OAuth provider settings in one response for faster settings-page load."
+    ),
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_server_settings_aggregate(
+    authorization: str = Header(None),
+    include_oauth: bool = True,
+):
+    """
+    Aggregate the server settings data needed by the web settings page.
+
+    The individual endpoints remain available and unchanged. This endpoint
+    reduces frontend round trips from four authenticated requests to one, which
+    improves perceived settings-page load time without changing functionality.
+    """
+    aggregate_tasks = [
+        get_server_extension_settings(authorization=authorization),
+        get_server_extension_commands(authorization=authorization),
+        get_all_server_config(authorization=authorization, include_sensitive=True),
+    ]
+    if include_oauth:
+        aggregate_tasks.append(get_server_oauth_providers(authorization=authorization))
+
+    aggregate_results = await asyncio.gather(*aggregate_tasks)
+    extension_settings = aggregate_results[0]
+    extension_commands = aggregate_results[1]
+    server_config = aggregate_results[2]
+    oauth_providers = aggregate_results[3] if include_oauth else None
+
+    return ServerSettingsAggregateResponse(
+        extension_settings=extension_settings,
+        extension_commands=extension_commands,
+        server_config=server_config,
+        oauth_providers=oauth_providers,
+    )
 
 
 @app.put(
@@ -4962,7 +4965,18 @@ def verify_company_admin(authorization: str, company_id: str) -> MagicalAuth:
 
     # Check if user is admin of the company
     user_role = auth.get_user_role(company_id)
-    if user_role not in ["admin", "Admin"]:
+    if isinstance(user_role, int):
+        is_company_admin = user_role <= 2
+    else:
+        is_company_admin = user_role in [
+            "admin",
+            "Admin",
+            "tenant_admin",
+            "Tenant Admin",
+            "company_admin",
+            "Company Admin",
+        ]
+    if not is_company_admin:
         raise HTTPException(
             status_code=403,
             detail="Access denied. Company admin role required.",
@@ -5821,19 +5835,21 @@ async def github_webhook(
             raise HTTPException(status_code=404, detail="Company not found")
 
         # Check if GitHub bot is enabled
-        bot_enabled_setting = (
+        bot_enabled_settings = (
             db.query(CompanyExtensionSetting)
             .filter(
                 CompanyExtensionSetting.company_id == company_id,
                 CompanyExtensionSetting.extension_name == "github",
-                CompanyExtensionSetting.setting_key == "GITHUB_BOT_ENABLED",
+                CompanyExtensionSetting.setting_key.in_(
+                    ["github_bot_enabled", "GITHUB_BOT_ENABLED"]
+                ),
             )
-            .first()
+            .all()
         )
 
-        if (
-            not bot_enabled_setting
-            or bot_enabled_setting.setting_value.lower() != "true"
+        if not any(
+            (setting.setting_value or "").lower() == "true"
+            for setting in bot_enabled_settings
         ):
             raise HTTPException(
                 status_code=400, detail="GitHub bot is not enabled for this company"
@@ -5884,9 +5900,9 @@ async def github_webhook(
 
     # Process the webhook event using GitHubBotManager
     try:
-        from GitHubBotManager import GitHubBotManager
+        from GitHubBotManager import get_github_bot_manager
 
-        manager = GitHubBotManager(company_id=company_id)
+        manager = await get_github_bot_manager()
         result = await manager.handle_webhook(
             event_type=event_type,
             payload=payload,

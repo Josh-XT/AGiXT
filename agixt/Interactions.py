@@ -29,16 +29,6 @@ from MagicalAuth import (
 from Globals import getenv, DEFAULT_USER, get_tokens
 from WebhookManager import WebhookEventEmitter
 from middleware import log_silenced_exception
-from Complexity import (
-    ComplexityScore,
-    ComplexityTier,
-    should_intervene,
-    count_thinking_steps,
-    get_planning_phase_prompt,
-    get_todo_review_prompt,
-    get_answer_review_prompt,
-    check_todo_list_exists,
-)
 
 logging.basicConfig(
     level=getenv("LOG_LEVEL"),
@@ -58,6 +48,9 @@ _RE_THINKING_OPEN = re.compile(r"<think(?:ing)?>", re.IGNORECASE)
 _RE_THINKING_CLOSE = re.compile(r"</think(?:ing)?>", re.IGNORECASE)
 _RE_REFLECTION_OPEN = re.compile(r"<reflection>", re.IGNORECASE)
 _RE_REFLECTION_CLOSE = re.compile(r"</reflection>", re.IGNORECASE)
+_RE_PROTOCOL_ANSWER_BOUNDARY = re.compile(
+    r"(</(?:think(?:ing)?|reflection)>)\s*(<answer>)", re.IGNORECASE
+)
 _RE_CLOSING_TAG = re.compile(
     r"</(think(?:ing)?|reflection|step|execute|output)>\s*$", re.IGNORECASE
 )
@@ -83,6 +76,92 @@ _RE_REFLECTION_BLOCK = re.compile(
 _RE_MULTI_NEWLINE = re.compile(r"\n\s*\n\s*\n")
 _RE_TRIPLE_NEWLINE = re.compile(r"\n{3,}")
 _RE_CUSTOM_FORMAT = re.compile(r"(?<!{){([^{}\n]+)}(?!})")
+_RE_MARKDOWN_FENCE_LINE = re.compile(r"(?m)^[ \t]*(`{3,}|~{3,})")
+_RE_PROTOCOL_CONTAINER_TAG = re.compile(
+    r"</?(think(?:ing)?|reflection)>", re.IGNORECASE
+)
+
+
+def _get_unclosed_markdown_fence_marker(text: str) -> str:
+    """
+    Return the currently open markdown fence marker, if the text ends inside one.
+    """
+    open_marker = ""
+    for match in _RE_MARKDOWN_FENCE_LINE.finditer(text or ""):
+        marker = match.group(1)
+        if not open_marker:
+            open_marker = marker
+        elif marker[0] == open_marker[0] and len(marker) >= len(open_marker):
+            open_marker = ""
+    return open_marker
+
+
+def _get_unclosed_protocol_container_closers(text: str) -> list[str]:
+    """
+    Return closing tags needed to leave dangling thinking/reflection containers.
+
+    Recovery can happen after the stream parser has shown answer text to the UI
+    while the raw provider text still contains an unclosed <think>/<thinking> or
+    <reflection> block. A recovered <answer> must be appended outside those
+    containers or has_complete_answer() will keep treating it as hidden work.
+    """
+    stack = []
+    for match in _RE_PROTOCOL_CONTAINER_TAG.finditer(text or ""):
+        raw_tag = match.group(0).lower()
+        tag_name = match.group(1).lower()
+        canonical_name = "thinking" if tag_name in ("think", "thinking") else tag_name
+
+        if raw_tag.startswith("</"):
+            for idx in range(len(stack) - 1, -1, -1):
+                if stack[idx][0] == canonical_name:
+                    del stack[idx:]
+                    break
+            continue
+
+        close_tag = "</think>" if tag_name == "think" else f"</{canonical_name}>"
+        stack.append((canonical_name, close_tag))
+
+    return [close_tag for _, close_tag in reversed(stack)]
+
+
+def _append_recovered_answer_block(response: str, answer_text: str) -> str:
+    """
+    Append a synthetic protocol answer outside markdown/code/protocol boundaries.
+    """
+    response = response or ""
+    answer_text = (answer_text or "").strip()
+    if not answer_text:
+        return response
+
+    additions = []
+    if response and not response.endswith(("\n", "\r")):
+        additions.append("\n")
+    open_fence = _get_unclosed_markdown_fence_marker(response)
+    if open_fence:
+        additions.append(f"\n{open_fence}\n")
+
+    for close_tag in _get_unclosed_protocol_container_closers(
+        response + "".join(additions)
+    ):
+        additions.append(f"{close_tag}\n")
+
+    additions.append(f"<answer>{answer_text}</answer>")
+    return response + "".join(additions)
+
+
+def _close_recovered_answer_block(response: str) -> str:
+    """
+    Close an already-open top-level answer after streamed content was emitted.
+    """
+    response = response or ""
+    additions = []
+    open_fence = _get_unclosed_markdown_fence_marker(response)
+    if open_fence:
+        if response and not response.endswith(("\n", "\r")):
+            additions.append("\n")
+        additions.append(f"{open_fence}\n")
+    additions.append("</answer>")
+    return response + "".join(additions)
 
 
 def _convert_interaction_to_execute(response: str) -> str:
@@ -166,6 +245,436 @@ _RE_THINKING_REFLECTION = re.compile(
     r"<(think(?:ing)?|reflection)>(.*?)(?=<(?:think(?:ing)?|reflection|answer)|$)",
     re.DOTALL,
 )
+
+
+async def _ability_selection_inference(server_url: str, model: str, prompt: str) -> str:
+    """
+    Make a direct inference call to a dedicated ability selection server.
+
+    Uses the OpenAI-compatible chat completions API to call a fast, small model
+    for command/ability selection. This avoids tying up the main LLM provider
+    for the lightweight selection step.
+
+    Args:
+        server_url: Base URL of the ezlocalai/OpenAI-compatible server
+        model: Model name to use for inference
+        prompt: The selection prompt
+
+    Returns:
+        str: The model's response text
+    """
+    import requests
+    from functools import partial
+
+    api_url = server_url.rstrip("/")
+    if "/v1" not in api_url:
+        api_url += "/v1"
+    api_url = api_url.rstrip("/") + "/chat/completions"
+
+    api_key = getenv("EZLOCALAI_API_KEY", "none")
+    if not api_key:
+        api_key = "none"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.3,
+        "top_p": 0.9,
+        "stream": False,
+    }
+
+    loop = asyncio.get_event_loop()
+    try:
+        resp = await loop.run_in_executor(
+            None,
+            partial(
+                requests.post,
+                api_url,
+                headers=headers,
+                json=payload,
+                timeout=(600, 120),
+            ),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        response = data["choices"][0]["message"]["content"]
+        # Strip thinking tags if present
+        response = _RE_THINKING_REFLECTION.sub("", response).strip()
+        if "<answer>" in response:
+            response = response.split("<answer>")[-1]
+        if "</answer>" in response:
+            response = response.split("</answer>")[0]
+        return response.strip()
+    except Exception as e:
+        logging.error(f"[_ability_selection_inference] Error: {e}")
+        return ""
+
+
+def _small_model_inference_sync(
+    prompt: str,
+    temperature: float = 0.3,
+    max_tokens: int = 900,
+) -> str:
+    """
+    Synchronous call to the small (0.8B) model for utility tasks like summarization.
+    Uses the same server/model as ability selection.
+    """
+    import requests as _requests
+
+    server_url = getenv("ABILITY_SELECTION_SERVER", "")
+    model = getenv("ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-4B-GGUF")
+    if not server_url:
+        return ""
+
+    api_url = server_url.rstrip("/")
+    if "/v1" not in api_url:
+        api_url += "/v1"
+    api_url = api_url.rstrip("/") + "/chat/completions"
+
+    api_key = getenv("EZLOCALAI_API_KEY", "none") or "none"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temperature,
+        "top_p": 0.9,
+        "max_tokens": max_tokens,
+        "stream": False,
+    }
+
+    try:
+        resp = _requests.post(api_url, headers=headers, json=payload, timeout=(10, 120))
+        resp.raise_for_status()
+        data = resp.json()
+        response = data["choices"][0]["message"]["content"]
+        response = _RE_THINKING_REFLECTION.sub("", response).strip()
+        if "<answer>" in response:
+            response = response.split("<answer>")[-1]
+        if "</answer>" in response:
+            response = response.split("</answer>")[0]
+        return response.strip()
+    except Exception as e:
+        logging.error(f"[_small_model_inference_sync] Error: {e}")
+        return ""
+
+
+def generate_conversation_summary(
+    messages: list,
+    existing_summary: str = "",
+    conversation_name: str = "",
+) -> str:
+    """
+    Generate or update a conversation summary using the small model.
+
+    Args:
+        messages: List of dicts with 'role' and 'message' keys
+        existing_summary: Current summary to update (empty for new)
+        conversation_name: Name of the conversation for context
+
+    Returns:
+        Updated summary string
+    """
+    if not messages:
+        return existing_summary
+    logging.info(
+        f"[generate_conversation_summary] Starting for '{conversation_name}' ({len(messages)} messages)"
+    )
+
+    # Build conversation text, chunk through 100k at a time
+    CHUNK_SIZE = 100000
+    all_text = ""
+    for msg in messages:
+        role = msg.get("role", "unknown")
+        content = msg.get("message", "")
+        if (
+            not content
+            or content.startswith("[ACTIVITY]")
+            or content.startswith("[SUBACTIVITY]")
+        ):
+            continue
+        all_text += f"{role}: {content}\n\n"
+
+    if not all_text.strip():
+        return existing_summary
+
+    # Process in chunks
+    running_summary = existing_summary
+    chunks = []
+    for i in range(0, len(all_text), CHUNK_SIZE):
+        chunks.append(all_text[i : i + CHUNK_SIZE])
+
+    for chunk_idx, chunk in enumerate(chunks):
+        if running_summary:
+            prompt = f"""You are analyzing a conversation to maintain a living summary. Below is the current summary followed by the next portion of conversation.
+
+## Current Summary
+{running_summary}
+
+## Conversation Chunk ({chunk_idx + 1}/{len(chunks)})
+{chunk}
+
+## Instructions
+Update the summary to incorporate new information from this conversation chunk. The summary should capture:
+
+1. **Topics Discussed**: Key subjects and themes covered
+2. **User Preferences & Style**: Communication preferences, technical level, preferred approaches, what they like/dislike
+3. **Lessons Learned**: What worked well and what didn't. Successful approaches the AI used that the user responded positively to
+4. **Key Decisions**: Important choices or conclusions reached
+5. **User Context**: Personal/professional details shared that help understand the user better
+6. **AI Behavior Notes**: Things the AI did well (approaches that resolved the user's needs effectively) and things to avoid
+
+Keep the summary concise but comprehensive. Focus on durable insights that would be useful in future conversations. Remove outdated information if superseded. Write in third person about the user."""
+        else:
+            prompt = f"""You are analyzing a conversation to create a summary. Below is a portion of the conversation.
+
+## Conversation: {conversation_name}
+## Chunk ({chunk_idx + 1}/{len(chunks)})
+{chunk}
+
+## Instructions
+Create a summary of this conversation. The summary should capture:
+
+1. **Topics Discussed**: Key subjects and themes covered
+2. **User Preferences & Style**: Communication preferences, technical level, preferred approaches, what they like/dislike
+3. **Lessons Learned**: What worked well and what didn't. Successful approaches the AI used that the user responded positively to
+4. **Key Decisions**: Important choices or conclusions reached
+5. **User Context**: Personal/professional details shared that help understand the user better
+6. **AI Behavior Notes**: Things the AI did well (approaches that resolved the user's needs effectively) and things to avoid
+
+Keep the summary concise but comprehensive. Focus on durable insights that would be useful in future conversations. Write in third person about the user."""
+
+        result = _small_model_inference_sync(prompt, temperature=0.3)
+        if result:
+            running_summary = result
+            logging.info(
+                f"[generate_conversation_summary] Chunk {chunk_idx + 1}/{len(chunks)} processed ({len(result)} chars)"
+            )
+
+    logging.info(
+        f"[generate_conversation_summary] Complete for '{conversation_name}' ({len(running_summary)} chars)"
+    )
+    return running_summary
+
+
+async def update_conversation_summary_after_interaction(
+    conversation: "Conversations",
+    user_input: str,
+    agent_response: str,
+    agent_name: str,
+    user_id: str = "",
+):
+    """
+    Update the conversation summary after an interaction using the small model.
+    Also updates the persistent user knowledge profile.
+    Runs in a background thread to avoid blocking the response.
+    """
+    try:
+        conversation_name = conversation.conversation_name
+        logging.info(
+            f"[update_conversation_summary] Starting background update for '{conversation_name}'"
+        )
+
+        def _do_update():
+            existing_summary = conversation.get_conversation_summary()
+            if existing_summary:
+                prompt = f"""You are maintaining a living conversation summary. A new interaction just occurred.
+
+## Current Summary
+{existing_summary}
+
+## Latest Interaction
+User: {user_input[:12000]}
+
+{agent_name}: {agent_response[:12000]}
+
+## Instructions
+Update the summary to incorporate this latest interaction. Focus on:
+
+1. **New topics or context** introduced in this exchange
+2. **User preferences** revealed (communication style, what they want, how they respond)
+3. **What worked well** in the AI's response (if the user seemed satisfied or the request was resolved)
+4. **Lessons learned** about how to better serve this user
+5. **Key decisions or outcomes** from this exchange
+
+Keep previous summary content that's still relevant. Be concise but comprehensive. Write in third person about the user."""
+            else:
+                prompt = f"""You are creating an initial conversation summary based on an interaction.
+
+## Conversation: {conversation_name}
+
+## Interaction
+User: {user_input[:12000]}
+
+{agent_name}: {agent_response[:12000]}
+
+## Instructions
+Create an initial summary capturing:
+
+1. **Topics Discussed**: What this conversation is about
+2. **User Preferences & Style**: Any communication preferences or context about the user
+3. **What Worked Well**: Effective approaches used in the response
+4. **Key Outcomes**: Results or decisions from this exchange
+5. **User Context**: Any personal/professional details that help understand the user
+
+Be concise but comprehensive. Write in third person about the user."""
+
+            result = _small_model_inference_sync(
+                prompt,
+                temperature=0.3,
+                max_tokens=800,
+            )
+            if result:
+                conversation.set_conversation_summary(result)
+                logging.info(
+                    f"[update_conversation_summary] Saved summary for '{conversation_name}' ({len(result)} chars)"
+                )
+
+            # Also update persistent user knowledge profile
+            if user_id:
+                try:
+                    update_user_knowledge_after_interaction(
+                        user_id=user_id,
+                        user_input=user_input,
+                        agent_response=agent_response,
+                        agent_name=agent_name,
+                        conversation_name=conversation_name,
+                    )
+                except Exception as e:
+                    logging.warning(
+                        f"[update_user_knowledge] Error in background thread: {e}"
+                    )
+
+        import threading
+
+        thread = threading.Thread(target=_do_update, daemon=True)
+        thread.start()
+    except Exception as e:
+        logging.warning(f"[update_conversation_summary] Error: {e}")
+
+
+def get_user_knowledge(user_id: str) -> str:
+    """Get the agent-maintained knowledge about a user."""
+    from DB import get_session, User
+
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == user_id).first()
+        if user and user.knowledge:
+            return user.knowledge
+        return ""
+    except Exception as e:
+        logging.warning(f"[get_user_knowledge] Error: {e}")
+        return ""
+    finally:
+        session.close()
+
+
+def set_user_knowledge(user_id: str, knowledge: str) -> str:
+    """Set the agent-maintained knowledge about a user."""
+    from DB import get_session, User
+
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == user_id).first()
+        if user:
+            user.knowledge = knowledge
+            session.commit()
+            return knowledge
+        return ""
+    except Exception as e:
+        logging.warning(f"[set_user_knowledge] Error: {e}")
+        return ""
+    finally:
+        session.close()
+
+
+def update_user_knowledge_after_interaction(
+    user_id: str,
+    user_input: str,
+    agent_response: str,
+    agent_name: str,
+    conversation_name: str = "",
+):
+    """
+    Extract and update persistent user knowledge from an interaction.
+    Called synchronously from a background thread.
+    Focuses on personal details, preferences, and behavioral patterns — NOT code or technical content.
+    """
+    existing_knowledge = get_user_knowledge(user_id)
+
+    if existing_knowledge:
+        prompt = f"""You are maintaining a persistent knowledge profile about a user based on their interactions with an AI assistant. A new interaction just occurred.
+
+## Current User Knowledge
+{existing_knowledge}
+
+## Latest Interaction (Conversation: {conversation_name})
+User: {user_input[:8000]}
+
+{agent_name}: {agent_response[:8000]}
+
+## Instructions
+Update the user knowledge profile to incorporate any new personal insights from this interaction. Focus ONLY on:
+
+1. **Personal Details**: Names (family, pets, friends), locations, age, occupation, company, relationships
+2. **Preferences & Tastes**: Favorite things, communication style preferences, how they like to work, tools they prefer
+3. **Lifestyle**: Diet, exercise routine, hobbies, interests, daily habits, routines
+4. **Professional Context**: Role, industry, projects, team, goals, challenges
+5. **Communication Patterns**: How they ask questions, level of detail they want, tone preferences
+6. **Important Dates**: Birthdays, anniversaries, deadlines they've mentioned
+7. **Values & Priorities**: What matters to them, what frustrates them, what delights them
+
+DO NOT include:
+- Code snippets, technical implementations, or project-specific details
+- Conversation-specific task context (that belongs in conversation summaries)
+- Anything the user hasn't explicitly shared or strongly implied
+
+Keep previous knowledge that's still relevant. Remove anything that's been contradicted or corrected. Be concise — use bullet points. If there's nothing new to add about the user personally, return the existing knowledge unchanged."""
+    else:
+        prompt = f"""You are creating an initial knowledge profile about a user based on their interaction with an AI assistant.
+
+## Interaction (Conversation: {conversation_name})
+User: {user_input[:8000]}
+
+{agent_name}: {agent_response[:8000]}
+
+## Instructions
+Extract any personal insights about the user from this interaction. Focus ONLY on:
+
+1. **Personal Details**: Names (family, pets, friends), locations, age, occupation
+2. **Preferences & Tastes**: Communication style, how they like to work, tools they prefer  
+3. **Lifestyle**: Diet, exercise, hobbies, interests, daily habits
+4. **Professional Context**: Role, industry, projects, team, goals
+5. **Communication Patterns**: How they ask questions, level of detail they want
+6. **Values & Priorities**: What matters to them, what frustrates them
+
+DO NOT include code, technical details, or task-specific context.
+If there's nothing personal to extract from this interaction, respond with exactly: NO_UPDATE
+
+Be concise — use bullet points."""
+
+    result = _small_model_inference_sync(
+        prompt,
+        temperature=0.3,
+        max_tokens=600,
+    )
+    if result and result.strip().upper() != "NO_UPDATE":
+        set_user_knowledge(user_id, result)
+        preview = " ".join(result.split())[:220]
+        logging.info(
+            f"[update_user_knowledge] Saved knowledge for user {user_id[:8]}... ({len(result)} chars) preview='{preview}'"
+        )
+    elif result:
+        logging.info(
+            f"[update_user_knowledge] Model returned NO_UPDATE for user {user_id[:8]}..."
+        )
 
 
 async def stream_inference_to_string(agent, prompt: str, **kwargs) -> str:
@@ -283,7 +792,8 @@ def extract_top_level_answer(response: str) -> str:
     Extract the content from a top-level <answer>...</answer> block.
 
     This properly handles cases where <answer> appears inside <thinking> blocks:
-    - <thinking>The <answer> block format...</thinking><answer>Real answer</answer>
+    - <thinking>The <answer> block format...</thinking>
+      <answer>Real answer</answer>
       → Returns "Real answer"
     - <answer>Simple answer</answer>
       → Returns "Simple answer"
@@ -358,10 +868,13 @@ def is_real_answer_tag(response: str, match_start: int) -> bool:
     Determine if an <answer> tag at the given position is a real XML tag
     or just a mention in natural language (e.g., "I'll respond in the <answer> block").
 
-    A real answer tag is typically:
+    A real answer tag must be:
     1. At the start of the string, OR
-    2. Preceded by a newline (possibly with whitespace), OR
-    3. Preceded by a closing tag like </thinking> or </reflection>
+    2. The first thing on a new line
+
+    It must not be inside a fenced markdown code block. This allows AGiXT to
+    safely discuss or write literal <answer> tags while coding without
+    accidentally ending the reasoning/acting phase.
 
     This is much stricter than trying to detect fake tags by context after the tag.
 
@@ -372,30 +885,23 @@ def is_real_answer_tag(response: str, match_start: int) -> bool:
     Returns:
         bool: True if this appears to be a real XML tag, False if it's just a mention
     """
-    # At start of string - real tag
+    text_before = response[:match_start]
+
+    # Reject answer tags inside fenced markdown code blocks. Count opening and
+    # closing fences before the candidate tag; an odd count means the tag is
+    # code/content, not the protocol boundary.
+    fence_count = len(re.findall(r"(?m)^[ \t]*(?:```|~~~)", text_before))
+    if fence_count % 2 != 0:
+        return False
+
+    # At start of string - real tag.
     if match_start == 0:
         return True
 
-    # Get text before the tag
-    text_before = response[:match_start]
-
-    # Check if preceded by newline (with optional whitespace)
-    # This matches: \n<answer>, \n  <answer>, etc.
-    stripped_before = text_before.rstrip(" \t")
-    if stripped_before.endswith("\n") or stripped_before.endswith("\r"):
-        return True
-
-    # Check if preceded by a closing tag (like </thinking> or </reflection>)
-    # Allow optional whitespace between closing tag and <answer>
-    if _RE_CLOSING_TAG.search(text_before):
-        return True
-
-    # Check if preceded by just ">" (end of some other tag)
-    if stripped_before.endswith(">"):
-        return True
-
-    # Otherwise, it's likely just mentioned in text
-    return False
+    # The opening answer tag must be the first thing on a new line. Do not
+    # allow inline tags after sentences, closing tags, indentation, or code.
+    previous_char = response[match_start - 1]
+    return previous_char in ("\n", "\r")
 
 
 def find_real_answer_tags(response: str, tag_type: str = "open") -> list:
@@ -442,7 +948,8 @@ def has_complete_answer(response: str) -> bool:
     - <thinking><answer>fake</answer></thinking> - NOT a valid top-level answer
     - <answer><step>plan step</step></answer> - NOT COMPLETE (only contains step tags)
     - <thinking>I'll put my response in the <answer> block</thinking> - NOT an answer (just mentioned in text)
-    - <thinking><name>tool_name</name></thinking><answer>...</answer> - NOT COMPLETE (has unexecuted tool call)
+    - <thinking><name>tool_name</name></thinking>
+      <answer>...</answer> - NOT COMPLETE (has unexecuted tool call)
 
     Returns:
         bool: True if there's a complete top-level answer block with meaningful content
@@ -576,7 +1083,8 @@ def is_inside_top_level_answer(response: str, position: int = None) -> bool:
 
     This handles cases where <thinking> appears inside <answer>:
     - <answer>Text <thinking>thought</thinking> more</answer> - position after <thinking> IS inside answer
-    - <thinking>thoughts</thinking><answer>text - position at end IS inside answer
+    - <thinking>thoughts</thinking>
+      <answer>text - position at end IS inside answer
     - <thinking><answer>text</answer></thinking> - the answer is NOT top-level
     - <thinking>I'll put response in the <answer> block</thinking> - NOT an answer (just mentioned)
 
@@ -696,6 +1204,11 @@ class Interactions:
         self.chain = Chain(user=user)
         self.cp = Prompts(user=user)
         self._processed_commands = set()
+        # Cumulative count of commands skipped because they were already-executed.
+        # Used by run_stream to detect a model stuck regenerating commands across
+        # many iterations even when one new variant slips through each round.
+        self._total_dedup_count = 0
+        self._last_iteration_dedup_count = 0
 
     def _check_cancelled(self):
         """
@@ -707,45 +1220,128 @@ class Interactions:
         if task and task.cancelled():
             raise asyncio.CancelledError("Task was cancelled by user")
 
+    # Directories that are noisy / huge and should be collapsed in the
+    # workspace file tree shown to the agent. The directory itself is still
+    # listed (so the agent knows it exists) but its contents are replaced
+    # with a "..." marker. The agent can use shell commands to inspect them
+    # if it really needs to.
+    _COLLAPSED_TREE_DIRS = frozenset(
+        {
+            "node_modules",
+            ".git",
+            ".venv",
+            "venv",
+            "env",
+            ".env",
+            "__pycache__",
+            ".mypy_cache",
+            ".pytest_cache",
+            ".ruff_cache",
+            ".tox",
+            ".next",
+            ".nuxt",
+            ".cache",
+            ".turbo",
+            ".parcel-cache",
+            "dist",
+            "build",
+            "out",
+            "target",
+            ".gradle",
+            ".idea",
+            ".vscode",
+            ".DS_Store",
+            "coverage",
+            ".nyc_output",
+            "vendor",
+            "bower_components",
+            ".terraform",
+            ".serverless",
+            "site-packages",
+            "Pods",
+            "DerivedData",
+        }
+    )
+
+    # Hard cap on number of nodes (files + dirs) rendered in the tree.
+    # Prevents pathological workspaces from blowing up context.
+    _FILE_TREE_MAX_NODES = 500
+
     @staticmethod
     def _build_file_tree(file_paths: list) -> str:
         """Build an indented file tree string from a list of relative file paths.
+
+        Collapses noisy directories (node_modules, .git, .venv, etc.) to a
+        "..." marker and truncates trees larger than ``_FILE_TREE_MAX_NODES``
+        nodes so it can never blow out the context window.
 
         Example output:
           ├── report.csv
           ├── data/
           │   ├── input.xlsx
           │   └── output.json
+          ├── node_modules/
+          │   └── ... (collapsed, use terminal to inspect)
           └── notes.txt
         """
         if not file_paths:
             return "(empty)"
-        # Build a nested dict representing the directory structure
+        collapsed = Interactions._COLLAPSED_TREE_DIRS
+        max_nodes = Interactions._FILE_TREE_MAX_NODES
+
+        # Build a nested dict representing the directory structure.
+        # When we encounter a path component whose name is in the collapsed
+        # set, we mark that node as collapsed and stop descending.
         tree = {}
+        collapsed_dirs = set()  # ids of dict nodes that are collapsed
         for path in sorted(file_paths):
             parts = path.replace("\\", "/").split("/")
             node = tree
-            for part in parts:
+            for idx, part in enumerate(parts):
                 if part not in node:
                     node[part] = {}
-                node = node[part]
+                child = node[part]
+                # If this component is a noisy dir AND it's not the leaf file,
+                # mark it collapsed and skip its descendants.
+                is_dir = idx < len(parts) - 1
+                if is_dir and part in collapsed:
+                    collapsed_dirs.add(id(child))
+                    break
+                node = child
 
         lines = []
+        node_count = [0]
+        truncated = [False]
 
         def _render(node, prefix=""):
             entries = sorted(node.keys(), key=lambda k: (not bool(node[k]), k.lower()))
             for i, name in enumerate(entries):
+                if node_count[0] >= max_nodes:
+                    truncated[0] = True
+                    return
                 is_last = i == len(entries) - 1
                 connector = "└── " if is_last else "├── "
                 child = node[name]
-                if child:  # directory
+                if child or id(child) in collapsed_dirs:  # directory
                     lines.append(f"{prefix}{connector}{name}/")
+                    node_count[0] += 1
                     extension = "    " if is_last else "│   "
-                    _render(child, prefix + extension)
+                    if id(child) in collapsed_dirs:
+                        lines.append(
+                            f"{prefix}{extension}└── ... (collapsed, use terminal to inspect)"
+                        )
+                        node_count[0] += 1
+                    else:
+                        _render(child, prefix + extension)
                 else:  # file
                     lines.append(f"{prefix}{connector}{name}")
+                    node_count[0] += 1
 
         _render(tree)
+        if truncated[0]:
+            lines.append(
+                f"... (tree truncated at {max_nodes} entries, use terminal to inspect more)"
+            )
         return "\n".join(lines)
 
     def custom_format(self, string, **kwargs):
@@ -780,6 +1376,17 @@ class Interactions:
         # Reserve some tokens for the response (about 25% of max)
         if max_context_tokens is None:
             max_context_tokens = int(self.agent.max_input_tokens * 0.75)
+        # Apply a hard ceiling so we never blow past the model server's real
+        # context window (e.g. ezlocalai n_ctx). Even when an agent is
+        # configured with a very large MAX_TOKENS, model coherence degrades
+        # well before 1M tokens, so we cap the *input* portion at 200k by
+        # default. Configurable via MAX_CONTEXT_TOKENS_HARD_CAP env var.
+        try:
+            hard_cap = int(getenv("MAX_CONTEXT_TOKENS_HARD_CAP", "200000"))
+        except (TypeError, ValueError):
+            hard_cap = 200000
+        if hard_cap > 0 and max_context_tokens > hard_cap:
+            max_context_tokens = hard_cap
         if "user_input" in kwargs and user_input == "":
             user_input = kwargs["user_input"]
         prompt_name = prompt if prompt != "" else "Custom Input"
@@ -810,7 +1417,7 @@ class Interactions:
         )
         conversation_id = c.get_conversation_id()
         conversation_outputs = (
-            f"http://localhost:7437/outputs/{self.agent.agent_id}/{conversation_id}"
+            f"http://localhost:7437/outputs/{self.agent.agent_id}/{conversation_id}/"
         )
         context = []
         if int(top_results) > 0:
@@ -927,7 +1534,10 @@ class Interactions:
         if agent_tasks != "":
             context.append(agent_tasks)
         conversation_history = ""
-        conversation = c.get_conversation()
+        # Fetch a wider window than the default to avoid silently dropping
+        # relevant turns in longer chats before we apply our own slicing.
+        history_fetch_limit = max(200, min(2000, conversation_results * 20))
+        conversation = c.get_conversation(limit=history_fetch_limit, page=1)
         if "interactions" in conversation:
             if conversation["interactions"] != []:
                 activity_history = [
@@ -975,11 +1585,36 @@ class Interactions:
                     interactions = interactions[-conversation_results:]
                     conversation_history = "\n".join(interactions)
                 conversation_history += "\n## The assistant's recent activities:\n"
-                conversation_history += c.get_activities_with_subactivities()
+                activity_window = max(12, min(80, conversation_results * 4))
+                subactivity_window = max(6, min(20, conversation_results * 2))
+                conversation_history += c.get_activities_with_subactivities(
+                    max_activities=activity_window,
+                    max_subactivities_per_activity=subactivity_window,
+                )
         if conversation_history != "":
             context.append(
                 f"### Recent Activities and Conversation History\n{conversation_history}\n"
             )
+        # Inject conversation summary for long-term memory / alignment
+        try:
+            conversation_summary = c.get_conversation_summary()
+            if conversation_summary:
+                context.append(
+                    f"### Conversation Summary\nThe following is a living summary of this conversation capturing key topics, user preferences, lessons learned, and important context:\n{conversation_summary}\n"
+                )
+        except Exception as e:
+            log_silenced_exception(e, "format_prompt: getting conversation summary")
+        # Inject persistent user knowledge profile
+        try:
+            user_id = getattr(self, "user_id", "")
+            if user_id:
+                user_knowledge = get_user_knowledge(user_id)
+                if user_knowledge:
+                    context.append(
+                        f"### User Knowledge\nThe following are observations about this user gathered over time across conversations. Use this to personalize responses and remember important details about them:\n{user_knowledge}\n"
+                    )
+        except Exception as e:
+            log_silenced_exception(e, "format_prompt: getting user knowledge")
         persona = ""
         if "PERSONA" in self.agent.AGENT_CONFIG["settings"]:
             persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
@@ -1774,18 +2409,67 @@ Total tokens: {total_tokens}, Target: {target_tokens} tokens.
 Respond with ONLY a comma-separated list of section names to KEEP, or "all" if all are needed.
 Example: memories, persona, files"""
 
-        try:
-            selection_response = await stream_inference_to_string(
-                self.agent, prompt=section_selection_prompt
-            )
+        # Use dedicated ability selection server if configured (fast small model)
+        ability_selection_server = getenv("ABILITY_SELECTION_SERVER")
+        ability_selection_model = getenv(
+            "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-4B-GGUF"
+        )
 
-            if selection_response.strip().lower() == "all":
-                # Need all sections, but may need to prune within sections
+        try:
+            if ability_selection_server:
+                selection_response = await _ability_selection_inference(
+                    server_url=ability_selection_server,
+                    model=ability_selection_model,
+                    prompt=section_selection_prompt,
+                )
+            else:
+                selection_response = await stream_inference_to_string(
+                    self.agent, prompt=section_selection_prompt
+                )
+
+            # Robust parser: strip code fences, markdown bold/italics, quotes,
+            # backticks, and any leading "answer:"/"keep:" prefixes that small
+            # models commonly produce. Without this, a single stray ``` or
+            # whitespace can cause the keep-list to be empty, dropping ALL
+            # context to 0 tokens (observed in production logs).
+            raw = (selection_response or "").strip()
+            # Remove fenced code blocks of any language
+            raw = re.sub(r"```[a-zA-Z0-9_-]*\n?", "", raw)
+            raw = raw.replace("```", "")
+            # Remove common preambles
+            raw = re.sub(
+                r"^(?:answer|keep|sections?|response)\s*[:\-]\s*",
+                "",
+                raw,
+                flags=re.IGNORECASE,
+            )
+            # Strip wrapping quotes/backticks/markdown emphasis
+            raw = raw.strip().strip("`'\"*_ \n\t")
+
+            valid_section_names = {k.lower() for k in context_sections.keys()}
+
+            if raw.lower() in ("all", "*", "everything", "keep all"):
                 sections_to_keep = list(context_sections.keys())
             else:
-                sections_to_keep = [
-                    s.strip().lower() for s in selection_response.split(",")
+                # Split on commas/newlines/semicolons and clean each token
+                candidates = [
+                    re.sub(r"[`'\"*_]", "", s).strip().lower()
+                    for s in re.split(r"[,\n;]+", raw)
                 ]
+                candidates = [c for c in candidates if c]
+                # Keep only candidates that are actually valid section names
+                sections_to_keep = [c for c in candidates if c in valid_section_names]
+                # SAFETY NET: if parser produced nothing valid, the selector
+                # output was malformed — keep ALL sections rather than drop
+                # everything to 0 tokens. The summarization step below will
+                # still bring us under target.
+                if not sections_to_keep:
+                    logging.warning(
+                        f"[reduce_context] Selector returned unparseable response "
+                        f"({selection_response!r}); keeping all sections and "
+                        f"relying on summarization."
+                    )
+                    sections_to_keep = list(context_sections.keys())
 
             logging.info(f"[reduce_context] Sections to keep: {sections_to_keep}")
 
@@ -1798,10 +2482,7 @@ Example: memories, persona, files"""
         reduced_tokens = 0
 
         for section_name, content in context_sections.items():
-            if (
-                section_name.lower() in sections_to_keep
-                or section_name.lower() == "persona"
-            ):
+            if section_name.lower() in sections_to_keep:
                 reduced_context[section_name] = content
                 reduced_tokens += section_tokens[section_name]
             else:
@@ -1809,32 +2490,195 @@ Example: memories, persona, files"""
 
         logging.info(f"[reduce_context] After section pruning: {reduced_tokens} tokens")
 
-        # Step 3: If still over target, prune within large sections
+        # Step 3: If still over target, summarize large sections using the fast model
+        # Inspired by Claude Code's block compaction: rather than simply dropping items,
+        # compress older/less-relevant blocks into concise summaries that preserve
+        # key facts while dramatically reducing token count.
         if reduced_tokens > target_tokens:
-            # Find the largest list-based sections and prune them
-            for section_name in ["memories", "activities", "conversation"]:
-                if section_name in reduced_context and isinstance(
-                    reduced_context[section_name], list
-                ):
-                    items = reduced_context[section_name]
-                    if len(items) > 3:
-                        # Keep only the most recent/relevant items
-                        # For activities and conversation, keep most recent
-                        if section_name in ["activities", "conversation"]:
-                            reduced_context[section_name] = items[-5:]  # Keep last 5
-                        else:
-                            # For memories, keep first few (most relevant by score)
-                            reduced_context[section_name] = items[:5]
+            for section_name in [
+                "memories",
+                "activities",
+                "conversation",
+                "conversation_history",
+                "file_contents",
+            ]:
+                if section_name not in reduced_context:
+                    continue
+                content = reduced_context[section_name]
+                section_text = (
+                    "\n".join(str(item) for item in content)
+                    if isinstance(content, list)
+                    else str(content) if content else ""
+                )
+                section_tok = get_tokens(section_text)
+                if section_tok < 2000:
+                    continue  # Not worth summarizing small sections
 
+                # Calculate how much this section needs to shrink
+                overage = reduced_tokens - target_tokens
+                target_section_tokens = max(1000, section_tok - overage)
+
+                summary_prompt = f"""Summarize the following {section_name} context concisely for an AI assistant.
+Preserve key facts, recent actions, decisions, and any information that would be needed to continue the current task.
+Drop redundant details, verbose tool outputs, and repetitive entries.
+Target approximately {target_section_tokens} tokens.
+
+## Current User Request
+{user_input[:300]}
+
+## {section_name.replace('_', ' ').title()} to Summarize
+{section_text[:80000]}
+
+Respond with ONLY the condensed summary, no preamble."""
+
+                try:
+                    if ability_selection_server:
+                        summary = await _ability_selection_inference(
+                            server_url=ability_selection_server,
+                            model=ability_selection_model,
+                            prompt=summary_prompt,
+                        )
+                    else:
+                        summary = await stream_inference_to_string(
+                            self.agent, prompt=summary_prompt
+                        )
+
+                    if summary and len(summary) > 50:
+                        new_tokens = get_tokens(summary)
+                        # Quality guard: if the summarizer collapsed the
+                        # section to under 25% of the requested target, the
+                        # output is almost certainly lossy beyond usefulness
+                        # (observed: 17,438 -> 422 tokens, 97.6% loss). Reject
+                        # and fall through to bounded truncation instead so we
+                        # preserve actionable detail (e.g. flux numbers,
+                        # persona-driven analysis rules).
+                        min_acceptable = max(500, int(target_section_tokens * 0.25))
+                        if (
+                            new_tokens < min_acceptable
+                            and section_tok > min_acceptable * 4
+                        ):
+                            logging.warning(
+                                f"[reduce_context] Rejecting over-aggressive "
+                                f"summary for {section_name}: {section_tok} -> "
+                                f"{new_tokens} tokens (target ~{target_section_tokens}, "
+                                f"min acceptable {min_acceptable}). Falling back "
+                                f"to bounded truncation."
+                            )
+                            # Force the fallback path below
+                            summary = ""
+                            new_tokens = section_tok
+                        saved = section_tok - new_tokens
+                        if summary and saved > 0:
+                            reduced_context[section_name] = summary
+                            reduced_tokens -= saved
+                            logging.info(
+                                f"[reduce_context] Summarized {section_name}: {section_tok} -> {new_tokens} tokens (saved {saved})"
+                            )
+                    if not summary or len(summary) <= 50:
+                        # Summarization failed, fall back to truncation
+                        if isinstance(content, list) and len(content) > 3:
+                            if section_name in [
+                                "activities",
+                                "conversation",
+                                "conversation_history",
+                            ]:
+                                reduced_context[section_name] = content[-5:]
+                            else:
+                                reduced_context[section_name] = content[:5]
+                            new_tokens = get_tokens(
+                                "\n".join(
+                                    str(item) for item in reduced_context[section_name]
+                                )
+                            )
+                            reduced_tokens -= section_tok - new_tokens
+                except Exception as e:
+                    logging.error(
+                        f"[reduce_context] Error summarizing {section_name}: {e}"
+                    )
+                    # Fall back to simple truncation
+                    if isinstance(content, list) and len(content) > 3:
+                        if section_name in [
+                            "activities",
+                            "conversation",
+                            "conversation_history",
+                        ]:
+                            reduced_context[section_name] = content[-5:]
+                        else:
+                            reduced_context[section_name] = content[:5]
                         new_tokens = get_tokens(
                             "\n".join(
                                 str(item) for item in reduced_context[section_name]
                             )
                         )
-                        reduced_tokens -= section_tokens[section_name] - new_tokens
-                        logging.info(
-                            f"[reduce_context] Pruned {section_name} from {len(items)} to {len(reduced_context[section_name])} items"
-                        )
+                        reduced_tokens -= section_tok - new_tokens
+
+                # Stop iterating sections if we're under target
+                if reduced_tokens <= target_tokens:
+                    break
+
+        # Step 4: Hard-truncation safety net. If summarization could not bring
+        # context under target (e.g. summarizer model failed, returned bloated
+        # output, or sections are too large to summarize in one pass), force
+        # the largest remaining sections down by raw token slicing. This
+        # guarantees we never hand the inference server a payload larger than
+        # its context window, which would otherwise produce a hard failure
+        # like "request (X tokens) exceeds the available context size".
+        if reduced_tokens > target_tokens:
+            # Order: drop file_contents first, then conversation/activities,
+            # then memories. Persona is preserved.
+            truncation_order = [
+                "file_contents",
+                "activities",
+                "conversation",
+                "conversation_history",
+                "memories",
+            ]
+            for section_name in truncation_order:
+                if reduced_tokens <= target_tokens:
+                    break
+                if section_name not in reduced_context:
+                    continue
+                content = reduced_context[section_name]
+                section_text = (
+                    "\n".join(str(item) for item in content)
+                    if isinstance(content, list)
+                    else str(content) if content else ""
+                )
+                section_tok = get_tokens(section_text)
+                if section_tok <= 0:
+                    continue
+                overage = reduced_tokens - target_tokens
+                # Leave at least 500 tokens of this section if possible.
+                keep_tokens = max(500, section_tok - overage)
+                if keep_tokens >= section_tok:
+                    continue
+                # Approximate token->char ratio (~4 chars/token is typical for
+                # English; we use the actual ratio for this section to be safe).
+                ratio = len(section_text) / max(section_tok, 1)
+                keep_chars = max(int(keep_tokens * ratio), 200)
+                # Prefer to keep the *tail* for conversational sections (most
+                # recent context), and the *head* for files/memories.
+                if section_name in (
+                    "conversation",
+                    "conversation_history",
+                    "activities",
+                ):
+                    truncated_text = (
+                        "[... older entries truncated for context size ...]\n"
+                        + section_text[-keep_chars:]
+                    )
+                else:
+                    truncated_text = (
+                        section_text[:keep_chars]
+                        + "\n[... remainder truncated for context size ...]"
+                    )
+                new_tok = get_tokens(truncated_text)
+                reduced_context[section_name] = truncated_text
+                reduced_tokens -= section_tok - new_tok
+                logging.warning(
+                    f"[reduce_context] Hard-truncated {section_name}: "
+                    f"{section_tok} -> {new_tok} tokens (target {target_tokens})"
+                )
 
         logging.info(
             f"[reduce_context] Final context: {reduced_tokens} tokens (target: {target_tokens})"
@@ -1891,7 +2735,7 @@ Example: memories, persona, files"""
             f"[select_commands_for_task] {len(all_command_names)} commands, "
             f"selection prompt: {commands_tokens} tokens"
         )
-        if commands_tokens <= 8000:
+        if commands_tokens <= 12000:
             if log_output and thinking_id:
                 c = Conversations(
                     conversation_name=conversation_name,
@@ -1928,6 +2772,40 @@ Example: memories, persona, files"""
             if cmd_name.lower() in user_input_lower:
                 explicitly_requested_commands.append(cmd_name)
 
+        # Codex is a delegation-oriented coding ability. Users naturally ask for
+        # "Codex" or repo/codebase work without spelling the exact command name,
+        # so make the ability available whenever those signals appear.
+        codex_trigger_pattern = re.compile(
+            r"\b(codex|openai\s+codex|codebase|repo|repository|github|"
+            r"git\s+clone|clone|branch|pull\s+request|pr|commit|refactor)\b"
+        )
+        if codex_trigger_pattern.search(user_input_lower):
+            codex_command = "Ask OpenAI Codex"
+            if (
+                codex_command in all_command_names
+                and codex_command not in explicitly_requested_commands
+            ):
+                explicitly_requested_commands.append(codex_command)
+
+        # Keyword-based command boosting: when user mentions specific media types,
+        # always include the relevant generation commands so the LLM doesn't have to
+        # guess across hundreds of commands split into batches.
+        KEYWORD_COMMAND_MAP = {
+            "video": ["Generate Video", "Image to Video", "Video to Video"],
+            "image": ["Generate Image", "Edit Image"],
+            "picture": ["Generate Image", "Edit Image"],
+            "photo": ["Generate Image", "Edit Image"],
+            "speech": ["Text to Speech"],
+            "transcri": ["Transcribe Audio"],
+        }
+        for keyword, prefixes in KEYWORD_COMMAND_MAP.items():
+            if keyword in user_input_lower:
+                for cmd_name in all_command_names:
+                    cmd_lower = cmd_name.lower()
+                    if any(p.lower() in cmd_lower for p in prefixes):
+                        if cmd_name not in explicitly_requested_commands:
+                            explicitly_requested_commands.append(cmd_name)
+
         # Build context about files, extensions, and conversation history
         context_parts = []
         if conversation_history:
@@ -1945,11 +2823,13 @@ Example: memories, persona, files"""
             "\n".join(context_parts) if context_parts else "No additional context."
         )
 
-        # Token-aware batching: Split commands into batches under 30k tokens each
-        MAX_BATCH_TOKENS = 30000
+        # Token-aware batching: The ability selection model can handle large context
+        # (200k tokens), so we use generous batch sizes to keep related commands together
+        # which helps the model understand command relationships and prerequisites.
+        MAX_BATCH_TOKENS = 100000
 
         # Calculate base prompt template tokens (without the batch content)
-        base_selection_prompt = f"""You are an assistant that selects relevant commands/tools for a user request.
+        base_selection_prompt = f"""You are an expert assistant that selects relevant commands/tools for a user request. You manage IT infrastructure, remote machines, tickets, desktop support, code execution, web browsing, media generation, and more. Your job is to select exactly the right set of commands the agent will need.
 
 ## User's Request
 {user_input}
@@ -1960,28 +2840,34 @@ Example: memories, persona, files"""
 {{BATCH_COMMANDS}}
 
 ## Your Task
-Select the commands needed to fulfill this request. Think about:
-1. What the user is ACTUALLY asking to accomplish
-2. What commands are PREREQUISITES (e.g. opening a terminal before executing in it)
-3. What the Context section tells you about available resources (devices, accounts, files, etc.)
-4. **The recent conversation history** — follow-up messages like "pause it", "do that again", "now close it" refer to services/tools used in recent messages. Select commands from the SAME extension/service that was just used.
+Select the commands needed to fulfill this request. Think carefully about:
+1. **What the user is ACTUALLY asking to accomplish** — read between the lines. If they mention a hostname, device name, or machine name, they want to interact with that machine.
+2. **What commands are PREREQUISITES** — many commands require setup steps first. For example:
+   - Remote machine work requires: Open Remote Terminal → Execute in Terminal → Get Terminal Output
+   - File transfers require machine identification first
+   - Desktop control requires: Vision Desktop Control (which handles screenshots + mouse + keyboard)
+3. **What the Context section tells you about available resources** — device names, hostnames, connected accounts, active sessions, etc. Match user references to these resources.
+4. **The recent conversation history** — follow-up messages like "pause it", "do that again", "now close it", "check on that machine" refer to services/tools/devices used in recent messages. Select commands from the SAME extension/service that was just used.
+5. **The full scope of each extension** — if the user needs ANY command from an extension, include ALL commands from that extension that could be relevant to the workflow.
 
 **Selection guidance:**
-- Most tasks need 3-8 commands. Select all that may be needed, including prerequisites.
-- For follow-up requests, ALWAYS include commands from the extension/service used in the previous turn (e.g. if Spotify was just used, include Spotify commands for "pause it")
-- If the user references a device/machine from Context, include the commands needed to interact with it (terminal commands, desktop control, etc.)
-- If the user wants to interact with files, include file operation commands
-- If the user wants web information, include web/search commands
-- Include both the "ideal" command and reasonable fallbacks (e.g. both desktop control AND terminal for opening an app)
+- Most tasks need 3-10 commands. Select all that may be needed, including prerequisites and related commands.
+- For follow-up requests, ALWAYS include commands from the extension/service used in the previous turn.
+- If the user references a device/machine by hostname, IP, name, or any identifier from Context, include ALL machine interaction commands (terminal, desktop control, file transfer, machine details).
+- If the user mentions tickets, issues, problems, or support requests, include ticket management commands.
+- If the user wants to interact with files, include file operation commands.
+- If the user wants web information, include web/search commands.
+- Include both the "ideal" command and reasonable fallbacks (e.g. both desktop control AND terminal for opening an app).
+- When in doubt, INCLUDE the command — it's better to have an unused command available than to miss one the agent needs.
 
 **When NOT to select:**
-- Commands completely unrelated to the task
-- Commands for resources not mentioned in context OR recent conversation
+- Commands from completely unrelated domains (e.g. don't select Spotify commands for a machine terminal task)
+- Commands for services with no connection to the user's request or recent conversation
 
 Respond with ONLY a comma-separated list of exact command names, or "None" if no commands are needed.
-No explanations. Maximum 15 commands from this batch.
+No explanations. Maximum 25 commands from this batch.
 
-Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
+Example: Open Remote Terminal, Execute in Terminal, Get Terminal Output, Vision Desktop Control, Get Machine Details"""
 
         # Calculate the base prompt overhead (tokens used by template, user input, context)
         base_overhead_tokens = get_tokens(
@@ -2029,6 +2915,12 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
 
         valid_commands = []
 
+        # Check if a dedicated ability selection server is configured
+        ability_selection_server = getenv("ABILITY_SELECTION_SERVER")
+        ability_selection_model = getenv(
+            "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-4B-GGUF"
+        )
+
         # Process batches in parallel for speed using DIRECT inference (not run())
         # This avoids pulling in all memories/context which bloats token count
         async def select_from_batch(batch_prompt: str, batch_num: int) -> list:
@@ -2038,11 +2930,20 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                     "{BATCH_COMMANDS}", batch_prompt
                 )
 
-                # Direct streaming inference - bypasses format_prompt and all its context loading
-                # Uses streaming internally for speed (non-streaming blocks until full response)
-                selection_response = await stream_inference_to_string(
-                    self.agent, prompt=selection_prompt
-                )
+                if ability_selection_server:
+                    # Use the dedicated ability selection server for fast inference
+                    # This allows offloading command selection to a smaller/faster model
+                    selection_response = await _ability_selection_inference(
+                        server_url=ability_selection_server,
+                        model=ability_selection_model,
+                        prompt=selection_prompt,
+                    )
+                else:
+                    # Direct streaming inference - bypasses format_prompt and all its context loading
+                    # Uses streaming internally for speed (non-streaming blocks until full response)
+                    selection_response = await stream_inference_to_string(
+                        self.agent, prompt=selection_prompt
+                    )
 
                 # Handle "None" or empty responses
                 if (
@@ -2092,6 +2993,8 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
         # Essential commands that must always be available when commands are enabled.
         # These are the foundational abilities for file operations, code execution,
         # and web interaction — without them the agent cannot perform basic tasks.
+        # Remote terminal commands are included because they are prerequisites for
+        # any machine interaction and the selection model may miss them.
         ESSENTIAL_COMMANDS = [
             "Read File",
             "Modify File",
@@ -2102,6 +3005,9 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
             "Use Terminal in Workspace",
             "Interact with Webpage",
             "Web Search",
+            "Open Remote Terminal",
+            "Execute in Terminal",
+            "Get Terminal Output",
         ]
         for cmd in ESSENTIAL_COMMANDS:
             if cmd in all_command_names and cmd not in valid_commands:
@@ -2116,8 +3022,9 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                 unique_commands.append(cmd)
         valid_commands = unique_commands
 
-        # Cap at 25 commands to keep execution prompt within context budget
-        MAX_COMMANDS = 25
+        # Cap at 35 commands to keep execution prompt within context budget
+        # while allowing enough room for multi-extension workflows
+        MAX_COMMANDS = 35
         if len(valid_commands) > MAX_COMMANDS:
             # Keep explicitly requested first, then LLM-selected in order
             prioritized = [
@@ -2228,14 +3135,6 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                 True if str(kwargs["use_smartest"]).lower() == "true" else False
             )
 
-        # Extract complexity score from kwargs if provided
-        complexity_score = None
-        if "complexity_score" in kwargs:
-            complexity_score = kwargs["complexity_score"]
-            # Override use_smartest based on complexity scoring
-            if complexity_score and complexity_score.route_to_smartest:
-                use_smartest = True
-
         # Handle websearch
         websearch = False
         if "websearch" in self.agent.AGENT_CONFIG["settings"]:
@@ -2258,7 +3157,6 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
             "images",
             "log_user_input",
             "log_output",
-            "complexity_score",
             "use_smartest",
             "thinking_id",
             "searching",
@@ -2289,7 +3187,6 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
             images=images,
             log_user_input=log_user_input,
             log_output=log_output,
-            complexity_score=complexity_score,
             use_smartest=use_smartest,
             searching=searching,
             command_overrides=command_overrides,
@@ -2361,7 +3258,6 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
         images: list = [],
         log_user_input: bool = True,
         log_output: bool = True,
-        complexity_score=None,
         use_smartest: bool = False,
         thinking_id: str = None,
         searching: bool = False,
@@ -2543,30 +3439,33 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                     role=self.agent_name,
                     message=f"[SUBACTIVITY][{thinking_id}] Searching for information.",
                 )
-                to_search_or_not_to_search = await self.run(
-                    prompt_name="WebSearch Decision",
-                    prompt_category="Default",
-                    user_input=user_input,
-                    context_results=context_results,
-                    conversation_results=4,
-                    conversation_name=conversation_name,
-                    log_user_input=False,
-                    log_output=False,
-                    browse_links=False,
-                    websearch=False,
-                    tts=False,
-                    searching=True,
-                )
-                to_search = re.search(
-                    r"\byes\b", str(to_search_or_not_to_search).lower()
-                )
-                if to_search:
-                    search_strings = await self.run(
-                        prompt_name="WebSearch",
+                ability_selection_server = getenv("ABILITY_SELECTION_SERVER")
+                if ability_selection_server:
+                    # Use fast 0.8B model for websearch yes/no decision
+                    websearch_decision_prompt = (
+                        f"Today's date is {datetime.now().strftime('%B %d, %Y')}.\n\n"
+                        f"User's input: {user_input}\n\n"
+                        "Decide if the user's input requires searching the web to answer.\n"
+                        "- Search if the user asks about recent events, news, or needs current factual data.\n"
+                        "- Do NOT search if the user is asking you to do a task, write code, or make something.\n"
+                        "- Do NOT search if enough context is available to answer directly.\n\n"
+                        "Respond ONLY with Yes or No."
+                    )
+                    to_search_or_not_to_search = await _ability_selection_inference(
+                        server_url=ability_selection_server,
+                        model=getenv(
+                            "ABILITY_SELECTION_MODEL",
+                            "unsloth/Qwen3.5-4B-GGUF",
+                        ),
+                        prompt=websearch_decision_prompt,
+                    )
+                else:
+                    to_search_or_not_to_search = await self.run(
+                        prompt_name="WebSearch Decision",
                         prompt_category="Default",
                         user_input=user_input,
                         context_results=context_results,
-                        conversation_results=10,
+                        conversation_results=4,
                         conversation_name=conversation_name,
                         log_user_input=False,
                         log_output=False,
@@ -2575,6 +3474,50 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                         tts=False,
                         searching=True,
                     )
+                to_search = re.search(
+                    r"\byes\b", str(to_search_or_not_to_search).lower()
+                )
+                if to_search:
+                    if ability_selection_server:
+                        # Use fast 0.8B model for search query generation
+                        websearch_query_prompt = (
+                            f"Today's date is {datetime.now().strftime('%B %d, %Y')}.\n\n"
+                            f"User's input: {user_input}\n\n"
+                            "Generate optimal web search strings for the user's input.\n"
+                            "- Include today's date in searches when recency matters.\n"
+                            "- For scientific queries, add 'ar5iv' or 'PubMed'.\n"
+                            "- For product info, add 'review'.\n"
+                            "- For stock/finance, add 'Yahoo Finance' or 'Bloomberg'.\n\n"
+                            f"Provide up to {websearch_depth} search suggestions.\n\n"
+                            "Respond ONLY with JSON, no explanation:\n"
+                            "```json\n"
+                            '{\n    "search_string_suggestion_1": "example search query",\n'
+                            '    "search_string_suggestion_2": "another query"\n}\n'
+                            "```"
+                        )
+                        search_strings = await _ability_selection_inference(
+                            server_url=ability_selection_server,
+                            model=getenv(
+                                "ABILITY_SELECTION_MODEL",
+                                "unsloth/Qwen3.5-4B-GGUF",
+                            ),
+                            prompt=websearch_query_prompt,
+                        )
+                    else:
+                        search_strings = await self.run(
+                            prompt_name="WebSearch",
+                            prompt_category="Default",
+                            user_input=user_input,
+                            context_results=context_results,
+                            conversation_results=10,
+                            conversation_name=conversation_name,
+                            log_user_input=False,
+                            log_output=False,
+                            browse_links=False,
+                            websearch=False,
+                            tts=False,
+                            searching=True,
+                        )
                     if "```json" in search_strings:
                         search_strings = (
                             search_strings.split("```json")[1].split("```")[0].strip()
@@ -2723,7 +3666,26 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                 )
                 if os.path.isdir(workspace_dir):
                     existing_files = []
+                    collapsed_dirs_seen = set()
                     for root, dirs, files in os.walk(workspace_dir):
+                        # Prune noisy directories in-place so os.walk skips
+                        # descending into them (avoids enumerating millions
+                        # of node_modules/.git files). We still record one
+                        # placeholder path so the directory shows up in the
+                        # rendered tree as collapsed.
+                        pruned = [d for d in dirs if d in self._COLLAPSED_TREE_DIRS]
+                        for d in pruned:
+                            collapsed_path = os.path.relpath(
+                                os.path.join(root, d), workspace_dir
+                            )
+                            if collapsed_path not in collapsed_dirs_seen:
+                                collapsed_dirs_seen.add(collapsed_path)
+                                # Add a sentinel child so _build_file_tree
+                                # registers this as a collapsed directory.
+                                existing_files.append(f"{collapsed_path}/__collapsed__")
+                        dirs[:] = [
+                            d for d in dirs if d not in self._COLLAPSED_TREE_DIRS
+                        ]
                         for f in files:
                             rel_path = os.path.relpath(
                                 os.path.join(root, f), workspace_dir
@@ -2761,7 +3723,7 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
             try:
                 # Build recent conversation summary for command selection context
                 _recent_history = ""
-                _conv_data = c.get_conversation()
+                _conv_data = c.get_conversation(limit=1000, page=1)
                 if "interactions" in _conv_data and _conv_data["interactions"]:
                     _recent_msgs = [
                         i
@@ -2800,12 +3762,18 @@ Example: Open Remote Terminal, Execute in Terminal, Vision Desktop Control"""
                 f"selected {len(selected_commands) if selected_commands is not None else 'None'} commands"
             )
 
-        # Always include client-defined tools regardless of command selection
-        # Client explicitly provided these tools, so they should always be available
-        if self._client_tools and selected_commands is not None:
-            for client_tool_name in self._client_tools.keys():
-                if client_tool_name not in selected_commands:
-                    selected_commands.append(client_tool_name)
+        # Always include client-defined tools regardless of command selection.
+        # When command selection is intentionally skipped for a tool-result
+        # continuation, constrain the command prompt to the client tools
+        # instead of falling back to every server-side ability.
+        if self._client_tools:
+            client_tool_names = list(self._client_tools.keys())
+            if selected_commands is None and not enable_command_selection:
+                selected_commands = client_tool_names
+            elif selected_commands is not None:
+                for client_tool_name in client_tool_names:
+                    if client_tool_name not in selected_commands:
+                        selected_commands.append(client_tool_name)
 
         # Store selected_commands as instance variable to persist across continuation loops
         self._selected_commands = selected_commands
@@ -2941,11 +3909,6 @@ Example: If user says "list my files", use:
                 agent_name=self.agent_name,
                 company_id=self.agent.company_id,
             )
-
-        # Inject planning phase if needed
-        if complexity_score and complexity_score.planning_required:
-            planning_prompt = get_planning_phase_prompt(user_input)
-            formatted_prompt = f"{formatted_prompt}\n\n{planning_prompt}"
 
         # Get streaming response from the LLM
         _t_inf = _time.monotonic()
@@ -3141,6 +4104,12 @@ Example: If user says "list my files", use:
                     )
 
                 full_response += token
+                if "<answer>" in token.lower():
+                    normalized_full_response = _RE_PROTOCOL_ANSWER_BOUNDARY.sub(
+                        r"\1\n\2", full_response
+                    )
+                    if normalized_full_response != full_response:
+                        full_response = normalized_full_response
 
                 # Incremental tag depth tracking — only scan the new token
                 # Count both <think> and <thinking> forms for model compatibility
@@ -3866,15 +4835,71 @@ Example: If user says "list my files", use:
         # and append the closing tag so the execution logic can process them.
         _lower_resp = full_response.lower()
         _last_exec_open = _lower_resp.rfind("<execute>")
+        _stop_sequence_execute_appended = False
         if _last_exec_open != -1:
             _last_exec_close = _lower_resp.rfind("</execute>")
             if _last_exec_close < _last_exec_open:
                 # Unclosed <execute> tag — stop sequence likely fired
                 full_response += "</execute>"
                 self.response = full_response
+                _stop_sequence_execute_appended = True
                 logging.info(
                     "[run_stream] Appended </execute> closing tag (stop sequence detected)"
                 )
+
+        if (
+            _stop_sequence_execute_appended
+            and "{COMMANDS}" in unformatted_prompt
+            and "disable_commands" not in kwargs
+        ):
+            logging.info(
+                "[run_stream] Executing initial command completed by stop sequence"
+            )
+            stop_remote_queue = asyncio.Queue()
+
+            async def stop_remote_callback(remote_cmd):
+                await stop_remote_queue.put(remote_cmd)
+                return (
+                    "[REMOTE COMMAND QUEUED] Waiting for client-side execution.\n"
+                    f"Request ID: {remote_cmd.get('request_id', 'unknown')}"
+                )
+
+            stop_execution_task = asyncio.create_task(
+                self.execution_agent(
+                    conversation_name=conversation_name,
+                    conversation_id=conversation_id,
+                    thinking_id=thinking_id,
+                    remote_command_callback=stop_remote_callback,
+                )
+            )
+            while not stop_execution_task.done():
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(stop_execution_task),
+                        timeout=10.0,
+                    )
+                except asyncio.TimeoutError:
+                    yield {
+                        "type": "keepalive",
+                        "content": "",
+                        "complete": False,
+                    }
+                except Exception:
+                    break
+            if stop_execution_task.done():
+                stop_execution_task.result()
+
+            while not stop_remote_queue.empty():
+                remote_cmd = await stop_remote_queue.get()
+                remote_command_yielded = True
+                yield {
+                    "type": "remote_command_request",
+                    "content": remote_cmd,
+                    "complete": True,
+                }
+
+            full_response = self.response
+            _break_for_continuation = True
 
         # Skip continuation logic if a remote command was yielded
         # The CLI will handle the command execution and submit the result
@@ -3902,12 +4927,66 @@ Example: If user says "list my files", use:
         _no_answer_non_exec_streak = (
             0  # Track consecutive non-exec iterations without <answer> tags
         )
-        _auto_injected_answer = (
-            False  # Track if <answer> was auto-injected (needs special prompt)
-        )
         _consecutive_dedup_iterations = (
             0  # Track consecutive iterations where ALL commands were deduplicated
         )
+        _incomplete_answer_non_exec_count = (
+            0  # Track consecutive non-exec iterations with incomplete answer
+        )
+        _final_answer_review_enabled = str(
+            getenv("FINAL_ANSWER_REVIEW_ENABLED", "false")
+        ).lower() in ("1", "true", "yes", "on")
+        _final_answer_review_server = (
+            getenv("ABILITY_SELECTION_SERVER") if _final_answer_review_enabled else None
+        )
+        _final_answer_review_model = getenv(
+            "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-4B-GGUF"
+        )
+        try:
+            _final_answer_review_max_attempts = int(
+                getenv("FINAL_ANSWER_REVIEW_MAX_ATTEMPTS", "3")
+            )
+        except (TypeError, ValueError):
+            _final_answer_review_max_attempts = 3
+        _final_answer_review_max_attempts = max(0, _final_answer_review_max_attempts)
+        if not _final_answer_review_enabled:
+            _final_answer_review_max_attempts = 0
+        try:
+            _final_answer_review_max_chars = int(
+                getenv("FINAL_ANSWER_REVIEW_MAX_CHARS", "600000")
+            )
+        except (TypeError, ValueError):
+            _final_answer_review_max_chars = 600000
+        _final_answer_review_max_chars = max(0, _final_answer_review_max_chars)
+        _answer_review_attempts = 0
+        _answer_review_approved_hash = None
+        _answer_review_rejected = False
+        _answer_review_rejected_hash = None
+        _answer_review_feedback = ""
+        _continuation_recovery_feedback = ""
+        _continuation_recovery_count = 0
+        _last_recovered_answer_hash = None
+        _last_recovered_answer_text = ""
+        _non_exec_continuation_count = 0
+        try:
+            _max_non_exec_continuations = int(
+                getenv("CONTINUATION_MAX_NON_EXEC_ITERATIONS", "40")
+            )
+        except (TypeError, ValueError):
+            _max_non_exec_continuations = 40
+        _max_non_exec_continuations = max(8, _max_non_exec_continuations)
+        try:
+            _max_recovery_attempts = int(
+                getenv("CONTINUATION_MAX_RECOVERY_ATTEMPTS", "12")
+            )
+        except (TypeError, ValueError):
+            _max_recovery_attempts = 12
+        _max_recovery_attempts = max(3, _max_recovery_attempts)
+        if not _final_answer_review_enabled:
+            logging.info(
+                "[run_stream] Final answer review gate disabled; complete answers "
+                "will finalize without ability-model rejection."
+            )
 
         # Track the length of processed content to detect new executions
         processed_length = len(self.response)
@@ -3920,7 +4999,7 @@ Example: If user says "list my files", use:
                 user=self.user,
                 conversation_id=conversation_id,
             )
-            _snap_data = _snap_conv.get_conversation()
+            _snap_data = _snap_conv.get_conversation(limit=1000, page=1)
             for _msg in _snap_data.get("interactions", []):
                 if str(_msg.get("role", "")).lower() == "user":
                     _known_user_msg_ids.add(str(_msg.get("id", "")))
@@ -3935,7 +5014,217 @@ Example: If user says "list my files", use:
 
         # Use has_complete_answer() to properly check for complete answer blocks
         # This handles edge cases like <thinking> inside <answer> tags
-        while not has_complete_answer(self.response):
+        while True:
+            _response_has_complete_answer = has_complete_answer(self.response)
+            _current_answer_hash = None
+            if _response_has_complete_answer:
+                _current_answer_for_review = extract_top_level_answer(self.response)
+                if not _current_answer_for_review:
+                    _current_answer_for_review = self.response
+                _current_answer_for_review = _current_answer_for_review.strip()
+                _current_answer_hash = str(hash(_current_answer_for_review))
+
+                if (
+                    _answer_review_rejected
+                    and _current_answer_hash != _answer_review_rejected_hash
+                ):
+                    _answer_review_rejected = False
+                    _answer_review_feedback = ""
+
+                if not _answer_review_rejected:
+                    if _answer_review_approved_hash == _current_answer_hash:
+                        break
+                    if (
+                        not _final_answer_review_server
+                        or _final_answer_review_max_attempts <= 0
+                    ):
+                        break
+                    if _answer_review_attempts >= _final_answer_review_max_attempts:
+                        logging.warning(
+                            "[run_stream] Final answer review attempt cap reached; "
+                            "continuing with self-healing feedback instead of "
+                            "allowing an unapproved answer."
+                        )
+                        _answer_review_rejected = True
+                        _answer_review_rejected_hash = _current_answer_hash
+                        _answer_review_feedback = (
+                            "The final answer review has not approved the answer "
+                            f"after {_final_answer_review_max_attempts} review "
+                            "attempts. Continue working from the review feedback "
+                            "and prior outputs; do not end the request until a new "
+                            "answer satisfies the completion criteria."
+                        )
+                        _answer_review_attempts = 0
+                        continue
+
+                    try:
+                        _answer_review_attempts += 1
+                        _review_context = self.compress_response_for_continuation(
+                            self.response,
+                            max_output_lines=120,
+                            max_thinking_chars=1000,
+                        )
+                        _review_prompt_base, _, _ = await self.format_prompt(
+                            user_input=user_input,
+                            top_results=int(context_results),
+                            conversation_results=conversation_results,
+                            prompt=prompt,
+                            prompt_category=prompt_category,
+                            conversation_name=conversation_name,
+                            websearch=websearch,
+                            vision_response=vision_response,
+                            selected_commands=self._selected_commands,
+                            **kwargs,
+                        )
+                        if self.outputs in _review_prompt_base:
+                            _review_prompt_base = _review_prompt_base.replace(
+                                self.outputs,
+                                f"http://localhost:7437/outputs/{self.agent.agent_id}",
+                            )
+                        if (
+                            _final_answer_review_max_chars > 0
+                            and len(_review_prompt_base)
+                            > _final_answer_review_max_chars
+                        ):
+                            _review_half = _final_answer_review_max_chars // 2
+                            _review_prompt_base = (
+                                _review_prompt_base[:_review_half]
+                                + "\n\n...[mandatory context truncated for review]...\n\n"
+                                + _review_prompt_base[-_review_half:]
+                            )
+
+                        _answer_review_prompt = f"""You are the final-answer completion gate for an autonomous AGiXT agent.
+
+Review whether the candidate <answer> is allowed to end the current inference request.
+The system has already confirmed the candidate came from a complete top-level <answer>...</answer> block.
+Do NOT reject solely because of answer tag formatting; judge whether the content actually completes the task.
+Brief answers can be correct for simple requests. Do not require hidden thinking, tool use, extra explanation, or length unless the user's request requires it.
+Before approving, actively extract the mandatory-context rules that apply to this user request. Treat explicit MUST, NEVER, DO NOT, REQUIRED, mandatory, persona, quality, safety, and scoring rules as hard approval criteria.
+Reject if the candidate answer violates any applicable hard rule, overstates evidence the context says to caveat, ignores a required caveat, fabricates certainty, skips required verification, or presents a result the mandatory context says must be excluded or de-emphasized.
+
+Approve only if ALL success criteria are met:
+1. The answer follows the mandatory context, system instructions, persona, and user-specific rules.
+2. The answer directly resolves the user's latest request, not merely a status update or promise to keep working.
+3. The answer is complete, specific, well reasoned, and includes concrete results from any work already performed.
+4. The answer does not skip required actions that the agent could still complete autonomously.
+5. For coding or tool tasks, when applicable, the answer reflects actual completed work and verification, or clearly states exact blockers.
+
+If any criterion is not met, reject the answer and explain what the agent must do next.
+Return ONLY compact JSON with this shape:
+{{"approved": true, "reason": "short reason", "missing": [], "instructions": ""}}
+or
+{{"approved": false, "reason": "short reason", "missing": ["specific missing item"], "instructions": "what the agent should do next"}}
+
+## Mandatory Context And User Request
+{_review_prompt_base}
+
+## Assistant Work So Far
+{_review_context}
+
+## Candidate Final Answer Block
+<answer>
+{_current_answer_for_review}
+</answer>
+"""
+                        _review_response = await _ability_selection_inference(
+                            server_url=_final_answer_review_server,
+                            model=_final_answer_review_model,
+                            prompt=_answer_review_prompt,
+                        )
+                        _review_text = str(_review_response or "").strip()
+                        _review_approved = True if not _review_text else False
+                        _review_feedback_parts = []
+
+                        if _review_text:
+                            _review_json = {}
+                            _review_json_match = re.search(
+                                r"\{.*\}", _review_text, re.DOTALL
+                            )
+                            if _review_json_match:
+                                try:
+                                    _review_json = json.loads(
+                                        _review_json_match.group(0)
+                                    )
+                                except Exception:
+                                    _review_json = {}
+
+                            if _review_json:
+                                _approved_value = _review_json.get("approved", False)
+                                if isinstance(_approved_value, bool):
+                                    _review_approved = _approved_value
+                                else:
+                                    _review_approved = str(
+                                        _approved_value
+                                    ).strip().lower() in (
+                                        "true",
+                                        "yes",
+                                        "approved",
+                                        "approve",
+                                        "pass",
+                                    )
+                                _reason = str(_review_json.get("reason", "")).strip()
+                                _instructions = str(
+                                    _review_json.get("instructions", "")
+                                ).strip()
+                                _missing = _review_json.get("missing", [])
+                                if _reason:
+                                    _review_feedback_parts.append(_reason)
+                                if isinstance(_missing, list):
+                                    _missing_text = "; ".join(
+                                        str(item).strip()
+                                        for item in _missing
+                                        if str(item).strip()
+                                    )
+                                else:
+                                    _missing_text = str(_missing).strip()
+                                if _missing_text:
+                                    _review_feedback_parts.append(
+                                        f"Missing: {_missing_text}"
+                                    )
+                                if _instructions:
+                                    _review_feedback_parts.append(
+                                        f"Next: {_instructions}"
+                                    )
+                            else:
+                                _review_lower = _review_text.lower()
+                                _review_approved = (
+                                    "approved" in _review_lower
+                                    and "not approved" not in _review_lower
+                                    and "reject" not in _review_lower
+                                    and "false" not in _review_lower[:120]
+                                )
+                                _review_feedback_parts.append(_review_text)
+
+                        if _review_approved:
+                            _answer_review_approved_hash = _current_answer_hash
+                            logging.info(
+                                f"[run_stream] Final answer review approved attempt "
+                                f"{_answer_review_attempts}."
+                            )
+                            break
+
+                        _answer_review_rejected = True
+                        _answer_review_rejected_hash = _current_answer_hash
+                        _answer_review_feedback = "\n".join(
+                            _review_feedback_parts
+                        ).strip()
+                        if not _answer_review_feedback:
+                            _answer_review_feedback = (
+                                "The candidate final answer did not satisfy the "
+                                "completion criteria. Continue thinking and acting "
+                                "until the user's request is fully completed."
+                            )
+                        _answer_review_feedback = _answer_review_feedback[:2500]
+                        logging.info(
+                            f"[run_stream] Final answer review rejected attempt "
+                            f"{_answer_review_attempts}: {_answer_review_feedback[:500]}"
+                        )
+                    except Exception as e:
+                        logging.warning(
+                            f"[run_stream] Final answer review failed; allowing answer. Error: {e}"
+                        )
+                        break
+
             # Check if there was a NEW execution in the unprocessed portion, or incomplete answer
             # Always use processed_length to avoid re-detecting already-executed commands
             unprocessed_response = self.response[processed_length:]
@@ -3947,33 +5236,137 @@ Example: If user says "list my files", use:
                 has_new_execution = True
                 _previous_iteration_executed = False
             # Use has_complete_answer for proper detection instead of simple string check
-            has_incomplete_answer = (
-                "<answer>" in self.response.lower()
-                and not has_complete_answer(self.response)
+            has_real_answer_open = bool(find_real_answer_tags(self.response, "open"))
+            has_incomplete_answer = has_real_answer_open and not has_complete_answer(
+                self.response
             )
-            # Also check if there's NO answer at all - we need to prompt for one
-            has_no_answer = "<answer>" not in self.response.lower()
+            # Also check if there's NO real answer at all - we need to prompt for one
+            has_no_answer = not has_real_answer_open
+            has_rejected_answer = _answer_review_rejected
 
-            # After many consecutive non-exec no-answer iterations, the model is
-            # generating useful content but not wrapping in <answer> tags.
-            # Inject <answer> to transition to has_incomplete_answer mode where
-            # the prompt tells the model to close the answer block.
-            # We use a very generous threshold here — the agent should be
-            # free to think and act as long as it needs without being
-            # forced into answering prematurely.
+            # A fresh continuation can start with <answer> and stream user-facing
+            # answer content correctly, but if the prior buffer did not end with
+            # a newline, concatenation can make that tag look inline in the
+            # accumulated response. Preserve the stricter parser rule by
+            # re-wrapping the already streamed answer on its own line.
+            if has_no_answer and not has_new_execution and answer_content.strip():
+                _recovered_answer_text = answer_content.strip()
+                _last_recovered_answer_text = _recovered_answer_text
+                _recovered_answer_hash = str(hash(_recovered_answer_text))
+                if _recovered_answer_hash == _last_recovered_answer_hash:
+                    _continuation_recovery_count += 1
+                    _continuation_recovery_feedback = (
+                        "The same streamed answer content was already recovered, "
+                        "but the loop still did not recognize a complete final "
+                        "answer. Stop repeating the same response. Produce a fresh, "
+                        "complete top-level <answer> on its own line, or take the "
+                        "next distinct action required to complete the user's request."
+                    )
+                    answer_content = ""
+                    logging.warning(
+                        "[run_stream] Skipping duplicate streamed-answer recovery; "
+                        "injecting self-healing feedback instead."
+                    )
+                else:
+                    self.response = _append_recovered_answer_block(
+                        self.response, _recovered_answer_text
+                    )
+                    processed_length = len(self.response)
+                    _last_recovered_answer_hash = _recovered_answer_hash
+                    has_no_answer = False
+                    has_incomplete_answer = False
+                    logging.info(
+                        "[run_stream] Recovered streamed answer content into a real "
+                        "<answer> block after no-answer boundary detection."
+                    )
+                continue
+
+            # If answer text has already streamed to the user but the raw transcript
+            # still has an incomplete answer boundary, recover the transcript instead
+            # of asking the model to keep "completing" visible text forever.
+            if (
+                has_incomplete_answer
+                and not has_new_execution
+                and answer_content.strip()
+            ):
+                _recovered_answer_text = answer_content.strip()
+                _last_recovered_answer_text = _recovered_answer_text
+                _before_recovery = self.response
+
+                if is_inside_top_level_answer(self.response):
+                    self.response = _close_recovered_answer_block(self.response)
+                    logging.info(
+                        "[run_stream] Closed streamed top-level <answer> after "
+                        "incomplete-answer boundary detection."
+                    )
+                else:
+                    self.response = _append_recovered_answer_block(
+                        self.response, _recovered_answer_text
+                    )
+                    logging.info(
+                        "[run_stream] Recovered streamed answer content into a "
+                        "top-level <answer> block after incomplete-answer boundary "
+                        "detection."
+                    )
+
+                processed_length = len(self.response)
+                if has_complete_answer(self.response):
+                    has_incomplete_answer = False
+                    continue
+
+                # Recovery did not produce a parser-visible final answer. Avoid
+                # appending the same recovered text repeatedly; let the next
+                # continuation receive explicit repair instructions instead.
+                if self.response == _before_recovery:
+                    logging.warning(
+                        "[run_stream] Incomplete-answer recovery made no transcript "
+                        "change; injecting self-healing feedback."
+                    )
+                else:
+                    logging.warning(
+                        "[run_stream] Incomplete-answer recovery did not produce a "
+                        "complete parser-visible answer; injecting self-healing "
+                        "feedback."
+                    )
+                _continuation_recovery_count += 1
+                _continuation_recovery_feedback = (
+                    "A user-visible answer was already streamed, but the raw "
+                    "transcript still has invalid or nested answer boundaries. "
+                    "Do not repeat the same answer text. Produce one fresh, "
+                    "complete top-level <answer></answer> block on its own line, "
+                    "outside any thinking, reflection, markdown code fence, or "
+                    "other protocol block."
+                )
+                answer_content = ""
+
+            # After many consecutive non-exec no-answer iterations, self-heal
+            # by steering the next continuation instead of forcing a final
+            # answer boundary into the transcript.
             if _no_answer_non_exec_streak >= 25 and has_no_answer:
-                self.response += "\n<answer>"
-                has_no_answer = False
-                has_incomplete_answer = True
-                _auto_injected_answer = True
+                _continuation_recovery_count += 1
+                _continuation_recovery_feedback = (
+                    f"The agent has produced {_no_answer_non_exec_streak} "
+                    "non-execution continuations without a real top-level "
+                    "<answer> block. Reassess the current state. If the user's "
+                    "request is fully satisfied by the existing work, provide a "
+                    "complete final <answer> now. If it is not complete, take the "
+                    "next distinct action needed to complete it. Do not repeat "
+                    "prior thinking, prior command outputs, or already executed "
+                    "commands."
+                )
+                _no_answer_non_exec_streak = 0
+                _continuation_iter_lengths = []
                 logging.info(
-                    f"[run_stream] Auto-injected <answer> tag after {_no_answer_non_exec_streak} "
-                    f"consecutive no-answer non-exec iterations"
+                    "[run_stream] No-answer continuation recovery triggered; "
+                    "injecting self-healing feedback instead of forcing finalization."
                 )
 
             # Continue if: new execution, incomplete answer, OR no answer at all (need to prompt for one)
             should_continue = (
-                has_new_execution or has_incomplete_answer or has_no_answer
+                has_new_execution
+                or has_incomplete_answer
+                or has_no_answer
+                or has_rejected_answer
             )
 
             if not should_continue:
@@ -3981,6 +5374,10 @@ Example: If user says "list my files", use:
                 break
 
             continuation_count += 1
+            if has_new_execution:
+                _non_exec_continuation_count = 0
+            else:
+                _non_exec_continuation_count += 1
             # Send keepalive at the start of each iteration to prevent
             # proxy timeouts (e.g. Cloudflare 100s idle timeout) during
             # prompt building and LLM inference startup.
@@ -3996,48 +5393,145 @@ Example: If user says "list my files", use:
                 f"has_no_answer: {has_no_answer}. response_len: {len(self.response)}"
             )
 
+            if not has_new_execution and (
+                _non_exec_continuation_count >= _max_non_exec_continuations
+                or _continuation_recovery_count >= _max_recovery_attempts
+            ):
+                logging.warning(
+                    "[run_stream] Non-execution continuation recovery cap reached "
+                    f"at iteration {continuation_count}: "
+                    f"non_exec={_non_exec_continuation_count}/"
+                    f"{_max_non_exec_continuations}, recovery="
+                    f"{_continuation_recovery_count}/{_max_recovery_attempts}. "
+                    "Finalizing from recovered answer text or recovery pass."
+                )
+                if _last_recovered_answer_text:
+                    self.response = _append_recovered_answer_block(
+                        self.response, _last_recovered_answer_text
+                    )
+                    if has_complete_answer(self.response):
+                        break
+                c.log_interaction(
+                    role=self.agent_name,
+                    message="[SUBACTIVITY][CONTINUATION] Recovery cap reached; finalizing response...",
+                )
+                break
+
             # --- Stuck-loop detection ---
             # Only check for stuck loops using NON-EXECUTION iterations.
             # Execution iterations (where the model writes code) are productive
             # even if they fail — the model may need several tries to fix errors.
             # We only track iterations where the model just generated thinking/answer
             # without executing code.
-            if len(_continuation_iter_lengths) >= 15 and not has_new_execution:
-                _last4 = _continuation_iter_lengths[-15:]
+            #
+            # For incomplete answers, use a shorter window (8 iterations) since
+            # the model is clearly stuck re-opening <answer> without closing it.
+            # For no-answer cases, use the original 15-iteration window since
+            # the model may be doing useful thinking/analysis.
+            _stuck_window = 8 if has_incomplete_answer else 15
+            if (
+                len(_continuation_iter_lengths) >= _stuck_window
+                and not has_new_execution
+            ):
+                _last4 = _continuation_iter_lengths[-_stuck_window:]
                 _avg = sum(_last4) / len(_last4)
                 _all_small = all(l < 5000 for l in _last4)
                 _all_similar = all(abs(l - _avg) < 500 for l in _last4)
                 if _all_small and _all_similar:
+                    _continuation_recovery_count += 1
+                    _continuation_iter_lengths = []
                     if has_incomplete_answer:
-                        # Model opened <answer> but keeps generating without closing.
-                        # Force-close it — the answer content is already there.
                         logging.warning(
                             f"[run_stream] Stuck loop detected (incomplete answer) at iteration {continuation_count}. "
-                            f"Last 15 non-exec lengths: {_last4}. Force-closing answer tag."
+                            f"Last {_stuck_window} non-exec lengths: {_last4}. "
+                            "Injecting self-healing feedback."
                         )
-                        self.response += "</answer>"
+                        _continuation_recovery_feedback = (
+                            "The answer block is open but the continuation loop is "
+                            "repeating similarly sized non-execution text without "
+                            "closing it. Continue from the existing answer content, "
+                            "include any missing concrete results, and close with "
+                            "</answer> only after the answer is complete. If more "
+                            "work is still required, leave the answer phase and take "
+                            "the next distinct action instead of repeating text."
+                        )
+                        _incomplete_answer_non_exec_count = 0
                         c.log_interaction(
                             role=self.agent_name,
-                            message="[SUBACTIVITY][CONTINUATION] Finalizing response...",
+                            message="[SUBACTIVITY][CONTINUATION] Recovering incomplete answer loop...",
                         )
-                        break
                     elif has_no_answer:
-                        # Model keeps generating thinking without ever producing an answer.
-                        # Break out and use fallback answer extraction.
                         logging.warning(
                             f"[run_stream] Stuck loop detected (no answer) at iteration {continuation_count}. "
-                            f"Last 15 non-exec lengths: {_last4}. Breaking to extract best available answer."
+                            f"Last 15 non-exec lengths: {_last4}. Injecting self-healing feedback."
+                        )
+                        _continuation_recovery_feedback = (
+                            "The agent appears to be repeating analysis without "
+                            "opening a real top-level <answer> block. Do not stop "
+                            "early and do not repeat the same analysis. Decide what "
+                            "is missing: either perform the next distinct action "
+                            "needed for the user request, or provide the complete "
+                            "final answer if the task is already satisfied."
                         )
                         c.log_interaction(
                             role=self.agent_name,
-                            message="[SUBACTIVITY][CONTINUATION] Finalizing response...",
+                            message="[SUBACTIVITY][CONTINUATION] Recovering no-answer loop...",
                         )
-                        break
+                    elif has_rejected_answer:
+                        logging.warning(
+                            f"[run_stream] Stuck loop detected after final answer review rejection "
+                            f"at iteration {continuation_count}. Last {_stuck_window} non-exec "
+                            f"lengths: {_last4}. Injecting stronger review feedback."
+                        )
+                        _continuation_recovery_feedback = (
+                            "The prior final answer was rejected and subsequent "
+                            "continuations are repeating. Use the review feedback "
+                            "as mandatory completion criteria, take a different "
+                            "action if needed, and only produce a new <answer> when "
+                            "those criteria are satisfied."
+                        )
+                        c.log_interaction(
+                            role=self.agent_name,
+                            message="[SUBACTIVITY][CONTINUATION] Recovering rejected-answer loop...",
+                        )
+
+            # --- Self-healing for repeated incomplete answer iterations ---
+            # If the model stays in has_incomplete_answer mode for many
+            # consecutive non-exec iterations, redirect the next continuation
+            # instead of force-closing the answer and ending early.
+            if has_incomplete_answer and not has_new_execution:
+                _incomplete_answer_non_exec_count += 1
+                if _incomplete_answer_non_exec_count >= 10:
+                    _continuation_recovery_count += 1
+                    logging.warning(
+                        f"[run_stream] Incomplete answer recovery triggered at iteration "
+                        f"{continuation_count}. {_incomplete_answer_non_exec_count} consecutive "
+                        "non-exec iterations with incomplete answer."
+                    )
+                    _continuation_recovery_feedback = (
+                        "The answer has remained incomplete across many continuations. "
+                        "Continue from the current answer content without restarting or "
+                        "repeating it. Add the missing substance, then close </answer> "
+                        "only when the response fully completes the user's request. "
+                        "If the task is not actually complete, perform the next distinct "
+                        "action needed before closing the answer."
+                    )
+                    _incomplete_answer_non_exec_count = 0
+                    _continuation_iter_lengths = []
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message="[SUBACTIVITY][CONTINUATION] Recovering incomplete answer...",
+                    )
+            else:
+                if has_new_execution:
+                    _incomplete_answer_non_exec_count = 0
 
             # Log a visible subactivity so the user sees continuation progress
             # Build a descriptive status message so the user knows what's happening
             if has_new_execution:
                 _cont_status = "Analyzing command execution results"
+            elif has_rejected_answer:
+                _cont_status = "Improving final answer"
             elif has_incomplete_answer:
                 _cont_status = "Completing response"
             elif has_no_answer:
@@ -4126,6 +5620,18 @@ Analyze the actual output shown and continue with your response.
 2. DO NOT repeat or fabricate command outputs - they are already shown
 3. Based on the ACTUAL output, continue thinking and provide your <answer>
 4. If you need to execute more commands, you may do so
+5. When you are ready to answer, the opening <answer> tag MUST be the first thing on a new line, not inline in a sentence and not inside a code block
+"""
+                if has_rejected_answer:
+                    continuation_prompt += f"""
+
+## Final Answer Review Still Applies
+
+The previous <answer> block was not accepted as the final response.
+Review feedback:
+{_answer_review_feedback}
+
+Use the command output above plus this feedback to continue the task until it is complete.
 """
             else:
                 # Incomplete answer or no answer - prompt to continue/provide answer
@@ -4160,21 +5666,46 @@ Analyze the actual output shown and continue with your response.
                             f"iterations and their outputs are shown above in <output> tags. Do NOT generate "
                             f"any more <execute> blocks — regenerating the same commands will be ignored. "
                             f"Analyze the command outputs already provided and give your complete response "
-                            f"to the user inside <answer></answer> tags now."
+                            f"to the user inside <answer></answer> tags now. The opening <answer> tag "
+                            f"MUST be the first thing on a new line, not inline in a sentence and not inside a code block."
                         )
                     else:
-                        continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nContinue working on the user's request. You may continue thinking, analyzing, and executing commands as needed — take as much time as you need to do thorough work. When you have fully completed all necessary work and are ready to respond, provide your response inside <answer></answer> tags. Do not repeat previous thinking or command outputs."
+                        continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nContinue working on the user's request. You may continue thinking, analyzing, and executing commands as needed — take as much time as you need to do thorough work. When you have fully completed all necessary work and are ready to respond, provide your response inside <answer></answer> tags. The opening <answer> tag MUST be the first thing on a new line, not inline in a sentence and not inside a code block. Do not repeat previous thinking or command outputs."
+                elif has_rejected_answer:
+                    continuation_prompt = f"""{fresh_formatted_prompt}
+
+{self.agent_name}: {compressed_response}
+
+## Final Answer Review
+
+The previous <answer> block was not accepted as the final response.
+It should NOT end the task yet.
+
+Review feedback:
+{_answer_review_feedback}
+
+Continue thinking and acting autonomously until the user's request is actually complete.
+Do not repeat the rejected answer. If more tool use, verification, reasoning, or concrete details are needed, do that now.
+Only provide a new top-level <answer></answer> block when all review criteria are satisfied. The opening <answer> tag MUST be the first thing on a new line, not inline in a sentence and not inside a code block.
+"""
                 else:
                     # Incomplete answer - prompt to continue
                     # Use compressed response to prevent context explosion
-                    if _auto_injected_answer:
-                        # Auto-injected answer tag: model was generating analysis without
-                        # wrapping in <answer> tags. Tell it to provide a COMPLETE answer
-                        # with all findings, not just a brief closing reference.
-                        _auto_injected_answer = False  # Only use this prompt once
-                        continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe <answer> block is now open. Provide a COMPLETE response to the user's question. Include ALL key findings, numerical results, computed values, and analysis conclusions directly in your answer. Do NOT just reference output files or say 'see attached' - present the actual results. Close with </answer> when done."
-                    else:
-                        continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
+                    continuation_prompt = f"{fresh_formatted_prompt}\n\n{self.agent_name}: {compressed_response}\n\nThe assistant started providing an answer but didn't complete it. Continue from where you left off without repeating anything. If the response is complete, simply close the answer block with </answer>."
+
+            if _continuation_recovery_feedback:
+                continuation_prompt += f"""
+
+## Continuation Self-Healing Feedback
+
+The continuation loop detected a recoverable failure mode. Do not treat this as a reason to stop early.
+Recovery attempt: {_continuation_recovery_count}
+
+{_continuation_recovery_feedback}
+
+Use the available context and outputs above to repair the trajectory. If the user's request is already fully satisfied, provide one complete top-level <answer></answer> block. If it is not complete, continue with the next distinct action required to complete it. Do not repeat already executed commands or previously generated analysis unless you are correcting it.
+"""
+                _continuation_recovery_feedback = ""
 
             # Check for new user messages sent during processing (mid-task steering)
             try:
@@ -4183,7 +5714,7 @@ Analyze the actual output shown and continue with your response.
                     user=self.user,
                     conversation_id=conversation_id,
                 )
-                _iter_data = _iter_conv.get_conversation()
+                _iter_data = _iter_conv.get_conversation(limit=1000, page=1)
                 _new_user_msgs = []
                 for _msg in _iter_data.get("interactions", []):
                     if (
@@ -4229,7 +5760,9 @@ Analyze the actual output shown and continue with your response.
                 # This is similar to the main stream processing but for continuation
                 continuation_response = ""
                 continuation_in_answer = False
-                continuation_answer_content = answer_content  # Inherit what was already streamed to avoid duplication
+                continuation_answer_content = (
+                    "" if _answer_review_rejected else answer_content
+                )  # Rejected answers must be replaced, not continued.
                 continuation_current_tag = None
                 continuation_current_tag_content = ""
                 continuation_current_tag_message_id = None  # Track message ID
@@ -4272,6 +5805,14 @@ Analyze the actual output shown and continue with your response.
 
                     prev_len = len(continuation_response)
                     continuation_response += token
+                    if "<answer>" in token.lower():
+                        normalized_continuation_response = (
+                            _RE_PROTOCOL_ANSWER_BOUNDARY.sub(
+                                r"\1\n\2", continuation_response
+                            )
+                        )
+                        if normalized_continuation_response != continuation_response:
+                            continuation_response = normalized_continuation_response
 
                     # Detect leaked <interaction> XML in continuation and convert
                     if "</interaction>" in continuation_response.lower():
@@ -4390,7 +5931,9 @@ Analyze the actual output shown and continue with your response.
                                         "\n<output>ALL COMMANDS ABOVE WERE ALREADY EXECUTED IN PREVIOUS ITERATIONS. "
                                         "Their outputs are already shown above. Do NOT regenerate these same commands. "
                                         "If you need to run DIFFERENT commands, do so. "
-                                        "If the task is complete, provide your answer in <answer></answer> tags.</output>"
+                                        "If the task is complete, provide your answer in <answer></answer> tags. "
+                                        "The opening <answer> tag MUST be the first thing on a new line, "
+                                        "not inline in a sentence and not inside a code block.</output>"
                                     )
 
                                 # Yield any remote command requests
@@ -4489,6 +6032,15 @@ Analyze the actual output shown and continue with your response.
                             open_tag in tag_check_window.lower()
                             and open_tag not in continuation_detected_tags
                         ):
+                            if canonical_name == "answer":
+                                answer_tag_pos = continuation_response.lower().rfind(
+                                    open_tag
+                                )
+                                if answer_tag_pos < 0 or not is_real_answer_tag(
+                                    continuation_response, answer_tag_pos
+                                ):
+                                    continue
+
                             # Finalize the current tag before switching to a new one.
                             # This prevents thought truncation when a new tag opens
                             # before the current tag's close is detected (e.g., model
@@ -4761,7 +6313,24 @@ Analyze the actual output shown and continue with your response.
 
                     # Break early if we have a complete answer - don't keep consuming
                     # potentially very long post-answer thinking tokens from the model
-                    if has_complete_answer(self.response + continuation_response):
+                    if has_complete_answer(continuation_response):
+                        break
+                    continuation_response_for_check = continuation_response
+                    if (
+                        self.response
+                        and not self.response.endswith(("\n", "\r"))
+                        and continuation_response.lstrip()
+                        .lower()
+                        .startswith("<answer>")
+                    ):
+                        continuation_response_for_check = (
+                            "\n" + continuation_response.lstrip()
+                        )
+                    if has_complete_answer(
+                        continuation_response_for_check
+                        if _answer_review_rejected
+                        else self.response + continuation_response_for_check
+                    ):
                         break
 
                 # Close/cancel the continuation stream to free the inference slot
@@ -4797,12 +6366,68 @@ Analyze the actual output shown and continue with your response.
                 # productive (model is writing/fixing code) and shouldn't count as "stuck"
                 # BUT: if broke_for_execution but ALL commands were deduplicated,
                 # that's NOT productive — treat it like a non-exec iteration
+                # Repeated dedupes mean the model is re-requesting commands that
+                # already ran. Treat that as recoverable steering feedback rather
+                # than a reason to finalize before the task is complete.
+                if self._total_dedup_count >= 15:
+                    _continuation_recovery_count += 1
+                    logging.warning(
+                        f"[run_stream] Excessive dedup loop detected at iteration {continuation_count}. "
+                        f"Total cumulative deduplicated commands={self._total_dedup_count}. "
+                        "Injecting self-healing feedback."
+                    )
+                    _continuation_recovery_feedback = (
+                        "Many generated commands were skipped because they were "
+                        "duplicates of commands that already ran. Do not regenerate "
+                        "those commands. Read the existing <output> blocks and decide "
+                        "whether the task is complete. If more work is required, call "
+                        "a different command with materially different arguments. If "
+                        "the task is complete, provide the final answer."
+                    )
+                    self._total_dedup_count = 0
+                    _consecutive_dedup_iterations = 0
+                    _continuation_iter_lengths = []
+                    c.log_interaction(
+                        role=self.agent_name,
+                        message="[SUBACTIVITY][CONTINUATION] Recovering duplicate-command loop...",
+                    )
                 if broke_for_execution and _cont_commands_executed > 0:
                     _previous_iteration_executed = True
                     _no_answer_non_exec_streak = 0  # Reset streak on real execution
-                    _consecutive_dedup_iterations = (
-                        0  # Reset dedup streak on real execution
-                    )
+                    # Only reset dedup streak if this iteration had ZERO dedupes —
+                    # if some new commands ran but old ones were also regenerated,
+                    # the model is still partially stuck.
+                    if getattr(self, "_last_iteration_dedup_count", 0) == 0:
+                        _consecutive_dedup_iterations = 0
+                    else:
+                        _consecutive_dedup_iterations += 1
+                        logging.info(
+                            f"[run_stream] Iteration {continuation_count}: mixed iteration — "
+                            f"{_cont_commands_executed} new commands ran but "
+                            f"{self._last_iteration_dedup_count} were deduplicated. "
+                            f"Consecutive partial-dedup iterations: {_consecutive_dedup_iterations}."
+                        )
+                        if _consecutive_dedup_iterations >= 5:
+                            _continuation_recovery_count += 1
+                            logging.warning(
+                                f"[run_stream] Mixed dedup loop detected at iteration {continuation_count}. "
+                                f"{_consecutive_dedup_iterations} consecutive iterations with partial dedupes. "
+                                "Injecting self-healing feedback."
+                            )
+                            _continuation_recovery_feedback = (
+                                "Some new commands ran, but the model is also "
+                                "regenerating commands that were already processed. "
+                                "Use the new outputs and the prior outputs together. "
+                                "Do not repeat any skipped command. Continue only with "
+                                "new actions that materially advance the user's request, "
+                                "or provide the final answer if the work is complete."
+                            )
+                            _consecutive_dedup_iterations = 0
+                            _continuation_iter_lengths = []
+                            c.log_interaction(
+                                role=self.agent_name,
+                                message="[SUBACTIVITY][CONTINUATION] Recovering mixed duplicate-command loop...",
+                            )
                 else:
                     if broke_for_execution and _cont_commands_executed == 0:
                         # Broke for execution but everything was deduplicated
@@ -4814,23 +6439,27 @@ Analyze the actual output shown and continue with your response.
                             f"Consecutive dedup iterations: {_consecutive_dedup_iterations}. "
                             f"Treating as non-exec iteration."
                         )
-                        # If we've seen 2+ consecutive all-dedup iterations, the model
-                        # is stuck regenerating the same commands. Break immediately
-                        # regardless of whether an answer tag is open — the fallback
-                        # answer extraction will handle the response.
                         if _consecutive_dedup_iterations >= 4:
+                            _continuation_recovery_count += 1
                             logging.warning(
                                 f"[run_stream] Dedup loop detected at iteration {continuation_count}. "
                                 f"{_consecutive_dedup_iterations} consecutive iterations with all commands "
-                                f"deduplicated. Breaking out of continuation loop."
+                                "deduplicated. Injecting self-healing feedback."
                             )
-                            if has_incomplete_answer:
-                                self.response += "</answer>"
+                            _continuation_recovery_feedback = (
+                                "Every command in the last continuation was skipped "
+                                "as a duplicate. Stop requesting those commands. Read "
+                                "the existing outputs already in context. If they are "
+                                "enough, synthesize the final answer. If not, choose a "
+                                "new command or different arguments that directly address "
+                                "what is still missing."
+                            )
+                            _consecutive_dedup_iterations = 0
+                            _continuation_iter_lengths = []
                             c.log_interaction(
                                 role=self.agent_name,
-                                message="[SUBACTIVITY][CONTINUATION] Finalizing response...",
+                                message="[SUBACTIVITY][CONTINUATION] Recovering duplicate-command loop...",
                             )
-                            break
                     else:
                         _consecutive_dedup_iterations = (
                             0  # Reset on normal non-exec iteration
@@ -4846,29 +6475,103 @@ Analyze the actual output shown and continue with your response.
                     # Check for unclosed <execute> tag from stop sequence in continuation
                     _cont_lower = continuation_response.lower()
                     _cont_last_open = _cont_lower.rfind("<execute>")
+                    _cont_stop_sequence_execute_appended = False
                     if _cont_last_open != -1:
                         _cont_last_close = _cont_lower.rfind("</execute>")
                         if _cont_last_close < _cont_last_open:
                             continuation_response += "</execute>"
+                            _cont_stop_sequence_execute_appended = True
                             logging.info(
                                 "[run_stream] Appended </execute> in continuation (stop sequence detected)"
                             )
+                    if (
+                        self.response
+                        and not self.response.endswith(("\n", "\r"))
+                        and continuation_response.lstrip()
+                        .lower()
+                        .startswith("<answer>")
+                    ):
+                        continuation_response = "\n" + continuation_response.lstrip()
                     self.response += continuation_response
+
+                    if (
+                        _cont_stop_sequence_execute_appended
+                        and "{COMMANDS}" in unformatted_prompt
+                        and "disable_commands" not in kwargs
+                    ):
+                        logging.info(
+                            "[run_stream] Executing continuation command completed by stop sequence"
+                        )
+                        cont_stop_remote_queue = asyncio.Queue()
+
+                        async def cont_stop_remote_callback(remote_cmd):
+                            await cont_stop_remote_queue.put(remote_cmd)
+                            return (
+                                "[REMOTE COMMAND QUEUED] Waiting for client-side execution.\n"
+                                f"Request ID: {remote_cmd.get('request_id', 'unknown')}"
+                            )
+
+                        cont_stop_execution_task = asyncio.create_task(
+                            self.execution_agent(
+                                conversation_name=conversation_name,
+                                conversation_id=conversation_id,
+                                remote_command_callback=cont_stop_remote_callback,
+                            )
+                        )
+                        while not cont_stop_execution_task.done():
+                            try:
+                                await asyncio.wait_for(
+                                    asyncio.shield(cont_stop_execution_task),
+                                    timeout=10.0,
+                                )
+                            except asyncio.TimeoutError:
+                                yield {
+                                    "type": "keepalive",
+                                    "content": "",
+                                    "complete": False,
+                                }
+                            except Exception:
+                                break
+                        if cont_stop_execution_task.done():
+                            _cont_commands_executed = (
+                                cont_stop_execution_task.result() or 0
+                            )
+                        else:
+                            _cont_commands_executed = 0
+
+                        while not cont_stop_remote_queue.empty():
+                            remote_cmd = await cont_stop_remote_queue.get()
+                            yield {
+                                "type": "remote_command_request",
+                                "content": remote_cmd,
+                                "complete": True,
+                            }
+
+                        broke_for_execution = True
+                        if _cont_commands_executed:
+                            _previous_iteration_executed = True
+                            _no_answer_non_exec_streak = 0
+                            if _continuation_iter_lengths:
+                                _continuation_iter_lengths.pop()
 
                 # Update processed_length to track what we've handled
                 processed_length = len(self.response)
 
-                # If we got a COMPLETE answer (properly closed, not inside thinking), we're done
-                # Use has_complete_answer to handle edge cases like <thinking> inside <answer>
+                # If we got a COMPLETE answer, loop back so complete-answer
+                # handling can finalize it.
                 if has_complete_answer(self.response):
-                    break
+                    continue
 
                 # If we hit an execute tag, continue loop to handle it
                 if "</execute>" in continuation_response:
                     continue
 
-                # If we still don't have an answer, continue to prompt for one
-                if "<answer>" not in self.response.lower():
+                has_real_answer_open = bool(
+                    find_real_answer_tags(self.response, "open")
+                )
+
+                # If we still don't have a real answer, continue to prompt for one
+                if not has_real_answer_open:
                     continue
 
                 # If <answer> is open but not closed and this inference didn't
@@ -4877,7 +6580,7 @@ Analyze the actual output shown and continue with your response.
                 # hit its output token limit while writing a long answer and
                 # should be given a chance to finish it properly.
                 if (
-                    "<answer>" in self.response.lower()
+                    has_real_answer_open
                     and not has_complete_answer(self.response)
                     and "</execute>" not in continuation_response
                 ):
@@ -4895,7 +6598,7 @@ Analyze the actual output shown and continue with your response.
                 # Save whatever response we've accumulated so far
                 # so the user sees partial work instead of nothing
                 partial_answer = self.response
-                if "<answer>" in partial_answer.lower():
+                if find_real_answer_tags(partial_answer, "open"):
                     partial_answer = extract_top_level_answer(partial_answer)
                 if partial_answer:
                     # Strip thinking/execute/output/speak content blocks
@@ -4996,10 +6699,19 @@ Analyze the actual output shown and continue with your response.
                     else:
                         logging.error(
                             f"[run_stream] Max retries (3) reached for continuation. "
-                            f"Breaking out. Error: {e}"
+                            f"Attempting self-healing continuation. Error: {e}"
                         )
                         self._continuation_retry_count = 0
-                        break
+                        _continuation_recovery_count += 1
+                        _continuation_recovery_feedback = (
+                            "The previous continuation inference hit repeated "
+                            "retryable provider or connection errors. Resume from "
+                            "the available context without repeating work. If the "
+                            "task can be completed from existing outputs, provide "
+                            "the final answer. If more work is required, take the "
+                            "next distinct action."
+                        )
+                        continue
                 else:
                     logging.error(f"Error during continuation: {e}")
                     import traceback
@@ -5012,11 +6724,88 @@ Analyze the actual output shown and continue with your response.
             f"has_complete_answer: {has_complete_answer(self.response)}. "
             f"Response length: {len(self.response)}"
         )
+
+        # Recovery pass: if continuation ended without a complete answer,
+        # run one non-streaming synthesis inference to produce a clean
+        # user-facing answer from the already collected outputs.
+        if not has_complete_answer(self.response):
+            try:
+                c.log_interaction(
+                    role=self.agent_name,
+                    message="[SUBACTIVITY][CONTINUATION] Recovering response from prior execution context...",
+                )
+                yield {
+                    "type": "thinking_stream",
+                    "content": "*Recovering final response from prior execution context...*\n",
+                    "complete": False,
+                }
+
+                recovery_context = self.compress_response_for_continuation(
+                    self.response,
+                    max_output_lines=120,
+                    max_thinking_chars=1000,
+                )
+                recovery_prompt_base, _, _ = await self.format_prompt(
+                    user_input=user_input,
+                    top_results=int(context_results),
+                    conversation_results=conversation_results,
+                    prompt=prompt,
+                    prompt_category=prompt_category,
+                    conversation_name=conversation_name,
+                    websearch=websearch,
+                    vision_response=vision_response,
+                    selected_commands=self._selected_commands,
+                    **kwargs,
+                )
+                if self.outputs in recovery_prompt_base:
+                    recovery_prompt_base = recovery_prompt_base.replace(
+                        self.outputs,
+                        f"http://localhost:7437/outputs/{self.agent.agent_id}",
+                    )
+
+                recovery_prompt = f"""{recovery_prompt_base}
+
+## Recovery Mode
+
+The prior continuation loop did not produce a complete, clean <answer> block.
+Your job now is to recover gracefully from the existing work:
+
+1. Analyze the already available execution outputs and reasoning below.
+2. Do NOT generate any <execute> blocks in this recovery step.
+3. If prior attempts failed, explicitly state what failed and why.
+4. Provide the best possible final user-facing response, including concrete findings.
+5. If information is still missing, state the exact missing info and next best action.
+
+Return only one top-level <answer>...</answer> block. The opening <answer> tag MUST be the first thing on a new line, not inline in a sentence and not inside a code block.
+
+### Prior Assistant State
+{recovery_context}
+"""
+
+                recovery_result = await self.agent.inference(
+                    prompt=recovery_prompt,
+                    use_smartest=use_smartest,
+                    stream=False,
+                )
+                recovery_text = str(recovery_result or "").strip()
+                recovery_answer = extract_top_level_answer(recovery_text)
+                if not recovery_answer and "<execute>" not in recovery_text.lower():
+                    recovery_answer = recovery_text
+
+                if recovery_answer and recovery_answer.strip():
+                    self.response += f"\n<answer>{recovery_answer.strip()}</answer>"
+                    logging.info(
+                        "[run_stream] Recovery inference produced a synthetic final answer"
+                    )
+            except Exception as recovery_error:
+                logging.warning(
+                    f"[run_stream] Recovery inference failed, using fallback extraction: {recovery_error}"
+                )
+
         # Extract final answer using proper top-level detection
         # This handles cases where <answer> appears inside <thinking> blocks
         final_answer = ""
-        if "<answer>" in self.response.lower():
-            final_answer = extract_top_level_answer(self.response)
+        final_answer = extract_top_level_answer(self.response)
 
         if not final_answer:
             # No top-level answer found, use full response
@@ -5121,6 +6910,19 @@ Analyze the actual output shown and continue with your response.
             )
             for match in reversed(output_matches):
                 stripped = match.strip()
+                stripped_lower = stripped.lower()
+                # Skip internal/system fallback outputs that should never be
+                # shown to the user as the final answer.
+                if any(
+                    marker in stripped_lower
+                    for marker in [
+                        "all commands above were already executed",
+                        "[remote command queued]",
+                        "[remote command pending]",
+                        "do not regenerate these same commands",
+                    ]
+                ):
+                    continue
                 if stripped:
                     final_answer = stripped
                     logging.info(
@@ -5226,6 +7028,24 @@ Analyze the actual output shown and continue with your response.
                 agent_name=self.agent_name,
                 company_id=self.agent.company_id,
             )
+
+        # Update conversation summary in the background
+        if log_output and final_answer and user_input:
+            try:
+                from MagicalAuth import get_user_id as _get_uid
+
+                _resolved_user_id = str(_get_uid(self.user)) if self.user else ""
+                asyncio.create_task(
+                    update_conversation_summary_after_interaction(
+                        conversation=c,
+                        user_input=user_input,
+                        agent_response=final_answer,
+                        agent_name=self.agent_name,
+                        user_id=_resolved_user_id,
+                    )
+                )
+            except Exception as e:
+                log_silenced_exception(e, "chat: updating conversation summary")
 
         # Yield the complete answer
         yield {"type": "answer", "content": final_answer, "complete": True}
@@ -5371,6 +7191,7 @@ Analyze the actual output shown and continue with your response.
 
         if commands_to_execute:
             commands_actually_executed = 0
+            commands_deduplicated_this_call = 0
             for command_block, command_name, command_args in commands_to_execute:
                 # Check for cancellation before each command
                 self._check_cancelled()
@@ -5383,11 +7204,35 @@ Analyze the actual output shown and continue with your response.
                 command_id = f"{position}:{command_name}:{json.dumps(command_args, sort_keys=True)}"
                 # Skip if we've already processed this exact command
                 if command_id in self._processed_commands:
+                    commands_deduplicated_this_call += 1
+                    self._total_dedup_count += 1
                     logging.warning(
                         f"[execution_agent] Skipping already-processed command: {command_name} "
                         f"(args: {json.dumps(command_args, sort_keys=True)[:200]}). "
                         f"This usually means the model lost context about previous executions "
-                        f"and regenerated the same command."
+                        f"and regenerated the same command. "
+                        f"(iteration dedupes={commands_deduplicated_this_call}, "
+                        f"total dedupes={self._total_dedup_count})"
+                    )
+                    # Replace the offending command block in the response with an
+                    # explicit per-command rejection notice so the model sees on
+                    # the NEXT inference exactly which call was skipped and why.
+                    # Without this the model only sees its own raw <execute> tag
+                    # and has no signal that the call was rejected, which is a
+                    # primary driver of the regenerate-same-command loop.
+                    rejection_notice = (
+                        f"<output>[REJECTED — DUPLICATE] The command `{command_name}` "
+                        f"with the exact same arguments was already executed earlier in this "
+                        f"task. Its output is shown above. The system rejected this "
+                        f"re-execution to avoid redundant work. "
+                        f"Either: (a) call a DIFFERENT command, (b) call `{command_name}` "
+                        f"with DIFFERENT arguments, or (c) if you have enough information, "
+                        f"finalize your answer in <answer></answer> tags. The opening "
+                        f"<answer> tag MUST be the first thing on a new line, not inline "
+                        f"in a sentence and not inside a code block.</output>"
+                    )
+                    reformatted_response = reformatted_response.replace(
+                        command_block, rejection_notice, 1
                     )
                     continue
 
@@ -5554,7 +7399,7 @@ Analyze the actual output shown and continue with your response.
                             )
                             try:
                                 # Build conversation history for context
-                                _conv_data = c.get_conversation()
+                                _conv_data = c.get_conversation(limit=1000, page=1)
                                 _opt_history = ""
                                 if (
                                     "interactions" in _conv_data
@@ -5709,4 +7554,7 @@ Analyze the actual output shown and continue with your response.
             return 0
         if reformatted_response != self.response:
             self.response = reformatted_response
+        # Expose dedup count for this call so run_stream can detect stuck loops
+        # even when at least one new command slipped through each iteration.
+        self._last_iteration_dedup_count = commands_deduplicated_this_call
         return commands_actually_executed

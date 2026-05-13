@@ -38,6 +38,7 @@ import time
 import hashlib
 import logging
 import zlib
+import fnmatch
 from typing import Dict, Optional, Any, Set, Callable
 from dataclasses import dataclass
 from fastapi import Request, Response
@@ -81,6 +82,7 @@ class ResponseCacheManager:
 
     # Cache key prefix for response cache entries
     CACHE_PREFIX = "response_cache"
+    MAX_CACHE_BODY_BYTES = 2 * 1024 * 1024
 
     # Endpoints that should NEVER be cached (even if they match CACHEABLE_ENDPOINTS patterns)
     # These are excluded because their data changes frequently or is security-sensitive
@@ -95,6 +97,8 @@ class ResponseCacheManager:
         "/v1/user/mfa",  # MFA - security sensitive
         "/v1/oauth",  # OAuth flows - security sensitive
         "/v1/cache",  # Cache management endpoints themselves
+        "/v1/conversation/*/workspace/download",  # Streams workspace files
+        "/v1/conversation/*/tts/*",  # Streams/generated audio should stay live
         "/health",  # Health checks should be real-time
     }
 
@@ -103,6 +107,7 @@ class ResponseCacheManager:
         "/v1/agent": 120,  # Agent list - 2 minutes
         "/api/provider": 300,  # Providers - 5 minutes (rarely changes)
         "/v1/provider": 300,  # Provider list v1 - 5 minutes (rarely changes)
+        "/v1/conversations": 30,  # Conversations - 30 seconds (changes often)
         "/v1/conversation": 30,  # Conversations - 30 seconds (changes often)
         "/v1/prompt": 300,  # Prompts - 5 minutes
         "/v1/chain": 300,  # Chains - 5 minutes
@@ -111,29 +116,37 @@ class ResponseCacheManager:
         "/v1/scopes": 600,  # Scopes list - 10 minutes (rarely changes, system-level)
         "/v1/roles": 300,  # Custom roles - 5 minutes
         "/v1/user/scopes": 60,  # User's effective scopes - 1 minute (per-user, changes with role changes)
+        # Chat-shell warmup endpoint. Composes user + companies + recent
+        # conversations + counts + active + billing into one response. The
+        # underlying components are individually cacheable up to 30-300s,
+        # but during the typical /user → /chat redirect the same payload
+        # gets requested twice within 50ms — caching for 15s collapses the
+        # second hit to ~0ms. Mutation invalidation rules below ensure
+        # creates/edits flush this cache so stale counts don't appear.
+        "/v1/me/bootstrap": 15,
     }
 
     # Invalidation rules: when a mutation happens on path pattern, invalidate these cache patterns
     INVALIDATION_RULES = {
         # Agent mutations invalidate agent-related caches
-        "POST:/v1/agent": ["agent", "company"],
-        "PUT:/v1/agent": ["agent"],
-        "DELETE:/v1/agent": ["agent", "company"],
-        "PUT:/v1/agent/*/settings": ["agent"],
-        "PUT:/v1/agent/*/commands": ["agent"],
+        "POST:/v1/agent": ["agent", "company", "me/bootstrap"],
+        "PUT:/v1/agent": ["agent", "me/bootstrap"],
+        "DELETE:/v1/agent": ["agent", "company", "me/bootstrap"],
+        "PUT:/v1/agent/*/settings": ["agent", "me/bootstrap"],
+        "PUT:/v1/agent/*/commands": ["agent", "me/bootstrap"],
         "PATCH:/v1/agent/*/command": ["agent", "extension"],  # Single command toggle
         "PATCH:/v1/agent/*/extension/commands": [
             "agent",
             "extension",
         ],  # Bulk command toggle
         # Conversation mutations
-        "POST:/v1/conversation": ["conversation"],
-        "PUT:/v1/conversation": ["conversation"],
-        "PATCH:/v1/conversation": ["conversation"],
-        "DELETE:/v1/conversation": ["conversation"],
+        "POST:/v1/conversation": ["conversation", "me/bootstrap"],
+        "PUT:/v1/conversation": ["conversation", "me/bootstrap"],
+        "PATCH:/v1/conversation": ["conversation", "me/bootstrap"],
+        "DELETE:/v1/conversation": ["conversation", "me/bootstrap"],
         # Company mutations
-        "POST:/v1/company": ["company"],
-        "PUT:/v1/company": ["company"],
+        "POST:/v1/company": ["company", "me/bootstrap"],
+        "PUT:/v1/company": ["company", "me/bootstrap"],
         "PATCH:/v1/companies/*/command": [
             "agent",
             "extension",
@@ -190,6 +203,7 @@ class ResponseCacheManager:
         "/v1/agent",  # Agent list/config - internal AGiXT data
         "/api/provider",  # Provider list - internal, rarely changes
         "/v1/provider",  # Provider list v1 - internal, rarely changes
+        "/v1/conversations",  # Conversation list/search/active - internal (short TTL)
         "/v1/conversation",  # Conversation list - internal (short TTL)
         "/v1/prompt",  # Prompts - internal AGiXT data
         "/v1/chain",  # Chains - internal AGiXT data
@@ -200,6 +214,7 @@ class ResponseCacheManager:
         "/v1/scopes",  # All system scopes - internal, rarely changes
         "/v1/roles",  # Custom roles list - internal AGiXT data
         "/v1/user/scopes",  # User's effective scopes - per-user permissions
+        "/v1/me/bootstrap",  # Chat-shell warmup composite (15s TTL)
     }
 
     def __init__(self):
@@ -216,17 +231,23 @@ class ResponseCacheManager:
     def _make_cache_key(self, user_id: str, path: str, query_string: str = "") -> str:
         """Create a cache key from user_id, path and query string"""
         full_path = f"{path}?{query_string}" if query_string else path
-        path_hash = hashlib.md5(full_path.encode()).hexdigest()
+        path_hash = hashlib.sha256(full_path.encode()).hexdigest()
         return f"{self.CACHE_PREFIX}:{user_id}:{path_hash}"
 
     def _make_path_pattern_key(self, user_id: str, path: str) -> str:
         """Create a key for tracking paths per user (for invalidation)"""
         return f"{self.CACHE_PREFIX}:{user_id}:path:{path}"
 
+    def _path_matches(self, pattern: str, path: str) -> bool:
+        """Match an API path against an exact/prefix or wildcard pattern."""
+        if "*" in pattern:
+            return fnmatch.fnmatchcase(path, pattern)
+        return path == pattern or path.startswith(f"{pattern}/")
+
     def _get_ttl(self, path: str) -> int:
         """Get TTL for a path based on patterns (in seconds)"""
         for pattern, ttl in self.DEFAULT_TTLS.items():
-            if path.startswith(pattern):
+            if self._path_matches(pattern, path):
                 return ttl
         return 60  # Default 1 minute
 
@@ -238,14 +259,35 @@ class ResponseCacheManager:
         """
         # Check exclusions first - these take precedence
         for excluded_pattern in self.EXCLUDED_ENDPOINTS:
-            if path.startswith(excluded_pattern):
+            if self._path_matches(excluded_pattern, path):
                 return False
 
         # Then check if it's in cacheable endpoints
         for pattern in self.CACHEABLE_ENDPOINTS:
-            if path.startswith(pattern):
+            if self._path_matches(pattern, path):
                 return True
         return False
+
+    def _is_cacheable_response(self, response: Response) -> bool:
+        """Only cache bounded JSON responses, never downloads or streams."""
+        if response.headers.get("content-disposition"):
+            return False
+
+        content_type = (
+            response.headers.get("content-type") or response.media_type or ""
+        ).lower()
+        if "application/json" not in content_type:
+            return False
+
+        content_length = response.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > self.MAX_CACHE_BODY_BYTES:
+                    return False
+            except ValueError:
+                return False
+
+        return True
 
     def _match_invalidation_pattern(self, method: str, path: str) -> Set[str]:
         """Find which cache patterns should be invalidated for a mutation"""
@@ -284,7 +326,7 @@ class ResponseCacheManager:
 
             if cached_data:
                 self._stats["hits"] += 1
-                logger.debug(f"Cache HIT: user={user_id[:8]}... path={path}")
+                logger.debug("Cache HIT")
 
                 # Decompress the response body
                 try:
@@ -305,12 +347,12 @@ class ResponseCacheManager:
                 )
             else:
                 self._stats["misses"] += 1
-                logger.debug(f"Cache MISS: user={user_id[:8]}... path={path}")
+                logger.debug("Cache MISS")
                 return None
 
-        except Exception as e:
+        except Exception:
             self._stats["errors"] += 1
-            logger.warning(f"Cache GET error: {e}")
+            logger.warning("Cache GET error")
             return None
 
     def set(
@@ -328,6 +370,9 @@ class ResponseCacheManager:
 
         # Only cache successful responses
         if status_code != 200:
+            return
+
+        if len(response_body) > self.MAX_CACHE_BODY_BYTES:
             return
 
         try:
@@ -356,11 +401,11 @@ class ResponseCacheManager:
                 existing_keys.append(cache_key)
                 self._cache.set(path_key, existing_keys, ttl=ttl + 60)
 
-            logger.debug(f"Cache SET: user={user_id[:8]}... path={path} ttl={ttl}s")
+            logger.debug("Cache SET: ttl=%ss", ttl)
 
-        except Exception as e:
+        except Exception:
             self._stats["errors"] += 1
-            logger.warning(f"Cache SET error: {e}")
+            logger.warning("Cache SET error")
 
     def invalidate(self, user_id: str, method: str, path: str):
         """Invalidate caches based on a mutation"""
@@ -381,12 +426,14 @@ class ResponseCacheManager:
 
             self._stats["invalidations"] += deleted_count
             logger.debug(
-                f"Cache INVALIDATE: user={user_id[:8]}... patterns={patterns} deleted={deleted_count}"
+                "Cache INVALIDATE: pattern_count=%s deleted=%s",
+                len(patterns),
+                deleted_count,
             )
 
-        except Exception as e:
+        except Exception:
             self._stats["errors"] += 1
-            logger.warning(f"Cache INVALIDATE error: {e}")
+            logger.warning("Cache INVALIDATE error")
 
     def invalidate_user(self, user_id: str):
         """Clear all caches for a user"""
@@ -394,11 +441,11 @@ class ResponseCacheManager:
             # Delete all keys for this user
             pattern = f"{self.CACHE_PREFIX}:{user_id}:*"
             deleted = self._cache.delete_pattern(pattern)
-            logger.debug(f"Cache CLEAR: user={user_id[:8]}... deleted={deleted}")
+            logger.debug("Cache CLEAR: deleted=%s", deleted)
 
-        except Exception as e:
+        except Exception:
             self._stats["errors"] += 1
-            logger.warning(f"Cache CLEAR error: {e}")
+            logger.warning("Cache CLEAR error")
 
     def clear_all(self):
         """Clear all response caches for all users"""
@@ -414,9 +461,9 @@ class ResponseCacheManager:
             }
             logger.info(f"Cache CLEAR ALL: deleted={deleted} entries")
 
-        except Exception as e:
+        except Exception:
             self._stats["errors"] += 1
-            logger.warning(f"Cache CLEAR ALL error: {e}")
+            logger.warning("Cache CLEAR ALL error")
 
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics"""
@@ -438,9 +485,9 @@ class ResponseCacheManager:
                 "storage": "redis" if self._cache._redis else "local_memory",
             }
 
-        except Exception as e:
+        except Exception:
             # Log detailed error server-side, but do not expose exception details to clients
-            logger.warning(f"Cache stats error: {e}")
+            logger.warning("Cache stats error")
             return {
                 "hits": self._stats["hits"],
                 "misses": self._stats["misses"],
@@ -465,7 +512,7 @@ def get_cache_manager() -> ResponseCacheManager:
 
 
 def extract_user_id(request: Request) -> Optional[str]:
-    """Extract user ID from request authorization"""
+    """Validate authorization and extract the real user ID for cache isolation."""
     auth_header = request.headers.get("authorization", "")
     if not auth_header:
         return None
@@ -474,8 +521,17 @@ def extract_user_id(request: Request) -> Optional[str]:
     if not token:
         return None
 
-    # Use token hash as user identifier (avoids JWT decode overhead)
-    return hashlib.md5(token.encode()).hexdigest()
+    try:
+        from MagicalAuth import verify_api_key
+
+        user = verify_api_key(authorization=token)
+        if isinstance(user, dict):
+            user_id = user.get("id")
+            return str(user_id) if user_id else None
+    except Exception:
+        logger.debug("Response cache auth validation failed")
+
+    return None
 
 
 class ResponseCacheMiddleware(BaseHTTPMiddleware):
@@ -496,17 +552,27 @@ class ResponseCacheMiddleware(BaseHTTPMiddleware):
         if not path.startswith("/v1/") and not path.startswith("/api/"):
             return await call_next(request)
 
-        # Extract user ID
+        cache_manager = get_cache_manager()
+        method = request.method.upper()
+        query_string = str(request.url.query)
+        is_cacheable_get = method == "GET" and cache_manager._is_cacheable(path)
+        is_cache_invalidating_mutation = method in (
+            "POST",
+            "PUT",
+            "DELETE",
+            "PATCH",
+        ) and bool(cache_manager._match_invalidation_pattern(method, path))
+
+        if not is_cacheable_get and not is_cache_invalidating_mutation:
+            return await call_next(request)
+
+        # Extract user ID only when this request can use or invalidate cache.
         user_id = extract_user_id(request)
         if not user_id:
             return await call_next(request)
 
-        cache_manager = get_cache_manager()
-        method = request.method.upper()
-        query_string = str(request.url.query)
-
         # For GET requests, try to return cached response
-        if method == "GET":
+        if is_cacheable_get:
             cached = cache_manager.get(user_id, path, query_string)
             if cached:
                 return Response(
@@ -520,14 +586,17 @@ class ResponseCacheMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         # For mutations, invalidate relevant caches
-        if method in ("POST", "PUT", "DELETE", "PATCH"):
+        if is_cache_invalidating_mutation:
             cache_manager.invalidate(user_id, method, path)
 
         # For successful GET requests, try to cache the response
-        if method == "GET" and response.status_code == 200:
+        if is_cacheable_get and response.status_code == 200:
             # Check if this endpoint is cacheable BEFORE reading body
             if not cache_manager._is_cacheable(path):
                 # Not cacheable - return response without X-Cache header
+                return response
+
+            if not cache_manager._is_cacheable_response(response):
                 return response
 
             # We need to read the response body to cache it

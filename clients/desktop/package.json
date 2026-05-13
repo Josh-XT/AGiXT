@@ -1,0 +1,14 @@
+{
+  "name": "agixt-desktop-frontend-tests",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Frontend smoke tests for AGiXT Desktop. Runs under Node's built-in test runner with jsdom.",
+  "type": "module",
+  "scripts": {
+    "tauri": "npx -y @tauri-apps/cli@2.11.1",
+    "test": "node --test tests/frontend.test.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1"
+  }
+}

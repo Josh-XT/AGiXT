@@ -13,6 +13,7 @@ provider rotation system when configured with a valid API URI.
 import base64
 import json
 import logging
+import os
 import random
 import re
 import uuid
@@ -21,6 +22,18 @@ import numpy as np
 from Extensions import Extensions
 from Globals import getenv
 import asyncio
+from functools import partial
+
+
+def _run_sync(func, *args, **kwargs):
+    """Run a synchronous function in the default thread pool executor.
+
+    This prevents blocking the asyncio event loop when making synchronous
+    HTTP requests (e.g. requests.post), which would starve other coroutines
+    like Discord heartbeats.
+    """
+    loop = asyncio.get_event_loop()
+    return loop.run_in_executor(None, partial(func, *args, **kwargs))
 
 
 class StreamChunk:
@@ -83,15 +96,16 @@ class ezlocalai(Extensions):
         "translation",
         "vision",
         "embeddings",
+        "video",
     ]
 
     def __init__(
         self,
         EZLOCALAI_API_URI: str = "",
         EZLOCALAI_API_KEY: str = "",
-        EZLOCALAI_AI_MODEL: str = "unsloth/Qwen3-4B-Instruct-2507-GGUF",
-        EZLOCALAI_CODING_MODEL: str = "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
-        EZLOCALAI_MAX_TOKENS: int = 1000000,
+        EZLOCALAI_AI_MODEL: str = "unsloth/Qwen3.6-35B-A3B-GGUF",
+        EZLOCALAI_CODING_MODEL: str = "unsloth/Qwen3.6-35B-A3B-GGUF",
+        EZLOCALAI_MAX_TOKENS: int = 250000,
         EZLOCALAI_TEMPERATURE: float = 1.33,
         EZLOCALAI_TOP_P: float = 0.95,
         EZLOCALAI_VOICE: str = "HAL9000",
@@ -102,9 +116,15 @@ class ezlocalai(Extensions):
         import os as _os
         import logging as _logging
 
-        # Extension base initialization
+        # Extension base initialization (matches essential_abilities pattern)
         self.agent_name = kwargs.get("agent_name", "AGiXT")
+        self.agent_id = kwargs.get("agent_id")
         self.ApiClient = kwargs.get("ApiClient", None)
+        self.user = kwargs.get("user", None)
+        self.user_id = kwargs.get("user_id", None)
+        self.conversation_name = kwargs.get("conversation_name", "")
+        self.conversation_id = kwargs.get("conversation_id", "")
+        self.activity_id = kwargs.get("activity_id", None)
 
         # Get URI from parameter or environment
         if not EZLOCALAI_API_URI:
@@ -137,6 +157,16 @@ class ezlocalai(Extensions):
             EZLOCALAI_API_URI += "v1/"
 
         self.API_URI = EZLOCALAI_API_URI
+        # Validate API key is safe for HTTP headers (latin-1 encodable).
+        # Masked/corrupted values (e.g. bullet chars from UI) must be discarded.
+        try:
+            if EZLOCALAI_API_KEY:
+                EZLOCALAI_API_KEY.encode("latin-1")
+        except UnicodeEncodeError:
+            logging.warning(
+                "[ezlocalai] API key contains non-ASCII characters (possibly masked value), ignoring"
+            )
+            EZLOCALAI_API_KEY = ""
         self.EZLOCALAI_API_KEY = EZLOCALAI_API_KEY
 
         # Check if this provider is configured (has a valid URI set)
@@ -184,10 +214,20 @@ class ezlocalai(Extensions):
             EZLOCALAI_TRANSCRIPTION_MODEL if EZLOCALAI_TRANSCRIPTION_MODEL else "base"
         )
 
-        # Output URL for generated files
+        # Output URL for generated files on the ezlocalai server
         self.OUTPUT_URL = (
             self.API_URI.replace("/v1/", "/outputs/") if self.API_URI else ""
         )
+
+        # Workspace directory for saving generated files (injected by Extensions)
+        self.WORKING_DIRECTORY = (
+            kwargs["conversation_directory"]
+            if "conversation_directory" in kwargs
+            else os.path.join(os.getcwd(), "WORKSPACE")
+        )
+        if not os.path.exists(self.WORKING_DIRECTORY):
+            os.makedirs(self.WORKING_DIRECTORY, exist_ok=True)
+        self.output_url = kwargs.get("output_url", "")
 
         # Failure tracking for rotation
         self.FAILURES = []
@@ -197,6 +237,10 @@ class ezlocalai(Extensions):
         self.commands = {
             "Generate Text with ezLocalai": self.generate_text_command,
             "Generate Image with ezLocalai": self.generate_image_command,
+            "Edit Image with ezLocalai": self.edit_image_command,
+            "Generate Video with ezLocalai": self.generate_video_command,
+            "Image to Video with ezLocalai": self.image_to_video_command,
+            "Video to Video with ezLocalai": self.video_to_video_command,
             "Text to Speech with ezLocalai": self.text_to_speech_command,
             "Transcribe Audio with ezLocalai": self.transcribe_audio_command,
         }
@@ -212,6 +256,7 @@ class ezlocalai(Extensions):
             "translation",
             "vision",
             "embeddings",
+            "video",
         ]
 
     def get_max_tokens(self):
@@ -312,7 +357,9 @@ class ezlocalai(Extensions):
                 # Use a longer connection timeout (600s) since the inference slot
                 # may be busy with another request and we need to wait in queue.
                 # The read timeout for individual chunks is set to 120s.
-                resp = requests.post(
+                # Run in executor to avoid blocking the event loop (Discord heartbeat etc.)
+                resp = await _run_sync(
+                    requests.post,
                     api_url,
                     headers=headers,
                     json=payload,
@@ -322,7 +369,8 @@ class ezlocalai(Extensions):
                 resp.raise_for_status()
                 return parse_sse_stream(resp)
 
-            resp = requests.post(
+            resp = await _run_sync(
+                requests.post,
                 api_url,
                 headers=headers,
                 json=payload,
@@ -414,8 +462,13 @@ class ezlocalai(Extensions):
                     data["num_speakers"] = str(num_speakers)
             if session_id:
                 data["session_id"] = session_id
-            resp = requests.post(
-                api_url, headers=headers, files=files, data=data, timeout=120
+            resp = await _run_sync(
+                requests.post,
+                api_url,
+                headers=headers,
+                files=files,
+                data=data,
+                timeout=120,
             )
             resp.raise_for_status()
             result = resp.json()
@@ -443,8 +496,13 @@ class ezlocalai(Extensions):
         with open(audio_path, "rb") as audio_file:
             files = {"file": audio_file}
             data = {"model": self.TRANSCRIPTION_MODEL}
-            resp = requests.post(
-                api_url, headers=headers, files=files, data=data, timeout=120
+            resp = await _run_sync(
+                requests.post,
+                api_url,
+                headers=headers,
+                files=files,
+                data=data,
+                timeout=120,
             )
             resp.raise_for_status()
             return resp.json().get("text", "")
@@ -475,11 +533,13 @@ class ezlocalai(Extensions):
             "input": text,
             "language": self.TTS_LANGUAGE,
         }
-        resp = requests.post(api_url, headers=headers, json=payload, timeout=120)
+        resp = await _run_sync(
+            requests.post, api_url, headers=headers, json=payload, timeout=120
+        )
         resp.raise_for_status()
         return base64.b64encode(resp.content).decode("utf-8")
 
-    async def text_to_speech_stream(self, text: str):
+    async def text_to_speech_stream(self, text: str, audio_format: str = "pcm"):
         """
         Stream TTS audio as it's generated from ezLocalai.
 
@@ -514,6 +574,7 @@ class ezlocalai(Extensions):
             "voice": self.VOICE,
             "input": text,
             "language": self.TTS_LANGUAGE,
+            "audio_format": audio_format or "pcm",
         }
 
         async with httpx.AsyncClient(timeout=300.0) as client:
@@ -582,12 +643,14 @@ class ezlocalai(Extensions):
 
         payload = {
             "prompt": prompt,
-            "model": "stabilityai/sdxl-turbo",
+            "model": "unsloth/FLUX.2-klein-4B-GGUF",
             "n": 1,
-            "size": "512x512",
+            "size": "1024x1024",
             "response_format": "url",
         }
-        resp = requests.post(api_url, headers=headers, json=payload, timeout=120)
+        resp = await _run_sync(
+            requests.post, api_url, headers=headers, json=payload, timeout=120
+        )
         resp.raise_for_status()
         data = resp.json()
 
@@ -595,9 +658,149 @@ class ezlocalai(Extensions):
         url = data["data"][0]["url"]
 
         # Download the image and return as base64
-        image_data = requests.get(url).content
+        dl_resp = await _run_sync(requests.get, url, timeout=60)
+        image_data = dl_resp.content
         return base64.b64encode(image_data).decode("utf-8")
-        return f"{agixt_uri}/outputs/{filename}"
+
+    async def edit_image(self, prompt: str, image: str) -> str:
+        """
+        Edit an image using a text prompt via ezLocalai.
+
+        Args:
+            prompt: Text description of the edit to apply
+            image: Base64-encoded image, data URL, or HTTP URL of image to edit
+
+        Returns:
+            Base64 encoded edited image data
+        """
+        if not self.configured:
+            raise Exception("ezLocalai provider not configured")
+
+        api_key = self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        api_url = self.API_URI.rstrip("/") + "/images/edits"
+
+        payload = {
+            "image": image,
+            "prompt": prompt,
+            "model": "unsloth/FLUX.2-klein-4B-GGUF",
+            "n": 1,
+            "size": "1024x1024",
+            "response_format": "url",
+        }
+        resp = await _run_sync(
+            requests.post, api_url, headers=headers, json=payload, timeout=120
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        logging.info(f"Image Edited for prompt: {prompt}")
+        url = data["data"][0]["url"]
+
+        dl_resp = await _run_sync(requests.get, url, timeout=60)
+        image_data = dl_resp.content
+        return base64.b64encode(image_data).decode("utf-8")
+
+    def _save_to_workspace(self, content: bytes, filename: str) -> str:
+        """Save file content to the agent workspace and return the workspace URL."""
+        file_path = os.path.join(self.WORKING_DIRECTORY, os.path.basename(filename))
+        with open(file_path, "wb") as f:
+            f.write(content)
+        if self.output_url:
+            return f"{self.output_url}{os.path.basename(filename)}"
+        return file_path
+
+    async def _resolve_image_to_base64(self, image_input: str) -> str:
+        """Convert an image input (HTTP URL, data URL, or raw base64) to base64 string."""
+        if not image_input:
+            return image_input
+        if image_input.startswith(("http://", "https://")):
+            resp = await _run_sync(requests.get, image_input, timeout=30)
+            resp.raise_for_status()
+            return base64.b64encode(resp.content).decode("utf-8")
+        # data URLs and raw base64 are passed through as-is
+        return image_input
+
+    async def generate_video(
+        self,
+        prompt: str,
+        size: str = "768x512",
+        num_frames: int = 121,
+        num_inference_steps: int = 40,
+        guidance_scale: float = 4.0,
+        frame_rate: int = 24,
+        image: str = None,
+        conditions: list = None,
+    ) -> str:
+        """
+        Generate a video with audio using ezLocalai.
+
+        Supports three modes:
+        - Text-to-video: provide only prompt
+        - Image-to-video: provide prompt + image
+        - Video-to-video: provide prompt + conditions (list of frame dicts)
+
+        Args:
+            prompt: Text description of the video to generate
+            size: Video resolution as "WIDTHxHEIGHT" (default: "768x512")
+            num_frames: Number of frames to generate (default: 121)
+            num_inference_steps: Denoising steps (default: 40)
+            guidance_scale: CFG scale (default: 4.0)
+            frame_rate: Output frame rate (default: 24)
+            image: Base64-encoded image for image-to-video mode
+            conditions: List of condition frame dicts for video-to-video mode
+
+        Returns:
+            URL to the generated video file
+        """
+        if not self.configured:
+            raise Exception("ezLocalai provider not configured")
+
+        api_key = self.EZLOCALAI_API_KEY if self.EZLOCALAI_API_KEY else "none"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        api_url = self.API_URI.rstrip("/") + "/videos/generations"
+
+        payload = {
+            "prompt": prompt,
+            "model": "unsloth/LTX-2.3-GGUF",
+            "n": 1,
+            "size": size,
+            "num_frames": num_frames,
+            "num_inference_steps": num_inference_steps,
+            "guidance_scale": guidance_scale,
+            "frame_rate": frame_rate,
+            "response_format": "url",
+        }
+        if image:
+            payload["image"] = image
+        if conditions:
+            payload["conditions"] = conditions
+
+        resp = await _run_sync(
+            requests.post, api_url, headers=headers, json=payload, timeout=1800
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        logging.info(f"Video Generated for prompt: {prompt}")
+        first_item = data["data"][0]
+        error = first_item.get("error")
+        if error:
+            raise Exception(f"Video generation failed: {error}")
+        url = first_item.get("url")
+        if not url:
+            raise Exception("Video generation failed: no URL returned")
+        # Download the video to agent workspace
+        dl_resp = await _run_sync(requests.get, url, timeout=120)
+        video_data = dl_resp.content
+        filename = url.split("/")[-1] if "/" in url else f"{uuid.uuid4()}.mp4"
+        return self._save_to_workspace(video_data, filename)
 
     def embeddings(self, input) -> np.ndarray:
         """
@@ -649,17 +852,242 @@ class ezlocalai(Extensions):
 
     async def generate_image_command(self, prompt: str) -> str:
         """
-        Generate an image using ezLocalai's image generation capabilities.
+        Generate an image using ezLocalai's FLUX.2-klein-4B image generation.
         Use this when you need to create images locally without external API calls.
 
         Args:
             prompt: Description of the image to generate
 
         Returns:
-            URL to the generated image
+            Base64 image data with markdown display
         """
-        url = await self.generate_image(prompt=prompt)
-        return f"Generated image: ![{prompt[:50]}]({url})"
+        from Conversations import Conversations
+
+        c = Conversations(
+            conversation_name=self.conversation_name,
+            user=self.user,
+            conversation_id=self.conversation_id,
+        )
+
+        c.log_interaction(
+            role=self.agent_name,
+            message="[SUBACTIVITY] Generating image...",
+        )
+        image_b64 = await self.generate_image(prompt=prompt)
+
+        # Vision verification loop: use the LLM's vision to check if the
+        # generated image matches the prompt, and edit if it doesn't.
+        max_edits = 3
+        for attempt in range(max_edits):
+            data_url = f"data:image/png;base64,{image_b64}"
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY] Reviewing generated image (attempt {attempt + 1}/{max_edits})...",
+            )
+            verification_prompt = (
+                f"You are an image QA reviewer. The user requested this image:\n\n"
+                f'"{prompt}"\n\n'
+                f"Look at the generated image carefully. Does it match the request? "
+                f"Pay close attention to text content, capitalization, colors, layout, "
+                f"and any specific details mentioned in the request.\n"
+                f"If it matches well enough, respond with exactly: PASS\n"
+                f"If it does NOT match, respond with a brief description of what "
+                f"specifically needs to change (do NOT say PASS). Focus only on the "
+                f"most important differences from the request."
+            )
+            try:
+                verdict = await self.inference(
+                    prompt=verification_prompt,
+                    images=[data_url],
+                )
+            except Exception as e:
+                logging.warning(
+                    f"[generate_image_command] Vision verification failed: {e}"
+                )
+                c.log_interaction(
+                    role=self.agent_name,
+                    message="[SUBACTIVITY] Vision review unavailable, using image as-is.",
+                )
+                break
+
+            verdict_stripped = verdict.strip()
+            # Check for PASS anywhere in a short response to handle
+            # variations like "PASS." or "PASS - looks good"
+            verdict_upper = verdict_stripped.upper()
+            if verdict_upper.startswith("PASS") or (
+                len(verdict_stripped) < 50 and "PASS" in verdict_upper
+            ):
+                logging.info(
+                    f"[generate_image_command] Image passed vision verification "
+                    f"on attempt {attempt + 1}."
+                )
+                c.log_interaction(
+                    role=self.agent_name,
+                    message="[SUBACTIVITY] Image passed quality review.",
+                )
+                break
+
+            logging.info(
+                f"[generate_image_command] Vision verification attempt "
+                f"{attempt + 1}/{max_edits}: needs edits — "
+                f"{verdict_stripped[:200]}"
+            )
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY] Image needs edits: {verdict_stripped[:300]}",
+            )
+
+            # Edit the image with the feedback
+            edit_prompt = (
+                f"Original request: {prompt}\n" f"Required changes: {verdict_stripped}"
+            )
+            c.log_interaction(
+                role=self.agent_name,
+                message="[SUBACTIVITY] Editing image to address feedback...",
+            )
+            try:
+                image_b64 = await self.edit_image(
+                    prompt=edit_prompt,
+                    image=image_b64,
+                )
+            except Exception as e:
+                logging.warning(
+                    f"[generate_image_command] Image edit failed on attempt "
+                    f"{attempt + 1}: {e}"
+                )
+                c.log_interaction(
+                    role=self.agent_name,
+                    message="[SUBACTIVITY] Image edit failed, using current image.",
+                )
+                break
+
+        image_data = base64.b64decode(image_b64)
+        filename = f"{uuid.uuid4()}.png"
+        workspace_url = self._save_to_workspace(image_data, filename)
+        return f"Generated image: ![{prompt[:50]}]({workspace_url})"
+
+    async def edit_image_command(self, prompt: str, image_url: str) -> str:
+        """
+        Edit an image using a text prompt with ezLocalai's FLUX.2-klein-4B model.
+        Use this when you need to modify or transform an existing image based on
+        a text description. The model takes the input image and applies the
+        described transformation.
+
+        Args:
+            prompt: Description of the edit to apply to the image
+            image_url: URL or base64-encoded data of the image to edit
+
+        Returns:
+            Base64 edited image data with markdown display
+        """
+        image_b64 = await self.edit_image(prompt=prompt, image=image_url)
+        image_data = base64.b64decode(image_b64)
+        filename = f"{uuid.uuid4()}.png"
+        workspace_url = self._save_to_workspace(image_data, filename)
+        return f"Edited image: ![{prompt[:50]}]({workspace_url})"
+
+    async def generate_video_command(
+        self,
+        prompt: str,
+        size: str = "768x512",
+        num_frames: str = "121",
+        num_inference_steps: str = "40",
+    ) -> str:
+        """
+        Generate a video with synchronized audio from a text prompt using ezLocalai's
+        LTX-2.3 model. Use this when you need to create videos locally from text
+        descriptions. Produces MP4 files with both video and audio tracks.
+
+        Args:
+            prompt: Description of the video to generate
+            size: Video resolution as WIDTHxHEIGHT (default: 768x512)
+            num_frames: Number of frames to generate (default: 121)
+            num_inference_steps: Number of denoising steps, higher is better quality but slower (default: 40)
+
+        Returns:
+            URL to the generated video
+        """
+        url = await self.generate_video(
+            prompt=prompt,
+            size=size,
+            num_frames=int(num_frames),
+            num_inference_steps=int(num_inference_steps),
+        )
+        return f"Generated video: [{prompt[:50]}]({url})"
+
+    async def image_to_video_command(
+        self,
+        prompt: str,
+        image_url: str,
+        size: str = "768x512",
+        num_frames: str = "121",
+        num_inference_steps: str = "40",
+    ) -> str:
+        """
+        Generate a video from an image and text prompt using ezLocalai's LTX-2.3 model.
+        The provided image is used as the first frame and the video is generated to
+        match the text description. Produces MP4 files with video and audio tracks.
+
+        Args:
+            prompt: Description of what should happen in the video
+            image_url: URL or base64-encoded data of the starting image
+            size: Video resolution as WIDTHxHEIGHT (default: 768x512)
+            num_frames: Number of frames to generate (default: 121)
+            num_inference_steps: Number of denoising steps (default: 40)
+
+        Returns:
+            URL to the generated video
+        """
+        image_b64 = await self._resolve_image_to_base64(image_url)
+        url = await self.generate_video(
+            prompt=prompt,
+            size=size,
+            num_frames=int(num_frames),
+            num_inference_steps=int(num_inference_steps),
+            image=image_b64,
+        )
+        return f"Generated video from image: [{prompt[:50]}]({url})"
+
+    async def video_to_video_command(
+        self,
+        prompt: str,
+        start_frame_url: str,
+        end_frame_url: str,
+        size: str = "768x512",
+        num_frames: str = "121",
+        num_inference_steps: str = "40",
+    ) -> str:
+        """
+        Generate a video conditioned on start and end frames using ezLocalai's LTX-2.3
+        model. Provide a start frame and end frame, and the model generates a smooth
+        video transition between them guided by the text prompt. Useful for style
+        transfer, interpolation, and video-to-video transformation.
+
+        Args:
+            prompt: Description of the video transition or transformation
+            start_frame_url: URL or base64-encoded data of the starting frame
+            end_frame_url: URL or base64-encoded data of the ending frame
+            size: Video resolution as WIDTHxHEIGHT (default: 768x512)
+            num_frames: Number of frames to generate (default: 121)
+            num_inference_steps: Number of denoising steps (default: 40)
+
+        Returns:
+            URL to the generated video
+        """
+        start_b64 = await self._resolve_image_to_base64(start_frame_url)
+        end_b64 = await self._resolve_image_to_base64(end_frame_url)
+        conditions = [
+            {"image": start_b64, "index": 0, "strength": 1.0},
+            {"image": end_b64, "index": -1, "strength": 1.0},
+        ]
+        url = await self.generate_video(
+            prompt=prompt,
+            size=size,
+            num_frames=int(num_frames),
+            num_inference_steps=int(num_inference_steps),
+            conditions=conditions,
+        )
+        return f"Generated video from frames: [{prompt[:50]}]({url})"
 
     async def text_to_speech_command(self, text: str) -> str:
         """

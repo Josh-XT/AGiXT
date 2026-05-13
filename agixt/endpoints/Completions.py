@@ -7,9 +7,9 @@ import traceback
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from Globals import get_tokens
-from MagicalAuth import get_user_id
+from MagicalAuth import get_user_id, require_scope
 from ApiClient import Agent, verify_api_key, get_api_client, get_agents
-from Conversations import get_conversation_name_by_id
+from Conversations import get_or_create_conversation_name_by_id
 from DB import get_session, Conversation, ConversationParticipant, Agent as AgentModel
 from Memories import embed
 from fastapi import UploadFile, File, Form
@@ -163,7 +163,7 @@ async def safe_stream_wrapper(stream_generator):
 @app.post(
     "/v1/chat/completions",
     tags=["Completions"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Create Chat Completion",
     description="Creates a completion for the chat message. Compatible with OpenAI's chat completions API format. Supports streaming responses when stream=true.",
 )
@@ -185,9 +185,14 @@ async def chat_completion(
                 conversation_id = None
             if conversation_id:
                 user_id = get_user_id(user)
-                conversation_name = get_conversation_name_by_id(
+                conversation_name = get_or_create_conversation_name_by_id(
                     conversation_id=conversation_id, user_id=user_id
                 )
+                if not conversation_name:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Conversation is not accessible.",
+                    )
         # Pre-fetch agents list once for model defaulting and @mention routing
         all_agents = get_agents(user=user)
         if not prompt.model:
@@ -323,6 +328,7 @@ async def chat_completion(
             agent_name=prompt.model,
             api_key=authorization,
             conversation_name=conversation_name,
+            conversation_id=conversation_id,
         )
 
         # Check if streaming is requested
@@ -366,7 +372,7 @@ async def chat_completion(
 @app.post(
     "/v1/mcp/chat/completions",
     tags=["Completions"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Create Chat Completion",
     description="Creates a completion for the chat message. Compatible with OpenAI's chat completions API format. Supports streaming responses when stream=true.",
 )
@@ -394,9 +400,14 @@ async def mcp_chat_completion(
                 conversation_id = None
             if conversation_id:
                 user_id = get_user_id(user)
-                conversation_name = get_conversation_name_by_id(
+                conversation_name = get_or_create_conversation_name_by_id(
                     conversation_id=conversation_id, user_id=user_id
                 )
+                if not conversation_name:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Conversation is not accessible.",
+                    )
         # Pre-fetch agents list once for model defaulting and @mention routing
         all_agents = get_agents(user=user)
         if not prompt.model:
@@ -527,6 +538,7 @@ async def mcp_chat_completion(
             agent_name=prompt.model,
             api_key=authorization,
             conversation_name=conversation_name,
+            conversation_id=conversation_id,
         )
 
         # Check if streaming is requested
@@ -567,7 +579,7 @@ async def mcp_chat_completion(
 @app.post(
     "/v1/embeddings",
     tags=["Completions"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Create Text Embeddings",
     description="Creates embeddings for the input text. Compatible with OpenAI's embeddings API format.",
 )
@@ -594,7 +606,7 @@ async def embedding(
 @app.post(
     "/v1/audio/transcriptions",
     tags=["Audio"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Create Audio Transcription",
     description="Transcribes audio into text. Compatible with OpenAI's audio transcription API format.",
     response_model=AudioTranscriptionResponse,
@@ -640,7 +652,7 @@ async def speech_to_text(
 @app.post(
     "/v1/audio/transcriptions/live",
     tags=["Audio"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Live Conversation Transcription",
     description=(
         "Process an audio chunk from an ongoing live conversation recording. "
@@ -883,7 +895,7 @@ async def live_conversation_chunk(
 @app.post(
     "/v1/audio/translations",
     tags=["Audio"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Create Audio Translation",
     description="Translates audio into English text. Compatible with OpenAI's audio translation API format.",
     response_model=AudioTranslationResponse,
@@ -917,7 +929,7 @@ async def translate_audio(
 @app.post(
     "/v1/audio/speech",
     tags=["Audio"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Create Text-to-Speech Audio",
     description="Converts text into speech audio. Compatible with OpenAI's text-to-speech API format.",
     response_model=TextToSpeechResponse,
@@ -929,9 +941,8 @@ async def text_to_speech(
 ):
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=tts.model, user=user, ApiClient=ApiClient)
-    if agent.TTS_PROVIDER != None:
-        audio_data = await agent.text_to_speech(text=tts.input)
-    else:
+    audio_data = await agent.text_to_speech(text=tts.input)
+    if not audio_data:
         raise HTTPException(status_code=400, detail="No TTS provider available")
     return {"url": audio_data}
 
@@ -940,7 +951,7 @@ async def text_to_speech(
 @app.post(
     "/v1/audio/speech/stream",
     tags=["Audio"],
-    dependencies=[Depends(verify_api_key)],
+    dependencies=[Depends(verify_api_key), Depends(require_scope("agents:execute"))],
     summary="Stream Text-to-Speech Audio",
     description="Stream TTS audio as it's generated. Returns raw PCM audio stream with header information.",
 )
@@ -962,18 +973,18 @@ async def text_to_speech_stream(
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_name=tts.model, user=user, ApiClient=ApiClient)
 
-    if agent.TTS_PROVIDER is None:
-        raise HTTPException(status_code=400, detail="No TTS provider available")
-
     async def audio_stream_generator():
-        async for chunk in agent.text_to_speech_stream(text=tts.input):
+        async for chunk in agent.text_to_speech_stream(
+            text=tts.input, audio_format=tts.audio_format or "pcm"
+        ):
             yield chunk
 
+    audio_format = (tts.audio_format or "pcm").lower()
     return StreamingResponse(
         audio_stream_generator(),
         media_type="application/octet-stream",
         headers={
-            "X-Audio-Format": "pcm",
+            "X-Audio-Format": audio_format,
             "X-Sample-Rate": "24000",
             "X-Bits-Per-Sample": "16",
             "X-Channels": "1",

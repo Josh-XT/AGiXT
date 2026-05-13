@@ -19,7 +19,7 @@ WORKSPACE/*
 frontend/
 Agent-LLM-Frontend/
 *.code-workspace
-src/
+
 conversations/
 # probably mounted data
 agixt/extensions/DevXT_LLC_xtsystems_extensions/*
@@ -43,6 +43,8 @@ streamlit/
 # 3rd party
 package.json
 package-lock.json
+!clients/desktop/package.json
+!clients/desktop/package-lock.json
 *cookies.json
 data/
 agents/
@@ -69,3 +71,24 @@ xtsystems_extensions
 tests/test_*
 *.server_config_key*
 .extensions_cache.json
+# Build artifacts
+*/src-tauri/target/
+*/src-tauri/gen/
+*/src-tauri/Cargo.lock.bak
+*/target/
+
+# OS clutter
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Tauri build output
+*/src-tauri/WixTools/
+*/src-tauri/.tauri/
+*/node_modules

@@ -660,7 +660,11 @@ class Memories:
                 self.collection_name = (
                     f"{self.collection_name}_{self.collection_number}"
                 )
-                for val in value[self.collection_name]:
+                if isinstance(value, dict):
+                    memories = value.get(self.collection_name, [])
+                else:
+                    memories = value
+                for val in memories or []:
                     try:
                         await self.write_text_to_memory(
                             user_input=val["description"],

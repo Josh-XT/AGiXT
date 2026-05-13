@@ -5,7 +5,6 @@ import subprocess
 import importlib.util
 import tiktoken
 from dotenv import load_dotenv
-from multiprocessing import Manager
 
 load_dotenv()
 
@@ -50,9 +49,8 @@ def install_package_if_missing(package_name: str, import_name: str = None) -> bo
 
 
 # Global state for Machine Control Extension WebSocket connections
-# Use multiprocessing.Manager to create a truly shared dict across ALL Python contexts
-_manager = Manager()
-MACHINE_ACTIVE_TERMINALS = _manager.dict()
+# Simple dict is sufficient since WebSocket connections are per-worker
+MACHINE_ACTIVE_TERMINALS = {}
 
 # Server config cache to avoid repeated database queries
 # Uses SharedCache for cross-worker consistency
@@ -217,6 +215,11 @@ def getenv(var_name: str, default_value: str = "") -> str:
         "HEALTH_CHECK_MAX_FAILURES": "3",
         "RESTART_COOLDOWN": "60",
         "INITIAL_STARTUP_DELAY": "180",
+        "ABILITY_SELECTION_SERVER": "",
+        "ABILITY_SELECTION_MODEL": "unsloth/Qwen3.5-4B-GGUF",
+        "VOICE_SERVER": "",
+        "VOICE_SERVER_API_KEY": "",
+        "VOICE_AUDIO_FORMAT": "pcm",
         "EXTENSIONS_HUB": "",
         "EXTENSIONS_HUB_TOKEN": "",
         "PAYMENT_WALLET_ADDRESS": "BavSLrHbzcq5QdY491Fo6uC9rqvfKgszVcj661zqJogS",
@@ -325,12 +328,6 @@ def get_default_agent_settings():
         "WEBSEARCH_TIMEOUT": 0,
         "persona": getenv("AGENT_PERSONA"),
         "tts": False,
-        # Complexity scaling settings for inference-time compute
-        "complexity_scaling_enabled": True,
-        "thinking_budget_enabled": True,
-        "thinking_budget_override": None,  # Optional int to bypass auto-calculation
-        "answer_review_enabled": True,  # Two-phase answer for high complexity
-        "planning_phase_enabled": True,  # Mandatory to-do list for multi-step tasks
     }
     for key in list(agent_settings.keys()):
         if agent_settings[key] == "":

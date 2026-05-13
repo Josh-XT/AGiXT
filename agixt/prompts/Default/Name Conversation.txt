@@ -8,12 +8,16 @@ Act as a JSON converter that converts any text into the desired JSON format base
 **DO NOT ADD FIELDS TO THE MODEL OR CHANGE TYPES OF FIELDS, FOLLOW THE PYDANTIC SCHEMA!**
 **Reformat the following information into a structured format according to the schema provided:**
 
-Based on the conversation history, suggest a name for the conversation in the `suggested_conversation_name` as a string. 
+Based on the conversation history, suggest a short title for the conversation in the `suggested_conversation_name` as a string.
 
 Rules to follow:
+- Keep it SHORT: a brief title of 2-6 words, maximum 60 characters. This is a conversation title, NOT a summary or description.
+- Do not write a sentence, summary, or description. Just a concise title like you would see in a chat sidebar.
+- Do not include punctuation at the end (no period, question mark, or exclamation).
+- Do not wrap the name in quotes.
 - Do not use the same name as an existing conversation.
 - Use spaces in the name, not underscores.
-- Use a unique name that is meaningfully based on the conversation, not something generic.
+- Use a unique name that is meaningfully based on the conversation topic, not something generic.
 
 {user_input}
 

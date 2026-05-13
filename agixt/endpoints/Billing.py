@@ -1766,6 +1766,15 @@ class AdminCreditRequest(BaseModel):
     amount_usd: float
 
 
+class AdminSetCompanyPlanRequest(BaseModel):
+    """Request model for setting a company plan as a super admin"""
+
+    plan_id: str = Field(
+        ...,
+        description="Plan tier ID (e.g., 'starter', 'team_5') or bed count for per-bed pricing",
+    )
+
+
 @app.get(
     "/v1/admin/companies",
     tags=["Admin"],
@@ -1964,6 +1973,43 @@ async def admin_issue_credits(
         raise HTTPException(status_code=500, detail="Failed to issue credits")
     finally:
         session.close()
+
+
+@app.patch(
+    "/v1/admin/companies/{company_id}/plan",
+    tags=["Admin"],
+    summary="Set company plan (super admin only)",
+    description="Sets or changes a company's billing plan without requiring a checkout session.",
+)
+async def admin_set_company_plan(
+    company_id: str,
+    request: AdminSetCompanyPlanRequest,
+    authorization: str = Header(None),
+):
+    """Set or change a company billing plan as a super admin."""
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    session = get_session()
+    try:
+        company = session.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+        company_name = company.name
+    finally:
+        session.close()
+
+    result = auth.set_company_plan(company_id, request.plan_id)
+    return {
+        **result,
+        "company_id": company_id,
+        "company_name": company_name,
+        "message": f"Company '{company_name}' plan set to {result.get('plan_name') or result.get('plan_id')}",
+    }
 
 
 @app.post(
@@ -2216,6 +2262,62 @@ async def admin_delete_user(
         session.rollback()
         logging.error(f"Error deactivating user: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to deactivate user")
+    finally:
+        session.close()
+
+
+class AdminResetPasswordRequest(BaseModel):
+    new_password: str
+    confirm_password: str
+
+
+@app.post(
+    "/v1/admin/users/{user_id}/password",
+    tags=["Admin"],
+    summary="Reset a user's password (super admin only)",
+    description="Sets a new password for any user. Requires super admin permissions.",
+)
+async def admin_reset_user_password(
+    user_id: str,
+    request: AdminResetPasswordRequest,
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    if request.new_password != request.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+
+    password_error = MagicalAuth._validate_password_strength(request.new_password)
+    if password_error:
+        raise HTTPException(status_code=400, detail=password_error)
+
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user.password_hash = MagicalAuth.hash_password(request.new_password)
+        session.commit()
+
+        return {
+            "success": True,
+            "user_id": user_id,
+            "email": user.email,
+            "message": f"Password has been reset for user '{user.email}'",
+        }
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error resetting user password: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to reset user password")
     finally:
         session.close()
 

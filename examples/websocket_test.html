@@ -212,10 +212,16 @@
         messageEl.className = className;
 
         const timestamp = new Date().toLocaleTimeString();
-        messageEl.innerHTML = `
-                <div class="timestamp">[${timestamp}] ${type.toUpperCase()}</div>
-                <div>${JSON.stringify(content, null, 2)}</div>
-            `;
+        const timestampEl = document.createElement("div");
+        timestampEl.className = "timestamp";
+        timestampEl.textContent = `[${timestamp}] ${type.toUpperCase()}`;
+
+        const contentEl = document.createElement("div");
+        contentEl.style.whiteSpace = "pre-wrap";
+        contentEl.textContent = JSON.stringify(content, null, 2);
+
+        messageEl.appendChild(timestampEl);
+        messageEl.appendChild(contentEl);
 
         messagesEl.appendChild(messageEl);
         messagesEl.scrollTop = messagesEl.scrollHeight;

@@ -9,15 +9,18 @@ from fastapi import (
     Form,
     HTTPException,
 )
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse, Response
+import hashlib
 from pydantic import BaseModel
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from ApiClient import verify_api_key, get_api_client, Agent
 from Conversations import (
     Conversations,
+    clean_conversation_name,
     get_conversation_name_by_id,
     get_conversation_id_by_name,
     get_conversation_name_by_message_id,
+    parse_generated_conversation_name,
 )
 from DB import Message, MessageReaction, Agent as DBAgent, User
 from XT import AGiXT
@@ -63,16 +66,93 @@ import uuid
 import asyncio
 import logging
 import os
+import io
+import zipfile
 import threading
-from datetime import datetime
+import tempfile
+from datetime import datetime, timezone
 from MagicalAuth import MagicalAuth, get_user_id
 from WorkerRegistry import worker_registry
 from Workspaces import WorkspaceManager
+from Interactions import generate_conversation_summary
 import mimetypes
 from typing import Set
 
 app = APIRouter()
 workspace_manager = WorkspaceManager()
+
+# In-memory tracking for async import tasks
+_import_tasks: Dict[str, dict] = {}
+_import_tasks_lock = threading.Lock()
+
+# In-memory tracking for chunked uploads
+_chunked_uploads: Dict[str, dict] = {}
+_chunked_uploads_lock = threading.Lock()
+CHUNK_MAX_SIZE = 50 * 1024 * 1024  # 50MB per chunk
+CHUNK_UPLOAD_DIR = os.path.join(
+    os.environ.get("AGIXT_HUB", os.path.expanduser("~/.agixt")), "tmp_uploads"
+)
+IMPORT_TASK_DIR = os.path.join(CHUNK_UPLOAD_DIR, "import_tasks")
+
+
+def _import_task_path(task_id: str) -> str:
+    try:
+        safe_task_id = str(uuid.UUID(str(task_id)))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=404, detail="Import task not found")
+    return os.path.join(IMPORT_TASK_DIR, f"{safe_task_id}.json")
+
+
+def _json_safe_task(task: dict) -> dict:
+    return json.loads(json.dumps(task, default=str))
+
+
+def _write_import_task(task_id: str, task: dict):
+    os.makedirs(IMPORT_TASK_DIR, exist_ok=True)
+    task_path = _import_task_path(task_id)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f"{task_id}.", suffix=".tmp", dir=IMPORT_TASK_DIR
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(_json_safe_task(task), f)
+        os.replace(tmp_path, task_path)
+    finally:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+
+
+def _read_import_task(task_id: str) -> dict | None:
+    task_path = _import_task_path(task_id)
+    try:
+        with open(task_path, "r", encoding="utf-8") as f:
+            task = json.load(f)
+        if isinstance(task, dict):
+            return task
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        logging.warning(f"Could not read import task {task_id}: {e}")
+    return None
+
+
+def _set_import_task(task_id: str, task: dict):
+    with _import_tasks_lock:
+        _import_tasks[task_id] = task
+        _write_import_task(task_id, task)
+
+
+def _update_import_task(task_id: str, updates: dict):
+    with _import_tasks_lock:
+        task = _import_tasks.get(task_id) or _read_import_task(task_id)
+        if not task:
+            return
+        task.update(updates)
+        _import_tasks[task_id] = task
+        _write_import_task(task_id, task)
 
 
 # Redis pub/sub channel for cross-worker WebSocket broadcasts
@@ -118,9 +198,9 @@ class ConversationMessageBroadcaster:
     def __init__(self):
         # Maps conversation_id -> set of active WebSocket connections
         self.active_connections: Dict[str, Set[WebSocket]] = {}
-        # Per-connection tracking of message IDs received via broadcast
-        # Maps (conversation_id, websocket_id) -> set of message IDs
-        self._connection_broadcasted_ids: Dict[int, Set[str]] = {}
+        # Per-connection tracking of message IDs already sent (by broadcast or poll loop)
+        # Maps websocket id(ws) -> set of message IDs
+        self._connection_sent_ids: Dict[int, Set[str]] = {}
         self._lock = asyncio.Lock()
         # Store reference to main event loop for cross-thread broadcasting
         self._main_loop = None
@@ -216,8 +296,8 @@ class ConversationMessageBroadcaster:
             if conversation_id not in self.active_connections:
                 self.active_connections[conversation_id] = set()
             self.active_connections[conversation_id].add(websocket)
-            # Initialize per-connection broadcast tracking
-            self._connection_broadcasted_ids[id(websocket)] = set()
+            # Initialize per-connection sent-message tracking
+            self._connection_sent_ids[id(websocket)] = set()
             logging.debug(
                 f"Conversation {conversation_id}: WebSocket connected. Total: {len(self.active_connections[conversation_id])}"
             )
@@ -232,8 +312,8 @@ class ConversationMessageBroadcaster:
                 logging.debug(
                     f"Conversation {conversation_id}: WebSocket disconnected."
                 )
-            # Clean up per-connection broadcast tracking
-            self._connection_broadcasted_ids.pop(id(websocket), None)
+            # Clean up per-connection sent-message tracking
+            self._connection_sent_ids.pop(id(websocket), None)
 
     def publish_to_redis(
         self, conversation_id: str, event_type: str, message_data: dict
@@ -278,6 +358,14 @@ class ConversationMessageBroadcaster:
         sent_count = 0
         for connection in connections:
             try:
+                # Skip if this message was already sent to this connection
+                if message_id:
+                    ws_id = id(connection)
+                    if (
+                        ws_id in self._connection_sent_ids
+                        and str(message_id) in self._connection_sent_ids[ws_id]
+                    ):
+                        continue
                 await connection.send_text(
                     json.dumps(
                         {
@@ -287,11 +375,11 @@ class ConversationMessageBroadcaster:
                     )
                 )
                 sent_count += 1
-                # Track per-connection that this message was broadcast
+                # Track that this message was sent to this connection
                 if message_id:
                     ws_id = id(connection)
-                    if ws_id in self._connection_broadcasted_ids:
-                        self._connection_broadcasted_ids[ws_id].add(str(message_id))
+                    if ws_id in self._connection_sent_ids:
+                        self._connection_sent_ids[ws_id].add(str(message_id))
             except Exception as e:
                 logging.debug(f"Failed to send to WebSocket: {e}")
                 connections_to_remove.append(connection)
@@ -354,6 +442,17 @@ class ConversationMessageBroadcaster:
         sent_count = 0
         for connection in connections:
             try:
+                # Skip if this message was already sent to this connection (by poll loop or prior broadcast)
+                if message_id:
+                    ws_id = id(connection)
+                    if (
+                        ws_id in self._connection_sent_ids
+                        and str(message_id) in self._connection_sent_ids[ws_id]
+                    ):
+                        logging.debug(
+                            f"broadcast_message_event: skipping already-sent message {message_id}"
+                        )
+                        continue
                 await connection.send_text(
                     json.dumps(
                         {
@@ -363,11 +462,11 @@ class ConversationMessageBroadcaster:
                     )
                 )
                 sent_count += 1
-                # Track per-connection that this message was broadcast
+                # Track that this message was sent to this connection
                 if message_id:
                     ws_id = id(connection)
-                    if ws_id in self._connection_broadcasted_ids:
-                        self._connection_broadcasted_ids[ws_id].add(str(message_id))
+                    if ws_id in self._connection_sent_ids:
+                        self._connection_sent_ids[ws_id].add(str(message_id))
                 logging.debug(
                     f"broadcast_message_event: sent to connection {sent_count}/{len(connections)}"
                 )
@@ -386,20 +485,18 @@ class ConversationMessageBroadcaster:
 
         return sent_count
 
-    def was_broadcasted_for_connection(
-        self, websocket: WebSocket, message_id: str
-    ) -> bool:
-        """Check if a message was already sent to this specific connection via broadcast."""
+    def was_sent_to_connection(self, websocket: WebSocket, message_id: str) -> bool:
+        """Check if a message was already sent to this specific connection (by broadcast or poll)."""
         ws_id = id(websocket)
-        if ws_id not in self._connection_broadcasted_ids:
+        if ws_id not in self._connection_sent_ids:
             return False
-        return str(message_id) in self._connection_broadcasted_ids[ws_id]
+        return str(message_id) in self._connection_sent_ids[ws_id]
 
-    def clear_broadcasted_ids_for_connection(self, websocket: WebSocket):
-        """Clear the broadcasted IDs for a specific connection (call after processing poll cycle)."""
+    def mark_sent_to_connection(self, websocket: WebSocket, message_id: str):
+        """Record that a message was sent to this connection (called by poll loop after sending)."""
         ws_id = id(websocket)
-        if ws_id in self._connection_broadcasted_ids:
-            self._connection_broadcasted_ids[ws_id].clear()
+        if ws_id in self._connection_sent_ids:
+            self._connection_sent_ids[ws_id].add(str(message_id))
 
     def has_listeners(self, conversation_id: str) -> bool:
         """Check if a conversation has active WebSocket listeners."""
@@ -738,17 +835,78 @@ async def get_conversations(
     user=Depends(verify_api_key),
     limit: int = None,
     offset: int = 0,
+    cursor: Optional[str] = None,
+    include_counts: bool = True,
+    if_none_match: str = Header(None, alias="If-None-Match"),
 ):
     c = Conversations(user=user)
-    # Pass limit/offset to the core method so expensive batch queries
+    # Cap the server-side response. Without a cap, this endpoint can return
+    # 2+ MB for power users, computing unread counts, DM names, and agent
+    # roles for every conversation. 500 is well above any UI pagination
+    # default and keeps responses bounded.
+    MAX_CONVERSATIONS = 500
+    if limit is None or limit <= 0 or limit > MAX_CONVERSATIONS:
+        limit = MAX_CONVERSATIONS
+    # Pass limit/offset/cursor to the core method so expensive batch queries
     # (unread counts, DM names, agent roles) are only computed for the
     # paginated subset instead of all conversations.
-    conversations = c.get_conversations_with_detail(limit=limit, offset=offset)
+    conversations = c.get_conversations_with_detail(
+        limit=limit, offset=offset, cursor=cursor
+    )
     if not conversations:
         conversations = {}
-    return {
-        "conversations": conversations,
-    }
+
+    # Cheap aggregate counts so frontends can show stable "X conversations"
+    # labels immediately, without waiting for full client-side hydration.
+    # Defaults to on; an explicit ?include_counts=false skips the extra
+    # COUNT() queries (a few ms) for callers that don't need them.
+    payload = {"conversations": conversations}
+    if include_counts:
+        try:
+            counts = c.get_conversation_counts()
+        except (
+            Exception
+        ) as exc:  # pragma: no cover - defensive: never break list response on count failure
+            logging.warning(f"get_conversation_counts failed, omitting counts: {exc}")
+            counts = None
+        if counts is not None:
+            payload["total"] = counts.get("total", 0)
+            payload["pinned_count"] = counts.get("pinned", 0)
+            payload["unread_count"] = counts.get("unread", 0)
+            payload["by_agent"] = counts.get("by_agent", {})
+    # Cursor for the next page: the updated_at of the last row returned.
+    # Clients pass this back as ?cursor=… to skip O(offset) row discards on
+    # the database side. Null when this page is the last page.
+    if (
+        conversations
+        and isinstance(conversations, dict)
+        and len(conversations) >= limit
+    ):
+        last_entry = next(reversed(conversations.values()))
+        payload["next_cursor"] = last_entry.get("updated_at")
+    else:
+        payload["next_cursor"] = None
+
+    # Conversations contain datetime values that JSONResponse can't serialize
+    # directly; use jsonable_encoder to normalize before hashing/sending.
+    from fastapi.encoders import jsonable_encoder
+
+    encoded = jsonable_encoder(payload)
+
+    # ETag based on response content. Lets the SSR layout fetch return 304
+    # Not Modified on warm navigation, avoiding the 100-400ms recompute of
+    # unread counts / DM names for every page hop.
+    etag_string = json.dumps(encoded, sort_keys=True)
+    etag = f'"{hashlib.sha256(etag_string.encode()).hexdigest()}"'
+    if if_none_match and if_none_match == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    return JSONResponse(
+        content=encoded,
+        headers={
+            "ETag": etag,
+            "Cache-Control": "private, max-age=5, stale-while-revalidate=15",
+        },
+    )
 
 
 class SearchMessagesRequest(BaseModel):
@@ -780,10 +938,111 @@ async def search_messages(
 
 
 @app.get(
+    "/v1/conversations/search",
+    summary="Search Conversations (sidebar-ready)",
+    description=(
+        "Search across conversation name, summary, and recent message content "
+        "and return at most one entry per conversation with the fields the "
+        "sidebar/DM panel needs to render a row directly. Use this for "
+        "type-to-search UX in accounts with many conversations; the POST "
+        "variant is still available for full message-level search."
+    ),
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def search_conversations(
+    q: str,
+    limit: int = 25,
+    company_id: Optional[str] = None,
+    user=Depends(verify_api_key),
+):
+    c = Conversations(user=user)
+    results = c.search_conversations(query=q, limit=limit, company_id=company_id)
+    return {"results": results}
+
+
+def _group_activities_into_tree(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Nest [ACTIVITY] (and their [SUBACTIVITY] children) under the following
+    non-activity message in the same conversation.
+
+    Long-horizon agent runs emit hundreds of activity rows interleaved with the
+    user message and the final agent response. The flat shape forces clients
+    to walk the whole list every render to re-pair activities with their owner.
+    The tree shape collapses those 500+ rows into a single "response with
+    activities" entry on the wire — same payload, dramatically smaller React
+    tree, and the client's grouping pass becomes the identity function.
+
+    Activities at the tail of a conversation (no following response yet,
+    e.g. agent is still working) are returned as a synthetic group with
+    ``response = None`` so the UI can render them under "in progress".
+    """
+    grouped: List[Dict[str, Any]] = []
+    pending: List[Dict[str, Any]] = []
+    sub_buffer: List[Dict[str, Any]] = []
+
+    def flush_subs_to(activity: Dict[str, Any]) -> None:
+        if sub_buffer:
+            activity.setdefault("subactivities", []).extend(sub_buffer)
+            sub_buffer.clear()
+
+    for msg in messages:
+        content = str(msg.get("message") or "")
+        if content.startswith("[SUBACTIVITY]"):
+            sub_buffer.append(msg)
+            continue
+        if content.startswith("[ACTIVITY]"):
+            # Hand any subactivities accumulated since the last activity to the
+            # previous activity (they belong to it, not the next one).
+            if pending:
+                flush_subs_to(pending[-1])
+            else:
+                # Subactivities before any activity: leave them at the top of
+                # the next activity once one shows up. Drop on the floor if
+                # none follows (shouldn't happen in practice).
+                sub_buffer.clear()
+            pending.append({**msg, "subactivities": []})
+            continue
+        # Non-activity message — close out the running activity group.
+        if pending:
+            flush_subs_to(pending[-1])
+        grouped.append(
+            {
+                **msg,
+                "activities": pending,
+            }
+        )
+        pending = []
+        sub_buffer.clear()
+
+    # Trailing activities with no closing response: emit a synthetic group so
+    # the frontend can render them under "still working". response_id is None
+    # so callers can distinguish from completed groups.
+    if pending:
+        flush_subs_to(pending[-1])
+        grouped.append(
+            {
+                "id": None,
+                "role": pending[0].get("role"),
+                "message": "",
+                "timestamp": pending[0].get("timestamp"),
+                "activities": pending,
+                "is_pending": True,
+            }
+        )
+
+    return grouped
+
+
+@app.get(
     "/v1/conversation/{conversation_id}",
     response_model=ConversationHistoryResponse,
     summary="Get Conversation History by ID",
-    description="Retrieves the complete history of a specific conversation using its ID.",
+    description=(
+        "Retrieves the complete history of a specific conversation using its ID. "
+        "Pass ?format=tree to receive activities nested under their owning "
+        "agent response (recommended for long-horizon tasks; cuts the top-level "
+        "message array from 500+ to a handful)."
+    ),
     tags=["Conversation"],
     dependencies=[Depends(verify_api_key)],
 )
@@ -793,6 +1052,7 @@ async def get_conversation_history(
     authorization: str = Header(None),
     limit: int = 100,
     page: int = 1,
+    format: str = "flat",
 ):
     auth = MagicalAuth(token=authorization)
     if conversation_id == "-":
@@ -818,11 +1078,14 @@ async def get_conversation_history(
     resp_limit = conversation_history.get("limit")
     if "interactions" in conversation_history:
         conversation_history = conversation_history["interactions"]
+    if format == "tree":
+        conversation_history = _group_activities_into_tree(conversation_history)
     return {
         "conversation_history": conversation_history,
         "total": total,
         "page": resp_page,
         "limit": resp_limit,
+        "format": format,
     }
 
 
@@ -927,11 +1190,16 @@ async def rename_conversation_v1(
     )
     if not old_conversation_name:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    new_conversation_name = clean_conversation_name(rename_model.new_conversation_name)
+    if not new_conversation_name:
+        new_conversation_name = datetime.now().strftime(
+            "Conversation Created %Y-%m-%d %I:%M %p"
+        )
     Conversations(
         conversation_name=old_conversation_name,
         user=user,
         conversation_id=conversation_id,
-    ).rename_conversation(new_name=rename_model.new_conversation_name)
+    ).rename_conversation(new_name=new_conversation_name)
 
     # Notify user of renamed conversation via websocket
     asyncio.create_task(
@@ -939,12 +1207,12 @@ async def rename_conversation_v1(
             user_id=auth.user_id,
             conversation_id=conversation_id,
             old_name=old_conversation_name,
-            new_name=rename_model.new_conversation_name,
+            new_name=new_conversation_name,
         )
     )
 
     return ResponseMessage(
-        message=f"Conversation renamed to `{rename_model.new_conversation_name}`."
+        message=f"Conversation renamed to `{new_conversation_name}`."
     )
 
 
@@ -2163,53 +2431,88 @@ async def rename_conversation(
     c = agixt.conversation
     if rename.new_conversation_name == "-":
         conversation_list = c.get_conversations()
-        response = await agixt.inference(
-            user_input=f"Rename conversation",
-            prompt_name="Name Conversation",
-            conversation_list="\n".join(conversation_list),
-            conversation_results=10,
-            websearch=False,
-            browse_links=False,
-            voice_response=False,
-            log_user_input=False,
-            log_output=False,
-        )
-        if "```json" not in response and "```" in response:
-            response = response.replace("```", "```json", 1)
-        if "```json" in response:
-            response = response.split("```json")[1].split("```")[0].strip()
+        # Build a hardcoded prompt for naming the conversation. We do NOT use
+        # the prompt template files here because they are only re-imported on
+        # database seed and edits won't take effect on existing installs.
+        # Pull the recent conversation history to base the name on.
         try:
-            response = json.loads(response)
-            new_name = response["suggested_conversation_name"]
-            if new_name in conversation_list:
-                # Do not use {new_name}!
-                response = await agixt.inference(
-                    user_input=f"**Do not use {new_name}!**",
-                    prompt_name="Name Conversation",
-                    conversation_list="\n".join(conversation_list),
-                    conversation_results=10,
-                    websearch=False,
-                    browse_links=False,
-                    voice_response=False,
-                    log_user_input=False,
-                    log_output=False,
+            messages = c.get_conversation(limit=20, page=1)
+            if isinstance(messages, dict) and "interactions" in messages:
+                messages = messages["interactions"]
+            history_lines = []
+            for m in messages or []:
+                role = m.get("role", "user") if isinstance(m, dict) else "user"
+                msg = m.get("message", "") if isinstance(m, dict) else str(m)
+                if not msg:
+                    continue
+                # Skip activity/system noise.
+                if msg.startswith("[ACTIVITY]") or msg.startswith("[SUBACTIVITY]"):
+                    continue
+                history_lines.append(f"{role}: {msg}")
+            conversation_history = "\n".join(history_lines[-20:])
+        except Exception:
+            conversation_history = ""
+
+        def _build_name_prompt(extra: str = "") -> str:
+            return (
+                "You are assigning a name to a chat conversation for display in a sidebar list.\n"
+                "Your response MUST be a single JSON object and nothing else — no preamble, no explanation.\n\n"
+                "STRICT Rules for the name:\n"
+                "- 2 to 5 words maximum (hard limit: 50 characters).\n"
+                "- It is a SHORT, SPECIFIC TITLE — not a summary, sentence, or label.\n"
+                "- FORBIDDEN first words: 'Topics', 'Summary', 'Conversation', 'Discussion',\n"
+                "  'Chat', 'Overview', 'About', 'Subject', 'Re', 'Regarding'.\n"
+                "- No colons, trailing punctuation, surrounding quotes, or markdown.\n"
+                "- Use spaces, not underscores. No '#' characters.\n"
+                "- Must be unique vs. the existing names listed below.\n"
+                "- Reflect the SPECIFIC subject matter — never something generic.\n\n"
+                "GOOD examples: 'Python Unit Testing', 'Mars Mission Budget',\n"
+                "               'React Hook Errors', 'Resume Formatting Tips'\n"
+                "BAD examples:  'Topics Discussed: AI', 'Conversation About Code',\n"
+                "               'Summary of Chat', 'Discussion Overview', 'Chat Session'\n\n"
+                f"Existing conversation names to NOT reuse:\n{chr(10).join(conversation_list) if conversation_list else '(none)'}\n\n"
+                f"Conversation history to name:\n{conversation_history or '(empty)'}\n\n"
+                f"{extra}"
+                "Return ONLY JSON — no text before or after it.\n"
+                'Format: {"suggested_conversation_name": "Short Title Here"}'
+            )
+
+        async def _ask_for_name(extra: str = "") -> str:
+            prompt = _build_name_prompt(extra)
+            return await agixt.agent.inference(prompt=prompt)
+
+        try:
+            new_name = parse_generated_conversation_name(
+                await _ask_for_name(),
+                existing_names=conversation_list,
+            )
+            if not new_name:
+                bad = new_name or "(empty)"
+                new_name = parse_generated_conversation_name(
+                    await _ask_for_name(
+                        extra=(
+                            f'The previous attempt returned "{bad}" which is NOT acceptable.\n'
+                            "It must be a specific 2-5 word title that reflects the actual subject.\n"
+                            "Do NOT start with 'Topics Discussed', 'Summary', 'Conversation', "
+                            "or any similar generic word.\n\n"
+                        )
+                    ),
+                    existing_names=conversation_list,
                 )
-                if "```json" not in response and "```" in response:
-                    response = response.replace("```", "```json", 1)
-                if "```json" in response:
-                    response = response.split("```json")[1].split("```")[0].strip()
-                response = json.loads(response)
-                new_name = response["suggested_conversation_name"]
-                if new_name in conversation_list:
-                    new_name = datetime.now().strftime(
-                        "Conversation Created %Y-%m-%d %I:%M %p"
-                    )
-        except:
+            if not new_name:
+                new_name = datetime.now().strftime(
+                    "Conversation Created %Y-%m-%d %I:%M %p"
+                )
+        except Exception:
             new_name = datetime.now().strftime("Conversation Created %Y-%m-%d %I:%M %p")
         rename.new_conversation_name = new_name.replace("_", " ")
-    if "#" in rename.new_conversation_name:
-        rename.new_conversation_name = str(rename.new_conversation_name).replace(
-            "#", ""
+    # Enforce a short conversation title. The AI is supposed to return a brief
+    # title (not a summary), but cap the length defensively in case it returns
+    # a sentence or paragraph.
+    rename.new_conversation_name = clean_conversation_name(rename.new_conversation_name)
+    if not rename.new_conversation_name:
+        rename.new_conversation_name = datetime.now().strftime(
+            "Conversation Created %Y-%m-%d %I:%M %p"
         )
     c.rename_conversation(new_name=rename.new_conversation_name)
     c = Conversations(conversation_name=rename.new_conversation_name, user=user)
@@ -2521,15 +2824,15 @@ async def conversation_stream(
         )
 
         # Get initial conversation history
-        # Respect client-requested limit (via ?limit= query param), defaulting to 50.
-        # The SWR HTTP endpoint already fetches 50 messages for display; loading
-        # hundreds/thousands here was the primary cause of slow DM loading.
+        # Respect client-requested limit (via ?limit= query param), defaulting to 500.
+        # Keep this bounded to avoid unbounded payloads while still supporting
+        # long-running activity-heavy sessions.
         try:
-            ws_limit_str = websocket.query_params.get("limit", "50")
+            ws_limit_str = websocket.query_params.get("limit", "500")
             try:
-                ws_limit = max(1, min(int(ws_limit_str), 200))  # Clamp 1-200
+                ws_limit = max(1, min(int(ws_limit_str), 2000))  # Clamp 1-2000
             except (ValueError, TypeError):
-                ws_limit = 50
+                ws_limit = 500
             initial_history = c.get_conversation(limit=ws_limit)
 
             messages = []
@@ -2710,12 +3013,12 @@ async def conversation_stream(
                     # Skip if this was already sent via broadcast
                     if (
                         message_id
-                        and conversation_message_broadcaster.was_broadcasted_for_connection(
+                        and conversation_message_broadcaster.was_sent_to_connection(
                             websocket, message_id
                         )
                     ):
                         logging.debug(
-                            f"WebSocket: Skipping broadcasted new message {message_id}"
+                            f"WebSocket: Skipping already-sent new message {message_id}"
                         )
                         if message_id:
                             previous_message_ids.add(message_id)
@@ -2736,6 +3039,10 @@ async def conversation_stream(
                         previous_message_ids.add(message_id)
                         # Also track that we just sent this as "added" - don't send as "updated" too
                         updated_message_ids_this_cycle.add(message_id)
+                        # Mark in broadcaster so concurrent broadcast task won't re-send
+                        conversation_message_broadcaster.mark_sent_to_connection(
+                            websocket, message_id
+                        )
 
                 # Handle updated messages - skip any we just sent as "added" or were broadcasted
                 for message in changes["updated_messages"]:
@@ -2749,12 +3056,12 @@ async def conversation_stream(
                     # Skip if this was already sent via broadcast
                     if (
                         message_id
-                        and conversation_message_broadcaster.was_broadcasted_for_connection(
+                        and conversation_message_broadcaster.was_sent_to_connection(
                             websocket, message_id
                         )
                     ):
                         logging.debug(
-                            f"WebSocket: Skipping broadcasted updated message {message_id}"
+                            f"WebSocket: Skipping already-sent updated message {message_id}"
                         )
                         continue
                     logging.debug(
@@ -2770,12 +3077,14 @@ async def conversation_stream(
                             }
                         )
                     )
+                    # Mark in broadcaster so concurrent broadcast task won't re-send
+                    if message_id:
+                        conversation_message_broadcaster.mark_sent_to_connection(
+                            websocket, message_id
+                        )
 
-                # Reset per-cycle tracking and clear broadcasted IDs for this connection
+                # Reset per-cycle tracking
                 updated_message_ids_this_cycle.clear()
-                conversation_message_broadcaster.clear_broadcasted_ids_for_connection(
-                    websocket
-                )
 
                 # Check for conversation rename (throttled to every 15 seconds)
                 current_time = datetime.now()
@@ -3083,6 +3392,98 @@ async def notify_user_conversation_renamed(
             },
         },
     )
+
+
+async def notify_user_agent_working(
+    user_id: str,
+    conversation_id: str,
+    event: str,
+    agent_name: Optional[str] = None,
+    started_at: Optional[str] = None,
+):
+    """Push a working/idle transition for a conversation.
+
+    Replaces the frontend's 15s ``/v1/conversations/active`` polling: the
+    web client subscribes to the existing user-notification WebSocket and
+    pivots its ``isAgentWorking`` state on these events instead.
+    """
+    await user_notification_manager.broadcast_to_user(
+        user_id,
+        {
+            "type": (
+                "agent_working_started" if event == "started" else "agent_working_ended"
+            ),
+            "data": {
+                "conversation_id": conversation_id,
+                "agent_name": agent_name,
+                "started_at": started_at,
+                "timestamp": datetime.now().isoformat(),
+            },
+        },
+    )
+
+
+def _on_worker_state_change(event: str, info: Dict[str, Any]) -> None:
+    """Bridge: WorkerRegistry sync callback → async user-notification broadcast.
+
+    The registry callback runs in whatever thread/coroutine context triggered
+    the registration. Schedule the async broadcast on the FastAPI main loop so
+    it lands on the user's WebSocket without blocking the registration call.
+    """
+    user_id = info.get("user_id")
+    conversation_id = info.get("conversation_id")
+    if not user_id or not conversation_id:
+        return
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(
+                notify_user_agent_working(
+                    user_id=str(user_id),
+                    conversation_id=str(conversation_id),
+                    event=event,
+                    agent_name=info.get("agent_name"),
+                    started_at=info.get("started_at"),
+                )
+            )
+        else:
+            asyncio.run_coroutine_threadsafe(
+                notify_user_agent_working(
+                    user_id=str(user_id),
+                    conversation_id=str(conversation_id),
+                    event=event,
+                    agent_name=info.get("agent_name"),
+                    started_at=info.get("started_at"),
+                ),
+                loop,
+            )
+    except RuntimeError:
+        # No event loop in this thread (e.g. registration from a worker
+        # thread). Fall back to publishing through the same Redis channel
+        # the user_notification_manager already uses for cross-worker fanout.
+        try:
+            user_notification_manager._publish_to_redis(
+                str(user_id),
+                {
+                    "type": (
+                        "agent_working_started"
+                        if event == "started"
+                        else "agent_working_ended"
+                    ),
+                    "data": {
+                        "conversation_id": str(conversation_id),
+                        "agent_name": info.get("agent_name"),
+                        "started_at": info.get("started_at"),
+                        "timestamp": datetime.now().isoformat(),
+                    },
+                },
+            )
+        except Exception as exc:
+            logging.debug(f"agent_working broadcast fallback failed: {exc}")
+
+
+# Wire WorkerRegistry → user_notification_manager exactly once at import.
+worker_registry.add_state_listener(_on_worker_state_change)
 
 
 async def notify_user_message_added(
@@ -4584,3 +4985,1252 @@ async def lock_conversation(
         raise HTTPException(status_code=500, detail="Failed to lock conversation")
     finally:
         session.close()
+
+
+def _strip_chatgpt_citations(text: str) -> str:
+    """
+    Remove ChatGPT inline citation markers from text.
+
+    ChatGPT exports embed citation references like ``citeturn0search4``,
+    ``【6†source】``, or ``turn0search7`` directly in the text. These are
+    artifacts of ChatGPT's browsing feature and render as garbage in any
+    UI that isn't ChatGPT.
+    """
+    import re
+
+    # Pattern: citeturn{N}search{N}  (sometimes chained: citeturn0search4turn0search7)
+    text = re.sub(r"(?:cite)?turn\d+search\d+(?:turn\d+search\d+)*", "", text)
+    # Pattern: 【N†source】 or 【N†...】 (CJK brackets with dagger)
+    text = re.sub(r"\s*【\d+†[^】]*】\s*", " ", text)
+    # Clean up leftover double spaces or trailing spaces before punctuation
+    text = re.sub(r"  +", " ", text)
+    text = re.sub(r" ([.,;:!?])", r"\1", text)
+    return text
+
+
+def _parse_chatgpt_export(data: list, agent_name: str) -> list:
+    """
+    Parse ChatGPT conversations.json export format into a list of conversations.
+
+    Handles rich content types:
+    - ``text`` / ``multimodal_text``: regular messages (may contain image dicts)
+    - ``code``: code interpreter input
+    - ``execution_output``: code interpreter results
+    - ``tether_browsing_display``: browsing results
+    - ``tether_quote``: browsing quotes
+
+    Tool-role messages (DALL-E, browsing, code interpreter) are converted to
+    ``[SUBACTIVITY]`` messages. Citation artifacts are stripped. Internal system
+    prompt noise (e.g. "GPT-4o returned 1 images…") is filtered.
+    """
+    conversations = []
+    for conv in data:
+        title = conv.get("title") or "Untitled"
+        mapping = conv.get("mapping", {})
+        if not mapping:
+            continue
+
+        nodes_by_id = {}
+        for node_id, node in mapping.items():
+            nodes_by_id[node_id] = node
+
+        # Walk backward from current_node to build ordered path
+        current_node = conv.get("current_node")
+        ordered_nodes = []
+        if current_node and current_node in nodes_by_id:
+            path = []
+            nid = current_node
+            while nid and nid in nodes_by_id:
+                path.append(nid)
+                nid = nodes_by_id[nid].get("parent")
+            path.reverse()
+            ordered_nodes = [nodes_by_id[nid] for nid in path if nid in nodes_by_id]
+        else:
+            ordered_nodes = list(nodes_by_id.values())
+
+        messages = []
+        for node in ordered_nodes:
+            msg = node.get("message")
+            if not msg:
+                continue
+
+            author_role = msg.get("author", {}).get("role", "unknown")
+            author_name = msg.get("author", {}).get("name", "")
+            content = msg.get("content", {})
+            content_type = content.get("content_type", "text")
+            parts = content.get("parts", [])
+            metadata = msg.get("metadata", {})
+            create_time = msg.get("create_time")
+
+            timestamp = None
+            if create_time:
+                try:
+                    from datetime import timezone as tz
+
+                    timestamp = datetime.fromtimestamp(
+                        create_time, tz=tz.utc
+                    ).isoformat()
+                except Exception:
+                    pass
+
+            # Skip system messages entirely
+            if author_role == "system":
+                continue
+
+            # Determine the AGiXT role
+            if author_role == "user":
+                role = "USER"
+            else:
+                role = agent_name
+
+            # --- Tool messages → subactivities ---
+            if author_role == "tool":
+                tool_name = author_name or "tool"
+
+                # DALL-E / image generation
+                if tool_name == "dalle" or "dall" in tool_name.lower():
+                    # Extract the DALL-E prompt from metadata if available
+                    dalle_meta = metadata.get("dalle", {})
+                    if not dalle_meta and parts:
+                        # Some exports put dalle data in the parts
+                        for p in parts:
+                            if isinstance(p, dict) and p.get("metadata", {}).get(
+                                "dalle"
+                            ):
+                                dalle_meta = p["metadata"]["dalle"]
+                                break
+                    prompt = dalle_meta.get("prompt", "")
+                    if prompt:
+                        messages.append(
+                            {
+                                "role": role,
+                                "message": f"[SUBACTIVITY][0][EXECUTION] Generated image with DALL-E\n**Prompt:** {prompt}",
+                                "timestamp": timestamp,
+                            }
+                        )
+                    continue
+
+                # Code interpreter / Python execution
+                if tool_name == "python" or content_type == "execution_output":
+                    text_parts = []
+                    for p in parts:
+                        if isinstance(p, str) and p.strip():
+                            text_parts.append(p)
+                    output_text = "\n".join(text_parts)
+                    if output_text.strip():
+                        if len(output_text) > 2000:
+                            output_text = output_text[:2000] + "\n... (truncated)"
+                        messages.append(
+                            {
+                                "role": role,
+                                "message": f"[SUBACTIVITY][0][INFO] {output_text}",
+                                "timestamp": timestamp,
+                            }
+                        )
+                    continue
+
+                # Web browsing results
+                if tool_name == "browser" or content_type == "tether_browsing_display":
+                    text_parts = []
+                    for p in parts:
+                        if isinstance(p, str) and p.strip():
+                            text_parts.append(p)
+                    browsing_text = "\n".join(text_parts)
+                    if browsing_text.strip():
+                        if len(browsing_text) > 2000:
+                            browsing_text = browsing_text[:2000] + "\n... (truncated)"
+                        messages.append(
+                            {
+                                "role": role,
+                                "message": f"[SUBACTIVITY][0][INFO] Web browsing result:\n{browsing_text}",
+                                "timestamp": timestamp,
+                            }
+                        )
+                    continue
+
+                # Browsing quotes
+                if content_type == "tether_quote":
+                    quote_text = content.get("text", "")
+                    quote_url = content.get("url", "")
+                    quote_title = content.get("title", "")
+                    if quote_text:
+                        label = quote_title or quote_url or "Quote"
+                        messages.append(
+                            {
+                                "role": role,
+                                "message": f"[SUBACTIVITY][0][INFO] **{label}**\n> {quote_text[:1000]}",
+                                "timestamp": timestamp,
+                            }
+                        )
+                    continue
+
+                # Generic tool output
+                text_parts = [str(p) for p in parts if isinstance(p, str) and p.strip()]
+                tool_text = "\n".join(text_parts)
+                if tool_text.strip():
+                    if len(tool_text) > 2000:
+                        tool_text = tool_text[:2000] + "\n... (truncated)"
+                    messages.append(
+                        {
+                            "role": role,
+                            "message": f"[SUBACTIVITY][0][INFO] Tool ({tool_name}):\n{tool_text}",
+                            "timestamp": timestamp,
+                        }
+                    )
+                continue
+
+            # --- Assistant messages ---
+            if author_role == "assistant":
+                # Handle code content_type (code interpreter input)
+                if content_type == "code":
+                    code_text = content.get("text", "")
+                    if not code_text:
+                        code_text = "\n".join(
+                            str(p) for p in parts if isinstance(p, str) and p.strip()
+                        )
+                    if code_text.strip():
+                        lang = content.get("language", "python")
+                        messages.append(
+                            {
+                                "role": role,
+                                "message": f"[SUBACTIVITY][0][EXECUTION] Code interpreter\n```{lang}\n{code_text}\n```",
+                                "timestamp": timestamp,
+                            }
+                        )
+                    continue
+
+                # Filter out internal DALL-E system noise from assistant
+                text_parts = []
+                has_image_ref = False
+                for p in parts:
+                    if isinstance(p, str):
+                        cleaned = p.strip()
+                        if not cleaned:
+                            continue
+                        # Skip internal DALL-E prompt injection text
+                        if "do not say or show ANYTHING" in cleaned:
+                            continue
+                        if cleaned.startswith("Processing image"):
+                            continue
+                        if (
+                            "returned 1 images" in cleaned
+                            or "returned 2 images" in cleaned
+                        ):
+                            continue
+                        text_parts.append(cleaned)
+                    elif isinstance(p, dict):
+                        # Image asset pointer (from multimodal_text)
+                        p_type = p.get("content_type", "")
+                        if p_type == "image_asset_pointer" or "asset_pointer" in p:
+                            has_image_ref = True
+                            # Extract DALL-E metadata if present
+                            dalle_meta = p.get("metadata", {}).get("dalle", {})
+                            prompt = dalle_meta.get("prompt", "")
+                            if prompt:
+                                messages.append(
+                                    {
+                                        "role": role,
+                                        "message": f"[SUBACTIVITY][0][EXECUTION] Generated image with DALL-E\n**Prompt:** {prompt}",
+                                        "timestamp": timestamp,
+                                    }
+                                )
+
+                text = "\n".join(text_parts) if text_parts else ""
+
+                # Strip citation artifacts
+                if text:
+                    text = _strip_chatgpt_citations(text)
+
+                # Add citation URLs from metadata if available
+                citations = metadata.get("citations", [])
+                if citations and text:
+                    cite_links = []
+                    for cite in citations:
+                        cite_meta = cite.get("metadata", {})
+                        url = cite_meta.get("url", cite.get("url", ""))
+                        cite_title = cite_meta.get("title", "")
+                        if url:
+                            label = cite_title or url
+                            cite_links.append(f"- [{label}]({url})")
+                    if cite_links:
+                        text += "\n\n**Sources:**\n" + "\n".join(cite_links)
+
+                if text and text.strip():
+                    messages.append(
+                        {
+                            "role": role,
+                            "message": text,
+                            "timestamp": timestamp,
+                        }
+                    )
+                continue
+
+            # --- User messages ---
+            if author_role == "user":
+                text_parts = []
+                for p in parts:
+                    if isinstance(p, str) and p.strip():
+                        text_parts.append(p)
+                    elif isinstance(p, dict):
+                        # User-uploaded image
+                        p_type = p.get("content_type", "")
+                        if p_type == "image_asset_pointer" or "asset_pointer" in p:
+                            img_name = p.get("name", "uploaded image")
+                            text_parts.append(f"*[Attached image: {img_name}]*")
+
+                text = "\n".join(text_parts) if text_parts else ""
+                if text and text.strip():
+                    messages.append(
+                        {
+                            "role": role,
+                            "message": text,
+                            "timestamp": timestamp,
+                        }
+                    )
+                continue
+
+        if messages:
+            conversations.append({"name": title, "messages": messages})
+    return conversations
+
+
+def _parse_claude_export(data: list, agent_name: str) -> list:
+    """
+    Parse Claude.ai conversations.json export format into a list of conversations.
+
+    Claude exports have two text sources per message:
+    - ``text``: a flattened dump that includes thinking, tool placeholders
+      (``This block is not supported on your current device yet.``), and response text.
+    - ``content``: a structured array of typed blocks (text, thinking, tool_use,
+      tool_result, token_budget).
+
+    We prefer the ``content`` array because it lets us extract only the actual
+    response text (``type == "text"``), and we convert thinking / tool_use /
+    tool_result blocks into AGiXT ``[SUBACTIVITY]`` messages so they render
+    properly in the conversation UI.
+    """
+    conversations = []
+    for conv in data:
+        name = conv.get("name") or "Untitled"
+        chat_messages = conv.get("chat_messages", [])
+        if not chat_messages:
+            continue
+
+        messages = []
+        for msg in chat_messages:
+            sender = msg.get("sender", "")
+            content_list = msg.get("content", [])
+            created_at = msg.get("created_at")
+
+            if sender == "human":
+                role = "USER"
+            else:
+                role = agent_name
+
+            if role == "USER":
+                # For user messages, just extract text
+                text = ""
+                if content_list and isinstance(content_list, list):
+                    text_parts = []
+                    for item in content_list:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            t = item.get("text", "")
+                            if t and t.strip():
+                                text_parts.append(t)
+                        elif isinstance(item, str) and item.strip():
+                            text_parts.append(item)
+                    text = "\n\n".join(text_parts)
+                if not text or not text.strip():
+                    fallback = msg.get("text", "")
+                    if fallback and fallback.strip():
+                        text = fallback
+                if text and text.strip():
+                    messages.append(
+                        {"role": role, "message": text, "timestamp": created_at}
+                    )
+                continue
+
+            # --- Assistant message: extract subactivities + response text ---
+            subactivities = []
+            text_parts = []
+
+            if content_list and isinstance(content_list, list):
+                for item in content_list:
+                    if not isinstance(item, dict):
+                        if isinstance(item, str) and item.strip():
+                            text_parts.append(item)
+                        continue
+
+                    block_type = item.get("type", "")
+
+                    if block_type == "thinking":
+                        thinking_text = item.get("thinking", "")
+                        if thinking_text and thinking_text.strip():
+                            subactivities.append(
+                                {
+                                    "role": role,
+                                    "message": f"[SUBACTIVITY][0][THINKING] {thinking_text}",
+                                    "timestamp": created_at,
+                                }
+                            )
+
+                    elif block_type == "tool_use":
+                        tool_name = item.get("name", "unknown_tool")
+                        tool_input = item.get("input", {})
+                        if isinstance(tool_input, dict):
+                            # Check if this is an artifact (has content/title)
+                            artifact_content = tool_input.get("content", "")
+                            artifact_title = tool_input.get("title", "")
+                            artifact_type = tool_input.get("type", "")
+                            if (
+                                artifact_content
+                                and isinstance(artifact_content, str)
+                                and artifact_content.strip()
+                            ):
+                                lang = ""
+                                if artifact_type and "code" in artifact_type:
+                                    lang = artifact_type.replace(
+                                        "application/vnd.ant.code", ""
+                                    ).strip(". ")
+                                label = artifact_title or tool_name
+                                subactivities.append(
+                                    {
+                                        "role": role,
+                                        "message": f"[SUBACTIVITY][0][EXECUTION] **{label}**\n```{lang}\n{artifact_content}\n```",
+                                        "timestamp": created_at,
+                                    }
+                                )
+                            else:
+                                # Non-artifact tool use
+                                input_summary = (
+                                    json.dumps(tool_input, indent=2)
+                                    if tool_input
+                                    else ""
+                                )
+                                subactivities.append(
+                                    {
+                                        "role": role,
+                                        "message": f"[SUBACTIVITY][0][EXECUTION] Used tool: {tool_name}\n```json\n{input_summary}\n```",
+                                        "timestamp": created_at,
+                                    }
+                                )
+
+                    elif block_type == "tool_result":
+                        result_content = item.get("content", "")
+                        if isinstance(result_content, list):
+                            parts = []
+                            for rc in result_content:
+                                if isinstance(rc, dict) and rc.get("type") == "text":
+                                    parts.append(rc.get("text", ""))
+                            result_content = "\n".join(parts)
+                        if result_content and str(result_content).strip():
+                            result_text = str(result_content)
+                            # Truncate very long tool results
+                            if len(result_text) > 2000:
+                                result_text = result_text[:2000] + "\n... (truncated)"
+                            subactivities.append(
+                                {
+                                    "role": role,
+                                    "message": f"[SUBACTIVITY][0][INFO] {result_text}",
+                                    "timestamp": created_at,
+                                }
+                            )
+
+                    elif block_type == "text":
+                        block_text = item.get("text", "")
+                        if block_text and block_text.strip():
+                            text_parts.append(block_text)
+
+                    # Skip token_budget and other unknown types
+
+            response_text = "\n\n".join(text_parts) if text_parts else ""
+
+            # Fallback to flat text field only if we got nothing from content
+            if not response_text.strip() and not subactivities:
+                fallback = msg.get("text", "")
+                if fallback and fallback.strip():
+                    response_text = fallback
+
+            # Emit subactivities before the response text
+            messages.extend(subactivities)
+
+            if response_text and response_text.strip():
+                messages.append(
+                    {"role": role, "message": response_text, "timestamp": created_at}
+                )
+
+        if messages:
+            conversations.append({"name": name, "messages": messages})
+    return conversations
+
+
+def _copilot_flat_text(node) -> str:
+    """Best-effort string extraction from a VS Code MarkdownString-like value."""
+    if node is None:
+        return ""
+    if isinstance(node, str):
+        return node
+    if isinstance(node, dict):
+        if isinstance(node.get("value"), str):
+            return node["value"]
+        if isinstance(node.get("text"), str):
+            return node["text"]
+    if isinstance(node, list):
+        return "".join(_copilot_flat_text(x) for x in node)
+    return ""
+
+
+def _copilot_request_text(message) -> str:
+    if isinstance(message, dict):
+        if isinstance(message.get("text"), str) and message["text"]:
+            return message["text"]
+        parts = message.get("parts")
+        if isinstance(parts, list):
+            return "".join(_copilot_flat_text(p) for p in parts)
+    return _copilot_flat_text(message)
+
+
+def _copilot_uri_path(uri) -> str:
+    if isinstance(uri, dict):
+        return uri.get("fsPath") or uri.get("path") or uri.get("external") or ""
+    if isinstance(uri, str):
+        return uri
+    return ""
+
+
+def _parse_copilot_export(data: list, agent_name: str) -> list:
+    """
+    Parse a VS Code GitHub Copilot Chat export into AGiXT conversations.
+
+    Each entry in *data* is a raw VS Code chat session dict (as written by VS
+    Code under ``workspaceStorage/<hash>/chatSessions/<id>.json``) and exposes
+    ``requests``, an ordered list of ``{message, response, ...}`` turn objects.
+
+    For every turn we emit a USER message from ``message.text`` (or joined
+    ``message.parts``) and an assistant message containing the prose extracted
+    from the ``response`` array. Tool invocations and inline file edits in the
+    response are emitted as ``[SUBACTIVITY]`` blocks before the assistant text,
+    matching the convention used by the Claude importer.
+    """
+    role_assistant = agent_name
+    conversations = []
+
+    def _ms_to_iso(value):
+        """VS Code stores timestamps as ms-since-epoch ints. Convert to ISO so the
+        downstream importer (which expects strings or datetimes) can parse them."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (int, float)):
+            try:
+                seconds = value / 1000.0 if value > 1e12 else float(value)
+                return datetime.fromtimestamp(seconds, tz=timezone.utc).isoformat()
+            except Exception:
+                return None
+        return None
+
+    for sess in data:
+        if not isinstance(sess, dict):
+            continue
+        name = sess.get("customTitle") or sess.get("title") or "Untitled"
+        requests = sess.get("requests") or []
+        if not isinstance(requests, list) or not requests:
+            continue
+
+        sess_created = _ms_to_iso(sess.get("creationDate"))
+        sess_updated = _ms_to_iso(sess.get("lastMessageDate"))
+
+        messages = []
+        for req in requests:
+            if not isinstance(req, dict):
+                continue
+            ts = _ms_to_iso(req.get("timestamp"))
+
+            # --- USER message ---
+            user_text = _copilot_request_text(req.get("message")).strip()
+            if user_text:
+                messages.append({"role": "USER", "message": user_text, "timestamp": ts})
+
+            # --- Assistant response: split into subactivities + prose ---
+            subactivities = []
+            text_buf = []
+
+            response_items = req.get("response")
+            if isinstance(response_items, list):
+                for item in response_items:
+                    if isinstance(item, dict):
+                        kind = item.get("kind")
+                        if kind == "toolInvocationSerialized":
+                            tool_id = (
+                                item.get("toolId") or item.get("toolName") or "tool"
+                            )
+                            invocation = _copilot_flat_text(
+                                item.get("invocationMessage")
+                            )
+                            past = _copilot_flat_text(item.get("pastTenseMessage"))
+                            lines = [f"Used tool: {tool_id}"]
+                            if invocation:
+                                lines.append(f"request: {invocation}")
+                            if past:
+                                lines.append(f"result: {past}")
+                            details = item.get("resultDetails")
+                            if isinstance(details, list) and details:
+                                files = []
+                                for d in details:
+                                    if isinstance(d, dict):
+                                        p = _copilot_uri_path(d.get("uri"))
+                                        if p and p not in files:
+                                            files.append(p)
+                                if files:
+                                    lines.append("files:")
+                                    for f in files[:25]:
+                                        lines.append(f"  - {f}")
+                                    if len(files) > 25:
+                                        lines.append(
+                                            f"  - ... ({len(files) - 25} more)"
+                                        )
+                            subactivities.append(
+                                {
+                                    "role": role_assistant,
+                                    "message": "[SUBACTIVITY][0][EXECUTION] "
+                                    + "\n".join(lines),
+                                    "timestamp": ts,
+                                }
+                            )
+                            continue
+                        if kind == "prepareToolInvocation":
+                            # Skipped: redundant with the matching toolInvocationSerialized
+                            continue
+                        if kind == "thinking":
+                            thinking_text = (
+                                _copilot_flat_text(item.get("value"))
+                                or item.get("text")
+                                or ""
+                            )
+                            if isinstance(thinking_text, str) and thinking_text.strip():
+                                subactivities.append(
+                                    {
+                                        "role": role_assistant,
+                                        "message": f"[SUBACTIVITY][0][THINKING] {thinking_text}",
+                                        "timestamp": ts,
+                                    }
+                                )
+                            continue
+                        if kind == "progressTaskSerialized":
+                            progress_text = _copilot_flat_text(item.get("content"))
+                            if progress_text and progress_text.strip():
+                                subactivities.append(
+                                    {
+                                        "role": role_assistant,
+                                        "message": f"[SUBACTIVITY][0][INFO] {progress_text}",
+                                        "timestamp": ts,
+                                    }
+                                )
+                            continue
+                        if kind == "elicitationSerialized":
+                            title = _copilot_flat_text(item.get("title"))
+                            body = _copilot_flat_text(item.get("message"))
+                            chunks = [c for c in (title, body) if c and c.strip()]
+                            if chunks:
+                                subactivities.append(
+                                    {
+                                        "role": role_assistant,
+                                        "message": "[SUBACTIVITY][0][INFO] "
+                                        + "\n".join(chunks),
+                                        "timestamp": ts,
+                                    }
+                                )
+                            continue
+                        if kind == "mcpServersStarting":
+                            continue
+                        if kind == "textEditGroup":
+                            uri = _copilot_uri_path(item.get("uri"))
+                            if uri:
+                                subactivities.append(
+                                    {
+                                        "role": role_assistant,
+                                        "message": f"[SUBACTIVITY][0][EXECUTION] Edited file: {uri}",
+                                        "timestamp": ts,
+                                    }
+                                )
+                            continue
+                        if kind == "inlineReference":
+                            ref = item.get("inlineReference")
+                            p = (
+                                _copilot_uri_path(ref)
+                                if isinstance(ref, (dict, str))
+                                else ""
+                            )
+                            if p:
+                                from pathlib import Path as _P
+
+                                text_buf.append(f"`{_P(p).name}`")
+                            continue
+                        if kind in {"undoStop", "codeblockUri"}:
+                            continue
+                        # MarkdownString-like dict
+                        text = _copilot_flat_text(item)
+                        if text:
+                            text_buf.append(text)
+                    else:
+                        text = _copilot_flat_text(item)
+                        if text:
+                            text_buf.append(text)
+
+            response_text = "".join(text_buf).strip()
+
+            messages.extend(subactivities)
+            if response_text:
+                messages.append(
+                    {
+                        "role": role_assistant,
+                        "message": response_text,
+                        "timestamp": ts,
+                    }
+                )
+
+            result = req.get("result")
+            if isinstance(result, dict) and result.get("errorDetails"):
+                messages.append(
+                    {
+                        "role": role_assistant,
+                        "message": f"[SUBACTIVITY][0][ERROR] {json.dumps(result['errorDetails'])}",
+                        "timestamp": ts,
+                    }
+                )
+
+        if messages:
+            conv_dict = {"name": name, "messages": messages}
+            if sess_created:
+                conv_dict["created_at"] = sess_created
+            if sess_updated:
+                conv_dict["updated_at"] = sess_updated
+            conversations.append(conv_dict)
+    return conversations
+
+
+def _import_conversations_worker(
+    task_id: str,
+    conversations_data: list,
+    source: str,
+    agent_name: str,
+    user: str,
+):
+    """Background worker that imports conversations and updates task status."""
+    try:
+        if source == "chatgpt":
+            parsed = _parse_chatgpt_export(conversations_data, agent_name)
+        elif source == "copilot":
+            parsed = _parse_copilot_export(conversations_data, agent_name)
+        else:
+            parsed = _parse_claude_export(conversations_data, agent_name)
+
+        _update_import_task(task_id, {"total_found": len(parsed)})
+
+        if not parsed:
+            _update_import_task(
+                task_id,
+                {
+                    "status": "error",
+                    "error": "No conversations found in the export file",
+                },
+            )
+            return
+
+        # Build a set of existing conversation names for dedup
+        try:
+            c = Conversations(conversation_name="-", user=user)
+            all_convs = c.get_conversations()
+            prefix = f"[{source.title()}] "
+            existing_names = set(name for name in all_convs if name.startswith(prefix))
+        except Exception as e:
+            logging.warning(
+                f"Could not load existing conversation names for dedup: {e}"
+            )
+            existing_names = set()
+
+        imported_count = 0
+        skipped_count = 0
+        errors = []
+
+        for i, conv in enumerate(parsed):
+            try:
+                conv_name = conv["name"]
+                messages = conv["messages"]
+                if not messages:
+                    skipped_count += 1
+                    continue
+
+                full_name = f"[{source.title()}] {conv_name}"
+                if full_name in existing_names:
+                    skipped_count += 1
+                    continue
+
+                conversation_content = []
+                for msg in messages:
+                    conversation_content.append(
+                        {
+                            "role": msg["role"],
+                            "message": msg["message"],
+                            "timestamp": msg.get("timestamp"),
+                        }
+                    )
+
+                c = Conversations(
+                    conversation_name=full_name,
+                    user=user,
+                )
+                # Use the single-transaction bulk path for historical imports.
+                # This avoids the per-message DB session/commit cycle in
+                # log_interaction(), which is the dominant cost for large
+                # imports (Copilot conversations frequently contain 100+
+                # messages once expanded into USER + SUBACTIVITY entries).
+                c.bulk_create_with_messages(
+                    conversation_content=conversation_content,
+                    created_at=conv.get("created_at"),
+                    updated_at=conv.get("updated_at"),
+                )
+
+                # Summary generation is intentionally deferred. Calling
+                # generate_conversation_summary here issues an LLM request
+                # per conversation, which makes bulk historical imports
+                # (hundreds-to-thousands of conversations) take hours and
+                # block the worker on every iteration. Imported conversations
+                # without summaries simply get one generated lazily on first
+                # view, which is the same path new conversations follow.
+
+                imported_count += 1
+            except Exception as e:
+                logging.error(f"Error importing conversation '{conv.get('name')}': {e}")
+                errors.append(str(e))
+                skipped_count += 1
+
+            # Update progress after every conversation
+            _update_import_task(
+                task_id,
+                {
+                    "imported": imported_count,
+                    "skipped": skipped_count,
+                    "processed": i + 1,
+                    "errors": errors[:10] if errors else [],
+                },
+            )
+
+        # User-knowledge updates from bulk imports are intentionally skipped.
+        # The original implementation reloaded summaries for up to 50 imported
+        # conversations and fed them all into update_user_knowledge_after_interaction,
+        # which is another blocking LLM call with a multi-thousand-token prompt.
+        # That made finishing a large import an order of magnitude slower and
+        # offered little incremental value vs. the lazy summaries that get
+        # generated when a user opens each imported conversation.
+
+        _update_import_task(
+            task_id,
+            {
+                "status": "complete",
+                "imported": imported_count,
+                "skipped": skipped_count,
+                "processed": len(parsed),
+                "errors": errors[:10] if errors else [],
+            },
+        )
+    except Exception as e:
+        logging.error(f"Import task {task_id} failed: {e}")
+        _update_import_task(task_id, {"status": "error", "error": str(e)})
+
+
+def _stream_conversations_from_json_fp(fp) -> list:
+    """Parse a JSON array of conversation dicts from a file-like object.
+
+    Uses ``json.load`` (which reads from the file pointer) rather than
+    ``json.loads`` on a pre-read bytes blob — this avoids materializing the
+    full source as a separate intermediate string, roughly halving peak
+    memory on multi-GB uploads.
+    """
+    try:
+        return json.load(fp)
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid JSON in conversations.json: {e}",
+        )
+
+
+def _parse_import_file(file_content: bytes) -> list:
+    """Parse a zip or JSON file (in-memory bytes) and return the conversations list."""
+    conversations_data = None
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_content)) as zf:
+            for name in zf.namelist():
+                if name.endswith("conversations.json"):
+                    with zf.open(name) as f:
+                        conversations_data = _stream_conversations_from_json_fp(f)
+                    break
+    except zipfile.BadZipFile:
+        try:
+            conversations_data = _stream_conversations_from_json_fp(
+                io.BytesIO(file_content)
+            )
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail="File must be a zip archive or JSON file containing conversations.json",
+            )
+
+    if conversations_data is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not find conversations.json in the uploaded file",
+        )
+
+    if not isinstance(conversations_data, list):
+        raise HTTPException(
+            status_code=400, detail="conversations.json must contain a JSON array"
+        )
+
+    return conversations_data
+
+
+def _parse_import_path(file_path: str) -> list:
+    """Parse a zip or JSON file from disk and return the conversations list.
+
+    Streams via ijson so the parser's working set stays bounded regardless
+    of the file's total size. This is what chunked uploads call after the
+    last chunk has been written so we never have the assembled file in RAM.
+    """
+    conversations_data: list | None = None
+    try:
+        with zipfile.ZipFile(file_path) as zf:
+            for name in zf.namelist():
+                if name.endswith("conversations.json"):
+                    with zf.open(name) as f:
+                        conversations_data = _stream_conversations_from_json_fp(f)
+                    break
+    except zipfile.BadZipFile:
+        try:
+            with open(file_path, "rb") as f:
+                conversations_data = _stream_conversations_from_json_fp(f)
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail="File must be a zip archive or JSON file containing conversations.json",
+            )
+
+    if conversations_data is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not find conversations.json in the uploaded file",
+        )
+
+    if not isinstance(conversations_data, list):
+        raise HTTPException(
+            status_code=400, detail="conversations.json must contain a JSON array"
+        )
+
+    return conversations_data
+
+
+def _detect_source(conversations_data: list) -> str:
+    """Auto-detect whether conversations data is from ChatGPT, Claude, or VS Code Copilot."""
+    sample = (
+        conversations_data[:5] if len(conversations_data) >= 5 else conversations_data
+    )
+    chatgpt_signals = sum(1 for c in sample if isinstance(c, dict) and "mapping" in c)
+    claude_signals = sum(
+        1 for c in sample if isinstance(c, dict) and "chat_messages" in c
+    )
+    copilot_signals = sum(
+        1
+        for c in sample
+        if isinstance(c, dict)
+        and isinstance(c.get("requests"), list)
+        and ("sessionId" in c or "responderUsername" in c)
+    )
+    counts = {
+        "chatgpt": chatgpt_signals,
+        "claude": claude_signals,
+        "copilot": copilot_signals,
+    }
+    best = max(counts, key=counts.get)
+    if counts[best] > 0:
+        return best
+    raise HTTPException(
+        status_code=400,
+        detail="Could not auto-detect export format. The file does not appear to be a ChatGPT, Claude, or VS Code Copilot export.",
+    )
+
+
+def _start_import_task(
+    conversations_data: list, source: str, agent_name: str, user: str
+) -> dict:
+    """Create an import task and start the background worker. Returns the response dict."""
+    task_id = str(uuid.uuid4())
+    _set_import_task(
+        task_id,
+        {
+            "status": "processing",
+            "source": source,
+            "total_found": len(conversations_data),
+            "imported": 0,
+            "skipped": 0,
+            "processed": 0,
+            "errors": [],
+            "error": None,
+            "user": user,
+        },
+    )
+
+    thread = threading.Thread(
+        target=_import_conversations_worker,
+        args=(task_id, conversations_data, source, agent_name, user),
+        daemon=True,
+    )
+    thread.start()
+
+    return {
+        "task_id": task_id,
+        "message": f"Import started for {source.title()} export ({len(conversations_data)} conversations found). Poll /v1/conversation/import/{task_id} for progress.",
+        "source": source,
+        "total_found": len(conversations_data),
+    }
+
+
+@app.post(
+    "/v1/conversation/import/chunk",
+    summary="Upload a Chunk for Conversation Import",
+    description="Upload a chunk of a large export file. Use this for files over 50MB. After all chunks are uploaded, call POST /v1/conversation/import with the upload_id to start the import.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def upload_import_chunk(
+    file: UploadFile = File(...),
+    upload_id: str = Form(None),
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    agent_name: str = Form(...),
+    source: str = Form(None),
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Upload a chunk of a large conversation export file.
+
+    - **file**: A chunk of the export file (max ~50MB per chunk)
+    - **upload_id**: ID returned from the first chunk upload. Omit for the first chunk.
+    - **chunk_index**: 0-based index of this chunk
+    - **total_chunks**: Total number of chunks expected
+    - **agent_name**: The agent to associate imported conversations with
+    - **source**: Optional. Either 'chatgpt' or 'claude'. Auto-detected if not provided.
+    """
+    auth = MagicalAuth(token=authorization)
+
+    if source and source not in ("chatgpt", "claude", "copilot"):
+        raise HTTPException(
+            status_code=400, detail="source must be 'chatgpt', 'claude', or 'copilot'"
+        )
+
+    if total_chunks < 1 or chunk_index < 0 or chunk_index >= total_chunks:
+        raise HTTPException(
+            status_code=400, detail="Invalid chunk_index or total_chunks"
+        )
+
+    chunk_data = await file.read()
+
+    # Create upload_id on first chunk
+    if not upload_id:
+        upload_id = str(uuid.uuid4())
+
+    # Ensure upload directory exists
+    os.makedirs(CHUNK_UPLOAD_DIR, exist_ok=True)
+
+    # Validate upload_id is a UUID to prevent path traversal. Reassign to the
+    # canonical UUID string form so downstream uses cannot contain any path
+    # separators or traversal sequences (sanitizes the user-provided value).
+    try:
+        upload_id = str(uuid.UUID(str(upload_id)))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid upload_id")
+
+    # Save chunk to disk. Build the path and verify it is contained within the
+    # upload directory as a defense-in-depth check against path injection.
+    upload_root = os.path.realpath(CHUNK_UPLOAD_DIR)
+    chunk_filename = f"{upload_id}_chunk_{int(chunk_index)}"
+    chunk_path = os.path.realpath(os.path.join(upload_root, chunk_filename))
+    if os.path.commonpath([upload_root, chunk_path]) != upload_root:
+        raise HTTPException(status_code=400, detail="Invalid upload path")
+    with open(chunk_path, "wb") as f:
+        f.write(chunk_data)
+
+    received_chunks = []
+    for i in range(total_chunks):
+        cp = os.path.realpath(os.path.join(upload_root, f"{upload_id}_chunk_{int(i)}"))
+        if os.path.commonpath([upload_root, cp]) != upload_root:
+            raise HTTPException(status_code=400, detail="Invalid upload path")
+        if os.path.exists(cp):
+            received_chunks.append(i)
+    received = len(received_chunks)
+
+    # Track the upload in memory for same-worker callers, but derive completion
+    # from disk so chunked uploads also work when uvicorn distributes chunks to
+    # different worker processes.
+    with _chunked_uploads_lock:
+        if upload_id not in _chunked_uploads:
+            _chunked_uploads[upload_id] = {
+                "total_chunks": total_chunks,
+                "received_chunks": set(),
+                "agent_name": agent_name,
+                "source": source,
+                "user": user,
+            }
+        _chunked_uploads[upload_id]["received_chunks"].update(received_chunks)
+
+    all_received = received == total_chunks
+
+    if all_received:
+        # All chunks received — assemble on disk (never in RAM) and stream-parse.
+        tmp_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                prefix=f"import_{upload_id}_",
+                suffix=".bin",
+                delete=False,
+                dir=CHUNK_UPLOAD_DIR,
+            ) as tmp:
+                tmp_path = tmp.name
+                for i in range(total_chunks):
+                    cp = os.path.realpath(
+                        os.path.join(upload_root, f"{upload_id}_chunk_{int(i)}")
+                    )
+                    if os.path.commonpath([upload_root, cp]) != upload_root:
+                        raise HTTPException(
+                            status_code=400, detail="Invalid upload path"
+                        )
+                    with open(cp, "rb") as f:
+                        while True:
+                            buf = f.read(1024 * 1024)
+                            if not buf:
+                                break
+                            tmp.write(buf)
+
+            conversations_data = _parse_import_path(tmp_path)
+            detected_source = source or _detect_source(conversations_data)
+
+            result = _start_import_task(
+                conversations_data, detected_source, agent_name, user
+            )
+
+            return {
+                "upload_id": upload_id,
+                "chunk_index": chunk_index,
+                "chunks_received": received,
+                "total_chunks": total_chunks,
+                "complete": True,
+                **result,
+            }
+        finally:
+            # Clean up chunk files and the assembled tempfile
+            for i in range(total_chunks):
+                cp = os.path.realpath(
+                    os.path.join(upload_root, f"{upload_id}_chunk_{int(i)}")
+                )
+                if os.path.commonpath([upload_root, cp]) != upload_root:
+                    continue
+                try:
+                    os.remove(cp)
+                except OSError:
+                    pass
+            if tmp_path:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            with _chunked_uploads_lock:
+                _chunked_uploads.pop(upload_id, None)
+    else:
+        return {
+            "upload_id": upload_id,
+            "chunk_index": chunk_index,
+            "chunks_received": received,
+            "total_chunks": total_chunks,
+            "complete": False,
+        }
+
+
+@app.post(
+    "/v1/conversation/import",
+    summary="Import Conversations from ChatGPT or Claude",
+    description="Upload a ChatGPT or Claude.ai export zip file to import conversations for a specific agent. The source format is auto-detected. Returns a task_id for polling progress. For files over 50MB, use chunked upload via /v1/conversation/import/chunk instead.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def import_conversations(
+    file: UploadFile = File(...),
+    agent_name: str = Form(...),
+    source: str = Form(None),
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    """
+    Import conversations from a ChatGPT or Claude.ai export.
+    The file is uploaded and validated, then import runs in the background.
+    Poll GET /v1/conversation/import/{task_id} for progress.
+
+    - **file**: The export zip file or JSON file
+    - **agent_name**: The agent to associate imported conversations with
+    - **source**: Optional. Either 'chatgpt' or 'claude'. Auto-detected if not provided.
+    """
+    auth = MagicalAuth(token=authorization)
+
+    if source and source not in ("chatgpt", "claude", "copilot"):
+        raise HTTPException(
+            status_code=400, detail="source must be 'chatgpt', 'claude', or 'copilot'"
+        )
+
+    file_content = await file.read()
+    conversations_data = _parse_import_file(file_content)
+    detected_source = source or _detect_source(conversations_data)
+    return _start_import_task(conversations_data, detected_source, agent_name, user)
+
+
+@app.get(
+    "/v1/conversation/import/{task_id}",
+    summary="Get Import Task Status",
+    description="Poll the status of an async conversation import task.",
+    tags=["Conversation"],
+    dependencies=[Depends(verify_api_key)],
+)
+async def get_import_status(
+    task_id: str,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    task = _read_import_task(task_id)
+    if task:
+        with _import_tasks_lock:
+            _import_tasks[task_id] = task
+    else:
+        with _import_tasks_lock:
+            task = _import_tasks.get(task_id)
+
+    if not task:
+        raise HTTPException(status_code=404, detail="Import task not found")
+
+    if task.get("user") != user:
+        raise HTTPException(status_code=404, detail="Import task not found")
+
+    return {
+        "task_id": task_id,
+        "status": task["status"],
+        "source": task["source"],
+        "total_found": task["total_found"],
+        "imported": task["imported"],
+        "skipped": task["skipped"],
+        "processed": task["processed"],
+        "errors": task["errors"],
+        "error": task.get("error"),
+    }

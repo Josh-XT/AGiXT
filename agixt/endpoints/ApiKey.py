@@ -7,7 +7,7 @@ companies the token has access to, with the limitation that they can only grant 
 they themselves have.
 """
 
-from fastapi import APIRouter, Header, Depends, HTTPException
+from fastapi import APIRouter, Header, Depends, HTTPException, Body
 from MagicalAuth import MagicalAuth, verify_api_key, validate_personal_access_token
 from Models import (
     PersonalAccessTokenCreate,
@@ -19,7 +19,7 @@ from Models import (
     AvailableCompaniesResponse,
     Detail,
 )
-from typing import List
+from typing import List, Optional, Dict, Any
 from Globals import getenv
 import logging
 
@@ -225,7 +225,8 @@ async def get_available_companies(
     tags=["API Keys"],
 )
 async def validate_api_key_endpoint(
-    token: str,
+    token: Optional[str] = None,
+    body: Optional[Dict[str, Any]] = Body(None),
 ):
     """
     Validate a personal access token and return its associated user and scopes.
@@ -235,7 +236,11 @@ async def validate_api_key_endpoint(
 
     Note: This endpoint is rate-limited to prevent brute force attacks.
     """
-    result = validate_personal_access_token(token)
+    token_value = token
+    if not token_value and isinstance(body, dict):
+        token_value = body.get("token")
+
+    result = validate_personal_access_token(token_value)
     if not result["valid"]:
         # Do not expose internal validation error details to the client
         raise HTTPException(status_code=401, detail="Invalid token")

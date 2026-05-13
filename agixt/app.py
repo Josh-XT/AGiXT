@@ -4,6 +4,7 @@ import logging
 import signal
 import asyncio
 import mimetypes
+import threading
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,6 +35,9 @@ from endpoints.Billing import app as billing_endpoints
 from endpoints.Roles import app as roles_endpoints
 from endpoints.ServerConfig import app as server_config_endpoints
 from endpoints.ApiKey import app as apikey_endpoints
+from endpoints.Voice import app as voice_endpoints
+from endpoints.Bootstrap import app as bootstrap_endpoints
+from endpoints.DesktopExtensions import app as desktop_extensions_endpoints
 from Globals import getenv
 from contextlib import asynccontextmanager
 from Workspaces import WorkspaceManager
@@ -205,8 +209,11 @@ def signal_handler(signum, frame):
         logging.error(f"Error in signal handler: {e}")
 
 
-signal.signal(signal.SIGTERM, signal_handler)
-signal.signal(signal.SIGINT, signal_handler)
+if threading.current_thread() is threading.main_thread():
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+else:
+    logging.debug("Signal handlers skipped outside the main thread")
 
 app = FastAPI(
     title="AGiXT",
@@ -298,6 +305,9 @@ app.include_router(billing_endpoints)
 app.include_router(roles_endpoints)
 app.include_router(server_config_endpoints)
 app.include_router(apikey_endpoints)
+app.include_router(voice_endpoints)
+app.include_router(bootstrap_endpoints)
+app.include_router(desktop_extensions_endpoints)
 
 # Bot webhook routers (for inbound email/SMS processing)
 try:

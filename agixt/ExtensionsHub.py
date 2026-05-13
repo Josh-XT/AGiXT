@@ -19,7 +19,7 @@ logging.basicConfig(
     format=getenv("LOG_FORMAT"),
 )
 
-# Global cache file location - written before workers spawn, read by workers
+# Global cache file location - written during startup/hub refresh, read by workers
 _EXTENSIONS_CACHE_FILE = os.path.join(
     os.path.dirname(__file__), ".extensions_cache.json"
 )
@@ -28,33 +28,48 @@ _EXTENSIONS_CACHE_FILE = os.path.join(
 _global_extension_paths: Optional[List[str]] = None
 _global_pricing_config: Optional[Dict[str, Any]] = None
 _global_cache_loaded: bool = False
+_global_cache_mtime: Optional[float] = None
 
 
 def _load_global_cache():
-    """Load the global cache from file into memory (called once per worker)."""
+    """Load or refresh the global cache from file into worker memory."""
     global _global_extension_paths, _global_pricing_config, _global_cache_loaded
+    global _global_cache_mtime
 
-    if _global_cache_loaded:
+    if not os.path.exists(_EXTENSIONS_CACHE_FILE):
+        if _global_cache_loaded:
+            _global_extension_paths = None
+            _global_pricing_config = None
+            _global_cache_loaded = False
+            _global_cache_mtime = None
         return
 
-    if os.path.exists(_EXTENSIONS_CACHE_FILE):
-        try:
-            with open(_EXTENSIONS_CACHE_FILE, "r") as f:
-                cache = json.load(f)
-                _global_extension_paths = cache.get("extension_paths")
-                _global_pricing_config = cache.get("pricing_config")
-                _global_cache_loaded = True
-                logging.debug(f"Loaded extensions cache from {_EXTENSIONS_CACHE_FILE}")
-        except Exception as e:
-            logging.warning(f"Failed to load extensions cache: {e}")
-            _global_cache_loaded = True  # Mark as loaded to avoid repeated failures
+    cache_mtime = os.path.getmtime(_EXTENSIONS_CACHE_FILE)
+    if _global_cache_loaded and _global_cache_mtime == cache_mtime:
+        return
+
+    try:
+        with open(_EXTENSIONS_CACHE_FILE, "r") as f:
+            cache = json.load(f)
+            _global_extension_paths = cache.get("extension_paths")
+            _global_pricing_config = cache.get("pricing_config")
+            _global_cache_loaded = True
+            _global_cache_mtime = cache_mtime
+            logging.debug(f"Loaded extensions cache from {_EXTENSIONS_CACHE_FILE}")
+    except Exception as e:
+        logging.warning(f"Failed to load extensions cache: {e}")
+        _global_extension_paths = None
+        _global_pricing_config = None
+        _global_cache_loaded = True  # Mark as loaded to avoid repeated failures
+        _global_cache_mtime = cache_mtime
 
 
 def _save_global_cache(
     extension_paths: List[str], pricing_config: Optional[Dict[str, Any]]
 ):
-    """Save the global cache to file (called during startup before workers spawn)."""
+    """Save the global cache to file."""
     global _global_extension_paths, _global_pricing_config, _global_cache_loaded
+    global _global_cache_mtime
 
     try:
         cache = {
@@ -68,6 +83,7 @@ def _save_global_cache(
         _global_extension_paths = extension_paths
         _global_pricing_config = pricing_config
         _global_cache_loaded = True
+        _global_cache_mtime = os.path.getmtime(_EXTENSIONS_CACHE_FILE)
 
         logging.info(f"Saved extensions cache to {_EXTENSIONS_CACHE_FILE}")
     except Exception as e:
@@ -77,10 +93,12 @@ def _save_global_cache(
 def invalidate_global_cache():
     """Invalidate the global cache (e.g., when extensions are updated)."""
     global _global_extension_paths, _global_pricing_config, _global_cache_loaded
+    global _global_cache_mtime
 
     _global_extension_paths = None
     _global_pricing_config = None
     _global_cache_loaded = False
+    _global_cache_mtime = None
 
     if os.path.exists(_EXTENSIONS_CACHE_FILE):
         try:
@@ -94,9 +112,8 @@ def initialize_global_cache():
     """
     Initialize the global extensions cache.
 
-    This should be called ONCE during application startup, BEFORE workers are spawned.
-    It computes extension paths and pricing config, then saves them to a cache file
-    that workers can quickly load.
+    This computes extension paths and pricing config, then saves them to a cache file
+    that workers can quickly load or refresh from when the file changes.
 
     Returns:
         Tuple of (extension_paths, pricing_config)
@@ -129,8 +146,8 @@ class ExtensionsHub:
         Initialize ExtensionsHub.
 
         Args:
-            skip_global_cache: If True, skip loading from global cache (used during
-                               initial setup before workers spawn)
+            skip_global_cache: If True, skip loading from global cache while building
+                               or refreshing that cache.
         """
         # Ensure we're cloning to the same directory that Extensions.py looks in
         self.extensions_dir = (
@@ -162,17 +179,15 @@ class ExtensionsHub:
         Returns:
             Dict with pricing configuration, or None if no pricing.json found
         """
+        # Check global cache first so long-lived instances see hub refreshes.
+        if not self._skip_global_cache:
+            _load_global_cache()
+            if _global_cache_loaded and _global_pricing_config is not None:
+                self._pricing_config_cache = _global_pricing_config
+                return self._pricing_config_cache
+
         # Check instance cache first
         if self._pricing_config_cache is not None:
-            return self._pricing_config_cache
-
-        # Check global cache (shared across workers)
-        if (
-            not self._skip_global_cache
-            and _global_cache_loaded
-            and _global_pricing_config is not None
-        ):
-            self._pricing_config_cache = _global_pricing_config
             return self._pricing_config_cache
 
         # Compute from scratch
@@ -279,23 +294,21 @@ class ExtensionsHub:
         Returns:
             List of absolute paths to search for extensions
         """
+        # Check global cache first so long-lived instances see hub refreshes.
+        if not self._skip_global_cache:
+            _load_global_cache()
+            if _global_cache_loaded and _global_extension_paths is not None:
+                self._extension_paths_cache = _global_extension_paths
+                # Still need to add to sys.path for this worker
+                import sys
+
+                for path in self._extension_paths_cache:
+                    if path not in sys.path:
+                        sys.path.insert(0, path)
+                return self._extension_paths_cache
+
         # Check instance cache first
         if self._extension_paths_cache is not None:
-            return self._extension_paths_cache
-
-        # Check global cache (shared across workers)
-        if (
-            not self._skip_global_cache
-            and _global_cache_loaded
-            and _global_extension_paths is not None
-        ):
-            self._extension_paths_cache = _global_extension_paths
-            # Still need to add to sys.path for this worker
-            import sys
-
-            for path in self._extension_paths_cache:
-                if path not in sys.path:
-                    sys.path.insert(0, path)
             return self._extension_paths_cache
 
         import sys
@@ -325,6 +338,27 @@ class ExtensionsHub:
                     if os.path.exists(hub_path):
                         search_paths.append(os.path.abspath(hub_path))
 
+        # Local first-party extension repos that live beside AGiXT in the
+        # XT Systems workspace. Keeping these as conventional fallbacks makes
+        # desktop manifest discovery and backend extension loading agree even
+        # when EXTENSIONS_HUB only names one local hub.
+        workspace_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..")
+        )
+        for local_name in [
+            "xtsystems_extensions",
+            "nursext",
+            "ultraestimate",
+            "agent-hoa",
+        ]:
+            local_path = os.path.join(workspace_root, local_name)
+            if (
+                os.path.exists(local_path)
+                and os.path.isdir(local_path)
+                and os.path.abspath(local_path) not in search_paths
+            ):
+                search_paths.append(os.path.abspath(local_path))
+
         # Add all extension search paths to sys.path so extensions can import each other
         for path in search_paths:
             if path not in sys.path:
@@ -347,24 +381,50 @@ class ExtensionsHub:
         if not url:
             return False
 
-        # Check for valid GitHub URL patterns
-        valid_patterns = ["https://github.com/", "git@github.com:", "github.com/"]
+        from urllib.parse import urlparse
 
-        return any(pattern in url for pattern in valid_patterns)
+        try:
+            parsed = urlparse(url)
+            # Only allow HTTPS URLs to github.com with no credentials in the URL
+            if parsed.scheme == "https" and parsed.hostname == "github.com":
+                # Reject URLs with embedded credentials
+                if parsed.username or parsed.password:
+                    return False
+                # Must have a path component (owner/repo)
+                path = parsed.path.strip("/")
+                if "/" in path and len(path.split("/")) >= 2:
+                    return True
+        except Exception:
+            pass
 
-    def _get_authenticated_url(self, url: str) -> str:
-        """Add authentication token to GitHub URL if available"""
-        if not self.hub_token:
-            return url
+        return False
 
-        # If it's an HTTPS URL and we have a token, add authentication
-        if url.startswith("https://github.com/"):
-            # Format: https://TOKEN@github.com/user/repo.git
-            url_parts = url.replace("https://", "").split("/", 1)
-            if len(url_parts) == 2:
-                return f"https://{self.hub_token}@{url_parts[0]}/{url_parts[1]}"
+    def _get_authenticated_clone_env(self) -> dict:
+        """Get environment variables for git clone"""
+        env = os.environ.copy()
+        env["GIT_TEMPLATE_DIR"] = ""
+        # GIT_TERMINAL_PROMPT=0 prevents git from prompting for credentials
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        return env
 
-        return url
+    def _get_authenticated_clone_cmd_prefix(self) -> list:
+        """Get git command prefix with authentication configured.
+        Uses git -c http.extraheader to pass token without embedding in URL.
+        Compatible with git >= 1.7.10 (works in all Docker images)."""
+        cmd = ["git"]
+        if self.hub_token:
+            import base64
+
+            credentials = base64.b64encode(
+                f"x-access-token:{self.hub_token}".encode()
+            ).decode()
+            cmd.extend(
+                [
+                    "-c",
+                    f"http.https://github.com/.extraheader=Authorization: Basic {credentials}",
+                ]
+            )
+        return cmd
 
     def _get_hub_directory_name(self, source: str) -> str:
         """Generate a unique directory name from GitHub URL or local path"""
@@ -637,29 +697,27 @@ class ExtensionsHub:
     def _clone_repository(self, url: str, hub_path: str) -> bool:
         """Clone a specific extensions hub repository"""
         try:
-            authenticated_url = self._get_authenticated_url(url)
-
-            # Use git clone with depth 1 for faster cloning
-            # Add --template="" to skip git template copying which can cause issues in containers
-            cmd = [
-                "git",
-                "clone",
-                "--depth",
-                "1",
-                "--template=",
-            ]
+            # Build git command with auth configured via -c flag (compatible with git >= 1.7.10)
+            cmd = self._get_authenticated_clone_cmd_prefix()
+            cmd.extend(
+                [
+                    "clone",
+                    "--depth",
+                    "1",
+                    "--template=",
+                ]
+            )
 
             # Add branch flag if specified
             if self.hub_branch:
                 cmd.extend(["-b", self.hub_branch])
 
-            cmd.extend([authenticated_url, hub_path])
+            cmd.extend([url, hub_path])
 
-            # Set environment to avoid git template issues
-            env = os.environ.copy()
-            env["GIT_TEMPLATE_DIR"] = ""
+            # Use env-based auth to avoid embedding token in URL
+            env = self._get_authenticated_clone_env()
 
-            # Run git clone, hiding the URL with token from logs
+            # Run git clone
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=60, env=env
             )
@@ -675,12 +733,7 @@ class ExtensionsHub:
 
                 return True
             else:
-                # Log error without exposing token
-                error_msg = (
-                    result.stderr.replace(self.hub_token, "***")
-                    if self.hub_token
-                    else result.stderr
-                )
+                error_msg = result.stderr
                 logging.error(f"Failed to clone extensions hub {url}: {error_msg}")
                 return False
 

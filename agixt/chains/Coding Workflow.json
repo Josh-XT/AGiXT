@@ -1,0 +1,70 @@
+{
+    "chain_name": "Coding Workflow",
+    "steps": [
+        {
+            "step": 1,
+            "agent_name": "XT",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Coding Agent",
+                "user_input": "PHASE 1 — EXPLORE ONLY.\n\nThe user's coding task is below. Do NOT modify any production code in this phase. Your only deliverables are:\n\n1. Read context.md from the workspace root if it exists; otherwise create it with the canonical section headers from the Coding Agent prompt.\n2. Build a mental model of the relevant slice of the codebase using List Directory, Glob File Search, Grep Search, Search File Content, Find Symbol Usages, Find References, Read File, and Create or Update Codebase Map as needed.\n3. Identify the project's build, lint, and test commands by inspecting package.json, pyproject.toml, Makefile, AGENTS.md, README.md, .github/workflows/, etc.\n4. Identify which branch is the repository's default branch.\n5. Update context.md so the Task, Repository map, Relevant files & symbols, Constraints & conventions, and Open questions sections are populated.\n\nThe user's task: {user_input}\n\nIn <answer>, return the populated content of context.md exactly as you wrote it, plus a short list of open questions that may need user clarification before planning.",
+                "context_results": 10,
+                "websearch": false,
+                "browse_links": false,
+                "disable_commands": false
+            }
+        },
+        {
+            "step": 2,
+            "agent_name": "XT",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Coding Agent",
+                "user_input": "PHASE 2 — PLAN.\n\nExploration is complete. The current state of context.md and any open questions are below. Your deliverables for this phase:\n\n1. Read the latest context.md from the workspace root.\n2. Write a numbered plan into context.md under the Plan section. Each step must name specific files, functions, and tests that will change, and must have an obvious success criterion.\n3. Use Create Todo Items in Bulk to mirror the plan into the conversation's todo list so progress can be tracked.\n4. Do NOT modify any production code in this phase.\n\nExploration output (context.md draft and open questions):\n{STEP1}\n\nThe original user task: {user_input}\n\nIn <answer>, return the final plan as a numbered list, the todo IDs that were created, and any assumptions you are making to resolve open questions.",
+                "context_results": 5,
+                "websearch": false,
+                "browse_links": false,
+                "disable_commands": false
+            }
+        },
+        {
+            "step": 3,
+            "agent_name": "XT",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Coding Agent",
+                "user_input": "PHASE 3 — BUILD.\n\nThe plan is below. Execute it step by step. For each plan step:\n- Mark the corresponding todo in-progress with Update Todo Item.\n- Make the change with Modify File, Insert in File, Multi-File Replace, Search and Replace Regex, or Write to File (only for new files).\n- Briefly verify the change (re-read the region, run a targeted test, or run a syntax check).\n- Mark the todo completed with Mark Todo Item Completed.\n- If you discover something that invalidates the plan, append to the Discoveries during build section of context.md and update the plan before continuing.\n\nDo NOT create the branch, commit, push, or open the PR yet — that is Phase 5.\n\nThe plan from Phase 2:\n{STEP2}\n\nThe original user task: {user_input}\n\nIn <answer>, return a per-step report (what changed, where, and the verification result), plus any new entries you added to the Discoveries during build section of context.md.",
+                "context_results": 5,
+                "websearch": false,
+                "browse_links": false,
+                "disable_commands": false
+            }
+        },
+        {
+            "step": 4,
+            "agent_name": "XT",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Coding Agent",
+                "user_input": "PHASE 4 — REFLECT & TEST.\n\nThe build is done. Before moving on, deliberately ask: what did I assume during planning that I now know to be wrong? What did I not consider? What edge cases did I skip? Append findings to context.md.\n\nThen run the project's actual tests and linter/formatter using Use Terminal in Workspace. Examples (use whichever the project actually uses): pytest, npm test, cargo test, black ., ruff check ., eslint ., prettier --check .\n\nRecord every command and its result under the Verification section of context.md. If anything fails, fix it (looping back into Phase 3 conceptually) and re-run until clean.\n\nThe build report from Phase 3:\n{STEP3}\n\nThe original user task: {user_input}\n\nIn <answer>, return: the reflection (what was missed and how you addressed it), the exact test/lint commands you ran with their results, and confirmation that everything is green — or a clear description of what is still failing and why.",
+                "context_results": 5,
+                "websearch": false,
+                "browse_links": false,
+                "disable_commands": false
+            }
+        },
+        {
+            "step": 5,
+            "agent_name": "XT",
+            "prompt_type": "Prompt",
+            "prompt": {
+                "prompt_name": "Coding Agent",
+                "user_input": "PHASE 5 — BRANCH & PULL REQUEST.\n\nNEVER commit to main or master. Use Use Terminal in Workspace for all git/gh operations.\n\n1. Verify you are inside the correct repository (git rev-parse --show-toplevel) and identify the default branch (gh repo view --json defaultBranchRef -q .defaultBranchRef.name). Refuse to proceed if the current branch is the default branch and there are no staged changes that warrant a new branch — in that case, create one.\n2. If a feature branch for this task does not already exist, create one: git checkout -b <type>/<short-slug> where <type> is feat, fix, chore, refactor, docs, or test.\n3. Stage and commit with a clear conventional commit message that references the task.\n4. Push: git push -u origin <branch>.\n5. If no PR exists for this branch, open one with gh pr create against the default branch. The PR body must contain Summary, Plan executed (with checkmarks), Verification (commands and results), and Notes / follow-ups — derived from context.md.\n6. If a PR already exists for this branch, push the new commits and post a gh pr comment summarizing the latest changes; do NOT open a duplicate PR.\n\nThe verification report from Phase 4:\n{STEP4}\n\nThe original user task: {user_input}\n\nIn <answer>, return: the branch name, the commit SHA(s), the PR URL, and the final PR body you submitted (or the comment you posted on the existing PR). Also include the absolute path to context.md so the user can audit the full reasoning trail.",
+                "context_results": 5,
+                "websearch": false,
+                "browse_links": false,
+                "disable_commands": false
+            }
+        }
+    ]
+}

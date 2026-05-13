@@ -147,6 +147,7 @@ def _get_price_service() -> PriceService:
 # Module-level cached pricing config from ExtensionsHub
 _cached_pricing_config = None
 _cached_pricing_config_time: float = 0
+_cached_pricing_config_mtime: Optional[float] = None
 _PRICING_CONFIG_TTL: float = 120  # 2 minutes
 
 
@@ -155,19 +156,27 @@ def _get_cached_pricing_config():
     Avoids constructing ExtensionsHub() + reading pricing.json on every call.
     """
     global _cached_pricing_config, _cached_pricing_config_time
+    global _cached_pricing_config_mtime
 
     now = _time.time()
+    from ExtensionsHub import _EXTENSIONS_CACHE_FILE, ExtensionsHub
+
+    try:
+        cache_mtime = os.path.getmtime(_EXTENSIONS_CACHE_FILE)
+    except OSError:
+        cache_mtime = None
+
     if (
         _cached_pricing_config is not None
         and now - _cached_pricing_config_time < _PRICING_CONFIG_TTL
+        and _cached_pricing_config_mtime == cache_mtime
     ):
         return _cached_pricing_config
-
-    from ExtensionsHub import ExtensionsHub
 
     hub = ExtensionsHub()
     _cached_pricing_config = hub.get_pricing_config()
     _cached_pricing_config_time = now
+    _cached_pricing_config_mtime = cache_mtime
     return _cached_pricing_config
 
 
@@ -261,6 +270,11 @@ def invalidate_token_validation_cache(token: str = None):
         shared_cache.delete(f"token_validation:{token_hash}")
 
 
+def invalidate_pat_validation_cache():
+    """Invalidate cached personal access token validation results."""
+    shared_cache.delete_pattern("pat_validation:*")
+
+
 def get_user_id_cached(email: str):
     """Get cached user ID from email if still valid (uses SharedCache)."""
     return shared_cache.get(f"user_id:{email}")
@@ -285,8 +299,12 @@ def invalidate_user_company_cache(user_id: str = None):
     """Invalidate user company cache. If user_id is None, clear all (uses SharedCache)."""
     if user_id is None:
         shared_cache.delete_pattern("user_company:*")
+        shared_cache.delete_pattern("user_companies_list:*")
+        shared_cache.delete_pattern("accessible_companies:*")
     else:
         shared_cache.delete(f"user_company:{user_id}")
+        shared_cache.delete(f"user_companies_list:{user_id}")
+        shared_cache.delete_pattern(f"accessible_companies:{user_id}:*")
 
 
 # User scopes cache TTL - 60 seconds (short enough to catch role changes quickly)
@@ -677,16 +695,9 @@ def is_admin(email: str = "USER", api_key: str = None):
     Returns:
         bool: True if user has admin access, False otherwise
     """
-    import os
-
-    AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     if api_key is None:
         api_key = ""
     api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
-
-    # Check if using the master API key
-    if AGIXT_API_KEY and api_key == AGIXT_API_KEY:
-        return True
 
     # Check if user has admin flag set (legacy super admin)
     if is_agixt_admin(email=email, api_key=api_key):
@@ -708,17 +719,36 @@ def is_admin(email: str = "USER", api_key: str = None):
 def get_sso_provider(provider: str, code, redirect_uri=None, code_verifier=None):
     # Use recursive discovery to find all extension files
     extension_files = find_extension_files()
-    for extension_file in extension_files:
-        # Import the module using the helper function
-        module = import_extension_module(extension_file)
-        if module is None:
+
+    # Build a filename→file_path map for quick lookup
+    file_map = {}
+    for ef in extension_files:
+        name = os.path.basename(ef).replace(".py", "")
+        file_map[name] = ef
+
+    # Try the exact provider name first, then fall back to {provider}_sso.
+    # This handles the case where google.py can't be imported (heavy deps like
+    # google-ads) but google_sso.py (minimal deps) can still handle the login.
+    candidates = [provider]
+    if f"{provider}_sso" in file_map and f"{provider}_sso" != provider:
+        candidates.append(f"{provider}_sso")
+
+    for candidate in candidates:
+        extension_file = file_map.get(candidate)
+        if not extension_file:
             continue
 
-        # Get the expected class name from the module
-        class_name = get_extension_class_name(os.path.basename(extension_file))
+        module = import_extension_module(extension_file)
+        if module is None:
+            logging.warning(
+                f"SSO provider '{candidate}' found at {extension_file} but failed to import"
+            )
+            continue
 
-        # Check if this matches the provider we're looking for
-        if os.path.basename(extension_file).replace(".py", "") == provider:
+        if not hasattr(module, "sso"):
+            continue
+
+        try:
             if getattr(module, "PKCE_REQUIRED", False):
                 if not code_verifier:
                     raise HTTPException(
@@ -726,10 +756,18 @@ def get_sso_provider(provider: str, code, redirect_uri=None, code_verifier=None)
                         detail=f"PKCE required for {provider} but no code_verifier provided",
                     )
                 return module.sso(
-                    code=code, redirect_uri=redirect_uri, code_verifier=code_verifier
+                    code=code,
+                    redirect_uri=redirect_uri,
+                    code_verifier=code_verifier,
                 )
             else:
                 return module.sso(code=code, redirect_uri=redirect_uri)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logging.error(
+                f"SSO token exchange failed for {candidate}: {type(e).__name__}: {e}"
+            )
     return None
 
 
@@ -869,8 +907,6 @@ def get_sso_instance(provider: str):
 
 
 def is_agixt_admin(email: str = "", api_key: str = ""):
-    if api_key == os.getenv("AGIXT_API_KEY", ""):
-        return True
     api_key = str(api_key).replace("Bearer ", "").replace("bearer ", "")
     session = get_session()
     try:
@@ -1098,8 +1134,6 @@ def verify_api_key(authorization: str = Header(None)):
     AGIXT_API_KEY = os.getenv("AGIXT_API_KEY", "")
     authorization = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     if AGIXT_API_KEY:
-        if authorization == AGIXT_API_KEY:
-            return get_admin_user()
         try:
 
             # Check if this is a Personal Access Token (starts with "agixt_")
@@ -1570,6 +1604,9 @@ class MagicalAuth:
         encryption_key = os.getenv("AGIXT_API_KEY", "")
         self.link = getenv("APP_URI")
         self.encryption_key = encryption_key
+        self._pat_scopes = None
+        self._pat_agent_ids = None
+        self._pat_company_ids = None
         if token:
             token = str(token)
             if token.startswith("Bearer ") or token.startswith("bearer "):
@@ -1578,25 +1615,43 @@ class MagicalAuth:
                 token = urllib.parse.unquote(token)
         else:
             token = None
-        try:
-            # Decode jwt
-            decoded = jwt.decode(
-                jwt=token,
-                key=self.encryption_key,
-                algorithms=["HS256"],
-                leeway=timedelta(hours=5),
-            )
-            self.email = decoded["email"]
-            self.user_id = decoded["sub"]
-            self.token = token
-            self._company_id = None
-            self._company_id_loaded = False
-        except:
-            self.email = None
-            self.token = None
-            self.user_id = None
-            self._company_id = None
-            self._company_id_loaded = True  # No user, no company
+        if token and token.startswith("agixt_"):
+            pat_validation = validate_personal_access_token(token)
+            if pat_validation.get("valid"):
+                self.email = pat_validation.get("user_email")
+                self.user_id = pat_validation.get("user_id")
+                self.token = token
+                self._pat_scopes = set(pat_validation.get("scopes", []))
+                self._pat_agent_ids = set(pat_validation.get("agent_ids", []))
+                self._pat_company_ids = set(pat_validation.get("company_ids", []))
+                self._company_id = None
+                self._company_id_loaded = False
+            else:
+                self.email = None
+                self.token = None
+                self.user_id = None
+                self._company_id = None
+                self._company_id_loaded = True  # No user, no company
+        else:
+            try:
+                # Decode jwt
+                decoded = jwt.decode(
+                    jwt=token,
+                    key=self.encryption_key,
+                    algorithms=["HS256"],
+                    leeway=timedelta(hours=5),
+                )
+                self.email = decoded["email"]
+                self.user_id = decoded["sub"]
+                self.token = token
+                self._company_id = None
+                self._company_id_loaded = False
+            except:
+                self.email = None
+                self.token = None
+                self.user_id = None
+                self._company_id = None
+                self._company_id_loaded = True  # No user, no company
         if token == encryption_key:
             self.email = getenv("DEFAULT_USER")
             self.user_id = get_user_id(self.email)
@@ -1616,6 +1671,29 @@ class MagicalAuth:
     def company_id(self, value):
         self._company_id = value
         self._company_id_loaded = True
+
+    def _validate_referrer(self, referrer: str) -> str:
+        """Validate referrer against the configured APP_URI domain.
+
+        Returns the referrer if it matches the APP_URI domain,
+        otherwise returns self.link (APP_URI) to prevent open redirect attacks.
+        """
+        if referrer is None:
+            return self.link
+        allowed = getenv("APP_URI", "")
+        try:
+            ref_parsed = urllib.parse.urlparse(referrer)
+            app_parsed = urllib.parse.urlparse(allowed)
+            if (
+                ref_parsed.scheme in ("http", "https")
+                and ref_parsed.netloc
+                and ref_parsed.netloc == app_parsed.netloc
+            ):
+                return referrer
+        except Exception:
+            pass
+        logging.warning(f"Blocked invalid referrer: {referrer} (allowed: {allowed})")
+        return self.link
 
     @staticmethod
     def _validate_password_strength(password: str) -> str:
@@ -1814,6 +1892,9 @@ class MagicalAuth:
                 session.commit()
                 return {"error": "Invalid username or password", "status_code": 401}
 
+            payment_required = False
+            payment_context = {}
+
             # Check if user is active
             if not user.is_active:
                 # Check if user's company now has sufficient billing balance
@@ -1828,6 +1909,18 @@ class MagicalAuth:
                 ):
                     user.is_active = True
                     session.commit()
+                elif user_companies:
+                    pricing_config = _get_cached_pricing_config()
+                    pricing_model = (
+                        pricing_config.get("pricing_model")
+                        if pricing_config
+                        else "per_token"
+                    )
+                    payment_required = True
+                    payment_context = {
+                        "pricing_model": pricing_model,
+                        "company_id": str(user_companies[0].company_id),
+                    }
                 else:
                     return {
                         "error": "Account is not active. Please complete payment or contact support.",
@@ -1884,6 +1977,8 @@ class MagicalAuth:
                 "user_id": str(user.id),
                 "email": user.email,
                 "username": user.username,
+                "payment_required": payment_required,
+                **payment_context,
                 "status_code": 200,
             }
 
@@ -2586,6 +2681,9 @@ class MagicalAuth:
         if self.user_id is None:
             return set()
 
+        if self._pat_scopes is not None:
+            return set(self._pat_scopes)
+
         if not company_id:
             company_id = self.company_id
 
@@ -2697,6 +2795,54 @@ class MagicalAuth:
         set_user_scopes_cache(self.user_id, company_id, scopes)
         return scopes
 
+    @staticmethod
+    def _scope_matches(scope: str, user_scopes: set) -> bool:
+        """Return True when a scope is granted by exact or wildcard match."""
+        if "*" in user_scopes:
+            return True
+
+        if scope in user_scopes:
+            return True
+
+        parts = scope.split(":")
+        if parts[0] == "ext" and len(parts) >= 3:
+            ext_name = parts[1]
+
+            if "ext:*" in user_scopes:
+                return True
+
+            if len(parts) == 3:
+                action = parts[2]
+                if f"ext:*:{action}" in user_scopes:
+                    return True
+                if f"ext:{ext_name}:*" in user_scopes:
+                    return True
+
+            elif len(parts) == 4:
+                feature = parts[2]
+                action = parts[3]
+                if f"ext:*:{feature}:{action}" in user_scopes:
+                    return True
+                if f"ext:*:*:{action}" in user_scopes:
+                    return True
+                if f"ext:{ext_name}:*" in user_scopes:
+                    return True
+                if f"ext:{ext_name}:{feature}:*" in user_scopes:
+                    return True
+                if f"ext:{ext_name}:*:{action}" in user_scopes:
+                    return True
+                if action == "execute" and f"ext:{ext_name}:execute" in user_scopes:
+                    return True
+                if action == "read" and f"ext:{ext_name}:read" in user_scopes:
+                    return True
+
+        if len(parts) >= 2:
+            resource = parts[0]
+            if f"{resource}:*" in user_scopes:
+                return True
+
+        return False
+
     def has_scope(self, scope: str, company_id: str = None) -> bool:
         """
         Check if the user has a specific scope in a company.
@@ -2711,83 +2857,15 @@ class MagicalAuth:
         if self.user_id is None:
             return False
 
+        if self._pat_scopes is not None:
+            return self._scope_matches(scope, self._pat_scopes)
+
         # Super admins have all scopes
         if self.is_super_admin():
             return True
 
         user_scopes = self.get_user_scopes(company_id)
-
-        # Check global wildcard - user has all permissions
-        if "*" in user_scopes:
-            return True
-
-        # Check exact match
-        if scope in user_scopes:
-            return True
-
-        # Parse the scope to check
-        parts = scope.split(":")
-
-        # Handle extension-specific scopes
-        if parts[0] == "ext" and len(parts) >= 3:
-            ext_name = parts[1]
-
-            # Check if user has ext:* (all extension scopes)
-            if "ext:*" in user_scopes:
-                return True
-
-            # Handle 3-part extension scopes (ext:name:action)
-            if len(parts) == 3:
-                action = parts[2]
-
-                # Check if user has ext:*:action (e.g., ext:*:read for all extensions read access)
-                if f"ext:*:{action}" in user_scopes:
-                    return True
-
-                # Check if user has ext:name:* (all actions for specific extension)
-                if f"ext:{ext_name}:*" in user_scopes:
-                    return True
-
-            # Handle 4-part deep extension scopes (ext:name:feature:action)
-            elif len(parts) == 4:
-                feature = parts[2]
-                action = parts[3]
-
-                # Check if user has ext:*:feature:action (all extensions, same feature)
-                if f"ext:*:{feature}:{action}" in user_scopes:
-                    return True
-
-                # Check if user has ext:*:*:action (all extensions, all features, same action)
-                if f"ext:*:*:{action}" in user_scopes:
-                    return True
-
-                # Check if user has ext:name:* (all actions for specific extension)
-                if f"ext:{ext_name}:*" in user_scopes:
-                    return True
-
-                # Check if user has ext:name:feature:* (all actions for specific feature)
-                if f"ext:{ext_name}:{feature}:*" in user_scopes:
-                    return True
-
-                # Check if user has ext:name:*:action (specific extension, all features, specific action)
-                if f"ext:{ext_name}:*:{action}" in user_scopes:
-                    return True
-
-                # Check if user has the simpler ext:name:execute scope (grants all execute for that extension)
-                if action == "execute" and f"ext:{ext_name}:execute" in user_scopes:
-                    return True
-
-                # Check if user has ext:name:read (grants all read features for that extension)
-                if action == "read" and f"ext:{ext_name}:read" in user_scopes:
-                    return True
-
-        # Check standard wildcard patterns (e.g., if user has 'agents:*', they have 'agents:read')
-        if len(parts) >= 2:
-            resource = parts[0]
-            if f"{resource}:*" in user_scopes:
-                return True
-
-        return False
+        return self._scope_matches(scope, user_scopes)
 
     def has_any_scope(self, scopes: list, company_id: str = None) -> bool:
         """
@@ -3199,8 +3277,7 @@ class MagicalAuth:
             .replace(" ", "%20")
         )
 
-        if referrer is not None:
-            self.link = referrer
+        self.link = self._validate_referrer(referrer)
         magic_link = f"{self.link}?token={token}"
 
         # Send the email
@@ -3342,8 +3419,7 @@ class MagicalAuth:
             .replace("`", "%60")
             .replace("~", "%7E")
         )
-        if referrer is not None:
-            self.link = referrer
+        self.link = self._validate_referrer(referrer)
         magic_link = f"{self.link}?token={token}"
         if send_link:
             email_send = send_email(
@@ -5651,6 +5727,13 @@ class MagicalAuth:
             logging.debug(f"Stripe check cache hit for {user_email}")
             return
 
+        # Use a lock key to prevent multiple workers from checking simultaneously
+        lock_key = f"stripe_lock:{user_id}"
+        if not shared_cache.set_if_not_exists(lock_key, "1", ttl=30):
+            # Another worker is already checking, skip
+            logging.debug(f"Stripe check already in progress for {user_email}")
+            return
+
         stripe.api_key = api_key
 
         session = get_session()
@@ -7676,6 +7759,13 @@ class MagicalAuth:
                                     last_name=user.last_name,
                                     role=display_role,
                                     role_id=display_role_id,
+                                    avatar_url=getattr(user, "avatar_url", None),
+                                    last_seen=(
+                                        user.last_seen.isoformat()
+                                        if getattr(user, "last_seen", None)
+                                        else None
+                                    ),
+                                    status_text=getattr(user, "status_text", None),
                                 )
 
                     company_data = {
@@ -7950,6 +8040,22 @@ class MagicalAuth:
                         "zip_code": getattr(company, "zip_code", None),
                         "country": getattr(company, "country", None),
                         "notes": getattr(company, "notes", None),
+                        "plan_id": getattr(company, "plan_id", None),
+                        "user_limit": getattr(company, "user_limit", None),
+                        "device_limit": getattr(company, "device_limit", None),
+                        "monthly_token_limit": getattr(
+                            company, "monthly_token_limit", None
+                        ),
+                        "storage_limit_bytes": getattr(
+                            company, "storage_limit_bytes", None
+                        ),
+                        "addon_users": getattr(company, "addon_users", 0) or 0,
+                        "addon_devices": getattr(company, "addon_devices", 0) or 0,
+                        "addon_tokens": getattr(company, "addon_tokens", 0) or 0,
+                        "addon_storage_bytes": getattr(
+                            company, "addon_storage_bytes", 0
+                        )
+                        or 0,
                         "token_balance": getattr(company, "token_balance", 0),
                         "token_balance_usd": getattr(company, "token_balance_usd", 0),
                         "users": list(unique_users.values()),
@@ -9175,6 +9281,7 @@ class MagicalAuth:
             token.is_revoked = True
             token.updated_at = datetime.now()
             session.commit()
+            invalidate_pat_validation_cache()
 
             return {"detail": f"Token '{token.name}' has been revoked"}
         except HTTPException:
@@ -9235,6 +9342,7 @@ class MagicalAuth:
             old_token.token_hash = new_token_hash
             old_token.updated_at = datetime.now()
             session.commit()
+            invalidate_pat_validation_cache()
 
             return {
                 "id": str(old_token.id),
@@ -9279,6 +9387,19 @@ class MagicalAuth:
 
         available_scopes = []
         categories = {}
+
+        if self.has_scope("*"):
+            wildcard_scope = {
+                "id": "*",
+                "name": "*",
+                "resource": "*",
+                "action": "*",
+                "description": "All current and future scopes",
+                "category": "System",
+                "is_system": True,
+            }
+            available_scopes.append(wildcard_scope)
+            categories["System"] = [wildcard_scope]
 
         for scope_info in all_scopes_info:
             # Check if user has this scope (including wildcard matching)
@@ -9584,7 +9705,9 @@ def get_user_timezone(user_id):
             )
             session.add(user_preferences)
             session.commit()
-        timezone = user_preferences.pref_value
+        timezone = user_preferences.pref_value or getenv("TZ") or "UTC"
+        if not timezone.strip():
+            timezone = getenv("TZ") or "UTC"
         shared_cache.set(cache_key, timezone, ttl=_user_timezone_cache_ttl)
         return timezone
     finally:

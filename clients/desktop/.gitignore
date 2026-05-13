@@ -1,0 +1,21 @@
+# Build artifacts
+src-tauri/target/
+src-tauri/gen/
+src-tauri/Cargo.lock.bak
+target/
+
+# OS clutter
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Tauri build output
+src-tauri/WixTools/
+src-tauri/.tauri/
+node_modules

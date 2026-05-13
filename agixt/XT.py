@@ -1,17 +1,16 @@
-from Interactions import Interactions, stream_inference_to_string
+from Interactions import (
+    Interactions,
+    stream_inference_to_string,
+    _ability_selection_inference,
+)
 from ApiClient import get_api_client, Conversations, Prompts, Chain
+from Conversations import clean_conversation_name, parse_generated_conversation_name
 from Memories import Memories
 from Extensions import Extensions
 from Agent import get_agent_id_by_name
 from pydub import AudioSegment
 from Globals import getenv, get_tokens, DEFAULT_SETTINGS
 from Models import ChatCompletions, TasksToDo, ChainCommandName, TranslationRequest
-from Complexity import (
-    calculate_complexity_score,
-    ComplexityTier,
-    ComplexityScore,
-    log_complexity_decision,
-)
 from middleware import log_silenced_exception
 from datetime import datetime
 from typing import (
@@ -407,6 +406,7 @@ class AGiXT:
         agent_name: str,
         api_key: str,
         conversation_name: str = None,
+        conversation_id: str = None,
         collection_id=None,
     ):
         # Handle user dict from verify_api_key
@@ -421,7 +421,19 @@ class AGiXT:
         self.conversation = None
         self.conversation_id = None
         self.conversation_name = None
-        if conversation_name != None:
+        if conversation_id is not None:
+            self.conversation = Conversations(
+                conversation_name=conversation_name,
+                conversation_id=conversation_id,
+                user=self.user_email,
+            )
+            self.conversation_id = self.conversation.get_conversation_id()
+            self.conversation_name = (
+                self.conversation.conversation_name
+                or conversation_name
+                or str(conversation_id)
+            )
+        elif conversation_name != None:
             self.conversation = Conversations(
                 conversation_name=conversation_name, user=self.user_email
             )
@@ -431,7 +443,7 @@ class AGiXT:
         self.uri = getenv("AGIXT_URI")
         if collection_id is not None:
             self.collection_id = str(collection_id)
-        elif conversation_name:
+        elif self.conversation_id:
             self.collection_id = self.conversation_id
         else:
             self.collection_id = "0"
@@ -569,19 +581,30 @@ class AGiXT:
         # Only rename new conversations:
         # - name == "-" (legacy pattern)
         # - name == agent_name (auto-created DM pattern from frontend)
+        # - name starts with "agent_name - " (forceNew DM pattern, e.g. "XT - Mar 28, 1:38 PM")
         is_new = self.conversation_name == "-"
         is_auto_dm = (
             self.conversation_name == self.agent_name and self.conversation_name != "-"
         )
-        if not is_new and not is_auto_dm:
+        is_force_new_dm = self.conversation_name.startswith(f"{self.agent_name} - ")
+        if not is_new and not is_auto_dm and not is_force_new_dm:
             return
 
         try:
             # Use existing conversation instance instead of creating new one
             c = self.conversation
 
-            # Default fallback name
-            new_name = datetime.now().strftime("Conversation Created %Y-%m-%d %I:%M %p")
+            # Default fallback name: use first words of user input instead of a
+            # generic timestamp so conversations are identifiable even when the
+            # LLM provider is unavailable.
+            _fallback_words = clean_conversation_name(
+                " ".join(user_input.split()[:8]).strip()
+            )
+            new_name = (
+                _fallback_words
+                if _fallback_words
+                else datetime.now().strftime("Conversation Created %Y-%m-%d %I:%M %p")
+            )
 
             # Get list of existing conversations to avoid duplicates
             conversation_list = c.get_conversations()
@@ -600,104 +623,93 @@ Respond with ONLY a JSON object in this exact format:
 
 Rules:
 - Use spaces in the name, not underscores
-- Keep the name short (3-6 words)
-- Make it descriptive of the topic
+- Keep the name short (2-5 words, max 50 characters)
+- Make it a specific title, not a summary or description
+- Do not use markdown, headings, colons, or trailing punctuation
+- Do not start with Topics, Summary, Conversation, Discussion, Chat, or Overview
 - Do not use any name from the existing list above
 - Respond with ONLY the JSON, no explanation"""
 
             # Direct LLM call - uses streaming internally to avoid blocking
-            # the inference slot for other concurrent requests
-            new_convo = await stream_inference_to_string(
-                self.agent,
-                prompt=naming_prompt,
-                use_smartest=False,
+            # the inference slot for other concurrent requests.
+            # Use dedicated ability selection server if configured (fast small model).
+            ability_selection_server = getenv("ABILITY_SELECTION_SERVER")
+            ability_selection_model = getenv(
+                "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-4B-GGUF"
             )
+            if ability_selection_server:
+                new_convo = await _ability_selection_inference(
+                    server_url=ability_selection_server,
+                    model=ability_selection_model,
+                    prompt=naming_prompt,
+                )
+            else:
+                new_convo = await stream_inference_to_string(
+                    self.agent,
+                    prompt=naming_prompt,
+                    use_smartest=False,
+                )
 
-            # Extract JSON from the response
+            # Extract and validate the JSON title from the response.
             try:
-                # Handle potential thinking tags in response (strip them out)
-                if "<answer>" in new_convo:
-                    new_convo = (
-                        new_convo.split("<answer>")[-1].split("</answer>")[0].strip()
-                    )
-
-                if "```json" in new_convo:
-                    json_text = new_convo.split("```json")[1].split("```")[0].strip()
-                elif "```" in new_convo:
-                    json_text = new_convo.split("```")[1].split("```")[0].strip()
+                parsed_name = parse_generated_conversation_name(
+                    new_convo,
+                    existing_names=conversation_list,
+                )
+                if parsed_name:
+                    new_name = parsed_name
                 else:
-                    json_start = new_convo.find("{")
-                    json_end = new_convo.rfind("}")
-                    if json_start != -1 and json_end != -1 and json_end > json_start:
-                        json_text = new_convo[json_start : json_end + 1]
-                    else:
-                        raise ValueError("No valid JSON found in response")
-
-                parsed_json = json.loads(json_text)
-                new_name = parsed_json.get("suggested_conversation_name", new_name)
-
-                # Handle duplicate names with a simpler retry
-                if new_name in conversation_list:
-                    retry_prompt = f"""The name "{new_name}" is already taken. Suggest a DIFFERENT name.
+                    retry_prompt = f"""The previous conversation name suggestion was not acceptable. Suggest a different name.
 
 **User's message:**
 {user_input[:300]}
 
-Respond with ONLY: {{"suggested_conversation_name": "Different Name Here"}}"""
+Respond with ONLY JSON in this exact format:
+{{"suggested_conversation_name": "Different Name Here"}}
 
-                    retry_response = await stream_inference_to_string(
-                        self.agent,
-                        prompt=retry_prompt,
-                        use_smartest=False,
-                    )
+Rules:
+- Use a specific 2-5 word title, max 50 characters
+- Do not write a summary, sentence, markdown heading, or label like Topics Discussed
+- Do not use any existing conversation name"""
 
-                    # Handle potential thinking tags
-                    if "<answer>" in retry_response:
-                        retry_response = (
-                            retry_response.split("<answer>")[-1]
-                            .split("</answer>")[0]
-                            .strip()
-                        )
-
-                    if "```json" in retry_response:
-                        json_text = (
-                            retry_response.split("```json")[1].split("```")[0].strip()
-                        )
-                    elif "```" in retry_response:
-                        json_text = (
-                            retry_response.split("```")[1].split("```")[0].strip()
+                    if ability_selection_server:
+                        retry_response = await _ability_selection_inference(
+                            server_url=ability_selection_server,
+                            model=ability_selection_model,
+                            prompt=retry_prompt,
                         )
                     else:
-                        json_start = retry_response.find("{")
-                        json_end = retry_response.rfind("}")
-                        if (
-                            json_start != -1
-                            and json_end != -1
-                            and json_end > json_start
-                        ):
-                            json_text = retry_response[json_start : json_end + 1]
-                        else:
-                            raise ValueError("No valid JSON found in retry response")
+                        retry_response = await stream_inference_to_string(
+                            self.agent,
+                            prompt=retry_prompt,
+                            use_smartest=False,
+                        )
 
-                    parsed_json = json.loads(json_text)
-                    new_name = parsed_json.get("suggested_conversation_name", new_name)
-
-                    if new_name in conversation_list:
-                        new_name = datetime.now().strftime(
-                            "Conversation Created %Y-%m-%d %I:%M %p"
+                    retry_name = parse_generated_conversation_name(
+                        retry_response,
+                        existing_names=conversation_list,
+                    )
+                    if retry_name:
+                        new_name = retry_name
+                    else:
+                        new_name = (
+                            _fallback_words
+                            if _fallback_words
+                            else datetime.now().strftime(
+                                "Conversation Created %Y-%m-%d %I:%M %p"
+                            )
                         )
 
             except Exception as e:
                 logging.error(f"Error parsing conversation name: {e}")
-                if new_convo and isinstance(new_convo, str) and len(new_convo) < 100:
-                    # Try to use as name if it looks reasonable
-                    clean_name = new_convo.strip().strip('"').strip("'")
-                    if len(clean_name) > 3 and len(clean_name) < 80:
-                        new_name = clean_name
 
             # Apply the rename
             old_name = self.conversation_name
-            c.set_conversation_summary(summary=new_name)
+            new_name = clean_conversation_name(new_name)
+            if not new_name or new_name in conversation_list:
+                new_name = datetime.now().strftime(
+                    "Conversation Created %Y-%m-%d %I:%M %p"
+                )
             self.conversation_name = c.rename_conversation(new_name=new_name)
 
             # Notify the frontend via WebSocket so the sidebar updates immediately
@@ -722,49 +734,6 @@ Respond with ONLY: {{"suggested_conversation_name": "Different Name Here"}}"""
 
             traceback.print_exc()
             logging.error(f"Error in rename_new_conversation: {e}")
-
-    async def check_if_coding_required(self, user_input: str) -> bool:
-        """
-        Evaluates if coding is required to assist with the user's request.
-
-        Args:
-            user_input (str): The raw user input without context or instructions
-
-        Returns:
-            bool: True if coding is required, False otherwise
-        """
-        if not user_input:
-            return False
-
-        evaluation_prompt = f"""Analyze the following user request and determine if writing, modifying, debugging, executing code, or doing math is required to assist them.
-
-User request: {user_input}
-
-Respond with ONLY "true" if coding assistance is needed, or "false" if not.
-
-Examples:
-- "Can you help me debug this Python function?" -> true
-- "Write a script to sort a list" -> true
-- "Fix the bug in my code" -> true
-- "Can you solve this math problem?" -> true
-- "Can you count these items?" -> true
-- "What's the weather like?" -> false
-- "Explain how arrays work" -> false
-- "Tell me about Python" -> false
-- "Can you send an email to Joe?" -> false
-
-Your response (true or false):"""
-
-        try:
-            # Use a lightweight inference call for evaluation
-            response = await self.agent.PROVIDER.inference(prompt=evaluation_prompt)
-            # Extract and normalize the response
-            response = str(response).strip().lower()
-            return "true" in response
-        except Exception as e:
-            logging.warning(f"Error checking if coding required: {str(e)}")
-            # Default to False if we can't determine
-            return False
 
     async def inference(
         self,
@@ -824,25 +793,6 @@ Your response (true or false):"""
             del kwargs["conversation_name"]
         if "conversation_id" in kwargs:
             del kwargs["conversation_id"]
-
-        # Calculate complexity score for inference-time compute scaling
-        complexity_score = calculate_complexity_score(
-            user_input=user_input,
-            agent_settings=self.agent_settings,
-        )
-
-        # Log complexity decision for debugging
-        # log_complexity_decision(complexity_score, user_input[:100] if user_input else "")
-
-        # Determine use_smartest based on complexity scoring
-        if "use_smartest" not in kwargs:
-            kwargs["use_smartest"] = False
-        if kwargs["use_smartest"] == False:
-            # Use complexity-based routing instead of just coding check
-            kwargs["use_smartest"] = complexity_score.route_to_smartest
-
-        # Pass complexity score to interactions for thinking budget enforcement
-        kwargs["complexity_score"] = complexity_score
 
         response = await self.agent_interactions.run(
             user_input=user_input,
@@ -1782,7 +1732,7 @@ Your response (true or false):"""
                     )
                 response = f"{'Learned' if save_to_memory else 'Saved'} [{file_name}]({file_url}) {'to memory' if save_to_memory else 'to workspace'}."
             except Exception as e:
-                logging.error(f"Error reading PowerPoint file: {e}")
+                logging.warning(f"Error reading PowerPoint file: {e}")
                 return f"Failed to read PowerPoint file [{file_name}]({file_url}). Error: {str(e)}"
         if user_input == "":
             user_input = "Describe each stage of this image."
@@ -1966,7 +1916,13 @@ Your response (true or false):"""
             )
             # Separate vision inference from memory writing to avoid false errors
             vision_response = None
-            vision_prompt = f"The assistant has an image in context\nThe user's last message was: {user_input}\nThe uploaded image is `{file_name}`.\n\nAnswer anything relevant to the image that the user is questioning if anything, additionally, describe the image in detail."
+            vision_prompt = (
+                "The assistant has an image in context\n"
+                f"The user's last message was: {user_input}\n"
+                f"The uploaded image is `{file_name}`.\n\n"
+                "Answer anything relevant to the image that the user is questioning "
+                "if anything, additionally, describe the image in detail."
+            )
             self.input_tokens += get_tokens(vision_prompt)
             # Read image and encode as base64 for vision inference
             with open(file_path, "rb") as img_file:
@@ -2343,8 +2299,10 @@ Your response (true or false):"""
         # Run the prompt "Expert Determination" with the user input
         expert = await self.inference(
             user_input=user_input,
+            task=user_input,
             prompt_category="Default",
             prompt_name="Expert Determination",
+            disable_commands=True,
             log_output=False,
             log_user_input=False,
         )
@@ -2354,6 +2312,7 @@ Your response (true or false):"""
             job_title=expert,
             task=user_input,
             prompt_name="Prompt Generator",
+            disable_commands=True,
             log_output=False,
             log_user_input=False,
         )
@@ -2364,14 +2323,13 @@ Your response (true or false):"""
             introduction=primary_objective,
             prompt_category="Default",
             prompt_name="Title a Chain",
+            disable_commands=True,
             log_output=False,
             log_user_input=False,
         )
-        chain_title = await self.convert_to_model(
-            input_string=chain_name,
-            model=ChainCommandName,
-        )
-        chain_name = chain_title.command_name
+        chain_name = str(chain_name).strip().splitlines()[0]
+        chain_name = re.sub(r"[^A-Za-z0-9 _-]+", "", chain_name).strip()
+        chain_name = chain_name[:80].strip() or "Planned Task"
         self.conversation.log_interaction(
             role=self.agent_name,
             message=f"[ACTIVITY] Breaking objective into a list of tasks.",
@@ -2382,24 +2340,38 @@ Your response (true or false):"""
             user_input=user_input,
             introduction=primary_objective,
             prompt_category="Default",
-            prompt_name="Break into Steps",
+            prompt_name="Break into steps",
             websearch=websearch,
             websearch_depth=websearch_depth,
             injected_memories=100,
+            disable_commands=True,
             log_output=False,
             log_user_input=False,
         )
-        task_list = await self.convert_to_model(
-            input_string=numbered_list_of_tasks,
-            model=TasksToDo,
-        )
+        tasks_to_plan = []
+        try:
+            parsed_tasks = json.loads(str(numbered_list_of_tasks))
+            if isinstance(parsed_tasks, dict):
+                parsed_tasks = parsed_tasks.get("tasks", [])
+            if isinstance(parsed_tasks, list):
+                tasks_to_plan = [str(item).strip() for item in parsed_tasks if item]
+        except Exception:
+            pass
+        if not tasks_to_plan:
+            tasks_to_plan = [
+                item.lstrip("0123456789.*- ").strip()
+                for item in str(numbered_list_of_tasks).splitlines()
+            ]
+        tasks_to_plan = [item for item in tasks_to_plan if item]
+        if not tasks_to_plan:
+            tasks_to_plan = [user_input]
         self.chain.add_chain(chain_name=chain_name)
         self.conversation.log_interaction(
             role=self.agent_name,
             message=f"[ACTIVITY] Creating new command `{chain_name}`.",
         )
         i = 1
-        total_tasks = len(task_list.tasks)
+        total_tasks = len(tasks_to_plan)
         x = 1
         # First step in the chain should be to disable the command so that the agent doesn't try to execute it while executing it
         self.chain.add_chain_step(
@@ -2416,7 +2388,7 @@ Your response (true or false):"""
             },
         )
         i += 1
-        for task in task_list.tasks:
+        for task in tasks_to_plan:
             self.conversation.log_interaction(
                 role=self.agent_name,
                 message=f"[ACTIVITY] Planning task `{x}` of `{total_tasks}`.",
@@ -2450,7 +2422,7 @@ Your response (true or false):"""
             )
             i += 1
         list_of_tasks = "\n".join(
-            [f"{i}. {task}" for i, task in enumerate(task_list.tasks, 1)]
+            [f"{i}. {task}" for i, task in enumerate(tasks_to_plan, 1)]
         )
         # Enable the command of the chain name
         if enable_new_command:
@@ -2661,6 +2633,7 @@ Your response (true or false):"""
                 str(self.agent_settings["include_sources"]).lower() == "true"
             )
         disable_commands = False
+        enable_command_selection = True
         running_command = None
         additional_context = ""
         parent_activity_id = None
@@ -2733,6 +2706,10 @@ Your response (true or false):"""
                 )
             if "disable_commands" in message:
                 disable_commands = str(message["disable_commands"]).lower() == "true"
+            if "enable_command_selection" in message:
+                enable_command_selection = (
+                    str(message["enable_command_selection"]).lower() == "true"
+                )
             if "running_command" in message:
                 running_command = message["running_command"]
             if "content" not in message:
@@ -3438,7 +3415,7 @@ Your response (true or false):"""
                 voice_response=tts,
                 log_user_input=False,
                 log_output=False,
-                enable_command_selection=True,  # Enable intelligent command selection for main user interactions
+                enable_command_selection=enable_command_selection,
                 data_analysis=data_analysis,
                 language=language,
                 include_sources=include_sources,
@@ -3512,11 +3489,31 @@ Your response (true or false):"""
                 # Rename new conversations after response is complete
                 # Run as background task so it doesn't block the response being returned
                 # Also handles auto-created DMs where name == agent_name (e.g., "XT")
+                # or forceNew DMs (e.g., "XT - Mar 28, 1:38 PM")
                 if (
                     self.conversation_name == "-"
                     or self.conversation_name == self.agent_name
+                    or self.conversation_name.startswith(f"{self.agent_name} - ")
                 ):
                     asyncio.create_task(self.rename_new_conversation(new_prompt))
+                # Update conversation summary in the background
+                if response and new_prompt:
+                    try:
+                        from Interactions import (
+                            update_conversation_summary_after_interaction,
+                        )
+
+                        asyncio.create_task(
+                            update_conversation_summary_after_interaction(
+                                conversation=c,
+                                user_input=new_prompt,
+                                agent_response=response,
+                                agent_name=self.agent_name,
+                                user_id=getattr(self.auth, "user_id", ""),
+                            )
+                        )
+                    except Exception as e:
+                        logging.warning(f"Failed to update conversation summary: {e}")
         if isinstance(response, dict):
             response = json.dumps(response, indent=2)
         if not isinstance(response, str):
@@ -3676,16 +3673,6 @@ Your response (true or false):"""
         This implementation properly handles tags like <thinking>, <execute>, <answer> etc.
         to ensure backend processing happens while streaming visible content to the frontend.
         """
-        from Complexity import (
-            calculate_complexity_score,
-            should_intervene,
-            count_thinking_steps,
-            get_planning_phase_prompt,
-            get_todo_review_prompt,
-            get_answer_review_prompt,
-            check_todo_list_exists,
-        )
-
         conversation_id = self.conversation_id
         chunk_id = conversation_id
         created_time = int(time.time())
@@ -3702,9 +3689,12 @@ Your response (true or false):"""
         log_output = True
         log_user_input = True
         disable_commands = False
+        enable_command_selection = None
         running_command = None
         additional_context = ""
         command_overrides = None
+        has_tool_result = False
+        tool_result_text = ""
         # TTS streaming mode: "off", "audio_only", or "interleaved"
         tts_mode = getattr(prompt, "tts_mode", "off") or "off"
 
@@ -3859,23 +3849,43 @@ Your response (true or false):"""
                 )
             if "disable_commands" in message:
                 disable_commands = str(message["disable_commands"]).lower() == "true"
+            if "enable_command_selection" in message:
+                enable_command_selection = (
+                    str(message["enable_command_selection"]).lower() == "true"
+                )
             if "running_command" in message:
                 running_command = message["running_command"]
             if "content" not in message:
                 continue
             if isinstance(message["content"], str):
                 role = message["role"] if "role" in message else "User"
-                if role.lower() == "system":
+                if role.lower() == "tool":
+                    has_tool_result = True
+                    tool_call_id = message.get("tool_call_id", "unknown")
+                    tool_content = str(message["content"])
+                    new_prompt += f"{tool_content}\n\n"
+                    tool_result_text += (
+                        f"Tool result ({tool_call_id}):\n{tool_content}\n\n"
+                    )
+                elif role.lower() == "system":
                     if "/" in message["content"]:
                         new_prompt += f"{message['content']}\n\n"
-                if role.lower() == "user":
+                elif role.lower() == "user":
                     new_prompt += f"{message['content']}\n\n"
             if isinstance(message["content"], list):
+                role = message["role"] if "role" in message else "User"
+                if role.lower() == "tool":
+                    has_tool_result = True
+                    tool_call_id = message.get("tool_call_id", "unknown")
                 for msg in message["content"]:
                     if "text" in msg:
-                        role = message["role"] if "role" in message else "User"
-                        if role.lower() == "user":
-                            new_prompt += f"{msg['text']}\n\n"
+                        if role.lower() in ["user", "tool"]:
+                            text_part = str(msg["text"])
+                            new_prompt += f"{text_part}\n\n"
+                            if role.lower() == "tool":
+                                tool_result_text += (
+                                    f"Tool result ({tool_call_id}):\n{text_part}\n\n"
+                                )
                     # Process file type messages (streaming)
                     await self._process_file_type_message(msg, files)
                     # Iterate over the msg to find _url in one of the keys then use the value of that key unless it has a "url" under it
@@ -4074,11 +4084,16 @@ Your response (true or false):"""
             new_prompt += f"\nUploaded file: `{file['file_name']}`."
 
         # Log user input (log original prompt without file names appended)
-        if log_user_input:
+        if log_user_input and not has_tool_result and original_user_prompt:
             c.log_interaction(role="USER", message=original_user_prompt)
 
         # Get thinking_id for activity logging
         thinking_id = c.get_thinking_id(agent_name=self.agent_name)
+        if has_tool_result and tool_result_text and thinking_id:
+            c.log_interaction(
+                role=self.agent_name,
+                message=f"[SUBACTIVITY][{thinking_id}] Received tool result:\n```\n{tool_result_text.strip()}\n```",
+            )
 
         # Handle prompt_args cleanup like non-streaming version
         if "user_input" in prompt_args:
@@ -4269,18 +4284,12 @@ Your response (true or false):"""
                 )
 
             logging.info(f"[stream] Starting run_stream inference pipeline...")
-            # Calculate complexity score for inference-time compute scaling
-            complexity_score = calculate_complexity_score(
-                user_input=new_prompt,
-                agent_settings=self.agent_settings,
-            )
-
-            # Determine use_smartest based on complexity scoring
-            use_smartest = complexity_score.route_to_smartest
 
             # Build prompt args for processing
             if disable_commands:
                 prompt_args["disable_commands"] = True
+            if enable_command_selection is not None:
+                prompt_args["enable_command_selection"] = enable_command_selection
             if running_command:
                 prompt_args["running_command"] = running_command
 
@@ -4378,8 +4387,6 @@ Your response (true or false):"""
                 websearch=websearch,
                 log_user_input=False,  # Already logged above
                 log_output=True,  # Log the final answer to the conversation
-                complexity_score=complexity_score,
-                use_smartest=use_smartest,
                 thinking_id=thinking_id,  # Pass the thinking_id to avoid creating a duplicate
                 command_overrides=command_overrides,  # Pass command overrides to enable specific commands
                 tts=tts
@@ -4512,9 +4519,9 @@ Your response (true or false):"""
                                                     4 + packet_size :
                                                 ]
 
-                                                # Break large audio chunks into smaller pieces for streaming
-                                                # ESP32 has limited buffer size, so send max 4KB at a time
-                                                MAX_CHUNK_SIZE = 4096
+                                                # Send entire PCM packet as one chunk
+                                                # ESP32 has 256KB line buffer + 512KB ring buffer
+                                                MAX_CHUNK_SIZE = 32768
                                                 for offset in range(
                                                     0, len(pcm_data), MAX_CHUNK_SIZE
                                                 ):
@@ -4654,9 +4661,8 @@ Your response (true or false):"""
                                                     4 + packet_size :
                                                 ]
 
-                                                # Break large audio chunks into smaller pieces for streaming
-                                                # ESP32 has limited buffer size, so send max 4KB at a time
-                                                MAX_CHUNK_SIZE = 4096
+                                                # Send entire PCM packet as one chunk
+                                                MAX_CHUNK_SIZE = 32768
                                                 for offset in range(
                                                     0, len(pcm_data), MAX_CHUNK_SIZE
                                                 ):
@@ -4761,8 +4767,8 @@ Your response (true or false):"""
                                         pcm_data = filler_buffer[4 : 4 + packet_size]
                                         filler_buffer = filler_buffer[4 + packet_size :]
 
-                                        # Break large audio chunks into smaller pieces for streaming
-                                        MAX_CHUNK_SIZE = 4096
+                                        # Send entire PCM packet as one chunk
+                                        MAX_CHUNK_SIZE = 32768
                                         for offset in range(
                                             0, len(pcm_data), MAX_CHUNK_SIZE
                                         ):
@@ -4863,9 +4869,11 @@ Your response (true or false):"""
 
             # Handle conversation rename for new conversations
             # Also handles auto-created DMs where name == agent_name (e.g., "XT")
+            # or forceNew DMs (e.g., "XT - Mar 28, 1:38 PM")
             if (
                 self.conversation_name == "-"
                 or self.conversation_name == self.agent_name
+                or self.conversation_name.startswith(f"{self.agent_name} - ")
             ):
                 asyncio.create_task(self.rename_new_conversation(new_prompt))
 
@@ -4934,9 +4942,8 @@ Your response (true or false):"""
                                     pcm_data = raw_buffer[4 : 4 + packet_size]
                                     raw_buffer = raw_buffer[4 + packet_size :]
 
-                                    # Break large audio chunks into smaller pieces for streaming
-                                    # ESP32 has limited buffer size, so send max 4KB at a time
-                                    MAX_CHUNK_SIZE = 4096
+                                    # Send entire PCM packet as one chunk
+                                    MAX_CHUNK_SIZE = 32768
                                     for offset in range(
                                         0, len(pcm_data), MAX_CHUNK_SIZE
                                     ):
@@ -4971,6 +4978,20 @@ Your response (true or false):"""
                 yield f"data: {json.dumps(tts_end_chunk)}\n\n"
 
         except asyncio.CancelledError:
+            # Check if user explicitly stopped this conversation
+            if worker_registry.is_stopped(conversation_id):
+                logging.info(
+                    f"[_execute_chat_completions_stream] Conversation {conversation_id} "
+                    f"stopped by user — aborting stream."
+                )
+                # Close the stream iterator without draining
+                if stream_iter is not None:
+                    try:
+                        await stream_iter.aclose()
+                    except Exception:
+                        pass
+                raise
+
             logging.warning(
                 f"[_execute_chat_completions_stream] CancelledError for conversation {conversation_id}. "
                 f"Detaching run_stream to continue in background."
@@ -5015,6 +5036,19 @@ Your response (true or false):"""
                 )
             raise
         except GeneratorExit:
+            # Check if user explicitly stopped this conversation
+            if worker_registry.is_stopped(conversation_id):
+                logging.info(
+                    f"[_execute_chat_completions_stream] GeneratorExit: conversation {conversation_id} "
+                    f"stopped by user — aborting stream."
+                )
+                if stream_iter is not None:
+                    try:
+                        await stream_iter.aclose()
+                    except Exception:
+                        pass
+                return
+
             logging.warning(
                 f"[_execute_chat_completions_stream] GeneratorExit for conversation {conversation_id}. "
                 f"Detaching run_stream to continue in background."
@@ -5104,18 +5138,13 @@ Your response (true or false):"""
         log_user_input: bool = False,
         **kwargs,
     ):
-        i = 0
         tasks = []
         responses = []
         if user_inputs == []:
             return []
         for user_input in user_inputs:
-            i += 1
-            if i % batch_size == 0:
-                responses += await asyncio.gather(**tasks)
-                tasks = []
             task = asyncio.create_task(
-                await self.inference(
+                self.inference(
                     user_input=user_input,
                     prompt_category=prompt_category,
                     prompt_name=prompt_name,
@@ -5128,7 +5157,11 @@ Your response (true or false):"""
                 )
             )
             tasks.append(task)
-        responses += await asyncio.gather(**tasks)
+            if len(tasks) >= batch_size:
+                responses += await asyncio.gather(*tasks)
+                tasks = []
+        if tasks:
+            responses += await asyncio.gather(*tasks)
         return responses
 
     async def dpo(
@@ -5147,6 +5180,7 @@ Your response (true or false):"""
             injected_memories=injected_memories,
             log_user_input=False,
             log_output=False,
+            disable_commands=True,
         )
         rejected_async = self.inference(
             user_input=question,
@@ -5154,6 +5188,7 @@ Your response (true or false):"""
             prompt_name="Wrong Answers Only",
             log_user_input=False,
             log_output=False,
+            disable_commands=True,
         )
         chosen = await chosen_async
         rejected = await rejected_async
@@ -5178,11 +5213,13 @@ Your response (true or false):"""
             )
         memories = [memory["text"] for memory in memories]
         # Get a list of questions about each memory
-        question_list = self.batch_inference(
+        question_list = await self.batch_inference(
             user_inputs=memories,
             batch_size=batch_size,
             prompt_category="Default",
             prompt_name="Ask Questions",
+            disable_commands=True,
+            log_output=False,
         )
         for question in question_list:
             # Convert the response to a list of questions
@@ -5331,6 +5368,7 @@ Your response (true or false):"""
             schema=schema,
             prompt_category="Default",
             prompt_name="Convert to Pydantic Model",
+            disable_commands=True,
             log_user_input=False,
             log_output=False,
         )

@@ -231,8 +231,8 @@ def import_extensions():
                 continue
             command_owner_map[friendly_name.lower()].add(extension_name)
 
-    # Create extension database tables during seed import
-    create_extension_tables()
+    # Extension tables are already created by _run_extension_and_role_setup
+    # via initialize_extension_tables() - no need to duplicate here
 
     session = get_session()
 
@@ -826,7 +826,53 @@ def import_chains(user=DEFAULT_USER):
         logging.error(f"Failed to import the following chains: {', '.join(failures)}")
 
 
+def _compute_prompts_fingerprint():
+    """Compute a fingerprint of the prompts/ directory (file count + total size).
+    Returns a dict that can be compared for changes."""
+    prompt_dir = os.path.abspath("prompts")
+    if not os.path.isdir(prompt_dir):
+        return {"file_count": 0, "total_size": 0, "files": {}}
+    files_map = {}
+    for root, dirs, filenames in os.walk(prompt_dir):
+        for f in filenames:
+            fpath = os.path.join(root, f)
+            rel = os.path.relpath(fpath, prompt_dir)
+            try:
+                files_map[rel] = os.path.getsize(fpath)
+            except OSError:
+                pass
+    return {
+        "file_count": len(files_map),
+        "total_size": sum(files_map.values()),
+        "files": files_map,
+    }
+
+
+_PROMPTS_MANIFEST = os.path.join(
+    os.path.dirname(__file__), "models", ".prompts_seed_manifest.json"
+)
+
+
 def import_prompts(user=DEFAULT_USER):
+    # Fast fingerprint check: skip if prompts directory hasn't changed
+    current_fp = _compute_prompts_fingerprint()
+    try:
+        if os.path.exists(_PROMPTS_MANIFEST):
+            with open(_PROMPTS_MANIFEST, "r") as f:
+                cached_fp = json.load(f)
+            if (
+                cached_fp.get("file_count") == current_fp["file_count"]
+                and cached_fp.get("total_size") == current_fp["total_size"]
+                and cached_fp.get("files") == current_fp["files"]
+            ):
+                logging.info(
+                    f"Prompts fingerprint unchanged ({current_fp['file_count']} files, "
+                    f"{current_fp['total_size']} bytes) - skipping import"
+                )
+                return
+    except Exception:
+        pass  # If manifest is corrupt, just re-import
+
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
@@ -915,6 +961,14 @@ def import_prompts(user=DEFAULT_USER):
             session.commit()
 
     session.close()
+
+    # Update manifest so next startup can skip
+    try:
+        os.makedirs(os.path.dirname(_PROMPTS_MANIFEST), exist_ok=True)
+        with open(_PROMPTS_MANIFEST, "w") as f:
+            json.dump(current_fp, f)
+    except Exception as e:
+        logging.debug(f"Could not write prompts manifest: {e}")
 
 
 def import_providers():
@@ -1022,66 +1076,50 @@ def cleanup_orphaned_data():
         session.close()
 
 
-def import_all_data():
+def import_all_data(hub_ready_event=None):
+    """Import seed data. Hub cloning and extension table init are handled by
+    _run_extension_and_role_setup in run-local.py.  If *hub_ready_event* is
+    provided, import_extensions will wait for it before proceeding so that hub
+    extensions are available for discovery."""
+    import time as _time
     from concurrent.futures import ThreadPoolExecutor
+
+    t0 = _time.perf_counter()
 
     # Ensure default user exists
     ensure_default_user()
+    logging.info(f"[seed] ensure_default_user: {(_time.perf_counter()-t0)*1000:.0f}ms")
 
-    # Skip setup_default_extension_categories - already ran in initialize_database()
-
-    # Initialize extensions hub first to clone external extensions
-    try:
-        from ExtensionsHub import ExtensionsHub, initialize_global_cache
-
-        hub = ExtensionsHub(skip_global_cache=True)
-        # Use the synchronous version to avoid event loop conflicts
-        hub_success = hub.clone_or_update_hub_sync()
-
-        # If hub was successful, invalidate extension cache to force rediscovery
-        if hub_success:
-            from Extensions import invalidate_extension_cache
-
-            invalidate_extension_cache()
-
-            # Re-initialize extension tables after hub cloning
-            # This ensures GitHub-cloned extension models get their tables created
-            # (the initial initialize_extension_tables runs before hubs are cloned)
-            try:
-                from DB import (
-                    initialize_extension_tables,
-                    migrate_extensions_to_new_categories,
-                )
-
-                initialize_extension_tables()
-                logging.info("Re-initialized extension tables after hub cloning")
-
-                # Re-run category migration now that hub extensions are available
-                # The initial migration in initialize_database runs before hubs are cloned
-                migrate_extensions_to_new_categories()
-                logging.info("Re-ran category migration with hub extensions")
-            except Exception as table_err:
-                logging.warning(
-                    f"Failed to re-initialize extension tables: {table_err}"
-                )
-
-        # Initialize global cache for extension paths and pricing config
-        # This runs BEFORE workers spawn, so workers can load from cache
-        initialize_global_cache()
-        logging.info("Initialized global extensions cache for worker efficiency")
-    except Exception as e:
-        logging.warning(f"Failed to initialize extensions hub: {e}")
-
-    # Run import_extensions, import_providers, and import_prompts in parallel
-    # They use separate DB sessions and operate on different tables
+    # Start providers and prompts immediately (no hub dependency)
+    # Extension import waits for hub_ready_event if provided
     with ThreadPoolExecutor(max_workers=3) as executor:
-        ext_future = executor.submit(import_extensions)
         prov_future = executor.submit(import_providers)
         prompt_future = executor.submit(import_prompts)
-        # Wait for all to complete, re-raise any exceptions
-        ext_future.result()
+
+        def _import_extensions_after_hub():
+            if hub_ready_event is not None:
+                hub_ready_event.wait()
+                logging.info(
+                    f"[seed] hub_ready_event fired, starting import_extensions "
+                    f"({(_time.perf_counter()-t0)*1000:.0f}ms)"
+                )
+            t1 = _time.perf_counter()
+            import_extensions()
+            logging.info(
+                f"[seed] import_extensions: {(_time.perf_counter()-t1)*1000:.0f}ms"
+            )
+
+        ext_future = executor.submit(_import_extensions_after_hub)
+
         prov_future.result()
+        logging.info(
+            f"[seed] import_providers done ({(_time.perf_counter()-t0)*1000:.0f}ms)"
+        )
         prompt_future.result()
+        logging.info(
+            f"[seed] import_prompts done ({(_time.perf_counter()-t0)*1000:.0f}ms)"
+        )
+        ext_future.result()
 
     # Register extension routers after all extensions are imported
     # This ensures hub extensions are available for router registration

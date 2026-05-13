@@ -1,4 +1,5 @@
 from typing import List, Union
+from urllib.parse import urlparse
 import logging
 import subprocess
 import uuid
@@ -81,6 +82,67 @@ else:
         pass
 
 
+# playwright-stealth applies a comprehensive bundle of fingerprint patches
+# (navigator.webdriver, navigator.plugins, WebGL vendor, sec-ch-ua, etc.) that
+# makes a headless Chromium look much closer to a real Chrome browser. It is
+# substantially more thorough than the small init scripts we used previously
+# and is the easiest practical way to reduce false-positive bot challenges.
+_playwright_stealth_module = _import_optional(
+    "playwright_stealth", "playwright-stealth"
+)
+if _playwright_stealth_module:
+    PlaywrightStealth = getattr(_playwright_stealth_module, "Stealth", None)
+else:
+    PlaywrightStealth = None
+
+# curl_cffi can replay real browser TLS / HTTP-2 fingerprints, which is the
+# only reliable way to fetch many Cloudflare-protected pages that block the
+# bundled Chromium headless TLS fingerprint outright. We use it as a fallback
+# when Playwright either gets a 403 or lands on a Cloudflare challenge page.
+_curl_cffi_requests = _import_optional("curl_cffi.requests", "curl_cffi")
+
+# Substrings that strongly indicate a Cloudflare (or similar) bot challenge
+# page rather than the real site content. These are intentionally specific —
+# many legitimate pages embed the Cloudflare JS-Detection script
+# (``/cdn-cgi/challenge-platform/scripts/jsd/main.js``), so we cannot use
+# the bare path as a marker. Each entry below only appears on an actual
+# interstitial / block page.
+_BOT_CHALLENGE_MARKERS = (
+    "<title>Just a moment...",
+    "<title>Just a moment</title>",
+    "<title>Attention Required! | Cloudflare</title>",
+    "cf-chl-widget",
+    "window._cf_chl_opt",
+    "cf_chl_opt",
+    "chlPageData",
+    "challenge-form",
+    "Checking your browser before accessing",
+    "Verifying you are human. This may take a few seconds",
+)
+
+
+def _looks_like_bot_challenge(html: str) -> bool:
+    """Return True if the rendered HTML is a known anti-bot interstitial.
+
+    Uses very specific markers (challenge-page titles, challenge widget
+    tokens, embedded ``_cf_chl_opt`` config) plus a content-size sanity
+    check: real Cloudflare challenge pages are tiny (a few KB), while the
+    underlying real site is almost always orders of magnitude larger. A
+    >250KB page that happens to mention one of the markers (e.g. inside
+    an article body) is not a challenge.
+    """
+    if not html:
+        return False
+    if not any(marker in html for marker in _BOT_CHALLENGE_MARKERS):
+        return False
+    # If the page is large, the marker almost certainly came from real
+    # site content (article text, source-view, etc.) rather than from a
+    # standalone challenge interstitial.
+    if len(html) > 250_000:
+        return False
+    return True
+
+
 pyotp = _import_optional("pyotp", "pyotp")
 cv2 = _import_optional("cv2", "opencv-python")
 np = _import_optional("numpy", "numpy")
@@ -90,6 +152,7 @@ pytesseract = _import_optional("pytesseract", "pytesseract")
 Image = _import_optional("PIL.Image", "Pillow")
 
 from Extensions import Extensions
+from XT import is_safe_url
 import xml.etree.ElementTree as ET
 
 # Configure logging
@@ -150,6 +213,7 @@ class web_browsing(Extensions):
         self.page = None
         self.popup = None
         self._cleanup_attempted = False  # Track cleanup attempts
+        self._ssrf_guarded_context = None
 
     def __del__(self):
         """Destructor to ensure cleanup on garbage collection"""
@@ -318,6 +382,50 @@ class web_browsing(Extensions):
             logging.error(f"Web search error: {e}")
             return f"Error performing web search: {str(e)}"
 
+    def _normalize_navigation_url(self, url: str) -> str:
+        """Normalize user-supplied navigation URLs before SSRF validation."""
+        url = (url or "").strip().replace("\\", "/")
+        if not url:
+            return url
+        parsed = urlparse(url)
+        if not parsed.scheme:
+            url = f"https://{url}"
+        return url
+
+    def _is_safe_browser_request_url(self, url: str) -> bool:
+        """
+        Return whether a browser request URL is safe to send over the network.
+
+        Browser-internal schemes do not connect to another host, while http(s)
+        requests go through the shared SSRF guard.
+        """
+        normalized_url = (url or "").strip().replace("\\", "/")
+        parsed = urlparse(normalized_url)
+        if parsed.scheme in ("about", "blob", "chrome-error", "data"):
+            return True
+        return is_safe_url(normalized_url)
+
+    async def _abort_unsafe_browser_route(self, route) -> bool:
+        """Abort a Playwright route when it targets an unsafe network URL."""
+        request_url = route.request.url
+        if self._is_safe_browser_request_url(request_url):
+            return False
+        logging.warning("Blocked browser request by SSRF protection: %s", request_url)
+        await route.abort(error_code="blockedbyclient")
+        return True
+
+    async def _ssrf_guard_route_handler(self, route):
+        if await self._abort_unsafe_browser_route(route):
+            return
+        await route.continue_()
+
+    async def _enable_browser_ssrf_protection(self):
+        """Install SSRF protection for every request in the active context."""
+        if self.context is None or self._ssrf_guarded_context is self.context:
+            return
+        await self.context.route("**/*", self._ssrf_guard_route_handler)
+        self._ssrf_guarded_context = self.context
+
     async def _ensure_browser_page(self, headless: bool = True):
         """Internal helper to ensure Playwright, browser, context, and page are initialized."""
         try:
@@ -330,19 +438,41 @@ class web_browsing(Extensions):
                     "Initializing Playwright browser with stealth configuration..."
                 )
                 self.playwright = await async_playwright().start()
+                # Note: --headless=new is the modern Chromium headless mode
+                # which has a much smaller fingerprint surface than legacy
+                # headless. Playwright 1.47 uses the new mode by default for
+                # `headless=True`, but we still pass the explicit flag for
+                # safety on older bundled chromium versions.
                 self.browser = await self.playwright.chromium.launch(
                     headless=headless,
                     args=[
                         "--no-sandbox",
                         "--disable-dev-shm-usage",
                         "--disable-blink-features=AutomationControlled",
-                        "--disable-features=VizDisplayCompositor",
-                    ],  # Improve stability and avoid detection
+                        "--disable-features=AutomationControlled,VizDisplayCompositor",
+                        "--disable-infobars",
+                        "--no-default-browser-check",
+                        "--no-first-run",
+                        "--password-store=basic",
+                        "--use-mock-keychain",
+                        "--lang=en-US,en",
+                    ],
+                )
+
+                # We claim to be Linux Chrome here because the AGiXT server
+                # actually runs on Linux. Lying about the platform is itself
+                # a fingerprint mismatch (e.g. WebGL renderer & client hints
+                # will give us away as Linux while the UA says Windows),
+                # which is a common reason Cloudflare flips us to a
+                # challenge.
+                _user_agent = (
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
                 )
 
                 # Comprehensive stealth configuration to appear as regular user
                 self.context = await self.browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                    user_agent=_user_agent,
                     viewport={"width": 1920, "height": 1080},
                     ignore_https_errors=True,  # Handle SSL issues more gracefully
                     locale="en-US",
@@ -353,6 +483,7 @@ class web_browsing(Extensions):
                     device_scale_factor=1,
                     has_touch=False,
                     is_mobile=False,
+                    service_workers="block",
                     extra_http_headers={
                         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
                         "Accept-Language": "en-US,en;q=0.9",
@@ -367,6 +498,30 @@ class web_browsing(Extensions):
                         "Cache-Control": "max-age=0",
                     },
                 )
+                await self._enable_browser_ssrf_protection()
+
+                # Apply playwright-stealth's full bundle of fingerprint
+                # patches to the context. This single call replaces dozens
+                # of hand-rolled init scripts (navigator.webdriver, plugins,
+                # WebGL vendor, sec-ch-ua, hairline, languages, codecs, ...)
+                # and is significantly more thorough than what we could
+                # maintain manually. Applying at the context level means
+                # every page (including popups) inherits the patches.
+                if PlaywrightStealth is not None:
+                    try:
+                        # Match the platform we claim in the UA so that
+                        # navigator.platform / sec-ch-ua-platform agree.
+                        stealth = PlaywrightStealth(
+                            navigator_platform_override="Linux x86_64",
+                            navigator_user_agent_override=_user_agent,
+                        )
+                        await stealth.apply_stealth_async(self.context)
+                        logging.info("Applied playwright-stealth patches.")
+                    except Exception as stealth_err:
+                        logging.warning(
+                            f"Failed to apply playwright-stealth, "
+                            f"falling back to basic init scripts: {stealth_err}"
+                        )
 
                 self.page = await self.context.new_page()
 
@@ -457,17 +612,15 @@ class web_browsing(Extensions):
             raise
 
     async def _call_prompt_agent(self, timeout: int = None, **kwargs):
-        """Call LLM via streaming chat completions endpoint for faster response.
+        """Call the LLM via the agent's standard inference path.
 
-        IMPORTANT: This calls ezlocalai directly to get the RAW LLM response.
-        The AGiXT /v1/chat/completions endpoint filters thinking tags and only
-        returns answer content, but for web browsing we need the full XML
-        response including <interaction> and <step> tags.
+        This routes through ``Agent.inference()`` so the call honors the
+        agent's configured provider rotation (ezlocalai, OpenAI, etc.),
+        billing, and webhook events — the same way every other internal
+        AGiXT inference does. The provider's raw streamed text is
+        collected into a string and returned, so XML response tags like
+        ``<interaction>`` and ``<step>`` are preserved.
         """
-        import httpx
-        import json as json_module
-        import asyncio
-
         start_time = time.time()
         effective_timeout = timeout or 120
 
@@ -479,82 +632,33 @@ class web_browsing(Extensions):
         if not user_input:
             raise ValueError("No user_input provided for LLM call")
 
-        # Call ezlocalai directly to get raw LLM response
-        # The AGiXT endpoint filters thinking tags - we need the full response for XML parsing
-        # Check both EZLOCALAI_URI (standard) and EZLOCALAI_URL (legacy) env vars
-        ezlocalai_url = (
-            os.environ.get("EZLOCALAI_URI")
-            or os.environ.get("EZLOCALAI_URL")
-            or "http://localhost:8091"
-        ).rstrip("/")
-        # If URL already ends with /v1, don't add it again
-        if ezlocalai_url.endswith("/v1"):
-            url = f"{ezlocalai_url}/chat/completions"
-        else:
-            url = f"{ezlocalai_url}/v1/chat/completions"
+        if not self.agent_id or not self.ApiClient:
+            raise RuntimeError(
+                "Cannot perform inference: agent_id and ApiClient are required."
+            )
 
-        # Build chat completions request for ezlocalai
-        messages = [{"role": "user", "content": user_input}]
+        from Agent import Agent
 
-        payload = {
-            "model": os.environ.get(
-                "DEFAULT_MODEL", "unsloth/Qwen3-4B-Instruct-2507-GGUF"
-            ),
-            "messages": messages,
-            "stream": True,
-            "max_tokens": 4096,
-            "temperature": 0.7,
-        }
-
-        headers = {
-            "Content-Type": "application/json",
-        }
-
-        async def do_streaming_request():
-            response_text = ""
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(effective_timeout + 30, connect=10.0)
-            ) as client:
-                async with client.stream(
-                    "POST", url, json=payload, headers=headers
-                ) as response:
-                    if response.status_code != 200:
-                        error_body = await response.aread()
-                        raise RuntimeError(
-                            f"Chat completions failed with status {response.status_code}: {error_body.decode()}"
-                        )
-
-                    async for line in response.aiter_lines():
-                        if not line:
-                            continue
-                        if line.startswith("data: "):
-                            data = line[6:]  # Remove "data: " prefix
-                            if data.strip() == "[DONE]":
-                                break
-                            try:
-                                chunk = json_module.loads(data)
-                                if "choices" in chunk and chunk["choices"]:
-                                    delta = chunk["choices"][0].get("delta", {})
-                                    content = delta.get("content", "")
-                                    if content:
-                                        response_text += content
-                            except json_module.JSONDecodeError:
-                                continue
-            return response_text
+        agent = Agent(
+            agent_id=self.agent_id,
+            ApiClient=self.ApiClient,
+            user=self.user,
+        )
 
         try:
             logging.debug(
-                f"Starting streaming chat completion to ezlocalai with timeout={effective_timeout}s..."
+                f"Starting agent inference with timeout={effective_timeout}s..."
             )
 
-            # Use asyncio.wait_for to enforce hard timeout on the entire streaming operation
             response_text = await asyncio.wait_for(
-                do_streaming_request(), timeout=effective_timeout
+                agent.inference(prompt=user_input),
+                timeout=effective_timeout,
             )
 
             elapsed = time.time() - start_time
+            response_text = response_text or ""
             logging.debug(
-                f"Streaming chat completion completed in {elapsed:.1f}s, response length: {len(response_text)}"
+                f"Agent inference completed in {elapsed:.1f}s, response length: {len(response_text)}"
             )
             logging.info(
                 f"Response: {response_text[:500]}..."
@@ -565,18 +669,13 @@ class web_browsing(Extensions):
 
         except asyncio.TimeoutError:
             elapsed = time.time() - start_time
-            error_msg = f"LLM streaming call timed out after {elapsed:.1f}s (timeout was {effective_timeout}s)"
-            logging.error(error_msg)
-            raise TimeoutError(error_msg)
-        except httpx.TimeoutException as e:
-            elapsed = time.time() - start_time
-            error_msg = f"LLM streaming call timed out after {elapsed:.1f}s (timeout was {effective_timeout}s)"
+            error_msg = f"Agent inference timed out after {elapsed:.1f}s (timeout was {effective_timeout}s)"
             logging.error(error_msg)
             raise TimeoutError(error_msg)
         except Exception as e:
             elapsed = time.time() - start_time
             logging.error(
-                f"Error in streaming chat completion after {elapsed:.1f}s: {e}",
+                f"Error in agent inference after {elapsed:.1f}s: {e}",
                 exc_info=True,
             )
             raise
@@ -1194,6 +1293,133 @@ What key information should be remembered from this content?"""
             logging.error(f"Error during web search for '{query}': {str(e)}")
             return [{"error": f"Failed to get search results: {str(e)}"}]
 
+    async def _wait_for_bot_challenge(self, max_wait_seconds: float = 25.0) -> bool:
+        """
+        Detect a Cloudflare / bot-challenge interstitial on the current page
+        and give the page a chance to solve it on its own.
+
+        Cloudflare's "Just a moment..." page runs a JS challenge that takes
+        a few seconds to complete. If we look at the DOM immediately after
+        navigation we see the challenge, but if we wait a bit the page
+        usually transitions to the real content. This helper polls the DOM
+        and returns as soon as the challenge markers disappear, or after
+        the timeout.
+
+        Returns:
+            True if the page is no longer on a known challenge, False if
+            we ran out of time and the challenge is still showing.
+        """
+        if self.page is None or self.page.is_closed():
+            return True
+
+        start = time.monotonic()
+        last_seen_challenge = False
+        while (time.monotonic() - start) < max_wait_seconds:
+            try:
+                html = await asyncio.wait_for(self.page.content(), timeout=10.0)
+            except Exception:
+                return not last_seen_challenge
+            if not _looks_like_bot_challenge(html):
+                if last_seen_challenge:
+                    elapsed = time.monotonic() - start
+                    logging.info(
+                        f"Bot challenge cleared after {elapsed:.1f}s of waiting."
+                    )
+                return True
+            last_seen_challenge = True
+            # Nudge the page a little to look more human-ish: a tiny scroll
+            # plus a small mouse jiggle. Many CF challenges look at user
+            # interaction signals before deciding to release the page.
+            try:
+                await self.page.mouse.move(
+                    100 + int((time.monotonic() * 53) % 800),
+                    100 + int((time.monotonic() * 71) % 400),
+                )
+                await self.page.evaluate("window.scrollBy(0, 1)")
+            except Exception:
+                pass
+            await self.page.wait_for_timeout(1500)
+
+        logging.warning(
+            f"Bot challenge still showing after {max_wait_seconds:.0f}s wait."
+        )
+        return False
+
+    async def _fetch_with_browser_tls(self, url: str) -> "tuple[int, str] | None":
+        """
+        Fetch ``url`` using curl_cffi with a Chrome TLS / HTTP-2 fingerprint.
+
+        Cloudflare and similar services frequently fingerprint at the TLS
+        and HTTP/2 layer, where the bundled Playwright Chromium has a
+        recognisable signature even after every JS-side stealth patch is
+        applied. curl_cffi replays a real Chrome handshake byte-for-byte,
+        which is often the only way to get past edge filters that block
+        the browser outright before any JS can run.
+
+        Returns ``(status_code, html)`` on success, or ``None`` if the
+        ``curl_cffi`` package is unavailable or the request fails.
+        """
+        if _curl_cffi_requests is None:
+            logging.warning(
+                "curl_cffi is not installed; cannot use browser-TLS fallback."
+            )
+            return None
+        url = self._normalize_navigation_url(url)
+        if not is_safe_url(url):
+            logging.warning(
+                "Blocked browser-TLS fallback fetch by SSRF protection: %s", url
+            )
+            return None
+        try:
+            # Run the (synchronous) curl_cffi call off the event loop so we
+            # don't block other navigation work that may be happening.
+            loop = asyncio.get_event_loop()
+
+            def _do_get():
+                return _curl_cffi_requests.get(
+                    url,
+                    impersonate="chrome131",
+                    timeout=30,
+                    allow_redirects=False,
+                    headers={
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "Upgrade-Insecure-Requests": "1",
+                    },
+                )
+
+            response = await loop.run_in_executor(None, _do_get)
+            return response.status_code, response.text
+        except Exception as fetch_err:
+            logging.warning(f"curl_cffi fallback fetch failed for {url}: {fetch_err}")
+            return None
+
+    async def _load_html_into_page(self, url: str, html: str) -> None:
+        """
+        Replace the currently loaded page content with ``html`` while
+        preserving ``url`` as the document base. Used by the bot-challenge
+        fallback so that downstream extraction code (which reads from
+        ``self.page``) sees the real site content rather than the
+        challenge interstitial.
+        """
+        if self.page is None or self.page.is_closed():
+            return
+        # ``set_content`` keeps the current page URL but swaps the DOM;
+        # we also inject a <base> tag so any relative links the LLM may
+        # extract still resolve against the original origin.
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(url)
+            base = f"{parsed.scheme}://{parsed.netloc}/"
+            if "<base " not in html.lower() and "<head" in html.lower():
+                html = html.replace("<head>", f'<head><base href="{base}">', 1)
+            await self.page.set_content(html, wait_until="domcontentloaded")
+        except Exception as load_err:
+            logging.warning(
+                f"Failed to inject curl_cffi-fetched HTML into page: {load_err}"
+            )
+
     async def navigate_to_url_with_playwright(
         self, url: str, headless: bool = True, timeout: int = 30000
     ) -> str:
@@ -1211,9 +1437,9 @@ What key information should be remembered from this content?"""
             str: A confirmation message indicating success or an error message.
         """
         try:
-            if not url.startswith("http"):
-                url = "https://" + url
-                logging.info(f"Assuming HTTPS for URL: {url}")
+            url = self._normalize_navigation_url(url)
+            if not is_safe_url(url):
+                return "Error navigating to URL: URL blocked by SSRF protection."
 
             await self._ensure_browser_page(headless=headless)
 
@@ -1235,6 +1461,10 @@ What key information should be remembered from this content?"""
                     logging.info(
                         f"Successfully navigated to {current_url} using {wait_strategy}"
                     )
+
+                    if current_url and current_url != "about:blank":
+                        if not is_safe_url(current_url):
+                            return "Error navigating to URL: Final URL blocked by SSRF protection."
 
                     # Additional validation - ensure we actually got to a page
                     if current_url and current_url != "about:blank":
@@ -1289,6 +1519,40 @@ What key information should be remembered from this content?"""
                             logging.debug(
                                 "Additional networkidle wait timed out, continuing..."
                             )
+
+                    # Many sites front their pages with a Cloudflare /
+                    # similar JS-challenge interstitial. Give that a chance
+                    # to clear before we hand control back to the caller.
+                    cleared = await self._wait_for_bot_challenge(max_wait_seconds=25.0)
+
+                    # If after waiting we are STILL on a challenge page,
+                    # try fetching the URL with a real-Chrome TLS
+                    # fingerprint via curl_cffi and inject the result into
+                    # the page so downstream extraction sees real content.
+                    if not cleared:
+                        logging.info(
+                            "Bot challenge persists after wait; "
+                            "attempting curl_cffi browser-TLS fallback fetch."
+                        )
+                        fetched = await self._fetch_with_browser_tls(current_url)
+                        if fetched is not None:
+                            status_code, html_text = fetched
+                            if (
+                                status_code == 200
+                                and html_text
+                                and not _looks_like_bot_challenge(html_text)
+                            ):
+                                logging.info(
+                                    f"curl_cffi fallback succeeded for "
+                                    f"{current_url} ({len(html_text)} bytes)."
+                                )
+                                await self._load_html_into_page(current_url, html_text)
+                            else:
+                                logging.warning(
+                                    f"curl_cffi fallback for {current_url} "
+                                    f"returned status={status_code} but content "
+                                    "still looks like a bot challenge."
+                                )
 
                     return f"Successfully navigated to {current_url}"
                 except Exception as wait_error:
@@ -2215,7 +2479,10 @@ What key information should be remembered from this content?"""
                 await self.context.close()
 
             # Create new context with device parameters
-            self.context = await self.browser.new_context(**device)
+            self.context = await self.browser.new_context(
+                **device, service_workers="block"
+            )
+            await self._enable_browser_ssrf_protection()
             self.page = (
                 await self.context.new_page()
             )  # Open a new page in the emulated context
@@ -2381,6 +2648,8 @@ What key information should be remembered from this content?"""
         )
 
         async def route_handler(route):
+            if await self._abort_unsafe_browser_route(route):
+                return
             request = route.request
             should_handle = False
             if isinstance(url_pattern, re.Pattern):
@@ -2671,7 +2940,7 @@ What key information should be remembered from this content?"""
             await self.page.screenshot(path=before_screenshot_path, full_page=True)
             before_screenshot_name = os.path.basename(before_screenshot_path)
             if self.output_url:
-                before_screenshot_url = f"{self.output_url}/{before_screenshot_name}"
+                before_screenshot_url = f"{self.output_url}{before_screenshot_name}"
                 log_msg += f"\n![Screenshot]({before_screenshot_url})"
                 # Add screenshot link to the previous log message (optional, depends on API capabilities)
                 # self.ApiClient.append_to_last_message(f"\n![Before Screenshot]({before_screenshot_url})")
@@ -3505,9 +3774,7 @@ What key information should be remembered from this content?"""
                 await self.page.screenshot(path=after_screenshot_path, full_page=True)
                 after_screenshot_name = os.path.basename(after_screenshot_path)
                 if self.output_url:
-                    post_op_screenshot_url = (
-                        f"{self.output_url}/{after_screenshot_name}"
-                    )
+                    post_op_screenshot_url = f"{self.output_url}{after_screenshot_name}"
             except Exception as ss_error:
                 logging.error(f"Failed to take 'after' screenshot: {ss_error}")
 
@@ -3604,7 +3871,7 @@ Current Page Content Snippet (for context):
                 await self.page.screenshot(path=error_screenshot_path, full_page=True)
                 error_screenshot_name = os.path.basename(error_screenshot_path)
                 if self.output_url:
-                    error_screenshot_url = f"{self.output_url}/{error_screenshot_name}"
+                    error_screenshot_url = f"{self.output_url}{error_screenshot_name}"
             except Exception as ss_error:
                 logging.error(f"Failed to take 'error' screenshot: {ss_error}")
 
@@ -3934,8 +4201,7 @@ Current Page Content Snippet (for context):
         if not task:
             return "Error: Task description must be provided."
 
-        if not url.startswith("http"):
-            url = "https://" + url
+        url = self._normalize_navigation_url(url)
 
         # Initialize browser if needed, navigate to start URL
         try:
@@ -4754,7 +5020,7 @@ Previous error: {last_parse_error}
                         await self.page.screenshot(path=screenshot_path, full_page=True)
                         screenshot_name = os.path.basename(screenshot_path)
                         if self.output_url:
-                            screenshot_msg = f"\n\n![Error Screenshot]({self.output_url}/{screenshot_name})"
+                            screenshot_msg = f"\n\n![Error Screenshot]({self.output_url}{screenshot_name})"
                 except Exception as ss_error:
                     screenshot_msg = (
                         f"\n\n(Failed to take error screenshot: {ss_error})"
@@ -4788,7 +5054,7 @@ Previous error: {last_parse_error}
                         await self.page.screenshot(path=screenshot_path, full_page=True)
                         screenshot_name = os.path.basename(screenshot_path)
                         if self.output_url:
-                            screenshot_msg = f"\n\n![Error Screenshot]({self.output_url}/{screenshot_name})"
+                            screenshot_msg = f"\n\n![Error Screenshot]({self.output_url}{screenshot_name})"
                 except Exception as ss_error:
                     screenshot_msg = (
                         f"\n\n(Failed to take error screenshot: {ss_error})"
@@ -5151,7 +5417,7 @@ Previous error: {last_parse_error}
             )
             await self.page.screenshot(path=screenshot_path, full_page=True)
             file_name = os.path.basename(screenshot_path)
-            output_url = f"{self.output_url}/{file_name}" if self.output_url else None
+            output_url = f"{self.output_url}{file_name}" if self.output_url else None
 
             if not output_url:
                 # Fallback: Maybe encode image data if URL output isn't available? Requires agent support.

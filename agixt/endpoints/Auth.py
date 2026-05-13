@@ -23,7 +23,7 @@ from Models import (
 )
 from pydantic import BaseModel
 from typing import Optional
-from DB import TokenBlacklist, get_session, default_roles
+from DB import TokenBlacklist, User, get_session, default_roles
 from fastapi import APIRouter, Request, Header, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response
 from MagicalAuth import (
@@ -49,6 +49,36 @@ logging.basicConfig(
     level=getenv("LOG_LEVEL"),
     format=getenv("LOG_FORMAT"),
 )
+
+
+def _scope_covers_filter(scope: str, requested_scope: str) -> bool:
+    if scope == "*":
+        return True
+    if scope == requested_scope:
+        return True
+    if scope.endswith(":*"):
+        return requested_scope.startswith(scope[:-1])
+    return False
+
+
+def _filter_scopes(scopes: list, scope_filter: Optional[str] = None) -> list:
+    if not scope_filter or not isinstance(scopes, list):
+        return scopes
+
+    requested_scopes = {
+        item.strip() for item in scope_filter.split(",") if item and item.strip()
+    }
+    if not requested_scopes:
+        return scopes
+
+    return [
+        scope
+        for scope in scopes
+        if isinstance(scope, str)
+        and any(
+            _scope_covers_filter(scope, requested) for requested in requested_scopes
+        )
+    ]
 
 
 @app.post("/v1/user", summary="Register a new user", tags=["Auth"])
@@ -277,6 +307,73 @@ async def get_user_exists(email: str) -> bool:
 
 
 @app.get(
+    "/v1/user/minimal",
+    dependencies=[Depends(verify_api_key)],
+    summary="Get minimal user shell details",
+    tags=["Auth"],
+)
+async def get_user_minimal(
+    authorization: str = Header(None),
+    if_none_match: str = Header(None, alias="If-None-Match"),
+):
+    """
+    Return only identity fields needed to render the web app shell.
+
+    This avoids the heavier `/v1/user` company, agent, scopes, billing, and
+    onboarding work during SSR layout rendering. The browser still fetches the
+    full `/v1/user` payload immediately after hydration for permissions and
+    settings, preserving existing functionality while improving first paint.
+    """
+    token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
+    auth = MagicalAuth(token=token)
+    auth.validate_user()
+
+    with get_session() as session:
+        blacklisted = (
+            session.query(TokenBlacklist)
+            .filter(TokenBlacklist.token == auth.token)
+            .first()
+        )
+        if blacklisted:
+            raise HTTPException(
+                status_code=401,
+                detail="Token has been revoked. Please log in again.",
+            )
+
+        user_data = session.query(User).filter(User.id == auth.user_id).first()
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        response_data = {
+            "id": auth.user_id,
+            "email": user_data.email,
+            "first_name": user_data.first_name,
+            "last_name": user_data.last_name,
+            "username": getattr(user_data, "username", None),
+            "avatar_url": getattr(user_data, "avatar_url", None),
+            "tos_accepted_at": (
+                user_data.tos_accepted_at.isoformat()
+                if user_data.tos_accepted_at
+                else None
+            ),
+            "companies": [],
+        }
+
+    etag_string = json.dumps(response_data, sort_keys=True, default=str)
+    etag = f'"{hashlib.sha256(etag_string.encode()).hexdigest()}"'
+    if if_none_match and if_none_match == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+
+    return JSONResponse(
+        content=response_data,
+        headers={
+            "ETag": etag,
+            "Cache-Control": "private, max-age=10, stale-while-revalidate=30",
+        },
+    )
+
+
+@app.get(
     "/v1/user",
     dependencies=[Depends(verify_api_key)],
     summary="Get user details",
@@ -286,6 +383,9 @@ async def get_user(
     request: Request,
     authorization: str = Header(None),
     if_none_match: str = Header(None, alias="If-None-Match"),
+    light: bool = False,
+    include_scopes: bool = False,
+    scope_filter: Optional[str] = None,
 ):
     token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
     auth = MagicalAuth(token=token)
@@ -296,6 +396,35 @@ async def get_user(
     user_data = data["user"]
     user_preferences = data["preferences"]
     companies = data["companies"]  # Already includes agents and scopes
+
+    # Light response: strip the heaviest fields that aren't needed for the
+    # initial app shell render (sidebar, header, identity). Callers that need
+    # scope-gated UI can opt into a filtered scope list with
+    # ?light=true&include_scopes=true&scope_filter=... without pulling the full
+    # user payload. Full settings data is still available by omitting light=true.
+    if light and isinstance(companies, list):
+        slim_companies = []
+        for c in companies:
+            if not isinstance(c, dict):
+                slim_companies.append(c)
+                continue
+            slim = dict(c)
+            if include_scopes:
+                slim["scopes"] = _filter_scopes(slim.get("scopes", []), scope_filter)
+            else:
+                slim.pop("scopes", None)
+            agents = slim.get("agents")
+            if isinstance(agents, list):
+                slim["agents"] = [
+                    (
+                        {ak: av for ak, av in a.items() if ak != "commands"}
+                        if isinstance(a, dict)
+                        else a
+                    )
+                    for a in agents
+                ]
+            slim_companies.append(slim)
+        companies = slim_companies
 
     response_data = {
         "id": auth.user_id,
@@ -335,12 +464,20 @@ async def get_user(
     if if_none_match and if_none_match == etag:
         return Response(status_code=304, headers={"ETag": etag})
 
-    # Return full response with ETag header
+    # Return full response with ETag header.
+    # For the light variant we let the browser cache it briefly so rapid
+    # back/forward navigation doesn't re-hit the API. Full responses still
+    # require revalidation since they include scopes/commands that may change.
+    cache_control = (
+        "private, max-age=10, stale-while-revalidate=30"
+        if light
+        else "private, max-age=0, must-revalidate"
+    )
     return JSONResponse(
         content=response_data,
         headers={
             "ETag": etag,
-            "Cache-Control": "private, max-age=0, must-revalidate",
+            "Cache-Control": cache_control,
         },
     )
 
@@ -391,6 +528,9 @@ async def login(request: Request, login: Login):
             "user_id": result.get("user_id"),
             "email": result.get("email"),
             "username": result.get("username"),
+            "payment_required": result.get("payment_required", False),
+            "pricing_model": result.get("pricing_model"),
+            "company_id": result.get("company_id"),
         },
     )
 
@@ -942,29 +1082,23 @@ async def reset_mfa(
 
 @app.post(
     "/v1/user/tos/accept",
-    dependencies=[Depends(verify_api_key)],
     response_model=Detail,
     summary="Accept Terms of Service",
     tags=["Auth"],
 )
 async def accept_tos(
     request: Request,
-    authorization: str = Header(None),
+    user=Depends(verify_api_key),
 ):
     """Record that the user has accepted the Terms of Service."""
-    token = str(authorization).replace("Bearer ", "").replace("bearer ", "")
-    auth = MagicalAuth(token=token)
-    client_ip = request.headers.get("X-Forwarded-For") or request.client.host
-    user_data = auth.login(ip_address=client_ip)
-
     # Update the user's TOS acceptance timestamp
     from DB import get_session, User
 
     session = get_session()
     try:
-        user = session.query(User).filter(User.id == auth.user_id).first()
-        if user:
-            user.tos_accepted_at = datetime.now()
+        db_user = session.query(User).filter(User.id == user["id"]).first()
+        if db_user:
+            db_user.tos_accepted_at = datetime.now()
             session.commit()
             return Detail(detail="Terms of Service accepted successfully.")
         else:
@@ -1054,7 +1188,7 @@ async def update_oauth_token(
     data = await request.json()
     auth = MagicalAuth(token=authorization)
     response = auth.update_sso(
-        provider=provider,
+        provider_name=provider,
         access_token=data["access_token"],
         refresh_token=data["refresh_token"] if "refresh_token" in data else None,
     )
@@ -1462,10 +1596,20 @@ async def toggle_company_extension_commands(
     # Get all extensions to find the commands for the specified extension
     extensions = agent.get_agent_extensions()
 
-    # Find the extension and get all its commands
+    # Find the extension and get all its commands (case-insensitive lookup)
+    # Normalize underscores/hyphens to spaces so both 'essential_abilities' and
+    # 'Essential Abilities' match the title-cased registry name.
+    import re as _re
+
+    def _canonicalize(name: str) -> str:
+        return _re.sub(r"[\s_-]+", " ", name.strip().lower())
+
     extension_commands = []
+    matched_extension_name = payload.extension_name
+    payload_canonical = _canonicalize(payload.extension_name)
     for extension in extensions:
-        if extension["extension_name"] == payload.extension_name:
+        if _canonicalize(extension["extension_name"]) == payload_canonical:
+            matched_extension_name = extension["extension_name"]
             for command in extension["commands"]:
                 extension_commands.append(command["friendly_name"])
             break
@@ -1485,7 +1629,7 @@ async def toggle_company_extension_commands(
     )
 
     return ResponseMessage(
-        message=f"Successfully {'enabled' if payload.enable else 'disabled'} {len(extension_commands)} commands for extension '{payload.extension_name}'"
+        message=f"Successfully {'enabled' if payload.enable else 'disabled'} {len(extension_commands)} commands for extension '{matched_extension_name}'"
     )
 
 

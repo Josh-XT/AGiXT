@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Any, Dict, List
 import logging
 import secrets
 import asyncio
@@ -20,9 +21,12 @@ from DB import (
     User,
     UserCompany,
     get_session,
+    get_new_id,
+    DATABASE_TYPE,
 )
 from Globals import getenv, DEFAULT_USER
-from sqlalchemy.sql import func, or_, and_, case, exists
+from sqlalchemy.sql import func, or_, and_, case, exists, select
+from sqlalchemy.exc import IntegrityError
 from MagicalAuth import convert_time, get_user_id, get_user_timezone
 from SharedCache import shared_cache
 
@@ -58,9 +62,15 @@ _tz_cache = {}
 
 def _make_time_converter(user_id):
     """Create a fast timezone converter closure for a user. Caches pytz timezone objects."""
-    user_timezone = get_user_timezone(user_id)
+    user_timezone = get_user_timezone(user_id) or "UTC"
+    if not user_timezone.strip():
+        user_timezone = "UTC"
     if user_timezone not in _tz_cache:
-        _tz_cache[user_timezone] = pytz.timezone(user_timezone)
+        try:
+            _tz_cache[user_timezone] = pytz.timezone(user_timezone)
+        except pytz.exceptions.UnknownTimeZoneError:
+            user_timezone = "UTC"
+            _tz_cache[user_timezone] = pytz.timezone(user_timezone)
     local_tz = _tz_cache[user_timezone]
     gmt = _GMT
 
@@ -409,6 +419,177 @@ def mark_conversation_updated(conversation_id: str):
         pass  # Cache miss is fine — poll will just hit DB as before
 
 
+_BAD_GENERATED_CONVERSATION_NAME_PREFIXES = (
+    "topics discussed",
+    "topics:",
+    "topic:",
+    "summary",
+    "conversation",
+    "initial conversation",
+    "initial convesation",
+    "discussion",
+    "chat",
+    "overview",
+    "about:",
+    "subject:",
+    "re:",
+    "regarding",
+)
+
+_CONVERSATION_SUMMARY_MARKERS = (
+    "topics discussed",
+    "user preferences",
+    "lessons learned",
+    "key decisions",
+    "key outcomes",
+    "user context",
+    "ai behavior notes",
+    "what worked well",
+)
+
+
+def _markdown_link_label(title: str) -> str:
+    """Return the label for a whole-title markdown link without regex backtracking."""
+    if not title.startswith("[") or not title.endswith(")"):
+        return ""
+
+    label_end = title.find("](")
+    if label_end <= 1:
+        return ""
+
+    label = title[1:label_end]
+    url = title[label_end + 2 : -1]
+    if not label or not url or "]" in label:
+        return ""
+    return label.strip()
+
+
+def clean_conversation_name(name: str, max_length: int = 60) -> str:
+    """Normalize a conversation title for sidebar display."""
+    text = str(name or "").replace("\r", "\n").replace("_", " ").strip()
+    if not text:
+        return ""
+
+    # Keep only the first non-empty line. Summaries belong in Conversation.summary,
+    # not in the title column.
+    title = ""
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            title = line
+            break
+    if not title:
+        return ""
+
+    title = re.sub(r"^#{1,6}\s*", "", title).strip()
+    title = re.sub(r"^[-*+]\s+", "", title).strip()
+    title = title.strip().strip('"').strip("'").strip("`").strip()
+    title = title.strip("*").strip()
+
+    # Convert a whole-title markdown link to its label.
+    markdown_link_label = _markdown_link_label(title)
+    if markdown_link_label:
+        title = markdown_link_label
+
+    title = title.replace("**", "").replace("__", "").strip()
+    title = re.sub(r"\s+", " ", title)
+    title = title.strip().strip('"').strip("'").strip("`").strip()
+    title = title.strip("*").strip()
+    if len(title) > max_length:
+        title = title[:max_length].rstrip() + "..."
+    return title
+
+
+def is_bad_generated_conversation_name(name: str, existing_names=None) -> bool:
+    """Return True when an AI-generated title is generic, duplicate, or summary-like."""
+    raw = str(name or "").strip()
+    if not raw:
+        return True
+
+    raw_lower = raw.lower()
+    if any(marker in raw_lower for marker in _CONVERSATION_SUMMARY_MARKERS):
+        return True
+    if "\n" in raw and len([line for line in raw.splitlines() if line.strip()]) > 1:
+        return True
+    if raw.lstrip().startswith("#") or "**" in raw or "```" in raw:
+        return True
+
+    title = clean_conversation_name(raw)
+    if not title:
+        return True
+
+    lower = title.lower().strip()
+    if any(
+        lower.startswith(prefix) for prefix in _BAD_GENERATED_CONVERSATION_NAME_PREFIXES
+    ):
+        return True
+    if len(title.split()) > 8:
+        return True
+    if title.endswith((".", "!", "?")):
+        return True
+    if ":" in title:
+        return True
+    if existing_names and title in existing_names:
+        return True
+    return False
+
+
+def extract_conversation_name_from_response(response: str) -> str:
+    """Extract a proposed conversation name from model output."""
+    text = str(response or "").strip()
+    if not text:
+        return ""
+
+    answer_match = re.search(r"<answer>(.*?)</answer>", text, re.DOTALL | re.IGNORECASE)
+    if answer_match:
+        text = answer_match.group(1).strip()
+
+    fence_match = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
+    if fence_match:
+        text = fence_match.group(1).strip()
+
+    json_start = text.find("{")
+    json_end = text.rfind("}")
+    if json_start != -1 and json_end != -1 and json_end > json_start:
+        json_text = text[json_start : json_end + 1]
+        try:
+            import json
+
+            data = json.loads(json_text)
+            for key in (
+                "suggested_conversation_name",
+                "conversation_name",
+                "title",
+                "name",
+            ):
+                if isinstance(data, dict) and data.get(key):
+                    return str(data[key]).strip()
+        except Exception:
+            pass
+
+    match = re.search(
+        r'"(?:suggested_conversation_name|conversation_name|title|name)"\s*:\s*"([^"]+)"',
+        text,
+        re.DOTALL,
+    )
+    if match:
+        return match.group(1).strip()
+
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return ""
+
+
+def parse_generated_conversation_name(response: str, existing_names=None) -> str:
+    """Parse and validate an AI-generated conversation title."""
+    candidate = extract_conversation_name_from_response(response)
+    if is_bad_generated_conversation_name(candidate, existing_names=existing_names):
+        return ""
+    return clean_conversation_name(candidate)
+
+
 async def broadcast_message_to_conversation(
     conversation_id: str, event_type: str, message_data: dict
 ) -> int:
@@ -641,6 +822,77 @@ def get_conversation_name_by_id(conversation_id, user_id):
         session.close()
 
 
+def get_or_create_conversation_name_by_id(
+    conversation_id, user_id, default_name: str = "-"
+):
+    """Resolve a conversation UUID to a name, creating that UUID if missing.
+
+    Chat completion clients often address conversations by UUID.  If that UUID
+    does not exist yet, create a private conversation using the requested UUID so
+    the caller can keep using the same stable identifier instead of silently
+    writing to a different conversation name.
+    """
+    conversation_name = get_conversation_name_by_id(
+        conversation_id=conversation_id, user_id=user_id
+    )
+    if conversation_name:
+        return conversation_name
+
+    try:
+        parsed_conversation_id = uuid.UUID(str(conversation_id))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+    user_id = str(user_id)
+    db_conversation_id = (
+        str(parsed_conversation_id)
+        if DATABASE_TYPE == "sqlite"
+        else parsed_conversation_id
+    )
+    db_user_id = user_id if DATABASE_TYPE == "sqlite" else uuid.UUID(user_id)
+    session = get_session()
+    try:
+        existing = (
+            session.query(Conversation)
+            .filter(Conversation.id == db_conversation_id)
+            .first()
+        )
+        if existing:
+            # The conversation exists but get_conversation_name_by_id() did not
+            # grant access to it.  Do not create over another user's UUID.
+            return None
+
+        conversation = Conversation(
+            id=db_conversation_id,
+            name=default_name,
+            user_id=db_user_id,
+            conversation_type="private",
+        )
+        session.add(conversation)
+        session.flush()
+        session.add(
+            ConversationParticipant(
+                conversation_id=db_conversation_id,
+                user_id=db_user_id,
+                participant_type="user",
+                role="owner",
+                status="active",
+            )
+        )
+        session.commit()
+        cache_key = f"conv_name:{conversation_id}:{user_id}"
+        shared_cache.set(cache_key, default_name, ttl=30)
+        return default_name
+    except IntegrityError:
+        session.rollback()
+        # Another worker may have created the row between our read and insert.
+        return get_conversation_name_by_id(
+            conversation_id=conversation_id, user_id=user_id
+        )
+    finally:
+        session.close()
+
+
 def get_conversation_name_by_message_id(message_id, user_id):
     """Get the conversation name that contains a specific message for a user."""
     session = get_session()
@@ -831,7 +1083,222 @@ class Conversations:
         finally:
             session.close()
 
-    def get_conversations_with_detail(self, limit=None, offset=0):
+    def get_conversation_counts(self):
+        """Cheap aggregate counts for the user's conversation list.
+
+        Returns counts that match exactly the same scope as
+        ``get_conversations_with_detail`` (excludes group/thread, keeps DM/
+        private even without messages), so frontends can show stable
+        ``X conversations`` / unread badges immediately after the first
+        paginated request — no need to wait for full hydration.
+        """
+        session = get_session()
+        user_id = self._user_id
+        if not user_id:
+            session.close()
+            return {"total": 0, "pinned": 0, "unread": 0}
+
+        cache_key = f"conversation_counts:{user_id}"
+        cached_counts = shared_cache.get(cache_key)
+        if cached_counts is not None:
+            session.close()
+            return cached_counts
+
+        try:
+            # Materialise the set of in-scope conversation IDs once, then run
+            # the aggregate counts against that list. Using `Conversation.id.in_(ids)`
+            # in subsequent queries avoids SQLAlchemy auto-correlating an
+            # ``exists()`` subquery in unexpected ways across multiple SELECTs
+            # (which produced the "returned no FROM clauses" errors).
+            participant_rows = (
+                session.query(ConversationParticipant.conversation_id)
+                .filter(
+                    ConversationParticipant.user_id == user_id,
+                    ConversationParticipant.participant_type == "user",
+                    ConversationParticipant.status == "active",
+                )
+                .all()
+            )
+            participant_conv_id_list = [str(row[0]) for row in participant_rows]
+            participant_clause = (
+                Conversation.id.in_(participant_conv_id_list)
+                if participant_conv_id_list
+                else False
+            )
+
+            # Conversation IDs that have at least one message — flat list query
+            # rather than an EXISTS in scope_filter so it doesn't get
+            # auto-correlated when reused. Bounded to user-relevant convs to
+            # avoid scanning the full Message table.
+            owned_rows = (
+                session.query(Conversation.id)
+                .filter(or_(Conversation.user_id == user_id, participant_clause))
+                .all()
+            )
+            owned_ids = [str(row[0]) for row in owned_rows]
+            convs_with_messages = set()
+            if owned_ids:
+                msg_rows = (
+                    session.query(Message.conversation_id)
+                    .filter(Message.conversation_id.in_(owned_ids))
+                    .distinct()
+                    .all()
+                )
+                convs_with_messages = {str(row[0]) for row in msg_rows}
+
+            # Final in-scope ids: owned/participant + non-group/thread + has
+            # messages OR is a DM/private (which counts even when empty).
+            in_scope_rows = (
+                session.query(
+                    Conversation.id,
+                    Conversation.conversation_type,
+                    Conversation.pin_order,
+                )
+                .filter(or_(Conversation.user_id == user_id, participant_clause))
+                .filter(
+                    or_(
+                        Conversation.conversation_type.is_(None),
+                        Conversation.conversation_type.notin_(["group", "thread"]),
+                    ),
+                )
+                .all()
+            )
+            in_scope_ids: List[str] = []
+            pinned = 0
+            for cid, ctype, pin_order in in_scope_rows:
+                cid_str = str(cid)
+                # Match the same "keep DM/private even without messages"
+                # logic used by get_conversations_with_detail.
+                if ctype in ("dm", "private") or cid_str in convs_with_messages:
+                    in_scope_ids.append(cid_str)
+                    if pin_order is not None:
+                        pinned += 1
+
+            total = len(in_scope_ids)
+
+            unread = 0
+            if in_scope_ids:
+                # Unread approximation: any conversation with a non-USER,
+                # non-activity message newer than the user's last_read_at
+                # (or no participant row at all).
+                last_read_map: Dict[str, Any] = {}
+                user_participants = (
+                    session.query(
+                        ConversationParticipant.conversation_id,
+                        ConversationParticipant.last_read_at,
+                    )
+                    .filter(
+                        ConversationParticipant.conversation_id.in_(in_scope_ids),
+                        ConversationParticipant.user_id == user_id,
+                        ConversationParticipant.participant_type == "user",
+                    )
+                    .all()
+                )
+                for cid_val, last_read in user_participants:
+                    last_read_map[str(cid_val)] = last_read
+
+                # Ask the DB for each conversation's most-recent agent-message
+                # timestamp in one query.
+                latest_msgs = (
+                    session.query(
+                        Message.conversation_id,
+                        func.max(Message.timestamp).label("ts"),
+                    )
+                    .filter(
+                        Message.conversation_id.in_(in_scope_ids),
+                        Message.role != "USER",
+                        ~Message.content.like("[ACTIVITY]%"),
+                        ~Message.content.like("[SUBACTIVITY]%"),
+                    )
+                    .group_by(Message.conversation_id)
+                    .all()
+                )
+                for cid_val, ts in latest_msgs:
+                    if ts is None:
+                        continue
+                    last_read = last_read_map.get(str(cid_val))
+                    if last_read is None or ts > last_read:
+                        unread += 1
+
+            # Per-agent counts. Mirrors the agent-role resolution pattern
+            # used by get_conversations_with_detail: the "agent" for a
+            # conversation is the role string of its first non-USER, non-
+            # activity message. Default agent for the user fills in for
+            # conversations with no agent message yet. Lets the DM panel
+            # show stable per-agent totals immediately rather than watching
+            # the count climb during hydration.
+            by_agent_name: Dict[str, int] = {}
+            try:
+                default_agent = (
+                    session.query(Agent).filter(Agent.user_id == user_id).first()
+                )
+                default_agent_name = default_agent.name if default_agent else None
+
+                conv_to_agent: Dict[str, str] = {}
+                if in_scope_ids:
+                    # Same window-style query the per-row code uses, but
+                    # bounded to the scope set.
+                    min_ts_subq = (
+                        session.query(
+                            Message.conversation_id,
+                            func.min(Message.timestamp).label("min_ts"),
+                        )
+                        .filter(
+                            Message.conversation_id.in_(in_scope_ids),
+                            Message.role != "USER",
+                            ~Message.content.like("[ACTIVITY]%"),
+                            ~Message.content.like("[SUBACTIVITY]%"),
+                        )
+                        .group_by(Message.conversation_id)
+                        .subquery()
+                    )
+                    first_agent_msgs = (
+                        session.query(Message.conversation_id, Message.role)
+                        .join(
+                            min_ts_subq,
+                            and_(
+                                Message.conversation_id
+                                == min_ts_subq.c.conversation_id,
+                                Message.timestamp == min_ts_subq.c.min_ts,
+                            ),
+                        )
+                        .filter(
+                            Message.role != "USER",
+                            ~Message.content.like("[ACTIVITY]%"),
+                            ~Message.content.like("[SUBACTIVITY]%"),
+                        )
+                        .all()
+                    )
+                    for conv_id_val, role in first_agent_msgs:
+                        cid = str(conv_id_val)
+                        if cid not in conv_to_agent and role:
+                            conv_to_agent[cid] = str(role)
+
+                for cid in in_scope_ids:
+                    name = conv_to_agent.get(cid) or default_agent_name
+                    if name:
+                        by_agent_name[name] = by_agent_name.get(name, 0) + 1
+            except Exception as exc:  # pragma: no cover - defensive
+                logging.debug(f"by_agent breakdown failed: {exc}")
+                by_agent_name = {}
+
+            result = {
+                "total": int(total),
+                "pinned": int(pinned),
+                "unread": int(unread),
+                "by_agent": by_agent_name,
+            }
+            shared_cache.set(cache_key, result, ttl=30)
+            return result
+        finally:
+            session.close()
+
+    def get_conversations_with_detail(
+        self,
+        limit=None,
+        offset=0,
+        cursor=None,
+    ):
         """
         OPTIMIZED: Single query to get all conversation details with notifications
         and last message timestamps in one batch instead of N+1 queries.
@@ -869,25 +1336,6 @@ class Conversations:
         )
         participant_conv_id_list = [str(row[0]) for row in participant_conv_ids]
 
-        # Get owned conversation IDs to scope the last_message subquery
-        owned_conv_ids = (
-            session.query(Conversation.id).filter(Conversation.user_id == user_id).all()
-        )
-        owned_conv_id_list = [str(row[0]) for row in owned_conv_ids]
-        all_relevant_conv_ids = list(set(owned_conv_id_list + participant_conv_id_list))
-
-        # Subquery to get max message timestamp per conversation
-        # BOUNDED to only user-relevant conversations (avoids full table scan)
-        last_message_subq = (
-            session.query(
-                Message.conversation_id,
-                func.max(Message.timestamp).label("last_message_time"),
-            )
-            .filter(Message.conversation_id.in_(all_relevant_conv_ids))
-            .group_by(Message.conversation_id)
-            .subquery()
-        )
-
         # Single query: conversations owned by user OR where user is a participant
         # Exclude group channels and threads from DM/conversation list
         ownership_filter = Conversation.user_id == user_id
@@ -898,15 +1346,8 @@ class Conversations:
         )
 
         # Main query: non-group, non-thread conversations
-        main_conversations = (
-            session.query(
-                Conversation,
-                last_message_subq.c.last_message_time,
-            )
-            .outerjoin(
-                last_message_subq,
-                last_message_subq.c.conversation_id == Conversation.id,
-            )
+        main_query = (
+            session.query(Conversation)
             .filter(or_(ownership_filter, participant_filter))
             # Exclude group channels and threads from DM/conversation list
             .filter(
@@ -915,10 +1356,26 @@ class Conversations:
                     Conversation.conversation_type.notin_(["group", "thread"]),
                 )
             )
-            # Only include conversations that have at least one message
-            .filter(exists().where(Message.conversation_id == Conversation.id))
-            .all()
+            .order_by(Conversation.updated_at.desc())
         )
+
+        if cursor and limit is not None and limit > 0:
+            cursor_str = str(cursor)
+            main_conversations = [
+                (conversation, conversation.updated_at)
+                for conversation in main_query.all()
+                if str(conversation.updated_at or "") < cursor_str
+            ][:limit]
+        elif limit is not None and limit > 0:
+            main_conversations = [
+                (conversation, conversation.updated_at)
+                for conversation in main_query.offset(offset).limit(limit).all()
+            ]
+        else:
+            main_conversations = [
+                (conversation, conversation.updated_at)
+                for conversation in main_query.all()
+            ]
 
         # Second query: DM/private threads (threads whose parent is a non-group conversation)
         # Get IDs of the user's DM/private conversations to find their threads
@@ -930,33 +1387,24 @@ class Conversations:
         dm_threads = []
         if dm_parent_ids:
             dm_threads = (
-                session.query(
-                    Conversation,
-                    last_message_subq.c.last_message_time,
-                )
-                .outerjoin(
-                    last_message_subq,
-                    last_message_subq.c.conversation_id == Conversation.id,
-                )
+                session.query(Conversation)
                 .filter(
                     Conversation.conversation_type == "thread",
                     Conversation.parent_id.in_(dm_parent_ids),
                 )
+                .order_by(Conversation.updated_at.desc())
                 .all()
             )
+            dm_threads = [
+                (conversation, conversation.updated_at) for conversation in dm_threads
+            ]
 
         conversations = main_conversations + dm_threads
 
-        # Apply early pagination BEFORE expensive batch queries.
-        # Sort by last_message_time (or conversation updated_at as fallback) descending,
-        # then slice to limit+offset. This avoids computing unread counts, DM names,
-        # and agent roles for conversations that won't be returned.
-        if limit is not None and limit > 0:
-            conversations.sort(
-                key=lambda pair: pair[1] or pair[0].updated_at or "",
-                reverse=True,
-            )
-            conversations = conversations[offset : offset + limit]
+        conversations.sort(
+            key=lambda pair: pair[1] or pair[0].updated_at or "",
+            reverse=True,
+        )
 
         # Batch-fetch participant records for this user to get last_read_at
         all_conv_ids = [str(c.id) for c, _ in conversations]
@@ -1391,6 +1839,162 @@ class Conversations:
         session.close()
         return results
 
+    def search_conversations(
+        self,
+        query: str,
+        limit: int = 25,
+        company_id: str = None,
+    ):
+        """Sidebar-ready conversation search.
+
+        Unlike :meth:`search_messages` (which returns one row per matching
+        message and is intended for the search-results page), this returns at
+        most one entry per conversation, ranked by recency, with the fields the
+        sidebar needs to render a row directly: id, name, agent_name,
+        updated_at, snippet.
+
+        Searches across conversation name, summary, and message content.
+        """
+        session = get_session()
+        user_id = self._user_id
+        if not user_id or not query or not query.strip():
+            session.close()
+            return []
+
+        try:
+            term = f"%{query.strip()}%"
+            cap = max(1, min(int(limit or 25), 100))
+
+            participant_rows = (
+                session.query(ConversationParticipant.conversation_id)
+                .filter(
+                    ConversationParticipant.user_id == user_id,
+                    ConversationParticipant.participant_type == "user",
+                    ConversationParticipant.status == "active",
+                )
+                .all()
+            )
+            participant_conv_id_list = [str(row[0]) for row in participant_rows]
+            participant_clause = (
+                Conversation.id.in_(participant_conv_id_list)
+                if participant_conv_id_list
+                else False
+            )
+
+            scope_filter = and_(
+                or_(Conversation.user_id == user_id, participant_clause),
+                or_(
+                    Conversation.conversation_type.is_(None),
+                    Conversation.conversation_type.notin_(["group", "thread"]),
+                ),
+            )
+            if company_id:
+                scope_filter = and_(scope_filter, Conversation.company_id == company_id)
+
+            # Conversations whose name or summary directly matches.
+            meta_matches = (
+                session.query(Conversation)
+                .filter(
+                    scope_filter,
+                    or_(
+                        Conversation.name.ilike(term),
+                        Conversation.summary.ilike(term),
+                    ),
+                )
+                .order_by(Conversation.updated_at.desc())
+                .limit(cap)
+                .all()
+            )
+
+            # Conversations whose message content matches. Rank by latest matching
+            # message timestamp so the most-recently-relevant rows surface first.
+            content_subq = (
+                session.query(
+                    Message.conversation_id.label("cid"),
+                    func.max(Message.timestamp).label("ts"),
+                    func.max(Message.content).label("snippet"),
+                )
+                .filter(
+                    Message.content.ilike(term),
+                    ~Message.content.like("[ACTIVITY]%"),
+                    ~Message.content.like("[SUBACTIVITY]%"),
+                )
+                .group_by(Message.conversation_id)
+                .subquery()
+            )
+
+            content_matches = (
+                session.query(Conversation, content_subq.c.ts, content_subq.c.snippet)
+                .join(content_subq, content_subq.c.cid == Conversation.id)
+                .filter(scope_filter)
+                .order_by(content_subq.c.ts.desc())
+                .limit(cap)
+                .all()
+            )
+
+            seen = set()
+            results = []
+            _convert_time_fast = _make_time_converter(user_id)
+
+            def _snippet_for(text: str) -> str:
+                if not text:
+                    return ""
+                # Center the snippet on the first match, with up to 80 chars
+                # of context on each side.
+                lower = text.lower()
+                hit = lower.find(query.strip().lower())
+                if hit < 0:
+                    return text[:200]
+                start = max(0, hit - 80)
+                end = min(len(text), hit + 80 + len(query))
+                snippet = text[start:end]
+                if start > 0:
+                    snippet = "…" + snippet
+                if end < len(text):
+                    snippet = snippet + "…"
+                return snippet
+
+            for conv in meta_matches:
+                cid = str(conv.id)
+                if cid in seen:
+                    continue
+                seen.add(cid)
+                results.append(
+                    {
+                        "id": cid,
+                        "name": conv.name,
+                        "summary": conv.summary,
+                        "agent_name": None,
+                        "conversation_type": conv.conversation_type,
+                        "updated_at": _convert_time_fast(conv.updated_at),
+                        "snippet": (conv.summary or conv.name or "")[:200],
+                        "match_type": "metadata",
+                    }
+                )
+
+            for conv, ts, snippet_content in content_matches:
+                cid = str(conv.id)
+                if cid in seen:
+                    continue
+                seen.add(cid)
+                results.append(
+                    {
+                        "id": cid,
+                        "name": conv.name,
+                        "summary": conv.summary,
+                        "agent_name": None,
+                        "conversation_type": conv.conversation_type,
+                        "updated_at": _convert_time_fast(ts or conv.updated_at),
+                        "snippet": _snippet_for(snippet_content or ""),
+                        "match_type": "content",
+                    }
+                )
+
+            results.sort(key=lambda r: r["updated_at"] or "", reverse=True)
+            return results[:cap]
+        finally:
+            session.close()
+
     def get_conversation_changes(self, since_timestamp=None, last_known_ids=None):
         """
         Efficiently get only the changes since the last check.
@@ -1729,6 +2333,29 @@ class Conversations:
                 .all()
             )
         )
+        if page == 1 and messages:
+            first_message = messages[0]
+            first_role = (first_message.role or "").upper()
+            first_content = str(first_message.content or "")
+            first_is_activity = first_content.startswith(
+                ("[ACTIVITY]", "[SUBACTIVITY]")
+            )
+            if first_role != "USER" or first_is_activity:
+                anchor_user_message = (
+                    session.query(Message)
+                    .filter(
+                        Message.conversation_id == conversation.id,
+                        Message.role == "USER",
+                        Message.timestamp < first_message.timestamp,
+                    )
+                    .order_by(Message.timestamp.desc())
+                    .first()
+                )
+                if anchor_user_message and all(
+                    str(message.id) != str(anchor_user_message.id)
+                    for message in messages
+                ):
+                    messages.insert(0, anchor_user_message)
         if not messages:
             session.close()
             return {
@@ -2304,9 +2931,10 @@ class Conversations:
                             # Find where the message type starts (after the second ])
                             parts = message.split("]", 2)
                             if len(parts) >= 3:
-                                # Format: [SUBACTIVITY][id][TYPE] content
+                                # Format: [SUBACTIVITY][id][TYPE] content or [SUBACTIVITY][id] content
+                                # parts[2] already starts with '[TYPE]' or ' content'
                                 message_type_and_content = parts[2]
-                                new_message = f"[SUBACTIVITY][{completed_activity_id}][{message_type_and_content}"
+                                new_message = f"[SUBACTIVITY][{completed_activity_id}]{message_type_and_content}"
                             else:
                                 # Fallback if format is different
                                 new_message = f"[SUBACTIVITY][{completed_activity_id}] {message.split(']', 2)[-1]}"
@@ -2332,6 +2960,244 @@ class Conversations:
                 response["id"] = conversation_id
             session.close()
             return response
+
+    def bulk_create_with_messages(
+        self,
+        conversation_content,
+        default_agent_name="XT",
+        created_at=None,
+        updated_at=None,
+    ):
+        """Bulk-import a conversation with all messages in a single transaction.
+
+        Optimized path used by historical importers (e.g. VS Code Copilot, ChatGPT
+        export). Skips per-message live-cache invalidation, base64 extraction, and
+        notification logic — these are import-only conversations being persisted
+        historically. Equivalent semantics to ``new_conversation`` for the
+        SUBACTIVITY/Completed activities. parent linkage, but issues a single
+        INSERT for the conversation and one ``add_all`` + ``commit`` for all
+        messages, eliminating the per-message fsync that dominates import time.
+
+        ``created_at`` / ``updated_at`` (ISO strings, datetimes, or epoch seconds)
+        are applied to the Conversation row so historical imports sort into their
+        original chronological position in the conversation list. If omitted, they
+        are derived from the earliest / latest message timestamps.
+        """
+        from dateutil import parser as _date_parser
+        import datetime as _dt
+
+        def _coerce_dt(val):
+            if val is None:
+                return None
+            if isinstance(val, _dt.datetime):
+                return val
+            if isinstance(val, (int, float)):
+                # Heuristic: treat values larger than 10^12 as milliseconds
+                seconds = val / 1000.0 if val > 1e12 else float(val)
+                try:
+                    return _dt.datetime.fromtimestamp(seconds, tz=_dt.timezone.utc)
+                except Exception:
+                    return None
+            if isinstance(val, str):
+                try:
+                    return _date_parser.parse(val)
+                except Exception:
+                    return None
+            return None
+
+        user_id = self._user_id
+        session = get_session()
+        try:
+            conversation = Conversation(name=self.conversation_name, user_id=user_id)
+            session.add(conversation)
+            session.flush()  # populate conversation.id without committing
+            conversation_id = conversation.id
+
+            if not conversation_content:
+                session.commit()
+                return {
+                    "id": conversation_id,
+                    "name": self.conversation_name,
+                    "user_id": user_id,
+                }
+
+            _far_future = _dt.datetime(2099, 1, 1, tzinfo=_dt.timezone.utc)
+
+            def _ts_key(m):
+                parsed = _coerce_dt(m.get("timestamp"))
+                if parsed is None:
+                    return _far_future
+                # Make naive datetimes comparable by assuming UTC
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=_dt.timezone.utc)
+                return parsed
+
+            sorted_msgs = sorted(conversation_content, key=_ts_key)
+
+            agent_name = default_agent_name
+            earliest_ts = None
+            latest_ts = None
+            for m in sorted_msgs:
+                role_val = m.get("role", "") or ""
+                if (
+                    agent_name == default_agent_name
+                    and role_val
+                    and role_val.upper() != "USER"
+                ):
+                    agent_name = role_val
+                parsed = _coerce_dt(m.get("timestamp"))
+                if parsed is not None:
+                    if earliest_ts is None or parsed < earliest_ts:
+                        earliest_ts = parsed
+                    if latest_ts is None or parsed > latest_ts:
+                        latest_ts = parsed
+
+            completed_activity_ts = (
+                earliest_ts - _dt.timedelta(seconds=1) if earliest_ts else None
+            )
+
+            has_subactivities = any(
+                (m.get("message", "") or "").startswith("[SUBACTIVITY]")
+                for m in sorted_msgs
+            )
+            has_completed_activities = any(
+                (m.get("message", "") or "") == "[ACTIVITY] Completed activities."
+                for m in sorted_msgs
+            )
+
+            messages_to_add = []
+            completed_activity_id = None
+
+            # Synthesize a "Completed activities." parent if we have subactivities
+            # but no parent message in the import payload.
+            if has_subactivities and not has_completed_activities:
+                completed_activity_id = get_new_id()
+                synth = Message(
+                    id=completed_activity_id,
+                    role=agent_name,
+                    content="[ACTIVITY] Completed activities.",
+                    conversation_id=conversation_id,
+                    notify=False,
+                    sender_user_id=None,
+                )
+                if completed_activity_ts is not None:
+                    synth.timestamp = completed_activity_ts
+                    synth.updated_at = completed_activity_ts
+                messages_to_add.append(synth)
+
+            # First pass: regular messages and any included Completed activities.
+            for interaction in sorted_msgs:
+                raw = interaction.get("message", "") or ""
+                content = strip_control_chars(str(raw))
+                role_val = interaction.get("role", "") or ""
+                if not role_val:
+                    continue
+                if content.startswith("[SUBACTIVITY]"):
+                    continue  # processed in second pass
+
+                normalized_role = "USER" if role_val.lower() == "user" else role_val
+
+                while content.endswith("\n"):
+                    content = content[:-1]
+
+                msg_id = get_new_id()
+                if (
+                    content == "[ACTIVITY] Completed activities."
+                    and completed_activity_id is None
+                ):
+                    completed_activity_id = msg_id
+
+                sender_uid = user_id if normalized_role == "USER" else None
+
+                msg = Message(
+                    id=msg_id,
+                    role=normalized_role,
+                    content=content,
+                    conversation_id=conversation_id,
+                    notify=False,
+                    sender_user_id=sender_uid,
+                )
+
+                parsed_ts = _coerce_dt(interaction.get("timestamp"))
+                if parsed_ts is not None:
+                    msg.timestamp = parsed_ts
+                    msg.updated_at = parsed_ts
+
+                messages_to_add.append(msg)
+
+            # Second pass: subactivities, attached to completed_activity_id.
+            if completed_activity_id is not None:
+                for interaction in sorted_msgs:
+                    raw = interaction.get("message", "") or ""
+                    content = strip_control_chars(str(raw))
+                    role_val = interaction.get("role", "") or ""
+                    if not role_val or not content.startswith("[SUBACTIVITY]"):
+                        continue
+
+                    try:
+                        parts = content.split("]", 2)
+                        if len(parts) >= 3:
+                            tail = parts[2]
+                            new_content = (
+                                f"[SUBACTIVITY][{completed_activity_id}]{tail}"
+                            )
+                        else:
+                            new_content = (
+                                f"[SUBACTIVITY][{completed_activity_id}] "
+                                f"{content.split(']', 2)[-1]}"
+                            )
+                    except Exception:
+                        new_content = (
+                            f"[SUBACTIVITY][{completed_activity_id}] "
+                            f"{content.replace('[SUBACTIVITY]', '').lstrip()}"
+                        )
+
+                    while new_content.endswith("\n"):
+                        new_content = new_content[:-1]
+
+                    normalized_role = "USER" if role_val.lower() == "user" else role_val
+
+                    msg = Message(
+                        id=get_new_id(),
+                        role=normalized_role,
+                        content=new_content,
+                        conversation_id=conversation_id,
+                        notify=False,
+                        sender_user_id=None,
+                    )
+
+                    parsed_ts = _coerce_dt(interaction.get("timestamp"))
+                    if parsed_ts is not None:
+                        msg.timestamp = parsed_ts
+                        msg.updated_at = parsed_ts
+
+                    messages_to_add.append(msg)
+
+            # Apply Conversation-level timestamps so historical imports sort
+            # into their original chronological position in the sidebar (which
+            # orders by Conversation.updated_at.desc()). Caller-provided values
+            # win; otherwise derive from message timestamps.
+            conv_created = _coerce_dt(created_at) or earliest_ts
+            conv_updated = _coerce_dt(updated_at) or latest_ts or conv_created
+            if conv_created is not None:
+                conversation.created_at = conv_created
+            if conv_updated is not None:
+                conversation.updated_at = conv_updated
+
+            if messages_to_add:
+                session.add_all(messages_to_add)
+            session.commit()
+
+            return {
+                "id": conversation_id,
+                "name": self.conversation_name,
+                "user_id": user_id,
+            }
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
     def get_thinking_id(self, agent_name):
         import traceback
@@ -2536,11 +3402,11 @@ class Conversations:
 
         message_id = str(new_message.id)
 
-        # Notify WebSocket listeners about the new message
-        # The WebSocket endpoint polling will pick this up on the next check,
-        # but for USER messages we can also trigger an immediate notification
-        # to improve responsiveness
-        # Note: The actual WebSocket sending happens in the WebSocket endpoint's polling loop
+        # Mark the conversation as updated so the WebSocket poll loop's
+        # SharedCache fast-path won't skip the DB query on the next cycle.
+        # Without this, agent responses stored via log_interaction() would
+        # be invisible to WebSocket clients until the cache TTL expires.
+        mark_conversation_updated(str(conversation_id))
 
         session.close()
         return message_id
@@ -3178,6 +4044,9 @@ class Conversations:
             logging.debug(
                 f"Message {message_id} successfully updated - committed to database"
             )
+            # Mark conversation updated so the WebSocket poll loop detects
+            # this change through the SharedCache fast-path.
+            mark_conversation_updated(str(conversation.id))
         except Exception as e:
             logging.error(f"Error updating message: {e}")
             session.rollback()
@@ -3386,6 +4255,7 @@ class Conversations:
         # Invalidate cache for both old and new names
         invalidate_conversation_cache(user_id=str(user_id), conversation_name=old_name)
         invalidate_conversation_cache(user_id=str(user_id), conversation_name=new_name)
+        shared_cache.delete(f"conv_name:{conversation_id}:{user_id}")
         return new_name
 
     def update_pin_order(self, conversation_id: str, pin_order: int = None):

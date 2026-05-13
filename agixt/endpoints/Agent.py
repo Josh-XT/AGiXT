@@ -24,6 +24,7 @@ from MagicalAuth import get_user_id
 from Models import (
     AgentNewName,
     AgentPrompt,
+    AgentVision,
     ToggleCommandPayload,
     ToggleExtensionCommandsPayload,
     AgentCommands,
@@ -175,6 +176,39 @@ async def import_agent_v1(
 
 
 @app.post(
+    "/v1/agent/{agent_id}/vision",
+    tags=["Agent"],
+    dependencies=[Depends(verify_api_key)],
+    summary="Run agent vision inference",
+    description="Runs the selected agent's configured vision provider against one or more images without entering the normal chat/tool pipeline.",
+    response_model=AgentPromptResponse,
+)
+async def vision_agent_v1(
+    agent_id: str,
+    vision: AgentVision,
+    user=Depends(verify_api_key),
+    authorization: str = Header(None),
+):
+    try:
+        if not vision.prompt or not vision.prompt.strip():
+            raise HTTPException(status_code=400, detail="prompt is required")
+        ApiClient = get_api_client(authorization=authorization)
+        agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
+        response = await agent.vision_inference(
+            prompt=vision.prompt,
+            images=vision.images or [],
+            use_smartest=bool(vision.use_smartest),
+        )
+        return {"response": str(response or "")}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error running agent vision: {e}")
+        logging.error(traceback.format_exc())
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post(
     "/v1/agent/think",
     tags=["Agent"],
     dependencies=[Depends(verify_api_key)],
@@ -188,8 +222,10 @@ async def think(
     authorization: str = Header(None),
 ):
     if "conversation_name" in agent_prompt.prompt_args:
+        auth = MagicalAuth(token=authorization)
         agent_prompt.conversation_id = get_conversation_id_by_name(
-            conversation_name=agent_prompt.prompt_args["conversation_name"]
+            conversation_name=agent_prompt.prompt_args["conversation_name"],
+            user_id=auth.user_id,
         )
     if "log_user_input" not in agent_prompt.prompt_args:
         agent_prompt.prompt_args["log_user_input"] = False
@@ -212,7 +248,7 @@ async def think(
         agent_prompt.prompt_args["context"] = think_deep
     agent_prompt.prompt_args["user_input"] = agent_prompt.user_input
     ApiClient = get_api_client(authorization=authorization)
-    return ApiClient.prompt_agent(
+    response = ApiClient.prompt_agent(
         agent_name=agent_prompt.agent_name,
         agent_prompt=AgentPrompt(
             prompt_name="Think About It",
@@ -221,6 +257,9 @@ async def think(
         user=user,
         authorization=authorization,
     )
+    if isinstance(response, dict):
+        return response
+    return {"response": str(response or "")}
 
 
 from Providers import get_providers_with_details, get_provider_options
@@ -233,7 +272,7 @@ from Providers import get_providers_with_details, get_provider_options
     dependencies=[Depends(verify_api_key)],
     summary="Get agent providers",
     description="Retrieves the list of providers connected to a specific agent.",
-    response_model=Dict[str, Any],
+    response_model=Dict[str, str],
 )
 async def get_providers_v1(
     agent_id: str,
@@ -313,10 +352,7 @@ async def delete_provider_v1(
     update_config = agent.update_agent_config(
         new_config=new_settings, config_key="settings"
     )
-    config = agent.get_agent_config()
-    logging.info(
-        f"Agent {agent_id} provider {provider_name} deleted. New config: {json.dumps(config, indent=2)}"
-    )
+    logging.info(f"Agent {agent_id} provider {provider_name} deleted.")
     return ResponseMessage(message=update_config)
 
 
@@ -403,7 +439,7 @@ async def update_persona_v1(
     dependencies=[Depends(verify_api_key)],
     summary="Get agent persona by ID",
     description="Retrieves the current persona settings for an agent using agent ID.",
-    response_model=Dict[str, str],
+    response_model=Dict[str, Any],
 )
 async def get_persona_v1(
     agent_id: str, user=Depends(verify_api_key), authorization: str = Header(None)
@@ -544,7 +580,7 @@ async def get_agentconfig_v1(
         if value is None:
             continue
         if isinstance(value, str) and value.strip() != "":
-            if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD"]):
+            if any(x in key.upper() for x in ["KEY", "SECRET", "PASSWORD", "TOKEN"]):
                 agent_config["settings"][key] = "HIDDEN"
             else:
                 agent_config["settings"][key] = value
@@ -742,10 +778,20 @@ async def toggle_extension_commands_v1(
     # Get all extensions to find the commands for the specified extension
     extensions = agent.get_agent_extensions()
 
-    # Find the extension and get all its commands
+    # Find the extension and get all its commands (case-insensitive lookup)
+    # Normalize underscores/hyphens to spaces so both 'essential_abilities' and
+    # 'Essential Abilities' match the title-cased registry name.
+    import re as _re
+
+    def _canonicalize(name: str) -> str:
+        return _re.sub(r"[\s_-]+", " ", name.strip().lower())
+
     extension_commands = []
+    matched_extension_name = payload.extension_name
+    payload_canonical = _canonicalize(payload.extension_name)
     for extension in extensions:
-        if extension["extension_name"] == payload.extension_name:
+        if _canonicalize(extension["extension_name"]) == payload_canonical:
+            matched_extension_name = extension["extension_name"]
             for command in extension["commands"]:
                 extension_commands.append(command["friendly_name"])
             break
@@ -765,7 +811,7 @@ async def toggle_extension_commands_v1(
     )
 
     return ResponseMessage(
-        message=f"Successfully {'enabled' if payload.enable else 'disabled'} {len(extension_commands)} commands for extension '{payload.extension_name}'"
+        message=f"Successfully {'enabled' if payload.enable else 'disabled'} {len(extension_commands)} commands for extension '{matched_extension_name}'"
     )
 
 
@@ -810,7 +856,9 @@ async def delete_browsed_link_v1(
         user=user,
         ApiClient=ApiClient,
     )
-    await websearch.agent_memory.delete_memories_from_external_source(url=url.url)
+    await websearch.agent_memory.delete_memories_from_external_source(
+        external_source=url.url
+    )
     agent.delete_browsed_link(url=url.url, conversation_id=url.collection_number)
     return {"message": "Browsed links deleted."}
 
@@ -821,7 +869,7 @@ async def delete_browsed_link_v1(
     dependencies=[Depends(verify_api_key)],
     summary="Convert text to speech by ID",
     description="Converts text to speech using the agent's configured TTS provider using agent ID.",
-    response_model=Dict[str, str],
+    response_model=Dict[str, Any],
 )
 async def text_to_speech_v1(
     agent_id: str,
@@ -832,9 +880,8 @@ async def text_to_speech_v1(
     ApiClient = get_api_client(authorization=authorization)
     agent = Agent(agent_id=agent_id, user=user, ApiClient=ApiClient)
     AGIXT_URI = getenv("AGIXT_URI")
-    if agent.TTS_PROVIDER != None:
-        tts_response = await agent.text_to_speech(text=text.text)
-    else:
+    tts_response = await agent.text_to_speech(text=text.text)
+    if not tts_response:
         raise HTTPException(status_code=400, detail="No TTS provider available")
     if not str(tts_response).startswith("http"):
         import tempfile
@@ -874,7 +921,7 @@ async def text_to_speech_v1(
     dependencies=[Depends(verify_api_key)],
     summary="Plan a task by ID",
     description="Creates a task plan for the agent to execute using agent ID, optionally including web search capabilities.",
-    response_model=Dict[str, str],
+    response_model=Dict[str, Any],
 )
 async def plan_task_v1(
     agent_id: str,
