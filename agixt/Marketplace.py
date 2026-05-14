@@ -34,6 +34,21 @@ def marketplace_enabled() -> bool:
     return env_flag("MARKETPLACE_ENABLED", "true")
 
 
+def stripe_configured() -> bool:
+    api_key = getenv("STRIPE_API_KEY") or getenv("STRIPE_SECRET_KEY")
+    return bool(api_key and str(api_key).strip().lower() not in {"", "none", "false"})
+
+
+def marketplace_stripe_enabled() -> bool:
+    return env_flag(
+        "MARKETPLACE_STRIPE_ENABLED", "true" if stripe_configured() else "false"
+    )
+
+
+def marketplace_credits_enabled() -> bool:
+    return env_flag("MARKETPLACE_CREDITS_ENABLED", "false")
+
+
 def entitlement_enforcement_enabled() -> bool:
     return env_flag("MARKETPLACE_ENFORCE_ENTITLEMENTS", "false")
 
@@ -205,6 +220,24 @@ class MarketplaceCatalogService:
             if not isinstance(desktop_ids, list):
                 desktop_ids = _desktop_extension_ids(hub_path)
 
+            purchase_mode = marketplace.get("purchase_mode") or "subscription"
+            is_base_app = app_slug == self.base_app_slug
+            included_with_current_site = self.site_slug in {
+                slugify(site) for site in included_on_sites
+            }
+            can_subscribe = (
+                marketplace_stripe_enabled()
+                and purchase_mode == "subscription"
+                and not is_base_app
+                and not included_with_current_site
+            )
+            can_use_credits = (
+                marketplace_credits_enabled()
+                and purchase_mode in {"subscription", "credits", "credit_grant"}
+                and not is_base_app
+                and not included_with_current_site
+            )
+
             app = {
                 "app_slug": app_slug,
                 "app_name": app_name,
@@ -224,21 +257,23 @@ class MarketplaceCatalogService:
                 "pricing_model": config.get("pricing_model") or "per_token",
                 "price_summary": _price_summary(config),
                 "currency": config.get("currency") or "USD",
+                "min_units": config.get("min_units"),
+                "unit_name": config.get("unit_name"),
+                "contracts": config.get("contracts") or {},
                 "listed": listed,
-                "purchase_mode": marketplace.get("purchase_mode") or "subscription",
+                "purchase_mode": purchase_mode,
                 "base_on_sites": [slugify(site) for site in base_on_sites],
                 "included_on_sites": [slugify(site) for site in included_on_sites],
-                "included_with_current_site": self.site_slug
-                in {slugify(site) for site in included_on_sites},
-                "is_base_app": app_slug == self.base_app_slug,
+                "included_with_current_site": included_with_current_site,
+                "is_base_app": is_base_app,
                 "trial_policy": trial_policy,
                 "tiers": tiers,
                 "addons": addons,
                 "included_extensions": marketplace.get("included_extensions") or [],
                 "desktop_extension_ids": desktop_ids,
                 "required_scopes": marketplace.get("required_scopes") or [],
-                "can_purchase": env_flag("MARKETPLACE_STRIPE_ENABLED", "false"),
-                "can_use_credits": env_flag("MARKETPLACE_CREDITS_ENABLED", "false"),
+                "can_purchase": can_subscribe,
+                "can_use_credits": can_use_credits,
             }
 
             # First match wins, mirroring desktop extension collision behavior.
@@ -324,7 +359,7 @@ class EntitlementService:
             entitlement = entitlements.get(app["app_slug"])
             app["entitlement"] = entitlement
             app["entitlement_status"] = (
-                entitlement.get("status") if entitlement else "locked"
+                entitlement.get("status") if entitlement else "available"
             )
             app["is_entitled"] = bool(
                 entitlement and entitlement.get("status") in ACTIVE_ENTITLEMENT_STATUSES

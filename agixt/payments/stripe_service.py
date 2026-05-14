@@ -19,7 +19,7 @@ class StripePaymentService:
 
     def __init__(self, price_service: Optional[PriceService] = None) -> None:
         self.price_service = price_service or PriceService()
-        self.api_key = getenv("STRIPE_API_KEY")
+        self.api_key = getenv("STRIPE_API_KEY") or getenv("STRIPE_SECRET_KEY")
 
     async def create_payment_intent(
         self,
@@ -1119,6 +1119,257 @@ class StripePaymentService:
                 "amount_usd": amount_usd,
                 "addon_count": addon_count,
                 "company_id": company_id,
+            }
+        finally:
+            session.close()
+
+    async def create_marketplace_app_checkout(
+        self,
+        *,
+        company_id: str,
+        app_slug: str,
+        user_email: Optional[str] = None,
+        tier_id: Optional[str] = None,
+        quantity: Optional[int] = None,
+        billing_interval: str = "month",
+    ) -> Dict[str, Any]:
+        """Create an independent Stripe subscription for a marketplace app/package.
+
+        Marketplace app subscriptions are intentionally separate from
+        Company.stripe_subscription_id so they never replace or cancel the
+        company's base SaaS subscription.
+        """
+        if not self.api_key or self.api_key.lower() == "none":
+            raise HTTPException(
+                status_code=400, detail="Stripe API key is not configured"
+            )
+
+        from Marketplace import EntitlementService, MarketplaceCatalogService, slugify
+
+        normalized_app_slug = slugify(app_slug)
+        catalog = MarketplaceCatalogService()
+        marketplace_app = catalog.get_app(normalized_app_slug)
+        if not marketplace_app:
+            raise HTTPException(status_code=404, detail="Marketplace app not found")
+        if marketplace_app.get("is_base_app") or marketplace_app.get(
+            "included_with_current_site"
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="This app is already included with the current site.",
+            )
+        if marketplace_app.get("purchase_mode") != "subscription":
+            raise HTTPException(
+                status_code=400,
+                detail="This marketplace app is not configured for subscription checkout.",
+            )
+        if EntitlementService().has_entitlement(company_id, normalized_app_slug):
+            raise HTTPException(
+                status_code=409,
+                detail="This company already has access to this marketplace app.",
+            )
+
+        if billing_interval not in {"month", "year"}:
+            billing_interval = "month"
+
+        session = get_session()
+        try:
+            company = session.query(Company).filter(Company.id == company_id).first()
+            if not company:
+                raise HTTPException(status_code=404, detail="Company not found")
+
+            pricing_model = marketplace_app.get("pricing_model") or "per_token"
+            tiers = marketplace_app.get("tiers") or []
+            selected_tier = None
+            if tiers:
+                selected_tier = next(
+                    (tier for tier in tiers if tier.get("id") == tier_id),
+                    None,
+                )
+                if selected_tier is None:
+                    selected_tier = next(
+                        (
+                            tier
+                            for tier in tiers
+                            if float(
+                                tier.get("price") or tier.get("price_per_unit") or 0
+                            )
+                            > 0
+                        ),
+                        tiers[0],
+                    )
+                tier_id = selected_tier.get("id")
+
+            if pricing_model == "tiered_plan" and selected_tier:
+                amount_usd = float(selected_tier.get("price") or 0)
+                checkout_quantity = 1
+                plan_label = selected_tier.get("name") or tier_id or "Plan"
+            elif pricing_model in {
+                "per_bed",
+                "per_user",
+                "per_capacity",
+                "per_location",
+            }:
+                unit_price = (
+                    marketplace_app.get("price_summary", {}).get("amount")
+                    if isinstance(marketplace_app.get("price_summary"), dict)
+                    else None
+                )
+                if unit_price is None:
+                    unit_price = (
+                        float(
+                            selected_tier.get("price_per_unit")
+                            or selected_tier.get("price")
+                            or 0
+                        )
+                        if selected_tier
+                        else 0
+                    )
+                min_units = int(marketplace_app.get("min_units") or 1)
+                if quantity is not None:
+                    checkout_quantity = max(int(quantity), min_units)
+                elif pricing_model == "per_bed":
+                    checkout_quantity = max(
+                        int(company.bed_count or company.bed_limit or min_units),
+                        min_units,
+                    )
+                else:
+                    checkout_quantity = max(
+                        int(company.user_limit or min_units), min_units
+                    )
+                amount_usd = float(unit_price) * checkout_quantity
+                plan_label = (
+                    f"{checkout_quantity} {marketplace_app.get('unit_name') or 'units'}"
+                )
+            else:
+                amount_usd = (
+                    marketplace_app.get("price_summary", {}).get("amount")
+                    if isinstance(marketplace_app.get("price_summary"), dict)
+                    else None
+                )
+                if amount_usd is None and selected_tier:
+                    amount_usd = float(selected_tier.get("price") or 0)
+                amount_usd = float(amount_usd or 0)
+                checkout_quantity = max(int(quantity or 1), 1)
+                plan_label = selected_tier.get("name") if selected_tier else "Package"
+
+            if billing_interval == "year":
+                annual_discount = float(
+                    (marketplace_app.get("contracts") or {}).get(
+                        "annual_discount_percent", 0
+                    )
+                )
+                amount_usd = amount_usd * 12 * (1 - annual_discount / 100)
+
+            if amount_usd <= 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This marketplace app does not have a checkout price configured.",
+                )
+
+            customer_id = await self.get_or_create_company_customer(
+                company_id=company_id,
+                company_name=company.name or f"Company {company_id}",
+                email=user_email or company.email,
+            )
+
+            import stripe
+
+            stripe.api_key = self.api_key
+            return_url = (
+                getenv("BILLING_PORTAL_RETURN_URL")
+                or getenv("APP_URI")
+                or "https://agixt.com"
+            )
+            display_name = marketplace_app.get("display_name") or marketplace_app.get(
+                "app_name"
+            )
+            amount_cents = int(Decimal(str(amount_usd)) * Decimal("100"))
+            metadata = {
+                "company_id": str(company_id),
+                "type": "marketplace_app_subscription",
+                "app_slug": normalized_app_slug,
+                "app_name": display_name,
+                "source_site_slug": catalog.site_slug,
+                "amount_usd": str(amount_usd),
+                "billing_interval": billing_interval,
+                "pricing_model": pricing_model,
+                "tier_id": tier_id or "",
+                "quantity": str(checkout_quantity),
+            }
+
+            def _create_checkout() -> Dict[str, Any]:
+                return stripe.checkout.Session.create(
+                    customer=customer_id,
+                    mode="subscription",
+                    success_url=f"{return_url}/marketplace?marketplace=success&app={normalized_app_slug}",
+                    cancel_url=f"{return_url}/marketplace?marketplace=cancelled&app={normalized_app_slug}",
+                    line_items=[
+                        {
+                            "price_data": {
+                                "currency": str(
+                                    marketplace_app.get("currency") or "USD"
+                                ).lower(),
+                                "product_data": {
+                                    "name": f"{display_name} Marketplace Add-on",
+                                    "description": f"Enables the {display_name} extension package.",
+                                    "metadata": {
+                                        "app_slug": normalized_app_slug,
+                                        "source_site_slug": catalog.site_slug,
+                                    },
+                                },
+                                "unit_amount": amount_cents,
+                                "recurring": {"interval": billing_interval},
+                            },
+                            "quantity": 1,
+                        }
+                    ],
+                    metadata=metadata,
+                    subscription_data={"metadata": metadata},
+                )
+
+            checkout = await asyncio.to_thread(_create_checkout)
+            checkout_id = checkout.get("id", "unknown")
+            reference_code = f"MKT_{checkout_id[:30]}"
+            existing_transaction = (
+                session.query(PaymentTransaction)
+                .filter(PaymentTransaction.reference_code == reference_code)
+                .first()
+            )
+            if not existing_transaction:
+                session.add(
+                    PaymentTransaction(
+                        user_id=None,
+                        company_id=str(company_id),
+                        seat_count=0,
+                        token_amount=0,
+                        payment_method="stripe_checkout",
+                        currency=str(marketplace_app.get("currency") or "USD"),
+                        network="stripe",
+                        amount_usd=amount_usd,
+                        amount_currency=amount_usd,
+                        exchange_rate=1.0,
+                        stripe_payment_intent_id=f"marketplace_checkout_{checkout_id}",
+                        status="pending",
+                        reference_code=reference_code,
+                        app_name=display_name,
+                        app_slug=normalized_app_slug,
+                        transaction_type="marketplace_app_subscription",
+                        stripe_checkout_session_id=checkout_id,
+                        metadata_json=json.dumps(metadata),
+                    )
+                )
+                session.commit()
+
+            return {
+                "checkout_url": checkout.get("url"),
+                "session_id": checkout_id,
+                "amount_usd": amount_usd,
+                "company_id": company_id,
+                "app_slug": normalized_app_slug,
+                "tier_id": tier_id,
+                "quantity": checkout_quantity,
+                "billing_interval": billing_interval,
             }
         finally:
             session.close()

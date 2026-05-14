@@ -1,19 +1,29 @@
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from pydantic import BaseModel
 
 from ApiClient import verify_api_key
+from DB import User, get_session
 from MagicalAuth import MagicalAuth
 from Marketplace import (
     EntitlementService,
     MarketplaceCatalogService,
     company_marketplace_credit_balance,
-    env_flag,
+    marketplace_credits_enabled,
     marketplace_enabled,
+    marketplace_stripe_enabled,
     slugify,
 )
+from payments.stripe_service import StripePaymentService
 
 app = APIRouter()
+
+
+class MarketplaceCheckoutRequest(BaseModel):
+    tier_id: Optional[str] = None
+    quantity: Optional[int] = None
+    billing_interval: str = "month"
 
 
 def _resolve_company_id(auth: MagicalAuth, company_id: Optional[str]) -> Optional[str]:
@@ -28,6 +38,22 @@ def _resolve_company_id(auth: MagicalAuth, company_id: Optional[str]) -> Optiona
     if user_companies:
         return user_companies[0]
     return None
+
+
+def _require_marketplace_admin(auth: MagicalAuth, company_id: str) -> None:
+    auth.require_any_scope(
+        ["billing:write", "billing:admin", "company:billing", "company:write"],
+        company_id,
+    )
+
+
+def _current_user_email(auth: MagicalAuth) -> Optional[str]:
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == auth.user_id).first()
+        return user.email if user else None
+    finally:
+        session.close()
 
 
 @app.get(
@@ -58,8 +84,8 @@ async def list_marketplace_apps(
         "credit_balance_usd": company_marketplace_credit_balance(
             resolved_company_id or ""
         ),
-        "stripe_enabled": env_flag("MARKETPLACE_STRIPE_ENABLED", "false"),
-        "credits_enabled": env_flag("MARKETPLACE_CREDITS_ENABLED", "false"),
+        "stripe_enabled": marketplace_stripe_enabled(),
+        "credits_enabled": marketplace_credits_enabled(),
         "apps": apps,
     }
 
@@ -119,20 +145,38 @@ async def list_marketplace_entitlements(
 )
 async def create_marketplace_checkout(
     app_slug: str,
+    request: Optional[MarketplaceCheckoutRequest] = None,
     company_id: Optional[str] = Query(None),
     authorization: str = Header(None),
 ) -> Dict[str, Any]:
     auth = MagicalAuth(token=authorization)
-    _resolve_company_id(auth, company_id)
-    if not env_flag("MARKETPLACE_STRIPE_ENABLED", "false"):
+    resolved_company_id = _resolve_company_id(auth, company_id)
+    if not resolved_company_id:
+        raise HTTPException(status_code=400, detail="Company context is required")
+    _require_marketplace_admin(auth, resolved_company_id)
+    if not marketplace_stripe_enabled():
         raise HTTPException(
             status_code=503,
             detail="Marketplace Stripe checkout is not enabled on this server.",
         )
-    raise HTTPException(
-        status_code=501,
-        detail="Marketplace checkout storage is ready, but checkout creation has not been connected yet.",
-    )
+
+    checkout_request = request or MarketplaceCheckoutRequest()
+    stripe_service = StripePaymentService()
+    try:
+        return await stripe_service.create_marketplace_app_checkout(
+            company_id=resolved_company_id,
+            app_slug=app_slug,
+            user_email=_current_user_email(auth),
+            tier_id=checkout_request.tier_id,
+            quantity=checkout_request.quantity,
+            billing_interval=checkout_request.billing_interval,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create marketplace checkout: {exc}"
+        )
 
 
 @app.post(
@@ -146,8 +190,11 @@ async def activate_marketplace_app_with_credits(
     authorization: str = Header(None),
 ) -> Dict[str, Any]:
     auth = MagicalAuth(token=authorization)
-    _resolve_company_id(auth, company_id)
-    if not env_flag("MARKETPLACE_CREDITS_ENABLED", "false"):
+    resolved_company_id = _resolve_company_id(auth, company_id)
+    if not resolved_company_id:
+        raise HTTPException(status_code=400, detail="Company context is required")
+    _require_marketplace_admin(auth, resolved_company_id)
+    if not marketplace_credits_enabled():
         raise HTTPException(
             status_code=503,
             detail="Marketplace credit activation is not enabled on this server.",

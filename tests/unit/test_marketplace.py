@@ -66,6 +66,7 @@ def test_marketplace_catalog_loads_all_pricing_files(monkeypatch, tmp_path):
     monkeypatch.setenv("APP_NAME", "NurseXT")
     monkeypatch.setenv("SITE_SLUG", "nursext")
     monkeypatch.setenv("MARKETPLACE_ENABLED", "true")
+    monkeypatch.setenv("STRIPE_API_KEY", "sk_test_marketplace")
     monkeypatch.setattr(
         ExtensionsHub,
         "get_extension_search_paths",
@@ -87,6 +88,8 @@ def test_marketplace_catalog_loads_all_pricing_files(monkeypatch, tmp_path):
     assert set(by_slug) == {"nursext", "xtsystems"}
     assert by_slug["nursext"]["is_base_app"] is True
     assert by_slug["nursext"]["included_with_current_site"] is True
+    assert by_slug["nursext"]["can_purchase"] is False
     assert by_slug["xtsystems"]["included_with_current_site"] is False
+    assert by_slug["xtsystems"]["can_purchase"] is True
     assert by_slug["xtsystems"]["price_summary"]["label"] == "From $20/mo"
     assert by_slug["nursext"]["price_summary"]["label"] == "$10/bed/mo"

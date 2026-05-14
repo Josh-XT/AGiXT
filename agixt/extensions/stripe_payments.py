@@ -3,6 +3,7 @@ import requests
 import json
 import logging
 import asyncio
+from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 from urllib.parse import urljoin
 from fastapi import APIRouter, Request, Header, HTTPException, Depends
@@ -16,6 +17,7 @@ from DB import (
     Company,
     UserCompany,
     PaymentTransaction,
+    CompanyAppEntitlement,
 )  # type: ignore
 from Models import Detail, WebhookModel  # type: ignore
 import stripe as stripe_lib
@@ -27,6 +29,250 @@ SCOPES = [
 ]
 AUTHORIZE = "https://connect.stripe.com/oauth/authorize"
 PKCE_REQUIRED = False
+MARKETPLACE_SUBSCRIPTION_TYPE = "marketplace_app_subscription"
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(value: Any, default: int = 1) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _stripe_datetime(value: Any) -> Optional[datetime]:
+    try:
+        if value is None:
+            return None
+        return datetime.fromtimestamp(int(value), timezone.utc)
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def _invoice_period(invoice: Dict[str, Any]) -> Dict[str, Optional[datetime]]:
+    lines = (invoice.get("lines") or {}).get("data") or []
+    if not lines:
+        return {"start": None, "end": None}
+    period = lines[0].get("period") or {}
+    return {
+        "start": _stripe_datetime(period.get("start")),
+        "end": _stripe_datetime(period.get("end")),
+    }
+
+
+def _marketplace_reference(prefix: str, value: Any) -> str:
+    return f"{prefix}_{str(value or 'unknown')[:30]}"
+
+
+def _marketplace_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = data.get("metadata") or {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _record_marketplace_checkout_completed(
+    session, session_data: Dict[str, Any]
+) -> bool:
+    metadata = _marketplace_metadata(session_data)
+    if metadata.get("type") != MARKETPLACE_SUBSCRIPTION_TYPE:
+        return False
+
+    company_id = metadata.get("company_id")
+    app_slug = metadata.get("app_slug")
+    subscription_id = session_data.get("subscription")
+    checkout_session_id = session_data.get("id", "unknown")
+    if not company_id or not app_slug or not subscription_id:
+        logging.warning(
+            "Marketplace checkout missing company_id, app_slug, or subscription_id"
+        )
+        return True
+
+    entitlement = (
+        session.query(CompanyAppEntitlement)
+        .filter(
+            CompanyAppEntitlement.company_id == company_id,
+            CompanyAppEntitlement.app_slug == app_slug,
+        )
+        .first()
+    )
+    if not entitlement:
+        entitlement = CompanyAppEntitlement(
+            company_id=str(company_id),
+            app_slug=str(app_slug),
+        )
+        session.add(entitlement)
+
+    entitlement.source_site_slug = metadata.get("source_site_slug")
+    entitlement.status = "active"
+    entitlement.tier_id = metadata.get("tier_id") or None
+    entitlement.quantity = _safe_int(metadata.get("quantity"), 1)
+    entitlement.stripe_customer_id = session_data.get("customer")
+    entitlement.stripe_subscription_id = subscription_id
+    entitlement.stripe_price_id = metadata.get("stripe_price_id") or None
+    entitlement.metadata_json = json.dumps(
+        {**metadata, "checkout_session_id": checkout_session_id}
+    )
+    session.flush()
+
+    reference_code = _marketplace_reference("MKT", checkout_session_id)
+    transaction = (
+        session.query(PaymentTransaction)
+        .filter(PaymentTransaction.reference_code == reference_code)
+        .first()
+    )
+    amount_usd = _safe_float(metadata.get("amount_usd"))
+    if not transaction:
+        transaction = PaymentTransaction(
+            user_id=None,
+            company_id=str(company_id),
+            seat_count=0,
+            token_amount=0,
+            payment_method="stripe_checkout",
+            currency="USD",
+            network="stripe",
+            amount_usd=amount_usd,
+            amount_currency=amount_usd,
+            exchange_rate=1.0,
+            stripe_payment_intent_id=f"marketplace_checkout_{checkout_session_id}",
+            reference_code=reference_code,
+        )
+        session.add(transaction)
+
+    transaction.status = "completed"
+    transaction.app_name = metadata.get("app_name") or app_slug
+    transaction.app_slug = app_slug
+    transaction.entitlement_id = str(entitlement.id)
+    transaction.transaction_type = MARKETPLACE_SUBSCRIPTION_TYPE
+    transaction.stripe_checkout_session_id = checkout_session_id
+    transaction.stripe_subscription_id = subscription_id
+    transaction.metadata_json = json.dumps(metadata)
+    logging.info(
+        "Marketplace app %s activated for company %s via subscription %s",
+        app_slug,
+        company_id,
+        subscription_id,
+    )
+    return True
+
+
+def _record_marketplace_invoice(
+    session, invoice: Dict[str, Any], entitlement_status: str
+) -> bool:
+    subscription_id = invoice.get("subscription")
+    if not subscription_id:
+        return False
+
+    entitlement = (
+        session.query(CompanyAppEntitlement)
+        .filter(CompanyAppEntitlement.stripe_subscription_id == subscription_id)
+        .first()
+    )
+    if not entitlement:
+        return False
+
+    invoice_id = invoice.get("id", "unknown")
+    amount_usd = (
+        _safe_float(invoice.get("amount_paid") or invoice.get("amount_due")) / 100
+    )
+    period = _invoice_period(invoice)
+    entitlement.status = entitlement_status
+    if period["start"]:
+        entitlement.current_period_start = period["start"]
+    if period["end"]:
+        entitlement.current_period_end = period["end"]
+
+    prefix = "MKTINV" if entitlement_status == "active" else "MKTFAIL"
+    reference_code = _marketplace_reference(prefix, invoice_id)
+    existing = (
+        session.query(PaymentTransaction)
+        .filter(PaymentTransaction.reference_code == reference_code)
+        .first()
+    )
+    if existing:
+        return True
+
+    session.add(
+        PaymentTransaction(
+            user_id=None,
+            company_id=str(entitlement.company_id),
+            seat_count=0,
+            token_amount=0,
+            payment_method="stripe_subscription",
+            currency=str((invoice.get("currency") or "usd")).upper(),
+            network="stripe",
+            amount_usd=amount_usd,
+            amount_currency=amount_usd,
+            exchange_rate=1.0,
+            stripe_payment_intent_id=(
+                invoice_id
+                if entitlement_status == "active"
+                else f"marketplace_failed_{invoice_id}"
+            ),
+            status="completed" if entitlement_status == "active" else "failed",
+            reference_code=reference_code,
+            app_name=entitlement.app_slug,
+            app_slug=entitlement.app_slug,
+            entitlement_id=str(entitlement.id),
+            transaction_type=f"{MARKETPLACE_SUBSCRIPTION_TYPE}_invoice",
+            stripe_subscription_id=subscription_id,
+            stripe_invoice_id=invoice_id,
+            metadata_json=json.dumps(
+                {
+                    "invoice_id": invoice_id,
+                    "subscription_id": subscription_id,
+                    "marketplace_status": entitlement_status,
+                }
+            ),
+        )
+    )
+    return True
+
+
+def _sync_marketplace_subscription_status(
+    session,
+    subscription: Dict[str, Any],
+    status_override: Optional[str] = None,
+) -> bool:
+    subscription_id = subscription.get("id")
+    if not subscription_id:
+        return False
+
+    entitlement = (
+        session.query(CompanyAppEntitlement)
+        .filter(CompanyAppEntitlement.stripe_subscription_id == subscription_id)
+        .first()
+    )
+    if not entitlement:
+        return False
+
+    stripe_status = status_override or subscription.get("status") or "active"
+    status_map = {
+        "active": "active",
+        "trialing": "trialing",
+        "past_due": "past_due",
+        "unpaid": "past_due",
+        "canceled": "canceled",
+        "incomplete_expired": "canceled",
+    }
+    entitlement.status = status_map.get(stripe_status, stripe_status)
+    entitlement.current_period_start = _stripe_datetime(
+        subscription.get("current_period_start")
+    )
+    entitlement.current_period_end = _stripe_datetime(
+        subscription.get("current_period_end")
+    )
+    entitlement.metadata_json = json.dumps(
+        {
+            **(_marketplace_metadata(subscription)),
+            "stripe_status": stripe_status,
+        }
+    )
+    return True
 
 
 class StripeSSO:
@@ -269,6 +515,14 @@ class stripe_payments(Extensions):
                         amount_usd = float(metadata.get("amount_usd", 0))
                         subscription_id = session_data.get("subscription")
                         plan_id = metadata.get("plan_id")
+
+                        if checkout_type == MARKETPLACE_SUBSCRIPTION_TYPE:
+                            _record_marketplace_checkout_completed(
+                                session, session_data
+                            )
+                            session.commit()
+                            session.close()
+                            return {"success": "true"}
 
                         if company_id and subscription_id:
                             from ExtensionsHub import ExtensionsHub
@@ -612,6 +866,11 @@ class stripe_payments(Extensions):
                     subscription = data
                     customer_id = subscription["customer"]
 
+                    if _sync_marketplace_subscription_status(session, subscription):
+                        session.commit()
+                        session.close()
+                        return {"success": "true"}
+
                     # Find users with this customer ID
                     stripe_prefs = (
                         session.query(UserPreferences)
@@ -695,6 +954,13 @@ class stripe_payments(Extensions):
 
                     # Clean up Company subscription fields
                     if subscription_id:
+                        if _sync_marketplace_subscription_status(
+                            session, data, "canceled"
+                        ):
+                            session.commit()
+                            session.close()
+                            return {"success": "true"}
+
                         company = (
                             session.query(Company)
                             .filter(Company.stripe_subscription_id == subscription_id)
@@ -933,6 +1199,11 @@ class stripe_payments(Extensions):
                             logging.info(
                                 f"Invoice {invoice_id} already processed, skipping"
                             )
+                            session.close()
+                            return {"success": "true"}
+
+                        if _record_marketplace_invoice(session, invoice, "active"):
+                            session.commit()
                             session.close()
                             return {"success": "true"}
 
@@ -1185,6 +1456,11 @@ class stripe_payments(Extensions):
                     subscription_id = invoice.get("subscription")
 
                     if subscription_id:
+                        if _record_marketplace_invoice(session, invoice, "past_due"):
+                            session.commit()
+                            session.close()
+                            return {"success": "true"}
+
                         company = (
                             session.query(Company)
                             .filter(Company.stripe_subscription_id == subscription_id)

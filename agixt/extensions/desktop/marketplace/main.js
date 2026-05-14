@@ -150,7 +150,7 @@
       }
       .agxm-badge svg { width: 11px; height: 11px; }
       .agxm-badge-active { border-color: rgba(94, 210, 143, .42); background: rgba(94, 210, 143, .12); color: #72d99d; }
-      .agxm-badge-locked { border-color: var(--border); background: var(--panel); color: var(--text-faint); }
+      .agxm-badge-available { border-color: color-mix(in srgb, var(--accent) 38%, var(--border)); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); color: var(--accent); }
       .agxm-badge-trial  { border-color: rgba(255, 183, 116, .42); background: rgba(255, 183, 116, .12); color: #ffbd7e; }
       .agxm-badge-pastdue { border-color: rgba(248, 81, 73, .45); background: rgba(248, 81, 73, .14); color: #ff8a86; }
       .agxm-badge-base   { border-color: rgba(107, 123, 255, .42); background: rgba(107, 123, 255, .14); color: #aab2ff; }
@@ -369,7 +369,7 @@
       return { label: 'Active', cls: 'agxm-badge-active', icon: ICONS.check };
     }
     if (app.entitlement_status === 'past_due') return { label: 'Past due', cls: 'agxm-badge-pastdue', icon: ICONS.lock };
-    return { label: 'Locked', cls: 'agxm-badge-locked', icon: ICONS.lock };
+    return { label: 'Available', cls: 'agxm-badge-available', icon: ICONS.box };
   };
 
   MarketplaceView.prototype.render = function () {
@@ -543,7 +543,8 @@
       sub.className = 'agxm-btn agxm-btn-primary';
       const subBusy = this.busy === app.app_slug + ':checkout';
       sub.innerHTML = (subBusy ? '<span class="agxm-loading-spinner" style="width:13px;height:13px;border-width:2px;margin:0;"></span>' : ICONS.card) + '<span>' + (subBusy ? 'Starting…' : 'Subscribe') + '</span>';
-      sub.disabled = !this.data || !this.data.stripe_enabled || !!this.busy;
+      sub.title = app.can_purchase ? 'Subscribe to this extension package' : 'Marketplace checkout is not configured for this package';
+      sub.disabled = !app.can_purchase || !!this.busy;
       sub.addEventListener('click', () => this.checkout(app));
 
       const credits = document.createElement('button');
@@ -551,8 +552,8 @@
       credits.className = 'agxm-btn agxm-btn-ghost';
       const creditsBusy = this.busy === app.app_slug + ':credits';
       credits.innerHTML = (creditsBusy ? '<span class="agxm-loading-spinner" style="width:13px;height:13px;border-width:2px;margin:0;"></span>' : ICONS.coins) + '<span>Credits</span>';
-      credits.title = 'Activate with company credits';
-      credits.disabled = !this.data || !this.data.credits_enabled || !!this.busy;
+      credits.title = app.can_use_credits ? 'Activate with company credits' : 'Credit activation is not configured for this package';
+      credits.disabled = !app.can_use_credits || !!this.busy;
       credits.addEventListener('click', () => this.activateCredits(app));
 
       actions.appendChild(sub);
