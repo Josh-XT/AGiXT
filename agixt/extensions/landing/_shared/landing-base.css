@@ -1,0 +1,311 @@
+/*
+ * Shared landing-page base styles.
+ *
+ * Mirrors the design tokens from web/app/globals.css (the GitHub-inspired
+ * palette the React landings use through Tailwind) plus the Tailwind
+ * type-scale defaults (text-base/lg/xl/2xl/3xl/4xl/5xl/6xl) and the Inter
+ * webfont the web app loads via next/font/google. Every landing page
+ * (agixt, xtsystems, boltremote, ultraestimate, nursext, agent-hoa)
+ * loads this file BEFORE its own styles.css so the tokens are
+ * authoritative and per-site stylesheets only add layout / hero
+ * artwork on top.
+ *
+ * If the source globals.css moves a token, update it here too.
+ */
+
+/* Inter — display:swap so paint isn't blocked on font load. Matches
+   how next/font loads it in web/app/layout.tsx. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* ============================================================ */
+/*  Color tokens — verbatim from web/app/globals.css            */
+/* ============================================================ */
+
+:root {
+  /* Default = dark theme (matches the web app's default). */
+  --background: 217 28% 8%;
+  --foreground: 213 31% 91%;
+  --card: 218 22% 11%;
+  --card-foreground: 213 31% 91%;
+  --popover: 218 23% 12%;
+  --popover-foreground: 213 31% 91%;
+  --primary: 212 92% 68%;
+  --primary-foreground: 220 15% 7%;
+  --secondary: 218 19% 11%;
+  --secondary-foreground: 213 31% 91%;
+  --muted: 218 18% 10%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 217 20% 13%;
+  --accent-foreground: 213 31% 91%;
+  --destructive: 353 83% 54%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 134 61% 41%;
+  --success-foreground: 0 0% 100%;
+  --warning: 35 100% 50%;
+  --warning-foreground: 220 15% 7%;
+  --info: 212 92% 68%;
+  --info-foreground: 220 15% 7%;
+  --border: 220 13% 18%;
+  --input: 220 13% 18%;
+  --ring: 212 92% 68%;
+  --radius: 6px;
+  --header-background: 217 80% 2%;
+  --header-foreground: 213 31% 91%;
+  --header-border: 220 13% 18%;
+  --surface-soft: 217 32% 9%;
+  --surface-muted: 217 24% 12%;
+  --surface-raised: 217 19% 16%;
+}
+
+/* Light theme — applied via media query so the iframe respects the
+   user's OS preference. The desktop client itself owns its own theme;
+   the landing iframe stays self-contained. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --background: 213 33% 96%;
+    --foreground: 222 13% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 13% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 13% 15%;
+    --primary: 212 92% 43%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 214 28% 92%;
+    --secondary-foreground: 222 13% 15%;
+    --muted: 214 16% 85%;
+    --muted-foreground: 215 15% 35%;
+    --accent: 259 54% 68%;
+    --accent-foreground: 222 13% 15%;
+    --destructive: 355 76% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 137 58% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 32 96% 45%;
+    --warning-foreground: 0 0% 100%;
+    --info: 217 90% 46%;
+    --info-foreground: 0 0% 100%;
+    --border: 214 16% 83%;
+    --input: 214 16% 83%;
+    --ring: 212 92% 43%;
+    --header-background: 213 33% 96%;
+    --header-foreground: 222 13% 15%;
+    --header-border: 214 16% 83%;
+    --surface-soft: 213 31% 94%;
+    --surface-muted: 0 0% 100%;
+    --surface-raised: 0 0% 100%;
+  }
+}
+
+/* ============================================================ */
+/*  Resolved color helpers — use these in per-site stylesheets   */
+/*  so we don't repeat hsl(var(...)) everywhere.                 */
+/* ============================================================ */
+
+:root {
+  --c-background: hsl(var(--background));
+  --c-foreground: hsl(var(--foreground));
+  --c-card: hsl(var(--card));
+  --c-card-foreground: hsl(var(--card-foreground));
+  --c-primary: hsl(var(--primary));
+  --c-primary-foreground: hsl(var(--primary-foreground));
+  --c-secondary: hsl(var(--secondary));
+  --c-secondary-foreground: hsl(var(--secondary-foreground));
+  --c-muted: hsl(var(--muted));
+  --c-muted-30: hsl(var(--muted) / 0.30);
+  --c-muted-50: hsl(var(--muted) / 0.50);
+  --c-muted-foreground: hsl(var(--muted-foreground));
+  --c-accent: hsl(var(--accent));
+  --c-destructive: hsl(var(--destructive));
+  --c-destructive-foreground: hsl(var(--destructive-foreground));
+  --c-destructive-soft: hsl(var(--destructive) / 0.05);
+  --c-destructive-soft-border: hsl(var(--destructive) / 0.20);
+  --c-success: hsl(var(--success));
+  --c-warning: hsl(var(--warning));
+  --c-border: hsl(var(--border));
+  --c-input: hsl(var(--input));
+  --c-ring: hsl(var(--ring));
+  --c-primary-soft: hsl(var(--primary) / 0.05);
+  --c-primary-soft-strong: hsl(var(--primary) / 0.10);
+  --c-primary-soft-border: hsl(var(--primary) / 0.20);
+}
+
+/* ============================================================ */
+/*  Tailwind-mirroring type scale + spacing                     */
+/* ============================================================ */
+
+:root {
+  /* Type scale — 1rem = 16px, matching Tailwind defaults. */
+  --text-xs: 0.75rem;       /* 12 */
+  --text-sm: 0.875rem;      /* 14 */
+  --text-base: 1rem;        /* 16 */
+  --text-lg: 1.125rem;      /* 18 */
+  --text-xl: 1.25rem;       /* 20 */
+  --text-2xl: 1.5rem;       /* 24 */
+  --text-3xl: 1.875rem;     /* 30 */
+  --text-4xl: 2.25rem;      /* 36 */
+  --text-5xl: 3rem;         /* 48 */
+  --text-6xl: 3.75rem;      /* 60 */
+
+  --leading-tight: 1.25;
+  --leading-snug: 1.375;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto,
+               Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas,
+               'Liberation Mono', monospace;
+
+  --container: 1200px;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.10), 0 2px 4px -2px rgb(0 0 0 / 0.10);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.10), 0 4px 6px -4px rgb(0 0 0 / 0.10);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.10), 0 8px 10px -6px rgb(0 0 0 / 0.10);
+}
+
+/* ============================================================ */
+/*  Base resets + typography                                     */
+/* ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: var(--leading-normal);
+  color: var(--c-foreground);
+  background: var(--c-background);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+img, svg, video { max-width: 100%; display: block; }
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+a:hover { text-decoration: underline; }
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  line-height: var(--leading-tight);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+h1 { font-size: var(--text-5xl); }
+h2 { font-size: var(--text-3xl); }
+h3 { font-size: var(--text-xl); }
+h4 { font-size: var(--text-lg); }
+
+@media (min-width: 768px) {
+  h1 { font-size: var(--text-6xl); }
+}
+
+p { margin: 0; }
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+/* ============================================================ */
+/*  Container utility (matches Tailwind `container px-6 mx-auto`) */
+/* ============================================================ */
+
+.container {
+  width: 100%;
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+  max-width: var(--container);
+}
+
+@media (min-width: 1400px) {
+  .container { max-width: 1400px; }
+}
+
+/* ============================================================ */
+/*  Button base — matches the shadcn Button used by the React    */
+/*  landings (rounded, primary fill, sm/md/lg sizes).             */
+/* ============================================================ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-weight: 500;
+  font-size: var(--text-sm);
+  padding: 0.5rem 1rem;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+  cursor: pointer;
+  text-decoration: none;
+}
+.btn-lg {
+  font-size: var(--text-base);
+  padding: 0.75rem 1.5rem;
+}
+.btn-xl {
+  font-size: var(--text-lg);
+  padding: 1rem 2rem;
+}
+.btn-primary {
+  background: var(--c-primary);
+  color: var(--c-primary-foreground);
+}
+.btn-primary:hover { filter: brightness(1.05); text-decoration: none; }
+.btn-outline {
+  background: transparent;
+  color: var(--c-foreground);
+  border-color: var(--c-border);
+}
+.btn-outline:hover { background: var(--c-accent); text-decoration: none; }
+.btn-ghost {
+  background: transparent;
+  color: var(--c-foreground);
+}
+.btn-ghost:hover { background: var(--c-accent); text-decoration: none; }
+.btn-secondary {
+  background: var(--c-secondary);
+  color: var(--c-secondary-foreground);
+}
+.btn-secondary:hover { filter: brightness(1.05); text-decoration: none; }
+
+/* ============================================================ */
+/*  Card surface                                                  */
+/* ============================================================ */
+
+.card {
+  background: var(--c-card);
+  color: var(--c-card-foreground);
+  border: 1px solid var(--c-border);
+  border-radius: calc(var(--radius) + 2px);
+  padding: 1.5rem;
+}
+
+/* ============================================================ */
+/*  Section padding (matches Tailwind `py-16` / `py-20`)         */
+/* ============================================================ */
+
+.section { padding-block: 4rem; }
+.section-lg { padding-block: 5rem; }
+
+/* ============================================================ */
+/*  Reduced-motion friendliness — keep transitions, drop heavy   */
+/*  parallax/animation if a user opts out.                        */
+/* ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

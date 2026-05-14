@@ -1,0 +1,10 @@
+{
+  "id": "agixt",
+  "label": "AGiXT",
+  "app_name": "AGiXT",
+  "app_names": ["AGiXT"],
+  "version": "0.1.0",
+  "tagline": "Connect Everything. Control It With Words.",
+  "logo": "assets/AGiXT_New.svg",
+  "default": true
+}

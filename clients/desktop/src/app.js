@@ -146,23 +146,28 @@
 
   function showScreen(which) {
     const auth = which === 'auth';
+    const landing = which === 'landing';
+    const chat = which === 'chat';
+    const landingScreen = $('landing-screen');
+    if (landingScreen) landingScreen.hidden = !landing;
     $('auth-screen').hidden = !auth;
-    $('chat-screen').hidden = auth;
-    document.body.classList.toggle('auth-mode', auth);
-    // When showing auth, also disable the new-convo button etc. so users
-    // don't get a weird state.
+    $('chat-screen').hidden = !chat;
+    // The auth-mode body class controls topbar chip styling. Treat the
+    // landing screen the same — neither has chat chrome.
+    document.body.classList.toggle('auth-mode', auth || landing);
+    // While not on chat, disable the chat-only chrome controls.
     [
       newConvoBtn,
       agentBtn,
       convoBtn,
       agentTrainingBtn,
-    ].forEach((b) => { if (b) b.disabled = auth; });
+    ].forEach((b) => { if (b) b.disabled = !chat; });
     closeMenus();
     // The sidenav has zero height while #chat-screen is hidden, so any
     // overflow measurement made before login is meaningless. Re-run it
     // once the chat screen becomes visible so the More button appears
     // correctly on first paint.
-    if (!auth
+    if (chat
         && window.AgixtDesktopExtensions
         && typeof window.AgixtDesktopExtensions.reflowSidenav === 'function') {
       setTimeout(() => {
@@ -170,6 +175,75 @@
       }, 0);
     }
   }
+
+  // ----- Landing screen (pre-auth marketing) -------------------------------
+
+  // Track which landing site the iframe is currently showing so we don't
+  // reload it on every showScreen('landing') call (e.g. logout retains
+  // the prior load).
+  let _activeLandingSiteId = null;
+  let _landingMessageHandler = null;
+
+  function landingServerBase() {
+    if (settings && typeof settings.server_url === 'string' && settings.server_url) {
+      return settings.server_url.replace(/\/+$/, '');
+    }
+    return 'http://localhost:7437';
+  }
+
+  async function fetchLandingManifest() {
+    try {
+      const res = await fetch(`${landingServerBase()}/v1/landing`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return (data && data.landing) ? data.landing : null;
+    } catch (err) {
+      console.warn('landing fetch failed', err);
+      return null;
+    }
+  }
+
+  function showLanding(landing) {
+    const frame = $('landing-frame');
+    if (!frame || !landing || !landing.id) return false;
+    const desiredUrl = `${landingServerBase()}${landing.index_url || landing.entry_url}`;
+    if (_activeLandingSiteId !== landing.id || frame.src !== desiredUrl) {
+      frame.src = desiredUrl;
+      _activeLandingSiteId = landing.id;
+    }
+    showScreen('landing');
+    if (!_landingMessageHandler) {
+      _landingMessageHandler = (event) => {
+        const data = event && event.data;
+        if (!data || typeof data !== 'object') return;
+        if (data.type !== 'landing-action') return;
+        if (data.action === 'signin' || data.action === 'register' || data.action === 'auth') {
+          showScreen('auth');
+          if (window.AgixtAuth && typeof window.AgixtAuth.boot === 'function') {
+            window.AgixtAuth.boot({ onAuthenticated });
+          }
+        }
+      };
+      window.addEventListener('message', _landingMessageHandler);
+    }
+    return true;
+  }
+
+  function wireLandingSignInFab() {
+    const fab = $('landing-signin-fab');
+    if (!fab || fab._wired) return;
+    fab._wired = true;
+    fab.addEventListener('click', () => {
+      showScreen('auth');
+      if (window.AgixtAuth && typeof window.AgixtAuth.boot === 'function') {
+        window.AgixtAuth.boot({ onAuthenticated });
+      }
+    });
+  }
+  wireLandingSignInFab();
 
   // ----- Settings load / save ---------------------------------------------
 
@@ -2314,7 +2388,28 @@
         window.AgixtDesktopExtensions.start();
       }
     } else {
-      showScreen('auth');
+      // No JWT. In web mode (no Tauri shell), show the configured
+      // landing page first so first-time visitors see marketing instead
+      // of a bare auth form. In native desktop mode, skip landing and
+      // jump straight to the auth screen — the desktop user already
+      // chose to install the app and needs the server picker, not a
+      // sales pitch. `window.__TAURI__` (resolved into `tauri` at the
+      // top of this IIFE) is the canonical "we're in the native shell"
+      // signal; it's undefined when the same bundle is served as a
+      // plain web app.
+      const isNativeDesktop = !!tauri;
+      let landingShown = false;
+      if (!isNativeDesktop) {
+        try {
+          const landing = await fetchLandingManifest();
+          if (landing) landingShown = showLanding(landing);
+        } catch (err) {
+          console.warn('landing boot failed', err);
+        }
+      }
+      if (!landingShown) {
+        showScreen('auth');
+      }
       if (window.AgixtAuth) {
         await window.AgixtAuth.boot({ onAuthenticated });
       }

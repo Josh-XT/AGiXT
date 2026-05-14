@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; img-src 'self' data: blob: https: http:; media-src 'self' data: blob: https: http:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http: https: ws: wss:; font-src 'self' data:;" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; img-src 'self' data: blob: https: http:; media-src 'self' data: blob: https: http:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http: https: ws: wss:; font-src 'self' data:; frame-src 'self' http: https:;" />
     <title>AGiXT</title>
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="workspace.css" />
@@ -104,6 +104,22 @@
           </div>
         </div>
       </header>
+
+      <!-- LANDING SCREEN — pre-auth marketing page sourced from the
+           configured extension hub. Hidden by default; shown only when
+           we boot without a JWT *and* /v1/landing returns a manifest
+           for the current APP_NAME. The landing iframe posts a
+           {type:"landing-action", action:"signin"} message to the host
+           when the user hits any auth CTA, which flips us to the
+           auth screen below. -->
+      <section class="landing-screen" id="landing-screen" hidden>
+        <iframe id="landing-frame" title="Landing"
+                sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                referrerpolicy="no-referrer"
+                src="about:blank"></iframe>
+        <button class="landing-signin-fab" id="landing-signin-fab" type="button"
+                title="Sign in">Sign in</button>
+      </section>
 
       <!-- AUTH SCREEN — shown when no JWT -->
       <section class="auth-screen" id="auth-screen" hidden>
