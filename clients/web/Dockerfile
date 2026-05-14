@@ -1,4 +1,4 @@
-FROM nginx:1.27-alpine
+FROM nginx:1.30.1-alpine
 
 ENV AGIXT_API_UPSTREAM=http://agixt:7437
 

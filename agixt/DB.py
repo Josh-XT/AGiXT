@@ -2546,6 +2546,12 @@ class PaymentTransaction(Base):
     app_name = Column(
         String, nullable=True, default=None
     )  # The app this payment is for (e.g., "XT Systems", "NurseXT")
+    app_slug = Column(String, nullable=True, default=None)
+    entitlement_id = Column(String, nullable=True, default=None)
+    transaction_type = Column(String, nullable=True, default=None)
+    stripe_checkout_session_id = Column(String, nullable=True, default=None)
+    stripe_subscription_id = Column(String, nullable=True, default=None)
+    stripe_invoice_id = Column(String, nullable=True, default=None)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -2581,6 +2587,135 @@ class TrialDomain(Base):
 
     company = relationship("Company", backref="trial_domains")
     user = relationship("User", backref="trial_domains")
+
+
+class CompanyAppEntitlement(Base):
+    """
+    Current marketplace app/package entitlement for a company.
+
+    This intentionally lives beside Company.stripe_subscription_id so marketplace
+    add-ons can be subscribed independently from the company's base app plan.
+    """
+
+    __tablename__ = "company_app_entitlement"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    app_slug = Column(String, nullable=False, index=True)
+    source_site_slug = Column(String, nullable=True, default=None)
+    status = Column(String, nullable=False, default="active", index=True)
+    tier_id = Column(String, nullable=True, default=None)
+    quantity = Column(Integer, nullable=False, default=1)
+    stripe_customer_id = Column(String, nullable=True, default=None)
+    stripe_subscription_id = Column(String, nullable=True, default=None, index=True)
+    stripe_subscription_item_id = Column(String, nullable=True, default=None)
+    stripe_price_id = Column(String, nullable=True, default=None)
+    current_period_start = Column(DateTime, nullable=True, default=None)
+    current_period_end = Column(DateTime, nullable=True, default=None)
+    trial_start = Column(DateTime, nullable=True, default=None)
+    trial_end = Column(DateTime, nullable=True, default=None)
+    purchased_with_credits = Column(Boolean, nullable=False, default=False)
+    credit_amount_usd = Column(Float, nullable=True, default=None)
+    metadata_json = Column(Text, nullable=True, default=None)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    company = relationship("Company", backref="app_entitlements")
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "app_slug", name="uix_company_app_entitlement"),
+        Index("ix_company_app_entitlement_company_status", "company_id", "status"),
+    )
+
+
+class AppTrialGrant(Base):
+    """
+    Site/app-scoped trial grant ledger for marketplace-aware trial policy.
+    """
+
+    __tablename__ = "app_trial_grant"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    site_slug = Column(String, nullable=False, index=True)
+    app_slug = Column(String, nullable=False, index=True)
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    user_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    normalized_domain = Column(String, nullable=True, index=True)
+    email = Column(String, nullable=True, index=True)
+    credits_granted_usd = Column(Float, nullable=False, default=0.0)
+    granted_at = Column(DateTime, server_default=func.now())
+    expires_at = Column(DateTime, nullable=True, default=None)
+    metadata_json = Column(Text, nullable=True, default=None)
+
+    company = relationship("Company", backref="app_trial_grants")
+    user = relationship("User", backref="app_trial_grants")
+
+    __table_args__ = (
+        Index(
+            "ix_app_trial_grant_site_app_domain",
+            "site_slug",
+            "app_slug",
+            "normalized_domain",
+        ),
+        Index("ix_app_trial_grant_site_app_user", "site_slug", "app_slug", "user_id"),
+    )
+
+
+class CompanyCreditLedger(Base):
+    """
+    General company credit ledger for marketplace purchases.
+
+    Token balances remain separate; this ledger is for marketplace/account
+    credits that should not be silently consumed by inference usage.
+    """
+
+    __tablename__ = "company_credit_ledger"
+    id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        primary_key=True,
+        default=get_new_id if DATABASE_TYPE == "sqlite" else uuid.uuid4,
+    )
+    company_id = Column(
+        UUID(as_uuid=True) if DATABASE_TYPE != "sqlite" else String,
+        ForeignKey("Company.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    amount_usd = Column(Float, nullable=False)
+    balance_after_usd = Column(Float, nullable=False, default=0.0)
+    source = Column(String, nullable=False, default="manual")
+    source_reference = Column(String, nullable=True, default=None)
+    app_slug = Column(String, nullable=True, index=True)
+    entitlement_id = Column(String, nullable=True, index=True)
+    metadata_json = Column(Text, nullable=True, default=None)
+    created_at = Column(DateTime, server_default=func.now())
+
+    company = relationship("Company", backref="credit_ledger_entries")
+
+    __table_args__ = (
+        Index("ix_company_credit_ledger_company_created", "company_id", "created_at"),
+    )
 
 
 class Memory(Base):
@@ -4014,6 +4149,12 @@ def migrate_payment_transaction_table():
             columns_to_add = [
                 ("token_amount", "INTEGER"),
                 ("app_name", "TEXT"),
+                ("app_slug", "TEXT"),
+                ("entitlement_id", "TEXT"),
+                ("transaction_type", "TEXT"),
+                ("stripe_checkout_session_id", "TEXT"),
+                ("stripe_subscription_id", "TEXT"),
+                ("stripe_invoice_id", "TEXT"),
             ]
 
             if DATABASE_TYPE == "sqlite":
@@ -4055,6 +4196,93 @@ def migrate_payment_transaction_table():
         logging.debug(
             f"payment_transaction table migration completed or not needed: {e}"
         )
+
+
+def _slugify_app_name(value: str) -> str:
+    import re
+
+    slug = re.sub(r"[^a-z0-9]+", "-", (value or "").strip().lower()).strip("-")
+    return slug or "agixt"
+
+
+def migrate_marketplace_tables():
+    """
+    Create marketplace entitlement/credit tables and seed base app entitlements
+    for existing companies. This is additive and idempotent.
+    """
+    if engine is None:
+        return
+
+    try:
+        for model in (CompanyAppEntitlement, AppTrialGrant, CompanyCreditLedger):
+            model.__table__.create(engine, checkfirst=True)
+
+        from ExtensionsHub import ExtensionsHub
+
+        pricing_config = ExtensionsHub().get_pricing_config() or {}
+        default_app_name = (
+            pricing_config.get("app_name") or getenv("APP_NAME") or "AGiXT"
+        )
+        default_app_slug = pricing_config.get("app_slug") or _slugify_app_name(
+            default_app_name
+        )
+        default_site_slug = (
+            pricing_config.get("site_slug")
+            or getenv("SITE_SLUG")
+            or getenv("APP_SLUG")
+            or default_app_slug
+        )
+
+        with get_db_session() as session:
+            companies = session.query(Company).all()
+            for company in companies:
+                app_name = company.app_name or default_app_name
+                app_slug = _slugify_app_name(app_name)
+                if app_name == default_app_name:
+                    app_slug = default_app_slug
+                if not app_slug:
+                    continue
+
+                existing = (
+                    session.query(CompanyAppEntitlement)
+                    .filter(
+                        CompanyAppEntitlement.company_id == company.id,
+                        CompanyAppEntitlement.app_slug == app_slug,
+                    )
+                    .first()
+                )
+                if existing:
+                    continue
+
+                if company.trial_credits_granted:
+                    status = "trialing"
+                elif company.stripe_subscription_id:
+                    status = "active"
+                else:
+                    status = "included"
+
+                entitlement = CompanyAppEntitlement(
+                    company_id=company.id,
+                    app_slug=app_slug,
+                    source_site_slug=default_site_slug,
+                    status=status,
+                    tier_id=company.plan_id,
+                    quantity=company.bed_count or 1,
+                    stripe_customer_id=company.stripe_customer_id,
+                    stripe_subscription_id=company.stripe_subscription_id,
+                    trial_start=company.trial_credits_granted_at,
+                    purchased_with_credits=False,
+                    metadata_json=json.dumps(
+                        {
+                            "backfilled_from_company": True,
+                            "app_name": app_name,
+                        }
+                    ),
+                )
+                session.add(entitlement)
+            session.commit()
+    except Exception as e:
+        logging.warning(f"Marketplace table migration error: {e}", exc_info=True)
 
 
 def migrate_extension_table():
@@ -8796,6 +9024,32 @@ def check_schema_migrations_needed():
                         return True
                 except Exception:
                     return True
+
+                try:
+                    result = session.execute(
+                        text(
+                            "SELECT 1 FROM sqlite_master "
+                            "WHERE type='table' AND name='company_app_entitlement'"
+                        )
+                    )
+                    if not result.fetchone():
+                        return True
+                    result = session.execute(
+                        text("PRAGMA table_info(payment_transaction)")
+                    )
+                    payment_columns = {row[1] for row in result.fetchall()}
+                    for column_name in (
+                        "app_slug",
+                        "entitlement_id",
+                        "transaction_type",
+                        "stripe_checkout_session_id",
+                        "stripe_subscription_id",
+                        "stripe_invoice_id",
+                    ):
+                        if column_name not in payment_columns:
+                            return True
+                except Exception:
+                    return True
             else:
                 # PostgreSQL - check for latest migration indicators
                 result = session.execute(
@@ -8890,6 +9144,38 @@ def check_schema_migrations_needed():
                     if data_type != "bigint":
                         return True
 
+                result = session.execute(
+                    text(
+                        """
+                        SELECT 1 FROM information_schema.tables
+                        WHERE table_name = 'company_app_entitlement'
+                        """
+                    )
+                )
+                if not result.fetchone():
+                    return True
+
+                for column_name in (
+                    "app_slug",
+                    "entitlement_id",
+                    "transaction_type",
+                    "stripe_checkout_session_id",
+                    "stripe_subscription_id",
+                    "stripe_invoice_id",
+                ):
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT 1 FROM information_schema.columns
+                            WHERE table_name = 'payment_transaction'
+                            AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    )
+                    if not result.fetchone():
+                        return True
+
             return False
     except Exception as e:
         logging.warning(f"Could not check migration status, will run migrations: {e}")
@@ -8911,6 +9197,7 @@ def run_all_schema_migrations():
     migrate_company_table()
     migrate_company_large_integer_columns()
     migrate_payment_transaction_table()
+    migrate_marketplace_tables()
     migrate_extension_table()
     migrate_user_table()
 

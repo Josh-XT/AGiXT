@@ -1,0 +1,13 @@
+{
+  "id": "marketplace",
+  "label": "Marketplace",
+  "icon": "marketplace",
+  "icon_svg": "<path d=\"M4 7h16l-1 13H5L4 7Z\"/><path d=\"M7 7a5 5 0 0 1 10 0\"/><path d=\"M9 12h6\"/>",
+  "layout": "framed",
+  "slot": "admin",
+  "version": "0.2.0",
+  "entry": "main.js",
+  "requires": {
+    "company_scope": ["ui:admin_panel"]
+  }
+}

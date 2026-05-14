@@ -14,6 +14,7 @@ This router serves two endpoints:
       render, gated by the per-extension `requires` block:
         company_scope   — list of scopes the user must hold on the
                           requested company (e.g. ["ext:machines:read"])
+        entitlement     — marketplace app slug(s) the company must hold
         user_oauth      — provider name(s) the user must have connected
         agent_extension — Extension class name(s) enabled on the
                           requested agent
@@ -42,6 +43,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from ApiClient import verify_api_key
 from ExtensionsHub import ExtensionsHub
 from MagicalAuth import MagicalAuth
+from Marketplace import company_has_marketplace_entitlement
 
 app = APIRouter()
 logger = logging.getLogger(__name__)
@@ -99,6 +101,15 @@ def _meets_requires(
 
     if requires.get("server_admin") and not auth.is_super_admin():
         return False
+
+    entitlements = requires.get("entitlement") or []
+    if isinstance(entitlements, str):
+        entitlements = [entitlements]
+    for app_slug in entitlements:
+        if not company_id or not company_has_marketplace_entitlement(
+            company_id, str(app_slug)
+        ):
+            return False
 
     company_scope = requires.get("company_scope") or []
     if isinstance(company_scope, str):

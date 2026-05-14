@@ -99,6 +99,10 @@ async def initialize_database_schema():
     DB.migrate_company_large_integer_columns()
     startup_timer.section_end("company_bigint_columns", section_start)
 
+    section_start = startup_timer.section_start()
+    DB.migrate_marketplace_tables()
+    startup_timer.section_end("marketplace_tables", section_start)
+
     return DB
 
 
