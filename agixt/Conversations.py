@@ -29,6 +29,7 @@ from sqlalchemy.sql import func, or_, and_, case, exists, select
 from sqlalchemy.exc import IntegrityError
 from MagicalAuth import convert_time, get_user_id, get_user_timezone
 from SharedCache import shared_cache
+from fastapi import HTTPException
 
 # Regex to strip ANSI escape sequences and non-printable control characters
 # Matches: CSI sequences (\x1b[...X), OSC sequences (\x1b]...BEL), charset
@@ -3578,6 +3579,12 @@ class Conversations:
         if not msg:
             session.close()
             return
+        if not self._can_delete_message(session, user_id, conversation, msg):
+            session.close()
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to delete this message",
+            )
         session.delete(msg)
         session.commit()
         session.close()
@@ -3634,6 +3641,75 @@ class Conversations:
             return message[0] if message else "AGiXT"
         finally:
             session.close()
+
+    @staticmethod
+    def _is_collaborative_conversation(conversation):
+        return (conversation.conversation_type or "private") in (
+            "group",
+            "dm",
+            "thread",
+            "channel",
+        )
+
+    @staticmethod
+    def _is_admin_user(session, user_id):
+        user = session.query(User).filter(User.id == user_id).first()
+        return bool(user and user.admin)
+
+    @staticmethod
+    def _participant_role(session, conversation_id, user_id):
+        participant = (
+            session.query(ConversationParticipant)
+            .filter(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.user_id == user_id,
+                ConversationParticipant.participant_type == "user",
+                ConversationParticipant.status == "active",
+            )
+            .first()
+        )
+        return participant.role if participant else None
+
+    @staticmethod
+    def _user_owns_message(user_id, conversation, message):
+        if message.sender_user_id and str(message.sender_user_id) == str(user_id):
+            return True
+
+        # Older private conversations may not have sender_user_id on USER rows.
+        return (
+            not Conversations._is_collaborative_conversation(conversation)
+            and (message.role or "").upper() == "USER"
+            and conversation.user_id
+            and str(conversation.user_id) == str(user_id)
+        )
+
+    @staticmethod
+    def _can_edit_message(session, user_id, conversation, message):
+        if Conversations._is_admin_user(session, user_id):
+            return True
+
+        if Conversations._is_collaborative_conversation(conversation):
+            return (
+                message.role or ""
+            ).upper() == "USER" and Conversations._user_owns_message(
+                user_id, conversation, message
+            )
+
+        return (
+            conversation.user_id and str(conversation.user_id) == str(user_id)
+        ) or Conversations._user_owns_message(user_id, conversation, message)
+
+    @staticmethod
+    def _can_delete_message(session, user_id, conversation, message):
+        if Conversations._can_edit_message(session, user_id, conversation, message):
+            return True
+
+        role = Conversations._participant_role(session, conversation.id, user_id)
+        return (conversation.conversation_type or "private") in (
+            "group",
+            "thread",
+            "channel",
+        ) and role in ("owner", "admin")
 
     def delete_message_by_id(self, message_id):
         session = get_session()
@@ -3746,6 +3822,12 @@ class Conversations:
         if not message:
             session.close()
             return
+        if not self._can_delete_message(session, user_id, conversation, message):
+            session.close()
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to delete this message",
+            )
         session.delete(message)
         session.commit()
         session.close()
@@ -3800,6 +3882,13 @@ class Conversations:
         if not target_message:
             session.close()
             return
+
+        if not self._can_delete_message(session, user_id, conversation, target_message):
+            session.close()
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to delete this message",
+            )
 
         target_timestamp = target_message.timestamp
         target_message_id = target_message.id
@@ -3945,6 +4034,11 @@ class Conversations:
             )
             if not msg:
                 return
+            if not self._can_edit_message(session, self._user_id, conversation, msg):
+                raise HTTPException(
+                    status_code=403,
+                    detail="You do not have permission to edit this message",
+                )
             msg.content = new_message
             session.commit()
         finally:
@@ -4033,6 +4127,13 @@ class Conversations:
             )
             session.close()
             return
+
+        if not self._can_edit_message(session, user_id, conversation, message):
+            session.close()
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to edit this message",
+            )
 
         # Update the message content and metadata
         message.content = str(new_message)  # Ensure the content is a string
