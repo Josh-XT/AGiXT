@@ -3237,6 +3237,23 @@ fn show_popover(
 }
 
 #[cfg(not(mobile))]
+fn request_show_main_window(app: &AppHandle) {
+    let app = app.clone();
+    if let Err(e) = app.clone().run_on_main_thread(move || {
+        if let Some(win) = app.get_webview_window(MAIN_LABEL) {
+            if let Err(err) = show_popover(&app, &win, None) {
+                tracing::warn!("deep-link window show failed: {}", err.error);
+            }
+        }
+    }) {
+        tracing::warn!("failed to schedule deep-link window show: {e}");
+    }
+}
+
+#[cfg(mobile)]
+fn request_show_main_window(_: &AppHandle) {}
+
+#[cfg(not(mobile))]
 fn hide_popover(app: &AppHandle, win: &WebviewWindow) {
     tracing::info!("hide_popover called");
     #[cfg(target_os = "linux")]
@@ -4021,9 +4038,7 @@ pub fn run() {
                         });
                     let app = dl_handle.clone();
                     tauri::async_runtime::spawn(async move {
-                        if let Some(w) = app.get_webview_window(MAIN_LABEL) {
-                            let _ = show_popover(&app, &w, None);
-                        }
+                        request_show_main_window(&app);
                         match action.as_str() {
                             "login" => {
                                 if let Some(tok) = token {
