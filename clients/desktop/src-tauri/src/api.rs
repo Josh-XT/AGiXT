@@ -7,6 +7,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentInfo {
@@ -46,6 +47,318 @@ pub fn build_streaming_client() -> Result<reqwest::Client> {
         .read_timeout(std::time::Duration::from_secs(300))
         .build()
         .context("build streaming http client")
+}
+
+async fn post_json_value<T: Serialize + ?Sized>(
+    server_url: &str,
+    jwt: &str,
+    path: &str,
+    body: &T,
+) -> Result<Value> {
+    let client = build_client()?;
+    let url = format!("{}{}", server_url.trim_end_matches('/'), path);
+    let resp = client
+        .post(&url)
+        .bearer_auth(jwt)
+        .json(body)
+        .send()
+        .await
+        .with_context(|| format!("POST {path}"))?;
+    if !resp.status().is_success() {
+        return Err(anyhow!(
+            "{} http {}: {}",
+            path,
+            resp.status(),
+            resp.text().await.unwrap_or_default()
+        ));
+    }
+    Ok(resp.json().await?)
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BiometricCompanyRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub company_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HardwareTokenVerifyStartRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub company_id: Option<String>,
+    pub key_id: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BiometricSample {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_base64: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sample: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality_score: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub liveness_result: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BiometricEnrollmentVerifyRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub company_id: Option<String>,
+    pub challenge_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_class: Option<String>,
+    pub samples: Vec<BiometricSample>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdentityEvidenceRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub company_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub challenge_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sequence_number: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codec: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sample_rate_hz: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channels: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_payload_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport_format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped_media_count: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drop_reason: Option<String>,
+    pub method_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_base64: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sample: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub liveness_result: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pad_result: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iad_result: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sensor_attestation_result: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_integrity_result: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_forensics_result: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality_score: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_class: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk_level: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_assurance: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
+}
+
+pub async fn biometric_face_enroll_start(
+    server_url: &str,
+    jwt: &str,
+    company_id: Option<String>,
+) -> Result<Value> {
+    post_json_value(
+        server_url,
+        jwt,
+        "/v1/user/mfa/face/enroll/start",
+        &BiometricCompanyRequest { company_id },
+    )
+    .await
+}
+
+pub async fn biometric_face_enroll_verify(
+    server_url: &str,
+    jwt: &str,
+    request: &BiometricEnrollmentVerifyRequest,
+) -> Result<Value> {
+    post_json_value(server_url, jwt, "/v1/user/mfa/face/enroll/verify", request).await
+}
+
+pub async fn biometric_voice_enroll_start(
+    server_url: &str,
+    jwt: &str,
+    company_id: Option<String>,
+) -> Result<Value> {
+    post_json_value(
+        server_url,
+        jwt,
+        "/v1/user/mfa/voice/enroll/start",
+        &BiometricCompanyRequest { company_id },
+    )
+    .await
+}
+
+pub async fn biometric_voice_enroll_verify(
+    server_url: &str,
+    jwt: &str,
+    request: &BiometricEnrollmentVerifyRequest,
+) -> Result<Value> {
+    post_json_value(server_url, jwt, "/v1/user/mfa/voice/enroll/verify", request).await
+}
+
+pub async fn biometric_submit_evidence(
+    server_url: &str,
+    jwt: &str,
+    request: &IdentityEvidenceRequest,
+) -> Result<Value> {
+    post_json_value(server_url, jwt, "/v1/identity/evidence", request).await
+}
+
+pub async fn webauthn_register_start(
+    server_url: &str,
+    jwt: &str,
+    request: &BiometricCompanyRequest,
+) -> Result<Value> {
+    post_json_value(
+        server_url,
+        jwt,
+        "/v1/user/mfa/webauthn/register/start",
+        request,
+    )
+    .await
+}
+
+pub async fn webauthn_register_finish(
+    server_url: &str,
+    jwt: &str,
+    request: &Value,
+) -> Result<Value> {
+    post_json_value(
+        server_url,
+        jwt,
+        "/v1/user/mfa/webauthn/register/finish",
+        request,
+    )
+    .await
+}
+
+pub async fn webauthn_authenticate_start(
+    server_url: &str,
+    jwt: &str,
+    request: &BiometricCompanyRequest,
+) -> Result<Value> {
+    post_json_value(
+        server_url,
+        jwt,
+        "/v1/user/mfa/webauthn/authenticate/start",
+        request,
+    )
+    .await
+}
+
+pub async fn webauthn_authenticate_finish(
+    server_url: &str,
+    jwt: &str,
+    request: &Value,
+) -> Result<Value> {
+    post_json_value(
+        server_url,
+        jwt,
+        "/v1/user/mfa/webauthn/authenticate/finish",
+        request,
+    )
+    .await
+}
+
+pub async fn hardware_token_register_start(
+    server_url: &str,
+    jwt: &str,
+    request: &BiometricCompanyRequest,
+) -> Result<Value> {
+    post_json_value(
+        server_url,
+        jwt,
+        "/v1/user/mfa/hardware-token/register/start",
+        request,
+    )
+    .await
+}
+
+pub async fn hardware_token_register_finish(
+    server_url: &str,
+    jwt: &str,
+    request: &Value,
+) -> Result<Value> {
+    post_json_value(
+        server_url,
+        jwt,
+        "/v1/user/mfa/hardware-token/register/finish",
+        request,
+    )
+    .await
+}
+
+pub async fn hardware_token_verify_start(
+    server_url: &str,
+    jwt: &str,
+    request: &HardwareTokenVerifyStartRequest,
+) -> Result<Value> {
+    post_json_value(
+        server_url,
+        jwt,
+        "/v1/user/mfa/hardware-token/verify/start",
+        request,
+    )
+    .await
+}
+
+pub async fn hardware_token_verify(server_url: &str, jwt: &str, request: &Value) -> Result<Value> {
+    post_json_value(
+        server_url,
+        jwt,
+        "/v1/user/mfa/hardware-token/verify",
+        request,
+    )
+    .await
 }
 
 pub async fn list_companies(server_url: &str, jwt: &str) -> Result<Vec<CompanyInfo>> {

@@ -328,7 +328,11 @@ impl ConfigStore {
             if s.allow_client_commands { "1" } else { "0" },
         )
         .await?;
-        let theme = if s.theme.is_empty() { "system" } else { s.theme.as_str() };
+        let theme = if s.theme.is_empty() {
+            "system"
+        } else {
+            s.theme.as_str()
+        };
         self.put_raw("theme", theme).await?;
         if let Some(v) = s.dock_pos_x {
             self.put_raw("dock_pos_x", &v.to_string()).await?;

@@ -170,6 +170,78 @@
     return null;
   }
 
+  function userIdOf(user) {
+    if (!user) return null;
+    return user.id || user.user_id || user.userId || null;
+  }
+
+  function firstNameOf(user) {
+    return (user && (user.first_name || user.firstName)) || '';
+  }
+
+  function lastNameOf(user) {
+    return (user && (user.last_name || user.lastName)) || '';
+  }
+
+  function emailOf(user) {
+    return (user && user.email) || null;
+  }
+
+  function avatarUrlOf(user) {
+    return (user && (user.avatar_url || user.avatarUrl)) || null;
+  }
+
+  function displayNameForUser(user) {
+    if (!user) return '';
+    const full = (firstNameOf(user) + ' ' + lastNameOf(user)).trim();
+    return full || user.display_name || user.displayName || user.name || emailOf(user) || '';
+  }
+
+  function currentUserId() {
+    return userIdOf(currentUser);
+  }
+
+  function getMessageSenderId(msg) {
+    if (!msg) return null;
+    const sender = msg.sender || {};
+    return msg.sender_user_id || msg.senderUserId
+      || msg.sender_id || msg.senderId
+      || msg.user_id || msg.userId
+      || sender.id || sender.user_id || sender.userId
+      || null;
+  }
+
+  function userById(uid) {
+    if (!uid) return null;
+    const p = participantById(uid);
+    if (p && p.participant_type === 'user' && p.user) return p.user;
+    if (currentUserId() === uid) return currentUser;
+    for (const teammate of allTeammates) {
+      if (userIdOf(teammate) === uid) return teammate;
+    }
+    return null;
+  }
+
+  function senderInfoForMessage(msg) {
+    const senderUserId = getMessageSenderId(msg);
+    const rawSender = (msg && msg.sender && typeof msg.sender === 'object') ? msg.sender : {};
+    const rosterUser = userById(senderUserId);
+    const merged = Object.assign({}, rosterUser || {}, rawSender);
+    if (senderUserId && !userIdOf(merged)) merged.id = senderUserId;
+    const fromCurrentUser = !!(senderUserId && currentUserId() === senderUserId);
+    return {
+      id: senderUserId || userIdOf(merged),
+      name: displayNameForUser(merged) || (fromCurrentUser ? displayNameForUser(currentUser) || 'You' : 'User'),
+      email: emailOf(merged),
+      avatarUrl: avatarUrlOf(merged),
+    };
+  }
+
+  function isMessageFromCurrentUser(msg) {
+    const senderUserId = getMessageSenderId(msg);
+    return !!(senderUserId && currentUserId() === senderUserId);
+  }
+
   // Resolver fed to the mention rewriter so `<@uid>` tokens render as
   // `@DisplayName`. Falls back to undefined → "User" when the uid is
   // unknown (the participant may have left the channel since the
@@ -1181,17 +1253,14 @@
     const role = (msg.role || '').toString();
     const isUserMsg = /^user$/i.test(role);
     const isAgent = !isUserMsg;
-    const senderUserId = msg.sender_user_id || (msg.sender && msg.sender.id);
     let displayName;
     let email = null;
     let avatarUrl = null;
     if (isUserMsg) {
-      const s = msg.sender || {};
-      const full = ((s.first_name || '') + ' ' + (s.last_name || '')).trim();
-      email = s.email || null;
-      avatarUrl = s.avatar_url || null;
-      displayName = full || email
-        || (currentUser && senderUserId === currentUser.id ? 'You' : 'User');
+      const sender = senderInfoForMessage(msg);
+      email = sender.email;
+      avatarUrl = sender.avatarUrl;
+      displayName = sender.name;
     } else {
       displayName = role || 'Agent';
     }
@@ -1538,8 +1607,7 @@
       html: '<svg width="14" height="14" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m15 10-5 5 5 5M20 4v7a4 4 0 0 1-4 4H5"/></svg>',
       on: { click: () => setReplyTarget(msg, renderedText) },
     }));
-    const isMine = !!(currentUser && (msg.sender_user_id === currentUser.id
-      || (msg.sender && msg.sender.id === currentUser.id)));
+    const isMine = isMessageFromCurrentUser(msg);
     if (isMine) {
       bar.appendChild(ce('button', {
         type: 'button', class: 'tc-msg-toolbar-btn',
@@ -2730,8 +2798,7 @@
 
   function showMessageContextMenu(e, msg, renderedText) {
     const role = (msg.role || '').toString();
-    const isMine = !!(currentUser && (msg.sender_user_id === currentUser.id
-      || (msg.sender && msg.sender.id === currentUser.id)));
+    const isMine = isMessageFromCurrentUser(msg);
     const isUserMsg = /^user$/i.test(role);
     const sel = (window.getSelection && window.getSelection().toString()) || '';
     const onLink = e && e.target && e.target.closest ? e.target.closest('a[href]') : null;
@@ -2923,12 +2990,10 @@
     if (!msg || !msg.id) return;
     const role = (msg.role || '').toString();
     const isUser = /^user$/i.test(role);
-    const senderUserId = msg.sender_user_id || (msg.sender && msg.sender.id);
+    const senderUserId = getMessageSenderId(msg);
     let authorName;
     if (isUser) {
-      const s = msg.sender || {};
-      const full = ((s.first_name || '') + ' ' + (s.last_name || '')).trim();
-      authorName = full || s.email || 'User';
+      authorName = senderInfoForMessage(msg).name;
     } else {
       authorName = role || 'Agent';
     }
@@ -3041,7 +3106,10 @@
     renderMembers();
     renderMessages();
     await Promise.all([
-      loadParticipants(channelId).then(renderMembers),
+      loadParticipants(channelId).then(() => {
+        renderMembers();
+        if (channelId === activeChannelId) renderMessages();
+      }),
       loadMessages(channelId).then(renderMessages),
       // Best-effort thread fetch so message bodies that have replies
       // can render a "X replies — View Thread" chip without a per-row
@@ -3783,7 +3851,11 @@
     participantsPollTimer = setInterval(() => {
       const cid = activeChannelId;
       if (!cid) return;
-      loadParticipants(cid).then(() => { if (cid === activeChannelId) renderMembers(); });
+      loadParticipants(cid).then(() => {
+        if (cid !== activeChannelId) return;
+        renderMembers();
+        renderMessages();
+      });
     }, 30000);
   }
 

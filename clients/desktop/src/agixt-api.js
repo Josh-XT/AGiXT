@@ -355,6 +355,244 @@
   /** POST /v1/user/mfa/reset — issues a fresh otp_uri. */
   async function resetMfa() { return request('POST', '/v1/user/mfa/reset', { body: {} }); }
 
+  /** POST /v1/user/mfa/totp/verify-strong — create a recent strong
+   *  verification event for biometric enrollment/deletion. */
+  async function verifyTotpStrong(code, companyId) {
+    return request('POST', '/v1/user/mfa/totp/verify-strong', {
+      body: { company_id: companyId, mfa_token: code, code },
+    });
+  }
+
+  /** POST /v1/user/mfa/password/verify-strong. */
+  async function verifyPasswordStrong(password, companyId) {
+    return request('POST', '/v1/user/mfa/password/verify-strong', {
+      body: { company_id: companyId, password },
+    });
+  }
+
+  function companyQuery(companyId) {
+    return companyId ? '?company_id=' + encodeURIComponent(companyId) : '';
+  }
+
+  /** GET /v1/user/mfa/methods — generic MFA method surface. */
+  async function getMfaMethods(companyId) {
+    return request('GET', '/v1/user/mfa/methods' + companyQuery(companyId));
+  }
+
+  async function getBiometricConsent(companyId) {
+    return request('GET', '/v1/user/mfa/biometric-consent' + companyQuery(companyId));
+  }
+
+  async function acceptBiometricConsent(consent) {
+    return request('POST', '/v1/user/mfa/biometric-consent', { body: consent || {} });
+  }
+
+  async function revokeBiometricConsent(methodType, companyId) {
+    return request(
+      'DELETE',
+      '/v1/user/mfa/biometric-consent/' + encodeURIComponent(methodType) + companyQuery(companyId),
+    );
+  }
+
+  async function startFaceEnrollment(companyId) {
+    return request('POST', '/v1/user/mfa/face/enroll/start', {
+      body: { company_id: companyId },
+    });
+  }
+
+  async function verifyFaceEnrollment(payload) {
+    return request('POST', '/v1/user/mfa/face/enroll/verify', { body: payload || {} });
+  }
+
+  async function startVoiceEnrollment(companyId) {
+    return request('POST', '/v1/user/mfa/voice/enroll/start', {
+      body: { company_id: companyId },
+    });
+  }
+
+  async function verifyVoiceEnrollment(payload) {
+    return request('POST', '/v1/user/mfa/voice/enroll/verify', { body: payload || {} });
+  }
+
+  async function revokeFaceTemplate(templateId) {
+    return request('DELETE', '/v1/user/mfa/face/' + encodeURIComponent(templateId));
+  }
+
+  async function revokeVoiceTemplate(templateId) {
+    return request('DELETE', '/v1/user/mfa/voice/' + encodeURIComponent(templateId));
+  }
+
+  async function webauthnRegisterStart(companyId) {
+    return request('POST', '/v1/user/mfa/webauthn/register/start', {
+      body: { company_id: companyId },
+    });
+  }
+
+  async function webauthnRegisterFinish(payload) {
+    return request('POST', '/v1/user/mfa/webauthn/register/finish', { body: payload || {} });
+  }
+
+  async function webauthnAuthenticateStart(companyId) {
+    return request('POST', '/v1/user/mfa/webauthn/authenticate/start', {
+      body: { company_id: companyId },
+    });
+  }
+
+  async function webauthnAuthenticateFinish(payload) {
+    return request('POST', '/v1/user/mfa/webauthn/authenticate/finish', {
+      body: payload || {},
+    });
+  }
+
+  async function revokeWebauthnCredential(credentialId, companyId) {
+    return request(
+      'DELETE',
+      '/v1/user/mfa/webauthn/' + encodeURIComponent(credentialId) + companyQuery(companyId),
+    );
+  }
+
+  async function hardwareTokenRegisterStart(companyId) {
+    return request('POST', '/v1/user/mfa/hardware-token/register/start', {
+      body: { company_id: companyId },
+    });
+  }
+
+  async function hardwareTokenRegisterFinish(payload) {
+    return request('POST', '/v1/user/mfa/hardware-token/register/finish', {
+      body: payload || {},
+    });
+  }
+
+  async function hardwareTokenVerifyStart(payload) {
+    return request('POST', '/v1/user/mfa/hardware-token/verify/start', {
+      body: payload || {},
+    });
+  }
+
+  async function hardwareTokenVerify(payload) {
+    return request('POST', '/v1/user/mfa/hardware-token/verify', { body: payload || {} });
+  }
+
+  async function revokeHardwareToken(keyId, companyId) {
+    return request(
+      'DELETE',
+      '/v1/user/mfa/hardware-token/' + encodeURIComponent(keyId) + companyQuery(companyId),
+    );
+  }
+
+  async function submitIdentityEvidence(payload) {
+    return request('POST', '/v1/identity/evidence', { body: payload || {} });
+  }
+
+  function base64UrlToArrayBuffer(value) {
+    const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
+    const binary = atob(padded);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+  }
+
+  function arrayBufferToBase64Url(buffer) {
+    if (!buffer) return null;
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  }
+
+  function maybeDecodeCredentialBytes(value) {
+    return typeof value === 'string' ? base64UrlToArrayBuffer(value) : value;
+  }
+
+  function normalizeCreationOptions(publicKey) {
+    return {
+      ...publicKey,
+      challenge: maybeDecodeCredentialBytes(publicKey.challenge),
+      user: publicKey.user
+        ? { ...publicKey.user, id: maybeDecodeCredentialBytes(publicKey.user.id) }
+        : publicKey.user,
+      excludeCredentials: (publicKey.excludeCredentials || []).map((credential) => ({
+        ...credential,
+        id: maybeDecodeCredentialBytes(credential.id),
+      })),
+    };
+  }
+
+  function normalizeRequestOptions(publicKey) {
+    return {
+      ...publicKey,
+      challenge: maybeDecodeCredentialBytes(publicKey.challenge),
+      allowCredentials: (publicKey.allowCredentials || []).map((credential) => ({
+        ...credential,
+        id: maybeDecodeCredentialBytes(credential.id),
+      })),
+    };
+  }
+
+  function serializePublicKeyCredential(credential) {
+    const response = credential.response;
+    const serializedResponse = {
+      clientDataJSON: arrayBufferToBase64Url(response.clientDataJSON),
+    };
+    if ('attestationObject' in response) {
+      serializedResponse.attestationObject = arrayBufferToBase64Url(response.attestationObject);
+      if (typeof response.getTransports === 'function') {
+        serializedResponse.transports = response.getTransports();
+      }
+    }
+    if ('authenticatorData' in response) {
+      serializedResponse.authenticatorData = arrayBufferToBase64Url(response.authenticatorData);
+      serializedResponse.signature = arrayBufferToBase64Url(response.signature);
+      serializedResponse.userHandle = arrayBufferToBase64Url(response.userHandle);
+    }
+    return {
+      id: credential.id,
+      rawId: arrayBufferToBase64Url(credential.rawId),
+      type: credential.type,
+      authenticatorAttachment: credential.authenticatorAttachment,
+      clientExtensionResults: credential.getClientExtensionResults(),
+      response: serializedResponse,
+    };
+  }
+
+  async function registerPasskey(companyId) {
+    if (!window.PublicKeyCredential || !navigator.credentials || !navigator.credentials.create) {
+      throw new Error('Passkey registration is not available in this desktop webview.');
+    }
+    const start = await webauthnRegisterStart(companyId);
+    const credential = await navigator.credentials.create({
+      publicKey: normalizeCreationOptions(start.public_key || {}),
+    });
+    if (!credential) throw new Error('Passkey registration was cancelled.');
+    const serialized = serializePublicKeyCredential(credential);
+    return webauthnRegisterFinish({
+      company_id: companyId,
+      challenge_id: start.challenge_id,
+      credential_id: credential.id,
+      credential: serialized,
+      transports: (serialized.response && serialized.response.transports) || [],
+      user_verified_required: true,
+    });
+  }
+
+  async function authenticatePasskey(companyId) {
+    if (!window.PublicKeyCredential || !navigator.credentials || !navigator.credentials.get) {
+      throw new Error('Passkey authentication is not available in this desktop webview.');
+    }
+    const start = await webauthnAuthenticateStart(companyId);
+    const assertion = await navigator.credentials.get({
+      publicKey: normalizeRequestOptions(start.public_key || {}),
+    });
+    if (!assertion) throw new Error('Passkey authentication was cancelled.');
+    return webauthnAuthenticateFinish({
+      company_id: companyId,
+      challenge_id: start.challenge_id,
+      credential_id: assertion.id,
+      assertion: serializePublicKeyCredential(assertion),
+    });
+  }
+
   // ----- Companies / members / invitations --------------------------------
 
   /** GET /v1/companies — top-level company list (with users[] when admin). */
@@ -1512,6 +1750,31 @@
     enableMfa,
     disableMfa,
     resetMfa,
+    verifyTotpStrong,
+    verifyPasswordStrong,
+    getMfaMethods,
+    getBiometricConsent,
+    acceptBiometricConsent,
+    revokeBiometricConsent,
+    startFaceEnrollment,
+    verifyFaceEnrollment,
+    startVoiceEnrollment,
+    verifyVoiceEnrollment,
+    revokeFaceTemplate,
+    revokeVoiceTemplate,
+    webauthnRegisterStart,
+    webauthnRegisterFinish,
+    webauthnAuthenticateStart,
+    webauthnAuthenticateFinish,
+    revokeWebauthnCredential,
+    registerPasskey,
+    authenticatePasskey,
+    hardwareTokenRegisterStart,
+    hardwareTokenRegisterFinish,
+    hardwareTokenVerifyStart,
+    hardwareTokenVerify,
+    revokeHardwareToken,
+    submitIdentityEvidence,
     // Companies
     listCompanies,
     createCompany,

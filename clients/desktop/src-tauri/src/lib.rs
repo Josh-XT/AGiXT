@@ -102,6 +102,54 @@ impl From<anyhow::Error> for ToolError {
 
 type ToolResult<T> = Result<T, ToolError>;
 
+async fn authenticated_settings(state: &State<'_, AppState>) -> ToolResult<DesktopSettings> {
+    let settings = state.settings.lock().await.clone();
+    if settings.jwt.is_none() {
+        return Err(ToolError {
+            error: "not logged in".into(),
+        });
+    }
+    Ok(settings)
+}
+
+fn jwt_from_settings(settings: &DesktopSettings) -> ToolResult<&str> {
+    settings.jwt.as_deref().ok_or_else(|| ToolError {
+        error: "not logged in".into(),
+    })
+}
+
+fn scoped_company_id(requested: Option<String>, settings: &DesktopSettings) -> Option<String> {
+    requested.or_else(|| settings.company_id.clone())
+}
+
+fn with_default_company_id(
+    mut value: serde_json::Value,
+    settings: &DesktopSettings,
+) -> serde_json::Value {
+    let Some(company_id) = settings.company_id.clone() else {
+        return value;
+    };
+    if let serde_json::Value::Object(ref mut object) = value {
+        object
+            .entry("company_id".to_string())
+            .or_insert(serde_json::Value::String(company_id));
+    }
+    value
+}
+
+fn with_default_identity_scope(
+    mut request: api::IdentityEvidenceRequest,
+    settings: &DesktopSettings,
+) -> api::IdentityEvidenceRequest {
+    if request.company_id.is_none() {
+        request.company_id = settings.company_id.clone();
+    }
+    if request.conversation_id.is_none() {
+        request.conversation_id = settings.conversation_id.clone();
+    }
+    request
+}
+
 #[tauri::command]
 fn frontend_log(level: String, message: String) {
     let text: String = message.chars().take(4_000).collect();
@@ -184,6 +232,250 @@ async fn voice_stop_recording(state: State<'_, AppState>) -> ToolResult<voice::V
 #[tauri::command]
 async fn voice_cancel_recording(state: State<'_, AppState>) -> ToolResult<()> {
     state.voice.cancel().map_err(ToolError::from)
+}
+
+// --------------------------------------------------------------------------
+// Biometric MFA capture and evidence IPC
+// --------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct BiometricVoiceEnrollStopArgs {
+    pub challenge_id: String,
+    #[serde(default)]
+    pub company_id: Option<String>,
+    #[serde(default)]
+    pub device_class: Option<String>,
+    #[serde(default)]
+    pub transcript: Option<String>,
+    #[serde(default)]
+    pub liveness_result: Option<String>,
+    #[serde(default)]
+    pub quality_score: Option<f32>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BiometricVoiceEnrollStartResponse {
+    pub challenge: serde_json::Value,
+    pub recording: voice::VoiceStartResponse,
+}
+
+#[tauri::command]
+async fn biometric_face_capture_start(
+    state: State<'_, AppState>,
+    args: api::BiometricCompanyRequest,
+) -> ToolResult<serde_json::Value> {
+    let settings = authenticated_settings(&state).await?;
+    let jwt = jwt_from_settings(&settings)?;
+    api::biometric_face_enroll_start(
+        &settings.server_url,
+        jwt,
+        scoped_company_id(args.company_id, &settings),
+    )
+    .await
+    .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn biometric_face_capture_stop(
+    state: State<'_, AppState>,
+    mut args: api::BiometricEnrollmentVerifyRequest,
+) -> ToolResult<serde_json::Value> {
+    let settings = authenticated_settings(&state).await?;
+    let jwt = jwt_from_settings(&settings)?;
+    args.company_id = scoped_company_id(args.company_id, &settings);
+    api::biometric_face_enroll_verify(&settings.server_url, jwt, &args)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn biometric_voice_enroll_start(
+    state: State<'_, AppState>,
+    args: api::BiometricCompanyRequest,
+) -> ToolResult<BiometricVoiceEnrollStartResponse> {
+    let settings = authenticated_settings(&state).await?;
+    let jwt = jwt_from_settings(&settings)?;
+    let challenge = api::biometric_voice_enroll_start(
+        &settings.server_url,
+        jwt,
+        scoped_company_id(args.company_id, &settings),
+    )
+    .await
+    .map_err(ToolError::from)?;
+    let recording = state.voice.start().map_err(ToolError::from)?;
+    Ok(BiometricVoiceEnrollStartResponse {
+        challenge,
+        recording,
+    })
+}
+
+#[tauri::command]
+async fn biometric_voice_enroll_stop(
+    state: State<'_, AppState>,
+    args: BiometricVoiceEnrollStopArgs,
+) -> ToolResult<serde_json::Value> {
+    let settings = authenticated_settings(&state).await?;
+    let jwt = jwt_from_settings(&settings)?;
+    let audio = state.voice.stop().map_err(ToolError::from)?;
+    let sample_metadata = serde_json::json!({
+        "capture_source": "agixt_desktop_native_microphone",
+        "mime_type": audio.mime_type,
+        "size_bytes": audio.size_bytes,
+        "duration_ms": audio.duration_ms,
+        "sample_count": audio.sample_count,
+        "sample_rate": audio.sample_rate,
+        "channels": audio.channels,
+    });
+    let request = api::BiometricEnrollmentVerifyRequest {
+        company_id: scoped_company_id(args.company_id, &settings),
+        challenge_id: args.challenge_id,
+        device_class: Some(
+            args.device_class
+                .unwrap_or_else(|| "desktop_microphone".to_string()),
+        ),
+        samples: vec![api::BiometricSample {
+            data_base64: Some(audio.audio_base64),
+            sample: None,
+            quality_score: args.quality_score,
+            liveness_result: args
+                .liveness_result
+                .or_else(|| Some("challenge_phrase_passed".to_string())),
+            transcript: args.transcript,
+            metadata: Some(sample_metadata),
+        }],
+        metadata: args.metadata,
+    };
+    api::biometric_voice_enroll_verify(&settings.server_url, jwt, &request)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn biometric_submit_evidence(
+    state: State<'_, AppState>,
+    args: api::IdentityEvidenceRequest,
+) -> ToolResult<serde_json::Value> {
+    let settings = authenticated_settings(&state).await?;
+    let jwt = jwt_from_settings(&settings)?;
+    let request = with_default_identity_scope(args, &settings);
+    api::biometric_submit_evidence(&settings.server_url, jwt, &request)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn webauthn_register_start(
+    state: State<'_, AppState>,
+    args: api::BiometricCompanyRequest,
+) -> ToolResult<serde_json::Value> {
+    let settings = authenticated_settings(&state).await?;
+    let jwt = jwt_from_settings(&settings)?;
+    let request = api::BiometricCompanyRequest {
+        company_id: scoped_company_id(args.company_id, &settings),
+    };
+    api::webauthn_register_start(&settings.server_url, jwt, &request)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn webauthn_register_finish(
+    state: State<'_, AppState>,
+    args: serde_json::Value,
+) -> ToolResult<serde_json::Value> {
+    let settings = authenticated_settings(&state).await?;
+    let jwt = jwt_from_settings(&settings)?;
+    let request = with_default_company_id(args, &settings);
+    api::webauthn_register_finish(&settings.server_url, jwt, &request)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn webauthn_authenticate_start(
+    state: State<'_, AppState>,
+    args: api::BiometricCompanyRequest,
+) -> ToolResult<serde_json::Value> {
+    let settings = authenticated_settings(&state).await?;
+    let jwt = jwt_from_settings(&settings)?;
+    let request = api::BiometricCompanyRequest {
+        company_id: scoped_company_id(args.company_id, &settings),
+    };
+    api::webauthn_authenticate_start(&settings.server_url, jwt, &request)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn webauthn_authenticate_finish(
+    state: State<'_, AppState>,
+    args: serde_json::Value,
+) -> ToolResult<serde_json::Value> {
+    let settings = authenticated_settings(&state).await?;
+    let jwt = jwt_from_settings(&settings)?;
+    let request = with_default_company_id(args, &settings);
+    api::webauthn_authenticate_finish(&settings.server_url, jwt, &request)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn hardware_token_register_start(
+    state: State<'_, AppState>,
+    args: api::BiometricCompanyRequest,
+) -> ToolResult<serde_json::Value> {
+    let settings = authenticated_settings(&state).await?;
+    let jwt = jwt_from_settings(&settings)?;
+    let request = api::BiometricCompanyRequest {
+        company_id: scoped_company_id(args.company_id, &settings),
+    };
+    api::hardware_token_register_start(&settings.server_url, jwt, &request)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn hardware_token_register_finish(
+    state: State<'_, AppState>,
+    args: serde_json::Value,
+) -> ToolResult<serde_json::Value> {
+    let settings = authenticated_settings(&state).await?;
+    let jwt = jwt_from_settings(&settings)?;
+    let request = with_default_company_id(args, &settings);
+    api::hardware_token_register_finish(&settings.server_url, jwt, &request)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn hardware_token_verify_start(
+    state: State<'_, AppState>,
+    args: api::HardwareTokenVerifyStartRequest,
+) -> ToolResult<serde_json::Value> {
+    let settings = authenticated_settings(&state).await?;
+    let jwt = jwt_from_settings(&settings)?;
+    let request = api::HardwareTokenVerifyStartRequest {
+        company_id: scoped_company_id(args.company_id, &settings),
+        key_id: args.key_id,
+    };
+    api::hardware_token_verify_start(&settings.server_url, jwt, &request)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn hardware_token_verify(
+    state: State<'_, AppState>,
+    args: serde_json::Value,
+) -> ToolResult<serde_json::Value> {
+    let settings = authenticated_settings(&state).await?;
+    let jwt = jwt_from_settings(&settings)?;
+    let request = with_default_company_id(args, &settings);
+    api::hardware_token_verify(&settings.server_url, jwt, &request)
+        .await
+        .map_err(ToolError::from)
 }
 
 // --------------------------------------------------------------------------
@@ -2883,9 +3175,9 @@ fn show_popover(
 ) -> ToolResult<()> {
     tracing::info!("show_popover ENTER tray_rect={:?}", tray_rect);
     let _ = tray_rect; // tray-anchored positioning no longer used — full app window
-    // Desktop now always shows as a regular decorated window; the
-    // popover / utility-window mode was retired in favor of a normal
-    // tiling-friendly app window.
+                       // Desktop now always shows as a regular decorated window; the
+                       // popover / utility-window mode was retired in favor of a normal
+                       // tiling-friendly app window.
     #[cfg(target_os = "linux")]
     {
         let _ = win.show();
@@ -3182,17 +3474,23 @@ pub struct OgFetchResult {
 
 #[tauri::command]
 async fn og_fetch(args: OgFetchArgs) -> ToolResult<OgFetchResult> {
-    use reqwest::header::{ACCEPT, ACCEPT_LANGUAGE, HeaderMap, HeaderName, HeaderValue, USER_AGENT};
+    use reqwest::header::{
+        HeaderMap, HeaderName, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, USER_AGENT,
+    };
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::limited(5))
         .build()
-        .map_err(|e| ToolError { error: format!("client build: {e}") })?;
+        .map_err(|e| ToolError {
+            error: format!("client build: {e}"),
+        })?;
 
     let mut headers = HeaderMap::new();
     if let Some(ua) = args.user_agent.as_deref().filter(|s| !s.is_empty()) {
-        if let Ok(v) = HeaderValue::from_str(ua) { headers.insert(USER_AGENT, v); }
+        if let Ok(v) = HeaderValue::from_str(ua) {
+            headers.insert(USER_AGENT, v);
+        }
     } else {
         // Sensible default — a real browser UA matches what the web's
         // /api/og route sends for arbitrary URLs.
@@ -3221,9 +3519,9 @@ async fn og_fetch(args: OgFetchArgs) -> ToolResult<OgFetchResult> {
     headers.insert(
         ACCEPT,
         HeaderValue::from_str(
-            args.accept.as_deref().unwrap_or(
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            ),
+            args.accept
+                .as_deref()
+                .unwrap_or("text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"),
         )
         .unwrap_or_else(|_| HeaderValue::from_static("*/*")),
     );
@@ -3238,7 +3536,9 @@ async fn og_fetch(args: OgFetchArgs) -> ToolResult<OgFetchResult> {
         .headers(headers)
         .send()
         .await
-        .map_err(|e| ToolError { error: format!("og fetch: {e}") })?;
+        .map_err(|e| ToolError {
+            error: format!("og fetch: {e}"),
+        })?;
 
     let status = resp.status().as_u16();
     let ok = resp.status().is_success();
@@ -3252,15 +3552,24 @@ async fn og_fetch(args: OgFetchArgs) -> ToolResult<OgFetchResult> {
     // Cap the body at 256 KB — OG metadata lives in the <head>, we
     // never need more. Prevents a runaway response from spiking memory
     // on the chat surface.
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| ToolError { error: format!("og read: {e}") })?;
+    let bytes = resp.bytes().await.map_err(|e| ToolError {
+        error: format!("og read: {e}"),
+    })?;
     let cap = 256 * 1024;
-    let slice = if bytes.len() > cap { &bytes[..cap] } else { &bytes[..] };
+    let slice = if bytes.len() > cap {
+        &bytes[..cap]
+    } else {
+        &bytes[..]
+    };
     let body = String::from_utf8_lossy(slice).into_owned();
 
-    Ok(OgFetchResult { ok, status, content_type, body, final_url })
+    Ok(OgFetchResult {
+        ok,
+        status,
+        content_type,
+        body,
+        final_url,
+    })
 }
 
 // --------------------------------------------------------------------------
@@ -3670,8 +3979,9 @@ pub fn run() {
                             }
                         })
                         .or_else(|| {
-                            url.path_segments()
-                                .and_then(|mut segments| segments.find(|s| !s.is_empty()).map(String::from))
+                            url.path_segments().and_then(|mut segments| {
+                                segments.find(|s| !s.is_empty()).map(String::from)
+                            })
                         });
                     let app = dl_handle.clone();
                     tauri::async_runtime::spawn(async move {
@@ -3835,6 +4145,19 @@ pub fn run() {
             voice_start_recording,
             voice_stop_recording,
             voice_cancel_recording,
+            biometric_face_capture_start,
+            biometric_face_capture_stop,
+            biometric_voice_enroll_start,
+            biometric_voice_enroll_stop,
+            biometric_submit_evidence,
+            webauthn_register_start,
+            webauthn_register_finish,
+            webauthn_authenticate_start,
+            webauthn_authenticate_finish,
+            hardware_token_register_start,
+            hardware_token_register_finish,
+            hardware_token_verify_start,
+            hardware_token_verify,
             list_service_brands,
             check_local_agixt,
             detect_hardware,
@@ -4036,8 +4359,9 @@ pub fn run() {
                             }
                         })
                         .or_else(|| {
-                            url.path_segments()
-                                .and_then(|mut segments| segments.find(|s| !s.is_empty()).map(String::from))
+                            url.path_segments().and_then(|mut segments| {
+                                segments.find(|s| !s.is_empty()).map(String::from)
+                            })
                         });
                     let app = dl_handle.clone();
                     tauri::async_runtime::spawn(async move {
@@ -4095,6 +4419,19 @@ pub fn run() {
             voice_start_recording,
             voice_stop_recording,
             voice_cancel_recording,
+            biometric_face_capture_start,
+            biometric_face_capture_stop,
+            biometric_voice_enroll_start,
+            biometric_voice_enroll_stop,
+            biometric_submit_evidence,
+            webauthn_register_start,
+            webauthn_register_finish,
+            webauthn_authenticate_start,
+            webauthn_authenticate_finish,
+            hardware_token_register_start,
+            hardware_token_register_finish,
+            hardware_token_verify_start,
+            hardware_token_verify,
             list_service_brands,
             check_local_agixt,
             detect_hardware,

@@ -375,6 +375,40 @@
       company.role_id === 0 || company.role === 'super_admin');
   }
 
+  function activeCompanyIdForUser(user, settings) {
+    if (settings && settings.company_id) return settings.company_id;
+    if (!user || !Array.isArray(user.companies) || !user.companies.length) return null;
+    const primary = user.companies.find((company) => company.primary);
+    return (primary || user.companies[0]).id || null;
+  }
+
+  function methodLabel(method) {
+    const labels = {
+      totp: 'Authenticator app',
+      webauthn: 'Passkey',
+      hardware_token: 'Hardware token',
+      face: 'Face',
+      voice: 'Voice',
+      sms: 'SMS',
+      email: 'Email',
+      magic_link: 'Magic link',
+      password: 'Password',
+    };
+    return labels[method] || method || 'Unknown method';
+  }
+
+  function shortId(value) {
+    const text = String(value || '');
+    return text.length > 22 ? text.slice(0, 12) + '…' + text.slice(-6) : text;
+  }
+
+  function replaceSectionBody(sectionEl, nodes) {
+    Array.from(sectionEl.children).slice(2).forEach((child) => child.remove());
+    (Array.isArray(nodes) ? nodes : [nodes]).forEach((node) => {
+      if (node) sectionEl.appendChild(node);
+    });
+  }
+
   // Load helpers — return cached values to avoid re-hitting the server
   // on every tab switch. Each setter clears the relevant cache.
   async function loadUser(force) {
@@ -846,6 +880,16 @@
         mfaStatus,
       ]));
 
+    const desktopSettings = await loadDesktopSettings().catch(() => null);
+    const activeCompanyId = activeCompanyIdForUser(user, desktopSettings);
+    const modernMfaSection = section('MFA methods',
+      'Manage passkeys, hardware tokens, and opt-in biometric methods for this company.',
+      [emptyState(activeCompanyId ? 'Loading MFA methods…' : 'Select a company to manage MFA methods.')]);
+    panel.appendChild(modernMfaSection);
+    if (activeCompanyId) {
+      renderMfaMethodsSection(modernMfaSection, activeCompanyId);
+    }
+
     // OAuth connections.
     const oauthSection = section('Connected services',
       'External providers (Google, Microsoft, GitHub, etc.) linked to this account.',
@@ -993,6 +1037,433 @@
     } });
     const cancelBtn = btn('Cancel', { onclick: () => overlay.remove() });
     overlay.appendChild(el('div', { class: 'us-section-row end' }, [cancelBtn, disableBtn]));
+  }
+
+  async function renderMfaMethodsSection(sectionEl, companyId) {
+    replaceSectionBody(sectionEl, [emptyState('Loading MFA methods…')]);
+    let methods;
+    try {
+      methods = await api.getMfaMethods(companyId);
+    } catch (err) {
+      replaceSectionBody(sectionEl, [
+        el('p', { class: 'us-hint error' }, errMsg(err)),
+        btn('Retry', { onclick: () => renderMfaMethodsSection(sectionEl, companyId) }),
+      ]);
+      return;
+    }
+
+    const webauthnCredentials = Array.isArray(methods.webauthn_credentials)
+      ? methods.webauthn_credentials
+      : [];
+    const hardwareTokens = Array.isArray(methods.hardware_token_credentials)
+      ? methods.hardware_token_credentials
+      : [];
+    const enabledMethods = Array.isArray(methods.enabled_methods) ? methods.enabled_methods : [];
+    const availableMethods = Array.isArray(methods.available_methods) ? methods.available_methods : [];
+    const biometricAllowed = methods.biometric_policy && methods.biometric_policy.biometric_allowed;
+
+    const actionRow = el('div', { class: 'us-section-row' }, [
+      btn('Verify password', { onclick: () => verifyPasswordForMfa(companyId) }),
+      btn('Verify TOTP', { onclick: () => verifyTotpForMfa(companyId) }),
+      btn('Add passkey', { kind: 'primary', onclick: () => addPasskey(sectionEl, companyId) }),
+      webauthnCredentials.length
+        ? btn('Verify passkey', { onclick: () => verifyPasskey(sectionEl, companyId) })
+        : null,
+      btn('Add hardware token', { onclick: () => addHardwareToken(sectionEl, companyId) }),
+      hardwareTokens.length
+        ? btn('Verify hardware token', { onclick: () => verifyHardwareToken(sectionEl, companyId, hardwareTokens) })
+        : null,
+      biometricAllowed ? btn('Enroll voice', { onclick: () => enrollVoice(sectionEl, companyId) }) : null,
+      biometricAllowed ? btn('Enroll face', { onclick: () => enrollFace(sectionEl, companyId) }) : null,
+      btn('Refresh', { onclick: () => renderMfaMethodsSection(sectionEl, companyId) }),
+    ].filter(Boolean));
+
+    const methodRows = enabledMethods.length
+      ? enabledMethods.map((method) => {
+        const type = method.method_type;
+        const isBiometric = type === 'face' || type === 'voice';
+        return el('div', { class: 'us-list-item' }, [
+          el('div', { class: 'us-list-item-grow' }, [
+            el('p', { class: 'us-list-item-title' }, [
+              methodLabel(type),
+              ' ',
+              badge(method.enabled ? 'Enabled' : 'Disabled', method.enabled ? 'success' : null),
+            ]),
+            el('p', { class: 'us-list-item-meta' },
+              method.verified_at ? 'Verified ' + formatDate(method.verified_at) : 'Ready for policy checks.'),
+          ]),
+          isBiometric
+            ? btn('Revoke', {
+              kind: 'danger',
+              onclick: () => revokeBiometricMethod(sectionEl, companyId, type),
+            })
+            : null,
+        ]);
+      })
+      : [emptyState('No MFA methods are enabled yet.')];
+
+    const passkeyRows = webauthnCredentials.map((credential) => {
+      const id = credential.credential_id || credential.id;
+      return el('div', { class: 'us-list-item' }, [
+        el('div', { class: 'us-list-item-grow' }, [
+          el('p', { class: 'us-list-item-title' }, 'Passkey credential'),
+          el('p', { class: 'us-list-item-meta' },
+            credential.last_used_at
+              ? 'Last used ' + formatDate(credential.last_used_at)
+              : 'Registered ' + (credential.created_at ? formatDate(credential.created_at) : shortId(id))),
+        ]),
+        btn('Revoke', {
+          kind: 'danger',
+          onclick: () => revokePasskey(sectionEl, companyId, id),
+        }),
+      ]);
+    });
+
+    const tokenRows = hardwareTokens.map((token) => {
+      const id = token.key_id || token.id;
+      return el('div', { class: 'us-list-item' }, [
+        el('div', { class: 'us-list-item-grow' }, [
+          el('p', { class: 'us-list-item-title' }, token.label || 'Hardware token'),
+          el('p', { class: 'us-list-item-meta' },
+            token.last_used_at
+              ? 'Last used ' + formatDate(token.last_used_at)
+              : 'Registered ' + (token.created_at ? formatDate(token.created_at) : shortId(id))),
+        ]),
+        btn('Revoke', {
+          kind: 'danger',
+          onclick: () => revokeHardwareToken(sectionEl, companyId, id),
+        }),
+      ]);
+    });
+
+    replaceSectionBody(sectionEl, [
+      methods.biometric_policy && methods.biometric_policy.non_biometric_fallback_required
+        ? el('p', { class: 'us-hint' }, 'Accessible non-biometric fallback is required by policy.')
+        : null,
+      actionRow,
+      el('div', { class: 'us-section-row' }, availableMethods.map((method) => badge(methodLabel(method)))),
+      ...methodRows,
+      ...passkeyRows,
+      ...tokenRows,
+    ].filter(Boolean));
+  }
+
+  async function verifyPasswordForMfa(companyId) {
+    const password = window.prompt('Password confirmation');
+    if (!password) return;
+    try {
+      await api.verifyPasswordStrong(password, companyId);
+      toast('Password verification recorded', 'success');
+    } catch (err) {
+      toast(errMsg(err), 'error');
+    }
+  }
+
+  async function verifyTotpForMfa(companyId) {
+    const code = window.prompt('Authenticator code');
+    if (!code) return;
+    try {
+      await api.verifyTotpStrong(code.trim(), companyId);
+      toast('TOTP verification recorded', 'success');
+    } catch (err) {
+      toast(errMsg(err), 'error');
+    }
+  }
+
+  async function addPasskey(sectionEl, companyId) {
+    try {
+      await api.registerPasskey(companyId);
+      toast('Passkey registered', 'success');
+      await renderMfaMethodsSection(sectionEl, companyId);
+    } catch (err) {
+      toast(errMsg(err), 'error');
+    }
+  }
+
+  async function verifyPasskey(sectionEl, companyId) {
+    try {
+      await api.authenticatePasskey(companyId);
+      toast('Passkey verification recorded', 'success');
+      await renderMfaMethodsSection(sectionEl, companyId);
+    } catch (err) {
+      toast(errMsg(err), 'error');
+    }
+  }
+
+  async function revokePasskey(sectionEl, companyId, credentialId) {
+    if (!credentialId || !window.confirm('Revoke this passkey?')) return;
+    try {
+      await api.revokeWebauthnCredential(credentialId, companyId);
+      toast('Passkey revoked', 'success');
+      await renderMfaMethodsSection(sectionEl, companyId);
+    } catch (err) {
+      toast(errMsg(err), 'error');
+    }
+  }
+
+  async function addHardwareToken(sectionEl, companyId) {
+    const keyId = window.prompt('Hardware token key ID', 'desktop-token-' + Date.now());
+    if (!keyId) return;
+    const sharedSecret = window.prompt('Shared secret from the hardware token or companion device');
+    if (!sharedSecret) return;
+    const label = window.prompt('Label for this token', 'Desktop hardware token') || '';
+    try {
+      const start = await api.hardwareTokenRegisterStart(companyId);
+      await api.hardwareTokenRegisterFinish({
+        company_id: companyId,
+        challenge_id: start.challenge_id,
+        key_id: keyId.trim(),
+        shared_secret: sharedSecret.trim(),
+        label: label.trim() || undefined,
+      });
+      toast('Hardware token registered', 'success');
+      await renderMfaMethodsSection(sectionEl, companyId);
+    } catch (err) {
+      toast(errMsg(err), 'error');
+    }
+  }
+
+  async function verifyHardwareToken(sectionEl, companyId, tokens) {
+    const firstKey = tokens && tokens[0] ? tokens[0].key_id : '';
+    const keyId = window.prompt('Hardware token key ID', firstKey || '');
+    if (!keyId) return;
+    const message = 'agixt-desktop-hardware-token:' + Date.now();
+    try {
+      const start = await api.hardwareTokenVerifyStart({ company_id: companyId, key_id: keyId.trim() });
+      const binding = 'challenge_id=' + start.challenge_id + '\nkey_id=' + keyId.trim()
+        + '\nmessage=' + message;
+      const signature = window.prompt('Enter the token signature for:\n' + binding);
+      if (!signature) return;
+      await api.hardwareTokenVerify({
+        company_id: companyId,
+        challenge_id: start.challenge_id,
+        key_id: keyId.trim(),
+        message,
+        signature: signature.trim(),
+      });
+      toast('Hardware token verification recorded', 'success');
+      await renderMfaMethodsSection(sectionEl, companyId);
+    } catch (err) {
+      toast(errMsg(err), 'error');
+    }
+  }
+
+  async function revokeHardwareToken(sectionEl, companyId, keyId) {
+    if (!keyId || !window.confirm('Revoke this hardware token?')) return;
+    try {
+      await api.revokeHardwareToken(keyId, companyId);
+      toast('Hardware token revoked', 'success');
+      await renderMfaMethodsSection(sectionEl, companyId);
+    } catch (err) {
+      toast(errMsg(err), 'error');
+    }
+  }
+
+  async function ensureBiometricConsent(methodType, companyId) {
+    let records = [];
+    let disclosures = [];
+    try {
+      const response = await api.getBiometricConsent(companyId);
+      records = Array.isArray(response && response.consent_records) ? response.consent_records : [];
+      disclosures = Array.isArray(response && response.current_disclosures) ? response.current_disclosures : [];
+    } catch (_) {}
+    const disclosure = disclosures.find((entry) => {
+      const method = entry && entry.method_type;
+      return method === methodType || method === 'all_biometric';
+    });
+    if (!disclosure) throw new Error('Current biometric consent disclosure is not available.');
+    const hasConsent = records.some((record) => {
+      const method = record.method_type;
+      return !record.revoked_at
+        && record.consent_version === disclosure.consent_version
+        && record.disclosures_hash === disclosure.disclosures_hash
+        && record.purpose === disclosure.purpose
+        && record.retention_policy === disclosure.retention_policy
+        && (method === methodType || method === 'all_biometric');
+    });
+    if (hasConsent) return disclosure;
+    const label = methodType === 'face' ? 'face' : 'voice';
+    const accepted = window.confirm(
+      'Enroll ' + label + ' biometrics for MFA and robot identity assurance? '
+      + 'Templates are encrypted server-side and raw samples are not retained by default.',
+    );
+    if (!accepted) throw new Error('Biometric consent was not accepted.');
+    const jurisdiction = consentJurisdiction(disclosure);
+    await api.acceptBiometricConsent({
+      company_id: companyId,
+      method_type: disclosure.method_type || methodType,
+      consent_version: disclosure.consent_version,
+      disclosures_hash: disclosure.disclosures_hash,
+      purpose: disclosure.purpose,
+      retention_policy: disclosure.retention_policy,
+      jurisdiction,
+    });
+    return disclosure;
+  }
+
+  function consentJurisdiction(disclosure) {
+    const scope = Array.isArray(disclosure && disclosure.jurisdiction_scope)
+      ? disclosure.jurisdiction_scope.filter(Boolean).map(String)
+      : [];
+    let localeRegion = '';
+    try {
+      const locale = Intl.DateTimeFormat().resolvedOptions().locale || '';
+      localeRegion = locale.split('-').pop().toUpperCase();
+    } catch (_) {}
+    return scope.find((entry) => entry.toUpperCase() === localeRegion) || scope[0] || 'US';
+  }
+
+  async function revokeBiometricMethod(sectionEl, companyId, methodType) {
+    if (!window.confirm('Revoke ' + methodLabel(methodType) + ' biometric consent and templates?')) return;
+    try {
+      await api.revokeBiometricConsent(methodType, companyId);
+      toast(methodLabel(methodType) + ' revoked', 'success');
+      await renderMfaMethodsSection(sectionEl, companyId);
+    } catch (err) {
+      toast(errMsg(err), 'error');
+    }
+  }
+
+  async function enrollVoice(sectionEl, companyId) {
+    try {
+      await ensureBiometricConsent('voice', companyId);
+      const start = await invoke('biometric_voice_enroll_start', { args: { company_id: companyId } });
+      const challenge = start.challenge || start;
+      const phrase = challenge.phrase || '';
+      const status = el('span', { class: 'us-status-line' }, 'Recording…');
+      let finished = false;
+      const finishBtn = btn('Finish enrollment', { kind: 'primary', onclick: async () => {
+        if (finished) return;
+        finished = true;
+        finishBtn.disabled = true;
+        status.textContent = 'Uploading voice sample…';
+        try {
+          await invoke('biometric_voice_enroll_stop', {
+            args: {
+              company_id: companyId,
+              challenge_id: challenge.challenge_id,
+              transcript: phrase,
+              liveness_result: 'challenge_phrase_passed',
+            },
+          });
+          modal.close();
+          toast('Voice enrolled', 'success');
+          await renderMfaMethodsSection(sectionEl, companyId);
+        } catch (err) {
+          finished = false;
+          finishBtn.disabled = false;
+          status.textContent = errMsg(err);
+          status.className = 'us-status-line error';
+        }
+      } });
+      const cancelBtn = btn('Cancel', { onclick: async () => {
+        try { await invoke('voice_cancel_recording'); } catch (_) {}
+        modal.close();
+      } });
+      const modal = openModal({
+        title: 'Voice enrollment',
+        description: phrase ? 'Read the phrase below, then finish enrollment.' : 'Record a short enrollment phrase.',
+        body: [
+          phrase ? el('p', { class: 'us-mono' }, phrase) : null,
+          status,
+        ],
+        footer: [cancelBtn, finishBtn],
+      });
+    } catch (err) {
+      toast(errMsg(err), 'error');
+      try { await invoke('voice_cancel_recording'); } catch (_) {}
+    }
+  }
+
+  async function enrollFace(sectionEl, companyId) {
+    try {
+      await ensureBiometricConsent('face', companyId);
+      const challenge = await api.startFaceEnrollment(companyId);
+      const samples = await captureFaceSamples();
+      if (!samples.length) return;
+      await api.verifyFaceEnrollment({
+        company_id: companyId,
+        challenge_id: challenge.challenge_id,
+        device_class: 'desktop_webcam',
+        samples,
+        metadata: { capture_source: 'agixt_desktop_webview_camera' },
+      });
+      toast('Face enrolled', 'success');
+      await renderMfaMethodsSection(sectionEl, companyId);
+    } catch (err) {
+      toast(errMsg(err), 'error');
+    }
+  }
+
+  async function captureFaceSamples() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Camera capture is not available in this desktop webview.');
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false,
+    });
+    const video = el('video', {
+      autoplay: true,
+      muted: true,
+      playsInline: true,
+      style: 'width:100%;max-height:360px;background:#000;border-radius:8px;',
+    });
+    video.srcObject = stream;
+    const status = el('span', { class: 'us-status-line' }, 'Camera ready.');
+    let resolveCapture;
+    let settled = false;
+    function stopCamera() {
+      stream.getTracks().forEach((track) => {
+        try { track.stop(); } catch (_) {}
+      });
+    }
+    const promise = new Promise((resolve) => { resolveCapture = resolve; });
+    const captureBtn = btn('Capture frames', { kind: 'primary', onclick: async () => {
+      captureBtn.disabled = true;
+      status.textContent = 'Capturing frames…';
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const context = canvas.getContext('2d');
+      const samples = [];
+      for (let index = 0; index < 3; index += 1) {
+        if (index > 0) await new Promise((resolve) => setTimeout(resolve, 350));
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        samples.push({
+          data_base64: dataUrl.split(',')[1],
+          quality_score: 0.95,
+          liveness_result: 'motion_passed',
+          metadata: { frame_index: index, width: canvas.width, height: canvas.height },
+        });
+      }
+      settled = true;
+      stopCamera();
+      modal.close();
+      resolveCapture(samples);
+    } });
+    const cancelBtn = btn('Cancel', { onclick: () => {
+      settled = true;
+      stopCamera();
+      modal.close();
+      resolveCapture([]);
+    } });
+    const modal = openModal({
+      title: 'Face enrollment',
+      description: 'Center your face and capture a short frame set.',
+      body: [video, status],
+      footer: [cancelBtn, captureBtn],
+      wide: true,
+      onClose: () => {
+        if (!settled) {
+          stopCamera();
+          resolveCapture([]);
+        }
+      },
+    });
+    setupModalFocus(modal);
+    return promise;
   }
 
   // ─── Settings tab — theme/timezone/notifications ─────────────────────

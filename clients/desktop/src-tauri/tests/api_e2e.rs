@@ -200,6 +200,226 @@ async fn new_agent_dm_conversation_posts_group_dm_payload() {
 }
 
 #[tokio::test]
+async fn biometric_enrollment_helpers_post_expected_payloads() {
+    use wiremock::matchers::body_partial_json;
+
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/user/mfa/voice/enroll/start"))
+        .and(bearer_token("jwt"))
+        .and(body_partial_json(json!({ "company_id": "company-uuid" })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "challenge_id": "challenge-voice",
+            "method_type": "voice",
+            "phrase": "AGiXT confirms amber 42 nova"
+        })))
+        .mount(&server)
+        .await;
+
+    let challenge =
+        api::biometric_voice_enroll_start(&server.uri(), "jwt", Some("company-uuid".into()))
+            .await
+            .unwrap();
+    assert_eq!(
+        challenge.get("challenge_id").and_then(|v| v.as_str()),
+        Some("challenge-voice")
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/v1/user/mfa/face/enroll/verify"))
+        .and(bearer_token("jwt"))
+        .and(body_partial_json(json!({
+            "company_id": "company-uuid",
+            "challenge_id": "challenge-face",
+            "device_class": "desktop_webcam_good_light",
+            "samples": [
+                {
+                    "data_base64": "ZmFrZS1qcGVn",
+                    "liveness_result": "motion_passed"
+                }
+            ]
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "method_enabled": true,
+            "templates_created": 1
+        })))
+        .mount(&server)
+        .await;
+
+    let verify = api::biometric_face_enroll_verify(
+        &server.uri(),
+        "jwt",
+        &api::BiometricEnrollmentVerifyRequest {
+            company_id: Some("company-uuid".into()),
+            challenge_id: "challenge-face".into(),
+            device_class: Some("desktop_webcam_good_light".into()),
+            samples: vec![api::BiometricSample {
+                data_base64: Some("ZmFrZS1qcGVn".into()),
+                sample: None,
+                quality_score: None,
+                liveness_result: Some("motion_passed".into()),
+                transcript: None,
+                metadata: None,
+            }],
+            metadata: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        verify.get("templates_created").and_then(|v| v.as_i64()),
+        Some(1)
+    );
+}
+
+#[tokio::test]
+async fn biometric_evidence_helper_posts_server_authoritative_media() {
+    use wiremock::matchers::body_partial_json;
+
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/identity/evidence"))
+        .and(bearer_token("jwt"))
+        .and(body_partial_json(json!({
+            "company_id": "company-uuid",
+            "conversation_id": "conversation-uuid",
+            "method_type": "voice",
+            "transport_format": "pcm_audio",
+            "sequence_number": 42,
+            "data_base64": "ZmFrZS13YXY="
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "decision": "challenge_required",
+            "identity_evidence": {
+                "overall_confidence": 0.0
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let resp = api::biometric_submit_evidence(
+        &server.uri(),
+        "jwt",
+        &api::IdentityEvidenceRequest {
+            company_id: Some("company-uuid".into()),
+            machine_id: None,
+            conversation_id: Some("conversation-uuid".into()),
+            stream_id: None,
+            command_id: None,
+            challenge_id: None,
+            nonce: None,
+            sequence_number: Some(42),
+            captured_at: None,
+            sent_at: None,
+            content_type: Some("audio/wav".into()),
+            codec: Some("pcm16".into()),
+            width: None,
+            height: None,
+            sample_rate_hz: Some(16_000),
+            channels: Some(1),
+            duration_ms: Some(1200),
+            payload_sha256: None,
+            previous_payload_sha256: None,
+            key_id: None,
+            signature: None,
+            transport_format: Some("pcm_audio".into()),
+            evidence_profile: None,
+            action_type: None,
+            command_name: None,
+            dropped_media_count: None,
+            drop_reason: None,
+            method_type: "voice".into(),
+            data_base64: Some("ZmFrZS13YXY=".into()),
+            sample: None,
+            liveness_result: Some("challenge_phrase_passed".into()),
+            pad_result: None,
+            iad_result: None,
+            sensor_attestation_result: None,
+            device_integrity_result: None,
+            media_forensics_result: None,
+            quality_score: Some(0.95),
+            device_class: Some("desktop_microphone".into()),
+            risk_level: Some("medium".into()),
+            required_assurance: None,
+            metadata: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        resp.get("decision").and_then(|v| v.as_str()),
+        Some("challenge_required")
+    );
+}
+
+#[tokio::test]
+async fn webauthn_helpers_proxy_browser_credential_payloads() {
+    use wiremock::matchers::body_partial_json;
+
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/user/mfa/webauthn/register/start"))
+        .and(bearer_token("jwt"))
+        .and(body_partial_json(json!({ "company_id": "company-uuid" })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "challenge_id": "register-challenge",
+            "publicKey": { "challenge": "abc" }
+        })))
+        .mount(&server)
+        .await;
+
+    let start = api::webauthn_register_start(
+        &server.uri(),
+        "jwt",
+        &api::BiometricCompanyRequest {
+            company_id: Some("company-uuid".into()),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        start.get("challenge_id").and_then(|v| v.as_str()),
+        Some("register-challenge")
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/v1/user/mfa/webauthn/authenticate/finish"))
+        .and(bearer_token("jwt"))
+        .and(body_partial_json(json!({
+            "company_id": "company-uuid",
+            "challenge_id": "auth-challenge",
+            "credential_id": "credential-1",
+            "user_verified": true
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "assurance": "verified"
+        })))
+        .mount(&server)
+        .await;
+
+    let finish = api::webauthn_authenticate_finish(
+        &server.uri(),
+        "jwt",
+        &json!({
+            "company_id": "company-uuid",
+            "challenge_id": "auth-challenge",
+            "credential_id": "credential-1",
+            "user_verified": true
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        finish.get("assurance").and_then(|v| v.as_str()),
+        Some("verified")
+    );
+}
+
+#[tokio::test]
 async fn list_conversations_preserves_agent_dm_metadata() {
     let server = MockServer::start().await;
 
