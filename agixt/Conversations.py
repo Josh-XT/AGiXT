@@ -3685,15 +3685,15 @@ class Conversations:
 
     @staticmethod
     def _can_edit_message(session, user_id, conversation, message):
-        if Conversations._is_admin_user(session, user_id):
-            return True
-
         if Conversations._is_collaborative_conversation(conversation):
             return (
                 message.role or ""
             ).upper() == "USER" and Conversations._user_owns_message(
                 user_id, conversation, message
             )
+
+        if Conversations._is_admin_user(session, user_id):
+            return True
 
         return (
             conversation.user_id and str(conversation.user_id) == str(user_id)
@@ -3702,6 +3702,12 @@ class Conversations:
     @staticmethod
     def _can_delete_message(session, user_id, conversation, message):
         if Conversations._can_edit_message(session, user_id, conversation, message):
+            return True
+
+        if (conversation.conversation_type or "private") == "dm":
+            return False
+
+        if Conversations._is_admin_user(session, user_id):
             return True
 
         role = Conversations._participant_role(session, conversation.id, user_id)
