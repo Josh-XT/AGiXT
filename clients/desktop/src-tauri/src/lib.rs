@@ -150,6 +150,47 @@ fn with_default_identity_scope(
     request
 }
 
+fn normalized_server_url(value: &str) -> String {
+    value.trim().trim_end_matches('/').to_ascii_lowercase()
+}
+
+fn clear_server_bound_selection(settings: &mut DesktopSettings) {
+    settings.agent_id = None;
+    settings.agent_name = None;
+    settings.company_id = None;
+    settings.company_name = None;
+    settings.conversation_id = None;
+    settings.conversation_name = None;
+}
+
+fn apply_authenticated_session(
+    settings: &mut DesktopSettings,
+    server_url: String,
+    token: String,
+    email: Option<String>,
+    company_id: Option<String>,
+) {
+    let server_changed =
+        normalized_server_url(&settings.server_url) != normalized_server_url(&server_url);
+    let user_changed = email
+        .as_deref()
+        .map(|value| settings.user_email.as_deref() != Some(value))
+        .unwrap_or(false);
+
+    if server_changed || user_changed {
+        clear_server_bound_selection(settings);
+    }
+
+    settings.server_url = server_url;
+    settings.jwt = Some(token);
+    if let Some(email) = email {
+        settings.user_email = Some(email);
+    }
+    if let Some(company_id) = company_id.filter(|value| !value.trim().is_empty()) {
+        settings.company_id = Some(company_id);
+    }
+}
+
 #[tauri::command]
 fn frontend_log(level: String, message: String) {
     let text: String = message.chars().take(4_000).collect();
@@ -560,12 +601,13 @@ async fn login_password(
     .map_err(ToolError::from)?;
     if let Some(token) = &resp.token {
         let mut s = state.settings.lock().await;
-        s.server_url = args.server_url.clone();
-        s.jwt = Some(token.clone());
-        s.user_email = Some(args.email.clone());
-        if let Some(company_id) = &resp.company_id {
-            s.company_id = Some(company_id.clone());
-        }
+        apply_authenticated_session(
+            &mut s,
+            args.server_url.clone(),
+            token.clone(),
+            Some(args.email.clone()),
+            resp.company_id.clone(),
+        );
         state.store.save(&s).await.map_err(ToolError::from)?;
     }
     Ok(resp)
@@ -612,12 +654,13 @@ async fn register_account(
     .map_err(ToolError::from)?;
     if let Some(token) = &resp.token {
         let mut s = state.settings.lock().await;
-        s.server_url = args.server_url.clone();
-        s.jwt = Some(token.clone());
-        s.user_email = Some(args.email.clone());
-        if let Some(company_id) = &resp.company_id {
-            s.company_id = Some(company_id.clone());
-        }
+        apply_authenticated_session(
+            &mut s,
+            args.server_url.clone(),
+            token.clone(),
+            Some(args.email.clone()),
+            resp.company_id.clone(),
+        );
         state.store.save(&s).await.map_err(ToolError::from)?;
     }
     Ok(resp)
@@ -656,11 +699,7 @@ async fn login_with_jwt(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
     let mut s = state.settings.lock().await;
-    s.server_url = server_url;
-    s.jwt = Some(token);
-    if email.is_some() {
-        s.user_email = email;
-    }
+    apply_authenticated_session(&mut s, server_url, token, email, None);
     state.store.save(&s).await.map_err(ToolError::from)?;
     Ok(())
 }
@@ -1001,10 +1040,7 @@ async fn handle_deep_link_login(app: &AppHandle, token: String) {
         .map(|s| s.to_string());
     {
         let mut s = state.settings.lock().await;
-        s.jwt = Some(jwt);
-        if email.is_some() {
-            s.user_email = email;
-        }
+        apply_authenticated_session(&mut s, server_url, jwt, email, None);
         let _ = state.store.save(&s).await;
     }
     let _ = app.emit("agixt-authenticated", ());

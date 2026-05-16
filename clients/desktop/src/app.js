@@ -733,6 +733,16 @@
     return agents.filter((a) => !a.company_id || a.company_id === settings.company_id);
   }
 
+  function eligibleAgentsForCompany(companyId) {
+    if (!agents.length) return [];
+    if (!companyId) return agents;
+    const company = companies.find((c) => c.id === companyId);
+    if (company && Array.isArray(company.agents) && company.agents.length) {
+      return company.agents;
+    }
+    return agents.filter((a) => !a.company_id || a.company_id === companyId);
+  }
+
   async function refreshAgentsAndCompanies() {
     if (!settings.jwt) {
       companies = [];
@@ -740,29 +750,85 @@
       renderSelectors();
       return;
     }
+    let companiesLoaded = false;
+    let agentsLoaded = false;
     try {
       companies = await invoke('list_companies');
+      companiesLoaded = true;
     } catch (err) {
       console.warn('list_companies failed', err);
       companies = [];
     }
     try {
       agents = await invoke('list_agents');
+      agentsLoaded = true;
     } catch (err) {
       console.warn('list_agents failed', err);
       agents = [];
     }
 
-    if (!settings.company_id && companies.length) {
-      const primary = companies.find((c) => c.primary) || companies[0];
-      await persistSettings({ company_id: primary.id, company_name: primary.name });
+    const priorCompanyId = settings.company_id || null;
+    const priorAgentId = settings.agent_id || null;
+    const nextSettings = { ...settings };
+    const patch = {};
+    const stageSetting = (key, value) => {
+      if ((nextSettings[key] || null) === (value || null)) return;
+      nextSettings[key] = value;
+      patch[key] = value;
+    };
+
+    if (companiesLoaded) {
+      const selectedCompany = nextSettings.company_id
+        ? companies.find((c) => c.id === nextSettings.company_id)
+        : null;
+      if (companies.length && !selectedCompany) {
+        const primary = companies.find((c) => c.primary) || companies[0];
+        stageSetting('company_id', primary.id);
+        stageSetting('company_name', primary.name);
+      } else if (selectedCompany) {
+        stageSetting('company_name', selectedCompany.name);
+      } else {
+        stageSetting('company_id', null);
+        stageSetting('company_name', null);
+      }
     }
-    const eligible = filteredAgents();
-    if (!settings.agent_id && eligible.length) {
-      const def = eligible.find((a) => a.default) || eligible[0];
-      await persistSettings({ agent_id: def.id, agent_name: def.name });
+
+    if (agentsLoaded) {
+      const eligible = eligibleAgentsForCompany(nextSettings.company_id);
+      const selectedAgent = nextSettings.agent_id
+        ? eligible.find((a) => a.id === nextSettings.agent_id)
+        : null;
+      if (eligible.length && !selectedAgent) {
+        const def = eligible.find((a) => a.default) || eligible[0];
+        stageSetting('agent_id', def.id);
+        stageSetting('agent_name', def.name);
+      } else if (selectedAgent) {
+        stageSetting('agent_name', selectedAgent.name);
+      } else {
+        stageSetting('agent_id', null);
+        stageSetting('agent_name', null);
+      }
+    } else if (priorCompanyId !== (nextSettings.company_id || null)) {
+      stageSetting('agent_id', null);
+      stageSetting('agent_name', null);
+    }
+
+    const contextChanged = priorCompanyId !== (nextSettings.company_id || null)
+      || priorAgentId !== (nextSettings.agent_id || null);
+    if (contextChanged) {
+      stageSetting('conversation_id', null);
+      stageSetting('conversation_name', null);
+      conversationName = null;
+    }
+    if (Object.keys(patch).length) {
+      await persistSettings(patch);
     }
     renderSelectors();
+    if (contextChanged
+        && window.AgixtDesktopExtensions
+        && typeof window.AgixtDesktopExtensions.refresh === 'function') {
+      window.AgixtDesktopExtensions.refresh();
+    }
   }
 
   // ----- Popover menus (agent + conversation) -----
