@@ -1001,7 +1001,16 @@
         update(env.data);
         return;
       case 'messages_deleted':
-        clear();
+        {
+          const deletedIds = env.data && Array.isArray(env.data.deleted_message_ids)
+            ? env.data.deleted_message_ids
+            : null;
+          if (deletedIds && deletedIds.length) {
+            deletedIds.forEach((id) => removeMessage(id));
+          } else {
+            clear();
+          }
+        }
         return;
       case 'conversation_renamed':
         // AGiXT renames a conversation after the first user/assistant

@@ -297,9 +297,44 @@
     return !!(senderUserId && currentUserId() === senderUserId);
   }
 
+  function normalizeReactionList(reactions) {
+    if (!Array.isArray(reactions) || !reactions.length) return [];
+    const byEmoji = new Map();
+    for (const reaction of reactions) {
+      if (!reaction || !reaction.emoji) continue;
+      const entry = byEmoji.get(reaction.emoji) || {
+        emoji: reaction.emoji,
+        count: 0,
+        users: [],
+      };
+      if (Array.isArray(reaction.users)) {
+        for (const user of reaction.users) {
+          if (!user) continue;
+          entry.users.push(typeof user === 'string' ? { id: user } : user);
+        }
+        entry.count += Number(reaction.count || reaction.users.length || 0);
+      } else {
+        entry.users.push({
+          id: reaction.user_id || reaction.userId || reaction.id || '',
+          email: reaction.user_email || reaction.email || '',
+          first_name: reaction.user_first_name || reaction.first_name || '',
+        });
+        entry.count += 1;
+      }
+      byEmoji.set(reaction.emoji, entry);
+    }
+    return Array.from(byEmoji.values()).map((reaction) => ({
+      ...reaction,
+      count: reaction.count || reaction.users.length || 1,
+    }));
+  }
+
   function mergeMessageRecord(existing, incoming) {
     const base = existing || {};
     const next = Object.assign({}, base, incoming || {});
+    if (Array.isArray(next.reactions)) {
+      next.reactions = normalizeReactionList(next.reactions);
+    }
     const senderUserId = getMessageSenderId(incoming) || getMessageSenderId(base);
     if (senderUserId && !next.sender_user_id) next.sender_user_id = senderUserId;
     const bestSender = pickBestProfile(
@@ -3937,7 +3972,18 @@
             break;
           case 'messages_deleted':
             if (activeChannelId === channelId) {
-              messageCache.set(channelId, []);
+              const deletedIds = data && Array.isArray(data.deleted_message_ids)
+                ? data.deleted_message_ids
+                : null;
+              if (deletedIds && deletedIds.length) {
+                const arr = messageCache.get(channelId) || [];
+                messageCache.set(
+                  channelId,
+                  arr.filter((m) => !deletedIds.includes(m.id)),
+                );
+              } else {
+                messageCache.set(channelId, []);
+              }
               renderMessages();
             }
             break;
