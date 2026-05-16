@@ -7137,6 +7137,61 @@ Return only one top-level <answer>...</answer> block. The opening <answer> tag M
             pass
         return None
 
+    def _get_executable_command_names(self) -> list:
+        """
+        Return the command names that execution_agent is allowed to run.
+
+        Prompt construction and command selection both include commands enabled
+        on the user's agent plus commands enabled through the company agent. The
+        execution validator must use that same effective command set, otherwise a
+        command can be shown in the prompt and then rejected as unknown.
+        """
+        command_names = []
+        seen = set()
+
+        def add_command(command_name):
+            if not command_name:
+                return
+            normalized = str(command_name).strip().lower()
+            if not normalized or normalized in seen:
+                return
+            seen.add(normalized)
+            command_names.append(str(command_name).strip())
+
+        def collect_available_commands(available_commands):
+            for available_command in available_commands or []:
+                try:
+                    enabled = (
+                        str(available_command.get("enabled", "")).lower() == "true"
+                    )
+                    if enabled:
+                        add_command(available_command.get("friendly_name"))
+                except Exception as e:
+                    logging.debug(
+                        f"[execution_agent] Could not inspect available command: {e}"
+                    )
+
+        if self.agent:
+            collect_available_commands(getattr(self.agent, "available_commands", []))
+
+            try:
+                company_agent = getattr(self.agent, "company_agent", None)
+            except Exception as e:
+                logging.debug(
+                    f"[execution_agent] Could not load company agent commands: {e}"
+                )
+                company_agent = None
+
+            if company_agent:
+                collect_available_commands(
+                    getattr(company_agent, "available_commands", [])
+                )
+
+        for client_tool_name in (getattr(self, "_client_tools", {}) or {}).keys():
+            add_command(client_tool_name)
+
+        return command_names
+
     async def execution_agent(
         self,
         conversation_name,
@@ -7164,11 +7219,7 @@ Return only one top-level <answer>...</answer> block. The opening <answer> tag M
             user=self.user,
             conversation_id=conversation_id,
         )
-        command_list = [
-            available_command["friendly_name"]
-            for available_command in self.agent.available_commands
-            if available_command["enabled"] == True
-        ]
+        command_list = self._get_executable_command_names()
         # Use provided thinking_id if available, otherwise get a new one
         if not thinking_id:
             thinking_id = c.get_thinking_id(agent_name=self.agent_name)
