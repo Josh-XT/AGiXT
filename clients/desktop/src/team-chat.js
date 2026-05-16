@@ -62,6 +62,7 @@
   let activeCompanyId = null;          // null = DM mode
   let activeChannelId = null;
   let participantsByChannel = new Map(); // channelId -> [participant, ...]
+  let senderProfilesById = new Map();    // userId -> richest profile seen
   let currentUser = null;
   let messageCache = new Map();        // channelId -> [message, ...]
   let renderedMessageIds = new Set();
@@ -172,7 +173,17 @@
 
   function userIdOf(user) {
     if (!user) return null;
-    return user.id || user.user_id || user.userId || null;
+    return user.id || user.user_id || user.userId || user.sub || null;
+  }
+
+  function normalizeUserProfile(user) {
+    if (!user) return null;
+    const nested = (user.user && typeof user.user === 'object' && user.user)
+      || (user.profile && typeof user.profile === 'object' && user.profile)
+      || (user.data && typeof user.data === 'object' && user.data)
+      || user;
+    const id = userIdOf(nested) || userIdOf(user);
+    return Object.assign({}, nested, id ? { id } : {});
   }
 
   function firstNameOf(user) {
@@ -197,6 +208,49 @@
     return full || user.display_name || user.displayName || user.name || emailOf(user) || '';
   }
 
+  function profileScore(user) {
+    if (!user) return 0;
+    let score = 0;
+    if (displayNameForUser(user)) score += 2;
+    if (emailOf(user)) score += 1;
+    if (avatarUrlOf(user)) score += 1;
+    return score;
+  }
+
+  function rememberUserProfile(user, forcedId) {
+    const normalized = normalizeUserProfile(user);
+    const id = forcedId || userIdOf(normalized);
+    if (!id) return null;
+    const existing = senderProfilesById.get(id) || {};
+    const merged = Object.assign({}, existing);
+    for (const [key, value] of Object.entries(normalized || {})) {
+      if (value !== null && value !== undefined && value !== '') merged[key] = value;
+    }
+    if (forcedId || !userIdOf(merged)) merged.id = id;
+    senderProfilesById.set(id, merged);
+    return merged;
+  }
+
+  function rememberSenderFromMessage(msg) {
+    if (!msg) return;
+    const senderUserId = getMessageSenderId(msg);
+    if (msg.sender && typeof msg.sender === 'object') {
+      rememberUserProfile(msg.sender, senderUserId);
+    }
+  }
+
+  function rememberParticipantProfiles(list) {
+    for (const p of list || []) {
+      if (p && p.participant_type !== 'agent' && p.user) rememberUserProfile(p.user);
+    }
+  }
+
+  function pickBestProfile(primary, fallback) {
+    if (!primary) return fallback || null;
+    if (!fallback) return primary;
+    return profileScore(primary) >= profileScore(fallback) ? primary : fallback;
+  }
+
   function currentUserId() {
     return userIdOf(currentUser);
   }
@@ -215,6 +269,7 @@
     if (!uid) return null;
     const p = participantById(uid);
     if (p && p.participant_type === 'user' && p.user) return p.user;
+    if (senderProfilesById.has(uid)) return senderProfilesById.get(uid);
     if (currentUserId() === uid) return currentUser;
     for (const teammate of allTeammates) {
       if (userIdOf(teammate) === uid) return teammate;
@@ -231,7 +286,7 @@
     const fromCurrentUser = !!(senderUserId && currentUserId() === senderUserId);
     return {
       id: senderUserId || userIdOf(merged),
-      name: displayNameForUser(merged) || (fromCurrentUser ? displayNameForUser(currentUser) || 'You' : 'User'),
+      name: displayNameForUser(merged) || (fromCurrentUser ? displayNameForUser(currentUser) : '') || 'User',
       email: emailOf(merged),
       avatarUrl: avatarUrlOf(merged),
     };
@@ -240,6 +295,45 @@
   function isMessageFromCurrentUser(msg) {
     const senderUserId = getMessageSenderId(msg);
     return !!(senderUserId && currentUserId() === senderUserId);
+  }
+
+  function mergeMessageRecord(existing, incoming) {
+    const base = existing || {};
+    const next = Object.assign({}, base, incoming || {});
+    const senderUserId = getMessageSenderId(incoming) || getMessageSenderId(base);
+    if (senderUserId && !next.sender_user_id) next.sender_user_id = senderUserId;
+    const bestSender = pickBestProfile(
+      incoming && incoming.sender,
+      base && base.sender,
+    );
+    if (bestSender) {
+      next.sender = Object.assign(
+        {},
+        bestSender,
+        senderUserId && !userIdOf(bestSender) ? { id: senderUserId } : {},
+      );
+    }
+    rememberSenderFromMessage(next);
+    return next;
+  }
+
+  function mergeMessageList(existingMessages, incomingMessages) {
+    const byId = new Map();
+    const withoutId = [];
+    for (const msg of existingMessages || []) {
+      if (msg && msg.id) byId.set(msg.id, mergeMessageRecord(null, msg));
+      else if (msg) withoutId.push(mergeMessageRecord(null, msg));
+    }
+    for (const msg of incomingMessages || []) {
+      if (!msg) continue;
+      if (msg.id) byId.set(msg.id, mergeMessageRecord(byId.get(msg.id), msg));
+      else withoutId.push(mergeMessageRecord(null, msg));
+    }
+    return withoutId.concat(Array.from(byId.values())).sort((a, b) => {
+      const at = a && a.timestamp || '';
+      const bt = b && b.timestamp || '';
+      return at < bt ? -1 : at > bt ? 1 : 0;
+    });
   }
 
   // Resolver fed to the mention rewriter so `<@uid>` tokens render as
@@ -453,7 +547,8 @@
 
   async function loadCompanies() {
     try {
-      currentUser = await window.AgixtApi.getUser();
+      currentUser = normalizeUserProfile(await window.AgixtApi.getUser());
+      rememberUserProfile(currentUser);
       const list = await window.AgixtApi.listCompanies();
       const arr = Array.isArray(list) ? list : (list && list.companies) || [];
       companies = arr.filter(Boolean).map((c) => ({
@@ -581,6 +676,7 @@
     function addMember(u, company) {
       if (!u || !u.id) return;
       if (currentUser && u.id === currentUser.id) return;
+      rememberUserProfile(u);
       const existing = byId.get(u.id) || {};
       const merged = Object.assign({}, existing, u);
       const ids = Array.isArray(existing.company_ids) ? existing.company_ids.slice() : [];
@@ -624,6 +720,7 @@
     try {
       const list = await window.AgixtApi.getConversationParticipants(channelId);
       participantsByChannel.set(channelId, list);
+      rememberParticipantProfiles(list);
       return list;
     } catch (e) {
       console.warn('team-chat: loadParticipants failed', e);
@@ -656,8 +753,9 @@
         page: 1,
       });
       const arr = Array.isArray(entries) ? entries : [];
-      messageCache.set(channelId, arr);
-      return arr;
+      const merged = mergeMessageList(messageCache.get(channelId) || [], arr);
+      messageCache.set(channelId, merged);
+      return merged;
     } catch (e) {
       console.warn('team-chat: loadMessages failed', e);
       return [];
@@ -3804,7 +3902,8 @@
         switch (envelope.type) {
           case 'initial_data':
             if (Array.isArray(data)) {
-              messageCache.set(channelId, data);
+              const merged = mergeMessageList(messageCache.get(channelId) || [], data);
+              messageCache.set(channelId, merged);
               if (activeChannelId === channelId) renderMessages();
             }
             break;
@@ -3812,10 +3911,16 @@
           case 'message_added':
             if (data && data.id && activeChannelId === channelId) {
               const arr = messageCache.get(channelId) || [];
-              if (!arr.some((m) => m.id === data.id)) {
-                arr.push(data);
+              const idx = arr.findIndex((m) => m.id === data.id);
+              const merged = mergeMessageRecord(idx >= 0 ? arr[idx] : null, data);
+              if (idx >= 0) {
+                arr[idx] = merged;
                 messageCache.set(channelId, arr);
-                appendMessage(data, true);
+                renderMessages();
+              } else {
+                arr.push(merged);
+                messageCache.set(channelId, arr);
+                appendMessage(merged, true);
               }
             }
             break;
@@ -3824,7 +3929,7 @@
               const arr = messageCache.get(channelId) || [];
               const idx = arr.findIndex((m) => m.id === data.id);
               if (idx >= 0) {
-                arr[idx] = data;
+                arr[idx] = mergeMessageRecord(arr[idx], data);
                 messageCache.set(channelId, arr);
                 renderMessages();
               }
