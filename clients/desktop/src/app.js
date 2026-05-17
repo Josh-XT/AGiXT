@@ -392,6 +392,19 @@
     setDesktopUpdateStatus(auto ? 'Installing update…' : 'Downloading update…');
     try {
       const result = await invoke('desktop_update_install');
+      if (result.installed && result.restart_required) {
+        setDesktopUpdateStatus('Update installed. Restarting AGiXT Desktop…', 'success');
+        if (desktopUpdateBusyMode === 'installing') setDesktopUpdateBusy('');
+        setDesktopUpdateControls(false);
+        markSettingsBtnPending(false);
+        window.setTimeout(() => {
+          invoke('desktop_restart_app').catch((e) => {
+            setDesktopUpdateStatus('Update installed. Please restart AGiXT Desktop to finish.', 'success');
+            console.error('desktop_restart_app failed', e);
+          });
+        }, 1500);
+        return;
+      }
       setDesktopUpdateStatus(result.message || 'Update installed.', result.installed ? 'success' : '');
       if (desktopUpdateBusyMode === 'installing') setDesktopUpdateBusy('');
       if (result.installed) {

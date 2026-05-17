@@ -1081,8 +1081,20 @@
     if (checkBtn) checkBtn.hidden = true;
     try {
       const result = await invoke('desktop_update_install');
-      statusEl.textContent = result.message || 'Update installed.';
       statusEl.className = 'us-status-line ' + (result.installed ? 'success' : '');
+      if (result.installed && result.restart_required) {
+        statusEl.textContent = 'Update installed. Restarting AGiXT Desktop…';
+        // Give the user a moment to read the message before the app re-execs.
+        window.setTimeout(() => {
+          invoke('desktop_restart_app').catch((e) => {
+            statusEl.textContent = 'Update installed. Please restart AGiXT Desktop to finish.';
+            statusEl.className = 'us-status-line success';
+            console.error('desktop_restart_app failed', e);
+          });
+        }, 1500);
+        return;
+      }
+      statusEl.textContent = result.message || 'Update installed.';
       if (!result.installed) installBtn.hidden = false;
     } catch (err) {
       const msg = errMsg(err);

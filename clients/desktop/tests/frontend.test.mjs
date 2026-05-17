@@ -12,8 +12,9 @@
 //   node --test tests/frontend.test.mjs
 // from clients/desktop.
 
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import asyncHooks from 'node:async_hooks';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -23,6 +24,40 @@ import { JSDOM } from 'jsdom';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(__dirname, '..', 'src');
 const WEB = path.join(__dirname, '..', '..', 'web');
+const activeAsyncResources = new Map();
+
+if (process.env.AGIXT_DUMP_HANDLES) {
+  asyncHooks.createHook({
+    init(asyncId, type) {
+      if (type === 'PROMISE' || type === 'TickObject') return;
+      activeAsyncResources.set(asyncId, {
+        type,
+        stack: new Error().stack.split('\n').slice(2, 8).join('\n'),
+      });
+    },
+    destroy(asyncId) {
+      activeAsyncResources.delete(asyncId);
+    },
+  }).enable();
+}
+
+after(() => {
+  if (!process.env.AGIXT_DUMP_HANDLES) return;
+  setTimeout(() => {
+    const handles = process._getActiveHandles()
+      .map((handle) => ({
+        type: handle && handle.constructor && handle.constructor.name,
+        repeat: handle && handle._repeat,
+        timeout: handle && handle._idleTimeout,
+        hasRef: handle && typeof handle.hasRef === 'function' ? handle.hasRef() : undefined,
+      }));
+    const resources = [...activeAsyncResources.values()]
+      .filter((res) => !['TTYWRAP', 'PIPEWRAP', 'SIGNALWRAP'].includes(res.type))
+      .slice(-80);
+    console.error('AGIXT_ACTIVE_HANDLES', JSON.stringify(handles, null, 2));
+    console.error('AGIXT_ACTIVE_ASYNC', JSON.stringify(resources, null, 2));
+  }, 1000);
+});
 
 function loadFrontend({ ipc, WebSocketClass, eventListen } = {}) {
   const dom = new JSDOM(
@@ -178,14 +213,27 @@ function loadFullApp({ ipc } = {}) {
       },
     },
   };
-  if (!window.WebSocket) {
-    window.WebSocket = class {
-      constructor() { this.readyState = 1; setTimeout(() => this.onopen && this.onopen(), 0); }
-      send() {}
-      close() {}
-    };
-    window.WebSocket.OPEN = 1;
-  }
+  window.WebSocket = class {
+    constructor() {
+      this.readyState = window.WebSocket.CONNECTING;
+      this._openTimer = setTimeout(() => {
+        if (this.readyState === window.WebSocket.CLOSED) return;
+        this.readyState = window.WebSocket.OPEN;
+        if (this.onopen) this.onopen();
+      }, 0);
+    }
+    send() {}
+    close() {
+      if (this._openTimer) {
+        clearTimeout(this._openTimer);
+        this._openTimer = null;
+      }
+      this.readyState = window.WebSocket.CLOSED;
+    }
+  };
+  window.WebSocket.OPEN = 1;
+  window.WebSocket.CONNECTING = 0;
+  window.WebSocket.CLOSED = 3;
   // user-settings.js + agixt-api.js own the gear-button side pane that
   // replaced the legacy settings modal. They have to be loaded *before*
   // app.js so window.UserSettings exists by the time app.js's
@@ -201,6 +249,35 @@ function loadFullApp({ ipc } = {}) {
   ]) {
     const code = fs.readFileSync(path.join(SRC, name), 'utf8');
     vm.runInContext(code, dom.getInternalVMContext(), { filename: name });
+  }
+  const originalDisconnect = window.AgixtChat && window.AgixtChat.disconnect;
+  if (typeof originalDisconnect === 'function') {
+    window.AgixtChat.disconnect = () => {
+      try { originalDisconnect.call(window.AgixtChat); } catch (_) {}
+      try {
+        if (window.AgixtNotifications && typeof window.AgixtNotifications.stop === 'function') {
+          window.AgixtNotifications.stop();
+        }
+      } catch (_) {}
+      try {
+        if (window.AgixtTeamChat && typeof window.AgixtTeamChat.unmount === 'function') {
+          window.AgixtTeamChat.unmount();
+        }
+      } catch (_) {}
+      try {
+        if (window.AgixtDesktopExtensions && typeof window.AgixtDesktopExtensions.stop === 'function') {
+          window.AgixtDesktopExtensions.stop();
+        }
+      } catch (_) {}
+      try {
+        if (window.AgixtDesktopUpdates
+            && typeof window.AgixtDesktopUpdates.syncSettings === 'function'
+            && typeof window.AgixtDesktopUpdates.scheduleAutoCheck === 'function') {
+          window.AgixtDesktopUpdates.syncSettings({ desktop_auto_update: false });
+          window.AgixtDesktopUpdates.scheduleAutoCheck();
+        }
+      } catch (_) {}
+    };
   }
   return { window, calls };
 }
@@ -2759,7 +2836,7 @@ test('prompt guidance: builder fills placeholders before sending', async () => {
     .find((c) => c.querySelector('.pg-chip-badge'));
   assert.ok(builderChip, 'a placeholder-bearing chip renders with a badge');
   builderChip.click();
-  await new Promise((resolve) => setTimeout(resolve, 5));
+  await new Promise((resolve) => setTimeout(resolve, 40));
 
   const modal = window.document.querySelector('.prompt-guidance-modal');
   assert.ok(modal && modal.classList.contains('open'), 'builder modal opens');

@@ -262,6 +262,13 @@ async fn desktop_update_install() -> ToolResult<updater::DesktopUpdateInstallRes
     updater::install().await.map_err(ToolError::from)
 }
 
+#[tauri::command]
+fn desktop_restart_app(app: AppHandle) {
+    // Relaunch the app so the freshly-installed binary takes over.
+    // `restart()` re-execs the process and never returns.
+    app.restart();
+}
+
 // --------------------------------------------------------------------------
 // Native voice recording
 // --------------------------------------------------------------------------
@@ -4404,6 +4411,7 @@ pub fn run() {
             logout,
             desktop_update_check,
             desktop_update_install,
+            desktop_restart_app,
             voice_start_recording,
             voice_stop_recording,
             voice_cancel_recording,
@@ -4699,6 +4707,7 @@ pub fn run() {
             logout,
             desktop_update_check,
             desktop_update_install,
+            desktop_restart_app,
             voice_start_recording,
             voice_stop_recording,
             voice_cancel_recording,

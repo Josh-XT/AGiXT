@@ -6000,13 +6000,17 @@ body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .chat-mo
 .pg-bar-toggle:hover { color: var(--text); background: var(--panel-2); }
 .pg-chips {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 4px;
+  /* Show up to two rows of suggestions; anything beyond scrolls
+     vertically. `scrollbar-gutter: stable` reserves the scrollbar
+     track so it never sits on top of the chips. */
+  max-height: calc(2 * 31px + 6px);
+  overflow-y: auto;
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
 }
-.pg-chips::-webkit-scrollbar { height: 6px; }
+.pg-chips::-webkit-scrollbar { width: 6px; }
 .pg-chips::-webkit-scrollbar-thumb {
   background: var(--border-strong);
   border-radius: 3px;
