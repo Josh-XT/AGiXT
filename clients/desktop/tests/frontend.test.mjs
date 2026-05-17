@@ -12,9 +12,8 @@
 //   node --test tests/frontend.test.mjs
 // from clients/desktop.
 
-import { after, test } from 'node:test';
+import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
-import asyncHooks from 'node:async_hooks';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -24,39 +23,35 @@ import { JSDOM } from 'jsdom';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(__dirname, '..', 'src');
 const WEB = path.join(__dirname, '..', '..', 'web');
-const activeAsyncResources = new Map();
+const trackedDoms = new Set();
 
-if (process.env.AGIXT_DUMP_HANDLES) {
-  asyncHooks.createHook({
-    init(asyncId, type) {
-      if (type === 'PROMISE' || type === 'TickObject') return;
-      activeAsyncResources.set(asyncId, {
-        type,
-        stack: new Error().stack.split('\n').slice(2, 8).join('\n'),
-      });
-    },
-    destroy(asyncId) {
-      activeAsyncResources.delete(asyncId);
-    },
-  }).enable();
+function trackDom(dom) {
+  trackedDoms.add(dom);
+  return dom;
 }
 
-after(() => {
-  if (!process.env.AGIXT_DUMP_HANDLES) return;
-  setTimeout(() => {
-    const handles = process._getActiveHandles()
-      .map((handle) => ({
-        type: handle && handle.constructor && handle.constructor.name,
-        repeat: handle && handle._repeat,
-        timeout: handle && handle._idleTimeout,
-        hasRef: handle && typeof handle.hasRef === 'function' ? handle.hasRef() : undefined,
-      }));
-    const resources = [...activeAsyncResources.values()]
-      .filter((res) => !['TTYWRAP', 'PIPEWRAP', 'SIGNALWRAP'].includes(res.type))
-      .slice(-80);
-    console.error('AGIXT_ACTIVE_HANDLES', JSON.stringify(handles, null, 2));
-    console.error('AGIXT_ACTIVE_ASYNC', JSON.stringify(resources, null, 2));
-  }, 1000);
+function cleanupWindow(window) {
+  try { if (window.AgixtChat) window.AgixtChat.disconnect(); } catch (_) {}
+  try { if (window.AgixtNotifications) window.AgixtNotifications.stop(); } catch (_) {}
+  try { if (window.AgixtTeamChat) window.AgixtTeamChat.unmount(); } catch (_) {}
+  try { if (window.AgixtDesktopExtensions) window.AgixtDesktopExtensions.stop(); } catch (_) {}
+  try {
+    if (window.AgixtDesktopUpdates
+        && typeof window.AgixtDesktopUpdates.syncSettings === 'function'
+        && typeof window.AgixtDesktopUpdates.scheduleAutoCheck === 'function') {
+      window.AgixtDesktopUpdates.syncSettings({ desktop_auto_update: false });
+      window.AgixtDesktopUpdates.scheduleAutoCheck();
+    }
+  } catch (_) {}
+}
+
+afterEach(() => {
+  for (const dom of trackedDoms) {
+    if (!dom || !dom.window) continue;
+    cleanupWindow(dom.window);
+    try { dom.window.close(); } catch (_) {}
+  }
+  trackedDoms.clear();
 });
 
 function loadFrontend({ ipc, WebSocketClass, eventListen } = {}) {
@@ -65,6 +60,7 @@ function loadFrontend({ ipc, WebSocketClass, eventListen } = {}) {
     { runScripts: 'outside-only', url: 'http://localhost/' },
   );
   const { window } = dom;
+  trackDom(dom);
   window.requestAnimationFrame = window.requestAnimationFrame || ((cb) => setTimeout(() => cb(Date.now()), 0));
   window.cancelAnimationFrame = window.cancelAnimationFrame || ((id) => clearTimeout(id));
   // Stub Tauri IPC.
@@ -114,6 +110,7 @@ function loadWebRuntime(url = 'http://localhost/') {
     url,
   });
   const { window } = dom;
+  trackDom(dom);
   window.AGIXT_WEB_CONFIG = {
     serverUrl: 'http://localhost:7437',
     webUrl: 'http://localhost:3437',
@@ -129,6 +126,7 @@ function loadFullApp({ ipc } = {}) {
     { runScripts: 'outside-only', url: 'http://localhost/' },
   );
   const { window } = dom;
+  trackDom(dom);
   window.requestAnimationFrame = window.requestAnimationFrame || ((cb) => setTimeout(() => cb(Date.now()), 0));
   window.cancelAnimationFrame = window.cancelAnimationFrame || ((id) => clearTimeout(id));
   const calls = [];
@@ -288,6 +286,7 @@ function loadDesktopExtensionsOnly() {
     { runScripts: 'outside-only', url: 'http://localhost/' },
   );
   const { window } = dom;
+  trackDom(dom);
   window.__TAURI__ = { core: { invoke: async () => null } };
   window.AgixtAppContext = () => ({
     serverUrl: 'http://localhost:7437',
@@ -305,6 +304,7 @@ function loadCrudExtensionPage(filePath) {
     { runScripts: 'outside-only', url: 'http://localhost/' },
   );
   const { window } = dom;
+  trackDom(dom);
   const registrations = new Map();
   window.AgixtRegisterExtension = (id, ctrl) => registrations.set(id, ctrl);
   for (const source of [
@@ -323,6 +323,7 @@ function loadWorkspaceModelsOnly() {
     url: 'http://localhost/',
   });
   const { window } = dom;
+  trackDom(dom);
   window.requestIdleCallback = (cb) => {
     cb();
     return 1;
@@ -622,6 +623,164 @@ test('chat: persisted assistant message does not duplicate live placeholder', as
   assert.equal(assistantMessages.length, 1);
   assert.ok(assistantMessages[0].startsWith('Full answer'));
   assert.doesNotMatch(assistantMessages.join('\n'), /Partial/);
+  window.AgixtChat.disconnect();
+});
+
+test('chat: persisted activity and answer adopt live stream placeholders', async () => {
+  const streamListeners = new Map();
+  let socket = null;
+  class TestWebSocket {
+    constructor() {
+      this.readyState = TestWebSocket.OPEN;
+      socket = this;
+      setTimeout(() => this.onopen && this.onopen(), 0);
+    }
+    send() {}
+    close() { this.readyState = 3; }
+  }
+  TestWebSocket.OPEN = 1;
+
+  const finalText = 'I created `oranges.md` in your workspace.\n\n[oranges.md](oranges.md)';
+  const { window } = loadFrontend({
+    WebSocketClass: TestWebSocket,
+    eventListen: async (name, cb) => {
+      streamListeners.set(name, cb);
+      return () => streamListeners.delete(name);
+    },
+    ipc: {
+      chat_send: async ({ args }) => {
+        const streamId = args.stream_id;
+        setTimeout(() => {
+          streamListeners.get(`chat-stream:${streamId}`)?.({
+            payload: { event: { kind: 'activity', data: { content: 'Creating oranges.md', complete: false } } },
+          });
+        }, 0);
+        setTimeout(() => {
+          socket?.onmessage?.({
+            data: JSON.stringify({
+              type: 'message_added',
+              data: {
+                id: 'server-activity-1',
+                role: 'XT',
+                message: '[ACTIVITY] Thinking',
+                timestamp: '2026-05-17T12:00:01.000Z',
+              },
+            }),
+          });
+        }, 1);
+        setTimeout(() => {
+          streamListeners.get(`chat-stream:${streamId}`)?.({
+            payload: { event: { kind: 'done', data: { text: finalText, finish_reason: 'stop' } } },
+          });
+        }, 2);
+        setTimeout(() => {
+          socket?.onmessage?.({
+            data: JSON.stringify({
+              type: 'message_added',
+              data: {
+                id: 'server-assistant-1',
+                role: 'XT',
+                message: finalText,
+                timestamp: '2026-05-17T12:00:02.000Z',
+              },
+            }),
+          });
+        }, 3);
+        return streamId;
+      },
+    },
+  });
+  window.AgixtChat.configure({
+    serverUrl: 'http://localhost:7437',
+    jwt: 'jwt',
+    conversationId: 'c',
+  });
+
+  await window.AgixtChat.send('make oranges.md', 'c');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  assert.equal(window.document.querySelectorAll('#messages .activity').length, 1);
+  const assistantMessages = [...window.document.querySelectorAll('#messages .message-assistant')]
+    .map((node) => node.textContent.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  assert.equal(assistantMessages.length, 1);
+  assert.match(assistantMessages[0], /oranges\.md/);
+  window.AgixtChat.disconnect();
+});
+
+test('chat: workspace file links open in desktop workspace', async () => {
+  const opened = [];
+  const { window } = loadFrontend({
+    ipc: {
+      get_conversation_history: async () => [{
+        id: 'server-assistant-1',
+        role: 'XT',
+        message: 'You can view it here:\n\n[oranges.md](oranges.md)',
+        timestamp: '2026-05-17T12:00:00.000Z',
+      }],
+    },
+  });
+  window.AgixtWorkspace = {
+    openPath: async (path, opts) => opened.push({ path, opts }),
+  };
+  window.AgixtChat.configure({
+    serverUrl: 'http://localhost:7437',
+    jwt: 'jwt',
+    conversationId: 'c',
+    reconnect: false,
+  });
+  await window.AgixtChat.loadHistory('c');
+
+  const link = window.document.querySelector('#messages a[data-workspace-path]');
+  assert.ok(link, 'workspace link is tagged');
+  link.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0].path, 'oranges.md');
+  assert.equal(opened[0].opts.conversationId, 'c');
+  window.AgixtChat.disconnect();
+});
+
+test('chat: AGiXT output file links open in desktop workspace', async () => {
+  const opened = [];
+  const browserOpened = [];
+  const { window } = loadFrontend({
+    ipc: {
+      get_conversation_history: async () => [{
+        id: 'server-assistant-1',
+        role: 'XT',
+        message: [
+          '[oranges.md](http://localhost:7437/outputs/agent_abc/c/folder/oranges.md)',
+          '[external](https://evil.example/outputs/agent_abc/c/folder/evil.md)',
+        ].join('\n\n'),
+        timestamp: '2026-05-17T12:00:00.000Z',
+      }],
+    },
+  });
+  window.AgixtWorkspace = {
+    openPath: async (path, opts) => opened.push({ path, opts }),
+  };
+  window.__TAURI__.opener = {
+    openUrl: async (url) => browserOpened.push(url),
+  };
+  window.AgixtChat.configure({
+    serverUrl: 'http://localhost:7437',
+    jwt: 'jwt',
+    conversationId: 'c',
+    reconnect: false,
+  });
+  await window.AgixtChat.loadHistory('c');
+
+  const links = [...window.document.querySelectorAll('#messages a')];
+  const workspaceLinks = links.filter((link) => link.dataset.workspacePath);
+  assert.equal(workspaceLinks.length, 1);
+  assert.equal(workspaceLinks[0].dataset.workspacePath, 'folder/oranges.md');
+  workspaceLinks[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0].path, 'folder/oranges.md');
+  assert.equal(opened[0].opts.conversationId, 'c');
+  assert.equal(browserOpened.length, 0);
   window.AgixtChat.disconnect();
 });
 
@@ -1073,6 +1232,48 @@ test('app: enabling automatic desktop updates schedules install', async () => {
   await new Promise((resolve) => setTimeout(resolve, 600));
 
   assert.ok(calls.some((c) => c.cmd === 'desktop_update_install'));
+  window.AgixtChat.disconnect();
+});
+
+test('app: successful update install auto-restarts the app', async () => {
+  const { window, calls } = loadFullApp({
+    ipc: {
+      desktop_update_check: async () => ({
+        current_build_id: 'old',
+        app_version: '0.1.0',
+        latest_build_id: 'new',
+        update_available: true,
+        ready: true,
+        platform: 'linux',
+      }),
+      desktop_update_install: async () => ({
+        installed: true,
+        restart_required: true,
+        message: 'Update installed. Restart AGiXT Desktop to use the new version.',
+      }),
+      desktop_restart_app: async () => ({}),
+      sudo_status: async () => ({ authenticated: true }),
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  window.document.getElementById('btn-settings').click();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+
+  const installButton = window.document.querySelector('[data-us-test="desktop-update-install"]');
+  assert.equal(installButton.hidden, false);
+  installButton.click();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  // The status flips to the restarting message immediately…
+  assert.match(
+    window.document.querySelector('[data-us-test="desktop-update-status"]').textContent,
+    /Restarting AGiXT Desktop/,
+  );
+
+  // …and after the brief read delay the restart IPC fires.
+  await new Promise((resolve) => setTimeout(resolve, 1700));
+  assert.ok(calls.some((c) => c.cmd === 'desktop_restart_app'));
   window.AgixtChat.disconnect();
 });
 
@@ -1788,7 +1989,7 @@ test('chat: screenshot tool result is sent back as image content for vision', as
           const toolMsg = args.messages[0];
           assert.equal(toolMsg.role, 'tool');
           assert.equal(toolMsg.tool_call_id, 'req-shot');
-          assert.equal(toolMsg.name, 'desktop_screenshot');
+          assert.equal(toolMsg.name, 'screenshot');
           assert.equal(toolMsg.enable_command_selection, false);
           assert.equal(Array.isArray(toolMsg.content), true);
           assert.match(toolMsg.content[0].text, /Metadata/);
@@ -1803,6 +2004,7 @@ test('chat: screenshot tool result is sent back as image content for vision', as
             toolMsg.content[1].image_url.url,
             'data:image/jpeg;base64,ABC123',
           );
+          assert.equal(toolMsg.content[1].file_name, 'screenshot.jpeg');
           cb({
             payload: {
               event: { kind: 'done', data: { text: 'I can see the desktop.', finish_reason: 'stop' } },
@@ -1816,7 +2018,7 @@ test('chat: screenshot tool result is sent back as image content for vision', as
               kind: 'tool_call',
               data: {
                 id: 'req-shot',
-                name: 'desktop_screenshot',
+                name: 'screenshot',
                 args: { target_width: 1280 },
                 origin: 'remote_command',
               },
@@ -2067,7 +2269,10 @@ test('chat: persisted thought replaces transient stream thinking block', async (
   await window.AgixtChat.send('click the Spotify icon', 'desktop-convo');
   const countThoughtActivities = () => Array.from(window.document.querySelectorAll('.activity'))
     .filter((node) => node.textContent.includes(thought)).length;
+  const countThoughtSubactivities = () => Array.from(window.document.querySelectorAll('.subactivity'))
+    .filter((node) => node.textContent.includes(thought)).length;
   assert.equal(countThoughtActivities(), 1);
+  assert.equal(countThoughtSubactivities(), 1);
 
   sockets[0].onmessage({
     data: JSON.stringify({
@@ -2092,6 +2297,7 @@ test('chat: persisted thought replaces transient stream thinking block', async (
     }),
   });
   assert.equal(countThoughtActivities(), 1);
+  assert.equal(countThoughtSubactivities(), 1);
   window.AgixtChat.disconnect();
 });
 
@@ -2301,6 +2507,7 @@ test('client-actions: missing IPC reports error', async () => {
   const dom = new JSDOM(fs.readFileSync(path.join(SRC, 'index.html'), 'utf8'), {
     runScripts: 'outside-only', url: 'http://localhost/',
   });
+  trackDom(dom);
   if (!dom.window.WebSocket) {
     dom.window.WebSocket = class { constructor() { this.readyState = 0; } send() {} close() {} };
     dom.window.WebSocket.OPEN = 1;
@@ -2320,6 +2527,7 @@ test('team-chat: pane lists companies + channels + members on activation', async
     runScripts: 'outside-only', url: 'http://localhost/',
   });
   const { window } = dom;
+  trackDom(dom);
   window.__TAURI__ = {
     core: {
       invoke: async (cmd) => {
@@ -2458,11 +2666,12 @@ test('team-chat: pane lists companies + channels + members on activation', async
   window.AgixtTeamChat.unmount();
 });
 
-test('team-chat: teammate DM row creates participant DM with company context', async (t) => {
+test('team-chat: teammate DM row creates participant DM with company context', async () => {
   const dom = new JSDOM(fs.readFileSync(path.join(SRC, 'index.html'), 'utf8'), {
     runScripts: 'outside-only', url: 'http://localhost/',
   });
   const { window } = dom;
+  trackDom(dom);
   const historyRequests = [];
   window.__TAURI__ = {
     core: {
@@ -2522,7 +2731,6 @@ test('team-chat: teammate DM row creates participant DM with company context', a
   }
 
   await window.AgixtTeamChat.mount();
-  t.after(() => window.AgixtTeamChat.unmount());
   await new Promise((r) => setTimeout(r, 80));
 
   const rows = Array.from(window.document.querySelectorAll('#tc-channel-scroll .tc-channel-row'));
@@ -2554,6 +2762,7 @@ test('team-chat-helpers: parseReply, mentions, emoji, gravatar', () => {
   const dom = new JSDOM('<!doctype html><body></body>', {
     runScripts: 'outside-only', url: 'http://localhost/',
   });
+  trackDom(dom);
   vm.runInContext(
     fs.readFileSync(path.join(SRC, 'team-chat-helpers.js'), 'utf8'),
     dom.getInternalVMContext(),
@@ -2603,6 +2812,7 @@ test('team-chat: reply-card renders for stored wire format', async () => {
     runScripts: 'outside-only', url: 'http://localhost/',
   });
   const { window } = dom;
+  trackDom(dom);
   window.__TAURI__ = {
     core: {
       invoke: async (cmd) => {
@@ -2720,6 +2930,7 @@ test('team-chat-helpers: parseReply strips nested reply layer', () => {
   const dom = new JSDOM('<!doctype html><body></body>', {
     runScripts: 'outside-only', url: 'http://localhost/',
   });
+  trackDom(dom);
   vm.runInContext(
     fs.readFileSync(path.join(SRC, 'team-chat-helpers.js'), 'utf8'),
     dom.getInternalVMContext(),
@@ -2785,23 +2996,44 @@ test('markdown: code blocks inside a block spoiler render correctly when reveale
   assert.match(codeblock.outerHTML, /md-codeblock-lang">js</);
 });
 
-test('prompt guidance: hidden on chat, shows page suggestions on a content view', async () => {
+test('prompt guidance: default computer-use suggestions on chat, page-specific on a content view', async () => {
   const { window } = loadFullApp();
   await new Promise((resolve) => setTimeout(resolve, 20));
   const bar = window.document.getElementById('prompt-guidance');
   assert.ok(bar, '#prompt-guidance container exists');
-  assert.equal(bar.hidden, true, 'bar is hidden while on plain chat');
+  // On plain chat there is no page-specific guidance, so the default
+  // desktop computer-use set is shown instead of hiding the bar.
+  assert.equal(bar.hidden, false, 'bar shows default suggestions on chat');
+  assert.equal(bar.dataset.key, '__default__', 'default guidance is active');
+  assert.ok(bar.querySelectorAll('.pg-chip').length >= 5,
+    'default suggestion chips rendered');
+  assert.match(bar.querySelector('.pg-bar-title').textContent, /this computer/i);
 
   window.AgixtSidenav.setActiveView('secrets');
   await new Promise((resolve) => setTimeout(resolve, 5));
   assert.equal(bar.hidden, false, 'bar shows when a guided page is active');
+  assert.equal(bar.dataset.key, 'secrets', 'page-specific guidance is active');
   const chips = bar.querySelectorAll('.pg-chip');
   assert.ok(chips.length >= 3, 'suggestion chips rendered for secrets');
   assert.match(bar.querySelector('.pg-bar-title').textContent, /secrets/i);
 
   window.AgixtSidenav.setActiveView('chat');
   await new Promise((resolve) => setTimeout(resolve, 5));
-  assert.equal(bar.hidden, true, 'bar hides again back on chat');
+  assert.equal(bar.hidden, false, 'bar still shows defaults back on chat');
+  assert.equal(bar.dataset.key, '__default__', 'falls back to defaults again');
+  window.AgixtChat.disconnect();
+});
+
+test('prompt guidance: default set is used for a content view with no ported guidance', async () => {
+  const { window } = loadFullApp();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const bar = window.document.getElementById('prompt-guidance');
+  // 'dashboard' is a desktop extension with no web ResourceGuidanceCard
+  // counterpart, so it should fall back to the computer-use defaults.
+  window.AgixtSidenav.setActiveView('dashboard');
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(bar.hidden, false, 'bar shows on an unguided content view');
+  assert.equal(bar.dataset.key, '__default__', 'default guidance used');
   window.AgixtChat.disconnect();
 });
 

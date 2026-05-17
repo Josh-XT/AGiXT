@@ -24,6 +24,89 @@
   // The web "packages" page is the desktop "deployments" extension.
   const VIEW_ALIASES = { deployments: 'packages' };
 
+  // Fallback shown whenever the active page has no ported, page-specific
+  // guidance (plain chat, dashboard, network, settings, etc.). These
+  // lean on the desktop client's local tool surface — full computer use
+  // (screenshots + mouse/keyboard + vision control), local filesystem,
+  // shell / persistent terminals, app launching, and workspace file
+  // transfer — so the agent's standout desktop powers are one click away
+  // from any page. See client-actions.js for the underlying tools.
+  const DEFAULT_GUIDANCE = {
+    title: 'Put your agent to work on this computer',
+    examples: [
+      {
+        label: 'See my screen & suggest next steps',
+        prompt: 'Take a screenshot of my screen, describe what is currently open and what I appear to be working on, then suggest the 3 most useful things you could do for me right now.',
+      },
+      {
+        label: 'Do this on screen for me',
+        prompt: 'Using full computer control, do the following on my screen: {{task}}. Start by taking a screenshot to see the current state, work step by step, take screenshots to verify each step, and stop to tell me if anything looks risky before continuing.',
+        placeholders: [
+          { id: 'task', label: 'What should the agent do?', description: 'e.g. clean up my desktop icons into folders by type', required: true, inputType: 'textarea' },
+        ],
+      },
+      {
+        label: 'Open an app and set it up',
+        prompt: 'Open {{app}} on this computer. Once it is open, take a screenshot, then {{goal}}. Verify it worked with a final screenshot and summarize what you changed.',
+        placeholders: [
+          { id: 'app', label: 'Application', description: 'e.g. Settings, Chrome, VS Code, Spotify', required: true, inputType: 'text' },
+          { id: 'goal', label: 'What to do once it is open', required: true, inputType: 'textarea' },
+        ],
+      },
+      {
+        label: 'Find files on my computer',
+        prompt: 'Search {{folder}} for files matching "{{what}}". List every match with its full path, size, and last-modified date, and give a one-line summary of what each file appears to be. Do not modify anything.',
+        placeholders: [
+          { id: 'what', label: 'What to look for', description: 'name, extension, or keyword', required: true, inputType: 'text' },
+          { id: 'folder', label: 'Where to search', description: 'e.g. ~/Downloads, ~/Documents (defaults to home)', inputType: 'text' },
+        ],
+      },
+      {
+        label: 'Summarize a file or folder',
+        prompt: 'Read {{path}} from my computer and give me a clear summary: what it is, the key points, anything that looks wrong or needs attention, and recommended next steps. If it is a folder, summarize its structure and the notable files first.',
+        placeholders: [
+          { id: 'path', label: 'File or folder path', required: true, inputType: 'text' },
+        ],
+      },
+      {
+        label: 'Run a command and explain it',
+        prompt: 'Run this in a terminal on my computer: `{{command}}`. Show me the exact output, explain what it means in plain language, and flag anything concerning. Ask before running anything destructive.',
+        placeholders: [
+          { id: 'command', label: 'Command', required: true, inputType: 'text' },
+        ],
+      },
+      {
+        label: 'Troubleshoot something on my machine',
+        prompt: 'Help me fix this problem on my computer: {{problem}}. Investigate using screenshots and terminal/diagnostic commands as needed, tell me the most likely root cause with evidence, then propose a fix and apply it once I approve. Do not make destructive changes without confirmation.',
+        placeholders: [
+          { id: 'problem', label: 'Describe the problem', required: true, inputType: 'textarea' },
+        ],
+      },
+      {
+        label: 'Automate a repetitive task',
+        prompt: 'I regularly do this manually on my computer: {{routine}}. Watch what is on screen, work out the exact steps, then perform it for me end to end using computer control. Afterward, write the steps up as a repeatable runbook so we can schedule or automate it next time.',
+        placeholders: [
+          { id: 'routine', label: 'The routine you want automated', required: true, inputType: 'textarea' },
+        ],
+      },
+      {
+        label: 'Research this in my browser',
+        prompt: 'Open my web browser and research: {{topic}}. Use the browser to visit relevant sources, take screenshots of key findings, then give me a concise briefing with the answer, the sources, and anything surprising.',
+        placeholders: [
+          { id: 'topic', label: 'What to research', required: true, inputType: 'textarea' },
+        ],
+      },
+      {
+        label: 'Organize a messy folder',
+        prompt: 'Look at {{folder}} on my computer. Propose a clean organization scheme (subfolders by type/date/project), show me the plan with how many files go where, and once I approve, move the files into place and report exactly what moved. Never delete anything.',
+        placeholders: [
+          { id: 'folder', label: 'Folder to organize', description: 'e.g. ~/Downloads, ~/Desktop', required: true, inputType: 'text' },
+        ],
+      },
+    ],
+  };
+  const DEFAULT_KEY = '__default__';
+
   const COLLAPSE_KEY = 'agixt.desktop.promptGuidance.collapsed.v1';
   let containerEl = null;
   let currentView = null;
@@ -256,21 +339,21 @@
     if (!containerEl) return;
     const viewId = activeViewId();
     const key = resourceKeyFor(viewId);
-    const data = key ? DATA[key] : null;
+    let data = key ? DATA[key] : null;
+    let resolvedKey = key;
+    // Fall back to the desktop computer-use defaults whenever the page
+    // has no specific guidance, so the bar is always useful.
     if (!data || !Array.isArray(data.examples) || !data.examples.length) {
-      containerEl.hidden = true;
-      containerEl.innerHTML = '';
-      containerEl.removeAttribute('data-key');
-      currentView = viewId;
-      return;
+      data = DEFAULT_GUIDANCE;
+      resolvedKey = DEFAULT_KEY;
     }
     // Skip a rebuild when nothing relevant changed (the view-changed and
     // extension-context-changed events can fire repeatedly).
     if (currentView === viewId
-        && containerEl.dataset.key === key
+        && containerEl.dataset.key === resolvedKey
         && !containerEl.hidden) return;
     currentView = viewId;
-    containerEl.dataset.key = key;
+    containerEl.dataset.key = resolvedKey;
     containerEl.hidden = false;
     containerEl.innerHTML = '';
 

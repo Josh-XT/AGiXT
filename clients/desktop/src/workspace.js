@@ -447,6 +447,7 @@
     monaco: null,
     pollIntervalId: null,
     refreshTimerId: null,
+    refreshBurstTimerIds: [],
     refreshInFlight: false,
     pendingRefresh: false,
     workspaceSignature: '',
@@ -763,6 +764,8 @@
       clearTimeout(state.refreshTimerId);
       state.refreshTimerId = null;
     }
+    state.refreshBurstTimerIds.forEach((id) => clearTimeout(id));
+    state.refreshBurstTimerIds = [];
     state.pendingRefresh = false;
   }
 
@@ -775,6 +778,22 @@
         console.warn('workspace event refresh failed', err);
       });
     }, delay == null ? EVENT_REFRESH_DELAY_MS : delay);
+  }
+
+  function scheduleLiveRefreshBurst(reason) {
+    if (!state.open) return;
+    state.refreshBurstTimerIds.forEach((id) => clearTimeout(id));
+    state.refreshBurstTimerIds = [0, 1000, 3000, 7000].map((delay) => setTimeout(() => {
+      refresh({ silent: true, reason: reason || 'burst' }).catch((err) => {
+        console.warn('workspace burst refresh failed', err);
+      });
+    }, delay));
+  }
+
+  async function waitForRefreshIdle() {
+    for (let i = 0; i < 40 && state.refreshInFlight; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
   }
 
   async function refresh(options) {
@@ -1374,6 +1393,57 @@
     refresh({ silent: !!(opts && opts.silent) });
   }
 
+  async function openPath(path, opts) {
+    const wanted = normalizePath(path || '');
+    if (!wanted || wanted === ROOT_PATH) return;
+    const nextOpts = opts || {};
+    if (!state.open) {
+      await open({
+        serverUrl: nextOpts.serverUrl || (state.cfg && state.cfg.serverUrl),
+        jwt: nextOpts.jwt || (state.cfg && state.cfg.jwt),
+        agentName: nextOpts.agentName || (state.cfg && state.cfg.agentName),
+        conversationId: nextOpts.conversationId || state.conversationId,
+      });
+    } else if (nextOpts.conversationId && nextOpts.conversationId !== state.conversationId) {
+      state.cfg = {
+        serverUrl: nextOpts.serverUrl || (state.cfg && state.cfg.serverUrl),
+        jwt: nextOpts.jwt || (state.cfg && state.cfg.jwt),
+        agentName: nextOpts.agentName || (state.cfg && state.cfg.agentName),
+      };
+      state.conversationId = nextOpts.conversationId;
+      state.items = [];
+      state.tree = [];
+      state.workspaceSignature = '';
+      closeActiveFile();
+      state.expandedFolders.clear();
+      await refresh({ silent: true, reason: 'open-path-conversation' });
+    }
+    if (!state.open) return;
+    await waitForRefreshIdle();
+    if (nextOpts.serverUrl || nextOpts.jwt || nextOpts.agentName) {
+      state.cfg = {
+        serverUrl: nextOpts.serverUrl || (state.cfg && state.cfg.serverUrl),
+        jwt: nextOpts.jwt || (state.cfg && state.cfg.jwt),
+        agentName: nextOpts.agentName || (state.cfg && state.cfg.agentName),
+      };
+    }
+    let item = findItemByPath(state.items, wanted);
+    if (!item) {
+      await refresh({ silent: true, reason: 'open-path' });
+      item = findItemByPath(state.items, wanted);
+    }
+    if (!item) {
+      toast(`Workspace file not found: ${wanted}`, 'error');
+      return;
+    }
+    if (item.type === 'folder') {
+      state.expandedFolders.add(normalizePath(item.path));
+      renderTree();
+      return;
+    }
+    openFile(item);
+  }
+
   // Snapshot the workspace context the chat composer should send along
   // with the next user message: the active file's path/name and any
   // editor selection. Returns null when there's nothing meaningful to
@@ -1422,11 +1492,11 @@
 
   window.addEventListener('agixt-chat-turn-complete', (ev) => {
     if (!eventMatchesWorkspaceConversation(ev && ev.detail)) return;
-    scheduleLiveRefresh('chat-turn-complete', 0);
+    scheduleLiveRefreshBurst('chat-turn-complete');
   });
   window.addEventListener('agixt-chat-assistant-final', (ev) => {
     if (!eventMatchesWorkspaceConversation(ev && ev.detail)) return;
-    scheduleLiveRefresh('chat-assistant-final');
+    scheduleLiveRefreshBurst('chat-assistant-final');
   });
   window.addEventListener('agixt-workspace-mutated', (ev) => {
     if (!eventMatchesWorkspaceConversation(ev && ev.detail)) return;
@@ -1442,5 +1512,5 @@
     }
   } catch (_) { /* event API unavailable — popover lifecycle still works */ }
 
-  window.AgixtWorkspace = { open, close, toggle, isOpen, reload, getContext };
+  window.AgixtWorkspace = { open, close, toggle, isOpen, reload, openPath, getContext };
 })();

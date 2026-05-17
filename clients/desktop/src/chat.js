@@ -22,7 +22,7 @@
   // Bumped whenever the activity rendering pipeline changes, so the
   // backend log immediately tells us whether the running webview picked
   // up the latest code or is showing a cached/older bundle.
-  const CHAT_JS_VERSION = 'activity-elapsed-v28';
+  const CHAT_JS_VERSION = 'activity-elapsed-v29';
   if (window.AgixtFrontendLog) {
     window.AgixtFrontendLog('info', `chat.js loaded (${CHAT_JS_VERSION})`);
   }
@@ -103,21 +103,119 @@
     return parsed.toString();
   }
 
-  function authMediaNodes(root) {
-    if (!root || (!serverUrl && !jwt)) return;
-    root.querySelectorAll('img[src], video[src], audio[src], source[src]').forEach((node) => {
-      const next = rewriteAuthForUrl(node.getAttribute('src'));
-      if (next) node.setAttribute('src', next);
+  function likelyWorkspacePath(path) {
+    const value = String(path || '').trim();
+    if (!value || value.startsWith('#')) return false;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return false;
+    if (/\s/.test(value)) return false;
+    const clean = value.split(/[?#]/)[0].replace(/^\/+/, '');
+    if (!clean || clean === '.' || clean === '..') return false;
+    if (clean.includes('..')) return false;
+    return /(?:^|\/)[^/]+\.[a-z0-9][a-z0-9._-]*$/i.test(clean);
+  }
+
+  function isTrustedAnchorOrigin(parsed, href) {
+    if (!parsed) return false;
+    const rawHref = String(href || '');
+    const isAbsolute = /^[a-z][a-z0-9+.-]*:/i.test(rawHref) || rawHref.startsWith('//');
+    const sameOrigin = window.location && parsed.origin === window.location.origin;
+    return !isAbsolute || sameOrigin || trustedWorkspaceOrigins().has(parsed.origin);
+  }
+
+  function outputWorkspacePath(path) {
+    const parts = String(path || '')
+      .split('/')
+      .map((part) => {
+        try { return decodeURIComponent(part); }
+        catch (_) { return part; }
+      })
+      .filter(Boolean);
+    const outputsIndex = parts.findIndex((part) => part === 'outputs');
+    if (outputsIndex < 0 || !conversationId) return '';
+    const rest = parts.slice(outputsIndex + 1);
+    const conversationIndex = rest.findIndex((part) => String(part) === String(conversationId));
+    if (conversationIndex < 0 || conversationIndex >= rest.length - 1) return '';
+    const rel = rest.slice(conversationIndex + 1).join('/');
+    return likelyWorkspacePath(rel) ? rel : '';
+  }
+
+  function workspacePathFromAnchor(node) {
+    if (!node) return '';
+    const href = node.dataset && node.dataset.externalUrl
+      ? node.dataset.externalUrl
+      : (node.getAttribute('href') || '');
+    const label = (node.textContent || '').trim();
+    let parsed = null;
+    try { parsed = new URL(href, window.location && window.location.href ? window.location.href : 'http://localhost/'); }
+    catch (_) { parsed = null; }
+    if (parsed) {
+      const trustedAnchor = isTrustedAnchorOrigin(parsed, href);
+      const paramPath = parsed.searchParams.get('path') || parsed.searchParams.get('workspace_path');
+      if (trustedAnchor && paramPath && likelyWorkspacePath(paramPath)) return paramPath;
+      const path = decodeURIComponent(parsed.pathname || '').replace(/^\/+/, '');
+      const outputPath = trustedAnchor ? outputWorkspacePath(path) : '';
+      if (outputPath) return outputPath;
+      const workspaceMatch = path.match(/^(?:api\/)?workspace\/(?:download\/?)?(.*)$/i);
+      if (trustedAnchor && workspaceMatch && likelyWorkspacePath(workspaceMatch[1])) return workspaceMatch[1];
+      const v1Match = path.match(/^v1\/conversation\/[^/]+\/workspace\/(?:download\/?)?(.*)$/i);
+      if (trustedAnchor && v1Match && likelyWorkspacePath(v1Match[1] || paramPath || label)) return v1Match[1] || paramPath || label;
+      if (trustedAnchor && likelyWorkspacePath(path)) return path;
+      const absoluteHref = /^[a-z][a-z0-9+.-]*:/i.test(String(href || '')) || String(href || '').startsWith('//');
+      if (absoluteHref && !trustedAnchor) return '';
+    }
+    if (likelyWorkspacePath(href)) return href;
+    if (likelyWorkspacePath(label)) return label;
+    return '';
+  }
+
+  function openWorkspacePath(path) {
+    if (!path || !window.AgixtWorkspace || typeof window.AgixtWorkspace.openPath !== 'function') return false;
+    if (!serverUrl || !jwt || !conversationId) return false;
+    const clean = String(path).replace(/^\/+/, '');
+    window.AgixtWorkspace.openPath(clean, {
+      serverUrl,
+      jwt,
+      conversationId,
+    }).catch((err) => {
+      console.warn('workspace link open failed', err);
     });
-    // Anchors stay clickable but if they look like media, rewrite too
-    // so right-click "open" works.
+    return true;
+  }
+
+  function wireWorkspaceLinks(root) {
+    if (!root) return;
     root.querySelectorAll('a[href]').forEach((node) => {
-      const href = node.getAttribute('href') || '';
-      if (/\.(png|jpe?g|gif|webp|avif|svg|mp4|webm|mov|m4v|mp3|wav|ogg)(\?.*)?$/i.test(href)) {
-        const next = rewriteAuthForUrl(href);
-        if (next) node.setAttribute('href', next);
-      }
+      const workspacePath = workspacePathFromAnchor(node);
+      if (!workspacePath) return;
+      node.dataset.workspacePath = workspacePath;
+      node.removeAttribute('target');
+      node.setAttribute('title', `Open ${workspacePath} in workspace`);
+      node.addEventListener('click', (event) => {
+        if (!openWorkspacePath(workspacePath)) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }, true);
     });
+  }
+
+  function authMediaNodes(root) {
+    if (!root) return;
+    if (serverUrl || jwt) {
+      root.querySelectorAll('img[src], video[src], audio[src], source[src]').forEach((node) => {
+        const next = rewriteAuthForUrl(node.getAttribute('src'));
+        if (next) node.setAttribute('src', next);
+      });
+      // Anchors stay clickable but if they look like media, rewrite too
+      // so right-click "open" works.
+      root.querySelectorAll('a[href]').forEach((node) => {
+        const href = node.getAttribute('href') || '';
+        if (/\.(png|jpe?g|gif|webp|avif|svg|mp4|webm|mov|m4v|mp3|wav|ogg)(\?.*)?$/i.test(href)) {
+          const next = rewriteAuthForUrl(href);
+          if (next) node.setAttribute('href', next);
+        }
+      });
+    }
+    wireWorkspaceLinks(root);
   }
 
   function replaceChildren(target, fragment) {
@@ -227,7 +325,12 @@
   }
 
   function comparableText(text) {
-    return String(text || '').trim().replace(/\s+/g, ' ');
+    return String(text || '')
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/`([^`]*)`/g, '$1')
+      .trim()
+      .replace(/\s+/g, ' ');
   }
 
   function findMatchingPlainId(role, body, opts) {
@@ -284,6 +387,82 @@
         return;
       }
     }
+  }
+
+  function transientActivityEntry() {
+    if (activeStreamingActivity && activeStreamingActivity.id) {
+      const active = messages.get(activeStreamingActivity.id);
+      if (active && active.kind === 'activity' && active.transient) return active;
+    }
+    for (const id of order.slice().reverse()) {
+      if (!id.startsWith('local-activity-')) continue;
+      const entry = messages.get(id);
+      if (entry && entry.kind === 'activity' && entry.transient) return entry;
+    }
+    return null;
+  }
+
+  function adoptTransientActivity(serverId, parsed, msg) {
+    if (!serverId || messages.has(serverId)) return null;
+    const entry = transientActivityEntry();
+    if (!entry) return null;
+    const localId = entry.id;
+    messages.delete(localId);
+    entry.id = serverId;
+    entry.role = (msg && msg.role) || entry.role;
+    entry.text = parsed.label || parsed.body || entry.text || 'Thinking';
+    entry.ts = (msg && msg.timestamp) || entry.ts;
+    entry.type = parsed.type || entry.type;
+    entry.transient = false;
+    messages.set(serverId, entry);
+    order = order.map((id) => (id === localId ? serverId : id));
+    activityIdAlias.set(localId, serverId);
+    if (lastActivityId === localId) lastActivityId = serverId;
+    if (lastThinkingActivityId === localId) lastThinkingActivityId = serverId;
+    if (activeStreamingActivity && activeStreamingActivity.id === localId) {
+      activeStreamingActivity.id = serverId;
+    }
+    const titleEl = entry.el && entry.el.querySelector('.activity-title');
+    const finalized = entry.el && entry.el.getAttribute('data-finalized') === 'true';
+    if (titleEl && parsed.label) titleEl.textContent = finalized ? 'Activities' : parsed.label;
+    touchActivityElapsed(entry, msg && msg.timestamp);
+    return entry;
+  }
+
+  function removeMatchingStreamSubactivity(parent, body, tag) {
+    if (!parent) return false;
+    const wantedTag = tag || '';
+    const wantedText = comparableText(body);
+    let node = null;
+    const activeMatch = activeStreamingActivity && activeStreamingActivity.id === parent.id
+      && (activeStreamingActivity.subTag || '') === wantedTag
+      && comparableText(activeStreamingActivity.streamText) === wantedText;
+    if (activeMatch) {
+      node = activeStreamingActivity.subContent
+        && activeStreamingActivity.subContent.closest
+        && activeStreamingActivity.subContent.closest('.subactivity');
+    }
+    if (!node && parent.body && wantedText) {
+      const candidates = Array.from(parent.body.querySelectorAll('.subactivity')).reverse();
+      node = candidates.find((candidate) => {
+        const content = candidate.querySelector('.sub-content .md, .sub-content') || candidate;
+        return (candidate.getAttribute('data-tag') || '') === wantedTag
+          && comparableText(content.textContent || '') === wantedText;
+      }) || null;
+    }
+    if (!node) return false;
+    if (node.parentNode) node.parentNode.removeChild(node);
+    if (activeMatch) {
+      activeStreamingActivity.subContent = null;
+      activeStreamingActivity.subTag = null;
+      activeStreamingActivity.streamText = '';
+    }
+    const entry = messages.get(parent.id);
+    if (entry) {
+      entry.streamText = '';
+      entry.text = entry.text || parent.text || 'Thinking';
+    }
+    return true;
   }
 
   function showChat() {
@@ -738,6 +917,15 @@
 
     if (parsed.kind === 'activity') {
       const isThinking = (parsed.body || '').toLowerCase().includes('thinking');
+      if (!String(msg.id).startsWith('local-')) {
+        const adopted = adoptTransientActivity(msg.id, parsed, msg);
+        if (adopted) {
+          lastActivityId = msg.id;
+          if (isThinking) lastThinkingActivityId = msg.id;
+          scrollToBottom();
+          return;
+        }
+      }
       const existingThinking = lastThinkingActivityId
         ? messages.get(lastThinkingActivityId)
         : null;
@@ -815,6 +1003,9 @@
       touchActivityElapsed(parent, msg.timestamp);
       if (!String(msg.id).startsWith('local-')) {
         replaceMatchingLocalSubactivity(parsed.body, parsed.tag);
+      }
+      if (!String(msg.id).startsWith('local-')) {
+        removeMatchingStreamSubactivity(parent, parsed.body, parsed.tag);
       }
 
       // Tool-call grouping. AGiXT emits a CLIENT_TOOL marker, then a
@@ -928,6 +1119,15 @@
         // thinking block.
         if (visibleBody && visibleBody.trim()) {
           finalizeActivityBlocks();
+        }
+        if (!isInitial && visibleBody && visibleBody.trim()) {
+          dispatchAssistantEvent('agixt-chat-turn-complete', {
+            text: visibleBody,
+            messageId: msg.id,
+            conversationId,
+            persisted: true,
+            finishReason: 'persisted',
+          });
         }
         if (!isInitial) dispatchFencedClientTools(parsed.body);
       }
@@ -1206,6 +1406,17 @@
     return `data:image/${format};base64,${result.image_data}`;
   }
 
+  function screenshotFileName(tc, result) {
+    if (result && result.file_name) return result.file_name;
+    const rawName = String((tc && tc.name) || 'desktop_screenshot')
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'desktop_screenshot';
+    let format = String((result && result.format) || 'jpeg').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    if (!format || format === 'jpg') format = 'jpeg';
+    return `${rawName}.${format}`;
+  }
+
   function toolResultText(tc, result, summary, originalTask) {
     const taskText = originalTask && originalTask.trim()
       ? `\nOriginal user task: ${originalTask.trim()}`
@@ -1240,7 +1451,7 @@
       log_user_input: false,
       enable_command_selection: false,
     };
-    const shotUrl = tc.name === 'desktop_screenshot' ? screenshotDataUrl(result) : '';
+    const shotUrl = screenshotDataUrl(result);
     if (shotUrl) {
       const taskText = originalTask && originalTask.trim()
         ? `\nOriginal user task: ${originalTask.trim()}\n`
@@ -1248,11 +1459,12 @@
       msg.content = [
         {
           type: 'text',
-          text: `Client-side tool desktop_screenshot completed.${taskText}This is a desktop tool observation, not a new user request. Use this screenshot to decide the next desktop action. If the task asks to click, open, select, or inspect visible UI, identify the target element and its visual center coordinates in screenshot image pixels. The image coordinate space is 0,0 at the top-left and width,height from the screenshot metadata at the bottom-right. For application icons, prefer the OS dock/application launcher icon at the physical screen edge when visible rather than similar logos inside webpages, AGiXT sidebars, browser tabs, contacts, or code editors. If the dock is on the far left of a 1920px-wide screenshot, the icon center is usually under x=40 image pixels; x values around 50-384 usually belong to an app/sidebar, not the OS dock. Do not click the top-left edge of an icon; click the center of the requested target. On the click, send the screenshot pixel coordinates with coordinate_space:"screenshot", echo this screenshot's width/height as target_width/target_height, echo original_width/original_height as screen_width/screen_height, and include monitor_offset_x/monitor_offset_y. Metadata:\n${summary}`,
+          text: `Client-side tool ${tc.name} completed.${taskText}This is a desktop tool observation, not a new user request. Use this screenshot to decide the next desktop action. If the task asks to click, open, select, or inspect visible UI, identify the target element and its visual center coordinates in screenshot image pixels. The image coordinate space is 0,0 at the top-left and width,height from the screenshot metadata at the bottom-right. For application icons, prefer the OS dock/application launcher icon at the physical screen edge when visible rather than similar logos inside webpages, AGiXT sidebars, browser tabs, contacts, or code editors. If the dock is on the far left of a 1920px-wide screenshot, the icon center is usually under x=40 image pixels; x values around 50-384 usually belong to an app/sidebar, not the OS dock. Do not click the top-left edge of an icon; click the center of the requested target. On the click, send the screenshot pixel coordinates with coordinate_space:"screenshot", echo this screenshot's width/height as target_width/target_height, echo original_width/original_height as screen_width/screen_height, and include monitor_offset_x/monitor_offset_y. Metadata:\n${summary}`,
         },
         {
           type: 'image_url',
           image_url: { url: shotUrl },
+          file_name: screenshotFileName(tc, result),
         },
       ];
     }

@@ -1142,9 +1142,22 @@
       settings = await invoke('get_settings');
       conversationName = (resp && (resp.display_name || resp.name)) || name;
       rememberAgentConversation(settings.agent_id, settings.conversation_id);
+      reloadWorkspaceForActiveConversation();
     } catch (err) {
       console.warn('new_conversation failed', err);
     }
+  }
+
+  function reloadWorkspaceForActiveConversation() {
+    if (!window.AgixtWorkspace
+        || typeof window.AgixtWorkspace.isOpen !== 'function'
+        || !window.AgixtWorkspace.isOpen()
+        || typeof window.AgixtWorkspace.reload !== 'function'
+        || !settings
+        || !settings.conversation_id) {
+      return;
+    }
+    window.AgixtWorkspace.reload({ conversationId: settings.conversation_id, silent: true });
   }
 
   async function ensureConversationForActiveAgent(options = {}) {
@@ -1178,6 +1191,7 @@
     await invoke('save_settings', { settings });
     await ensureConversation({ forceNew });
     reconnectChat();
+    reloadWorkspaceForActiveConversation();
     await refreshConversations();
     // The toolbar `+` button used to leave the chip showing the previous
     // conversation's name. Refresh from inside startNewConversation so
