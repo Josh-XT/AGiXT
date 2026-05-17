@@ -4102,11 +4102,18 @@ body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .chat-mo
 .tc-composer-status {
   padding: 4px 14px 6px;
   font-size: 11px;
+  line-height: 14px;
+  /* Reserve one line's worth of height at all times (4 + 14 + 6). The
+     status toggles between "" / "Sending…" / an error on every send;
+     collapsing it with display:none made the whole composer + message
+     list jump up and back down each time. Keeping the box and just
+     hiding its contents when empty removes that layout shift. */
+  min-height: 24px;
   color: var(--text-dim);
   background: var(--panel);
 }
 .tc-composer-status.is-error { color: #ff8a96; }
-.tc-composer-status:empty { display: none; }
+.tc-composer-status:empty { visibility: hidden; }
 
 /* Member list (collapsible). */
 .tc-member-list {
