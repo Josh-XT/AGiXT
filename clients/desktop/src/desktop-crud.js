@@ -985,6 +985,7 @@
       .dc-stat-bad .dc-stat-value { color: #ff8a96; }
       .dc-stat-hint { font-size: 11.5px; color: var(--text-faint); }
 
+      .dc-error[hidden], .dc-detail[hidden] { display: none !important; }
       .dc-error {
         display: flex; align-items: center; gap: 10px;
         padding: 10px 14px;
