@@ -373,6 +373,21 @@
             <span class="chat-collapsed-strip-label">Chat</span>
           </button>
           <div class="view-pane view-pane-chat" data-view="chat">
+            <!-- Mobile-portrait only: when the agent chat is popped open
+                 as a full-screen overlay above a content page, this bar
+                 is the way back to that page. Hidden on desktop /
+                 landscape entirely (CSS gated on body.mobile-portrait).
+                 `order:-1` floats it above the agent/conversation stack
+                 that app.js relocates into this pane in window mode. -->
+            <button class="chat-mobile-back" type="button"
+                    title="Back to page" aria-label="Back to page">
+              <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="none" stroke="currentColor" stroke-width="2"
+                      stroke-linecap="round" stroke-linejoin="round"
+                      d="m15 18-6-6 6-6"/>
+              </svg>
+              <span>Back</span>
+            </button>
             <main class="chat" id="chat-scroll">
               <div class="empty-state" id="empty-state">
                 <div class="empty-state-icon">⬛</div>

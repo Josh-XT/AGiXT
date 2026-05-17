@@ -1546,6 +1546,81 @@ body.window-mode.chat-collapsed .chat-resize-handle {
   opacity: 0.7;
 }
 
+/* ---------- Mobile portrait: one surface at a time --------------------
+   On a phone in portrait the 340px chat-beside-content split is too
+   cramped, so we collapse to a single active surface. app.js stamps
+   `body.mobile-portrait` from a matchMedia listener
+   (`(orientation: portrait) and (max-width: 820px)`); desktop and
+   landscape never get the class, so every rule below is inert there
+   and the split experience is unchanged.
+
+   Behaviour: picking a sidenav section shows that page full-width with
+   the agent chat collapsed to the existing pop-open "Chat" strip. Tap
+   the strip and chat slides up as a full-screen overlay over the page;
+   the Back bar returns to the page. This reuses the exact
+   collapse/strip machinery the desktop split already has — the only
+   difference is chat overlays the page instead of taking a side
+   column. */
+
+/* Chat open over a content page: cover the whole content area instead
+   of taking a fixed side column. `.chat-screen-main` is
+   position:relative, so inset:0 fills it (the sidenav is its sibling
+   and stays put). The page stays mounted underneath. When collapsed,
+   the existing `body.window-mode.chat-collapsed
+   .view-pane[data-view="chat"] { display:none }` rule plus the strip
+   still apply unchanged. */
+body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .view-pane[data-view="chat"] {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  flex: none;
+  width: 100%;
+  border-right: 0;
+  background: var(--bg);
+}
+
+/* No seam to drag when only one surface shows at a time. */
+body.mobile-portrait.window-mode .chat-resize-handle {
+  display: none;
+}
+
+/* The pop-open "Chat" strip is the only way back to chat on a phone —
+   give it a touch-friendly width. */
+body.mobile-portrait.window-mode.chat-collapsed .chat-collapsed-strip {
+  flex-basis: 40px;
+}
+
+/* Back bar — present only while the chat overlay is up on a phone.
+   `order:-1` floats it above the agent/conversation stack that app.js
+   relocates in as the chat pane's first child in window mode. */
+.chat-mobile-back {
+  display: none;
+}
+body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .chat-mobile-back {
+  order: -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  width: 100%;
+  padding: 11px 14px;
+  background: var(--panel);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .chat-mobile-back:hover {
+  background: var(--panel-2);
+}
+body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .chat-mobile-back:active {
+  background: var(--panel-2);
+  transform: translateY(0.5px);
+}
+
 /* VSCode-style activity bar. Top group lists sections (Chat, …); bottom
    group is reserved for pinned actions (currently just app settings).
    New sections are added by dropping a `.sidenav-btn[data-view=…]` into

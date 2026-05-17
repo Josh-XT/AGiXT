@@ -1216,12 +1216,10 @@
   });
 
   // ----- Attachments -------------------------------------------------------
-  // The "attachment" model is a context handoff, NOT an upload. The
-  // selected files stay on the user's desktop. We tell the agent
-  // "the user has attached these files" and include the absolute paths
-  // so it can reach for fs_read / shell_run / workspace_upload via the
-  // already-installed desktop tools. The chips are local-only state and
-  // get cleared after the message is sent.
+  // Attachments selected in the desktop shell are uploaded to the active
+  // conversation workspace before the turn is sent. The model still gets the
+  // original desktop path as provenance, but the durable artifact it should
+  // use is the workspace-relative path returned by the backend.
   let attachedFiles = [];
 
   function basename(p) {
@@ -1510,22 +1508,99 @@
 
   if (shareBtn) shareBtn.addEventListener('click', openShareDialog);
 
-  // Build the hidden context block sent to the agent for the attached
-  // files. Phrasing primes the model that the *user* attached them
-  // deliberately and that they live on disk — not in the AGiXT
-  // workspace — so it reaches for fs_read / shell_run / workspace_upload
-  // instead of assuming an attachment was already uploaded server-side.
-  function buildAttachmentsContext(files) {
+  function collectWorkspaceFiles(value, into) {
+    if (!value || typeof value !== 'object') return into;
+    const candidates = [];
+    if (Array.isArray(value)) candidates.push(...value);
+    if (Array.isArray(value.items)) candidates.push(...value.items);
+    if (Array.isArray(value.children)) candidates.push(...value.children);
+    if (Array.isArray(value.files)) candidates.push(...value.files);
+    for (const item of candidates) {
+      if (!item || typeof item !== 'object') continue;
+      if (!item.type || item.type === 'file') {
+        const path = item.path || item.name || item.file_name || item.filename;
+        if (path) into.push({
+          name: item.name || basename(path),
+          path,
+          type: item.type || 'file',
+        });
+      }
+      collectWorkspaceFiles(item, into);
+    }
+    return into;
+  }
+
+  function uploadedWorkspacePath(localPath, result) {
+    const localName = basename(localPath);
+    const files = collectWorkspaceFiles(result && result.server_response, []);
+    const exact = files.find((item) => item.name === localName && item.path);
+    if (exact) return exact.path;
+    const byPath = files.find((item) => basename(item.path) === localName && item.path);
+    if (byPath) return byPath.path;
+    return (result && result.workspace_path) || localName;
+  }
+
+  async function uploadAttachmentsToWorkspace(files) {
+    if (!files || !files.length) return [];
+    if (!invoke) throw new Error('Desktop attachment upload is unavailable.');
+
+    const uploaded = [];
+    for (let i = 0; i < files.length; i += 1) {
+      const localPath = files[i];
+      const label = basename(localPath);
+      window.AgixtChat.setComposerStatus(
+        `Uploading ${i + 1}/${files.length}: ${label}`,
+        'info',
+      );
+      let result;
+      try {
+        result = await invoke('workspace_upload_local', {
+          localPath,
+          workspacePath: null,
+        });
+      } catch (err) {
+        const message = errText(err);
+        if (message.toLowerCase().includes('client commands are disabled')) {
+          throw new Error('Enable client commands in Settings to upload local file attachments.');
+        }
+        throw err;
+      }
+      uploaded.push({
+        local_path: localPath,
+        workspace_path: uploadedWorkspacePath(localPath, result),
+        bytes: result && result.bytes ? result.bytes : 0,
+      });
+    }
+    window.AgixtChat.setComposerStatus(
+      `Uploaded ${uploaded.length} file${uploaded.length === 1 ? '' : 's'} to workspace.`,
+      'success',
+    );
+    return uploaded;
+  }
+
+  // Build the hidden context block sent to the agent for attached files.
+  // The workspace paths are authoritative because the upload has already
+  // happened before the chat completion request starts.
+  function buildAttachmentsContext(files, uploadedFiles) {
     if (!files || !files.length) return '';
-    const list = files.map((p) => `- ${p}`).join('\n');
+    const uploaded = Array.isArray(uploadedFiles) ? uploadedFiles : [];
+    const rows = files.map((p) => {
+      const match = uploaded.find((u) => u.local_path === p);
+      if (match) {
+        return `- Workspace: \`${match.workspace_path}\` (${match.bytes || 0} bytes, original desktop path: ${p})`;
+      }
+      return `- ${p}`;
+    });
     return [
-      'The user has attached the following file(s) from their local desktop',
-      'to this message. These paths are on the user\'s machine — not in the',
-      'AGiXT workspace. Use the desktop tools (fs_read, fs_list, shell_run,',
-      'workspace_upload, etc.) to inspect, read, or otherwise interact with',
-      'the files as needed to answer the user\'s request.',
+      'The user attached the following file(s) to this message. They have',
+      'already been uploaded into the active conversation workspace before',
+      'this turn started. Use the workspace file tools (Read File, Search',
+      'Files, List Directory, Execute Python Code, Use Terminal in Workspace,',
+      'etc.) with the workspace-relative paths below. Do not try to read the',
+      'original desktop paths unless the user explicitly asks you to work on',
+      'their local machine copy.',
       '',
-      list,
+      rows.join('\n'),
       '',
     ].join('\n');
   }
@@ -1590,12 +1665,16 @@
       }
       if (!settings.conversation_id) await ensureConversation();
       const filesForTurn = attachedFiles.slice();
+      let uploadedFiles = [];
+      if (filesForTurn.length) {
+        uploadedFiles = await uploadAttachmentsToWorkspace(filesForTurn);
+      }
       const wsCtx = (window.AgixtWorkspace && typeof window.AgixtWorkspace.getContext === 'function')
         ? window.AgixtWorkspace.getContext()
         : null;
       const turnContext = buildTurnContext([
         buildWorkspaceContext(wsCtx),
-        filesForTurn.length ? buildAttachmentsContext(filesForTurn) : '',
+        filesForTurn.length ? buildAttachmentsContext(filesForTurn, uploadedFiles) : '',
         buildExtensionContext(),
       ]);
       composerInput.value = '';
@@ -2222,10 +2301,23 @@
     });
   }
 
+  // Flip the chat-collapsed body class with scroll preservation but
+  // WITHOUT touching localStorage. Used by the mobile-portrait layout,
+  // whose collapse state is a transient consequence of the small
+  // viewport — persisting it would corrupt the user's desktop split
+  // preference (which `setChatCollapsed` owns).
+  function setChatCollapsedTransient(collapsed) {
+    preserveChatScroll(() => {
+      document.body.classList.toggle('chat-collapsed', !!collapsed);
+    });
+  }
   function setChatCollapsed(collapsed) {
     preserveChatScroll(() => {
       document.body.classList.toggle('chat-collapsed', !!collapsed);
     });
+    // On a phone the collapse state tracks navigation, not a deliberate
+    // desktop preference — don't let it overwrite the persisted split.
+    if (document.body.classList.contains('mobile-portrait')) return;
     try { window.localStorage.setItem(CHAT_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch (_) {}
   }
   if (collapseBtnEl) {
@@ -2245,6 +2337,76 @@
     }
   };
   window.AgixtSidenav.syncContentPaneClass = syncContentPaneClass;
+
+  // ----- Mobile portrait: single-surface navigation ----------------------
+  // On a phone in portrait the chat-beside-content split is too narrow,
+  // so we present one surface at a time: selecting a section shows that
+  // page full-width with the agent chat collapsed to the pop-open
+  // "Chat" strip; tapping the strip overlays chat over the page; the
+  // Back bar (mobile-only, see index.html / styles.css) returns to the
+  // page. `body.mobile-portrait` gates ALL of this — desktop and
+  // landscape never get the class so the split is byte-for-byte
+  // unchanged there.
+  const MOBILE_PORTRAIT_MQ = '(orientation: portrait) and (max-width: 820px)';
+  const mpMql = window.matchMedia ? window.matchMedia(MOBILE_PORTRAIT_MQ) : null;
+
+  // The Back bar collapses chat, revealing the content page it overlaid.
+  const chatBackBtn = document.querySelector('.chat-mobile-back');
+  if (chatBackBtn) {
+    chatBackBtn.addEventListener('click', () => setChatCollapsed(true));
+  }
+
+  // When navigating between content sections in portrait, default to
+  // showing the page (chat collapsed to the strip). We only force this
+  // on an actual view *change* — not on every layout reconcile — so the
+  // chat overlay the user explicitly popped open via the strip stays
+  // open until they hit Back or pick a different section.
+  let _mpLastView = activeView;
+  const _syncBeforeMobile = syncContentPaneClass;
+  syncContentPaneClass = function () {
+    _syncBeforeMobile();
+    if (document.body.classList.contains('mobile-portrait')) {
+      const onContent = activeView && activeView !== 'chat'
+        && document.body.classList.contains('with-content-pane');
+      if (onContent && activeView !== _mpLastView) {
+        setChatCollapsedTransient(true);
+      }
+    }
+    _mpLastView = activeView;
+  };
+  window.AgixtSidenav.syncContentPaneClass = syncContentPaneClass;
+
+  function applyMobilePortrait(isPortrait) {
+    const had = document.body.classList.contains('mobile-portrait');
+    document.body.classList.toggle('mobile-portrait', !!isPortrait);
+    if (isPortrait === had) return;
+    if (isPortrait) {
+      // Entering portrait with a page already open: focus the page by
+      // collapsing chat (transient — desktop's persisted split pref is
+      // left intact).
+      if (document.body.classList.contains('with-content-pane')
+          && !document.body.classList.contains('chat-collapsed')) {
+        setChatCollapsedTransient(true);
+      }
+    } else {
+      // Back to desktop / landscape: restore the user's persisted
+      // split-collapse preference so the side-by-side layout returns
+      // exactly as they left it.
+      let pref = false;
+      try { pref = window.localStorage.getItem(CHAT_COLLAPSED_KEY) === '1'; } catch (_) {}
+      setChatCollapsedTransient(pref);
+    }
+    syncContentPaneClass();
+  }
+  if (mpMql) {
+    const onMpChange = (e) => applyMobilePortrait(e.matches);
+    if (typeof mpMql.addEventListener === 'function') {
+      mpMql.addEventListener('change', onMpChange);
+    } else if (typeof mpMql.addListener === 'function') {
+      mpMql.addListener(onMpChange); // Safari < 14
+    }
+    applyMobilePortrait(mpMql.matches); // initial state
+  }
 
   // ----- Window mode reconciler ------------------------------------------
   // The desktop window is always a regular full-app window now (decorated,
