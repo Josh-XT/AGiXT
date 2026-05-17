@@ -624,6 +624,14 @@ body.window-mode:not(.auth-mode) .topbar {
 .activity-head .chev { transition: transform 0.15s ease; }
 .activity[aria-expanded="true"] .activity-head .chev { transform: rotate(90deg); }
 .activity-title { flex: 1; font-weight: 500; color: var(--text); }
+.activity-elapsed {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.activity-elapsed:empty { display: none; }
 .activity-spinner {
   width: 10px; height: 10px; border-radius: 50%;
   border: 2px solid var(--text-faint);

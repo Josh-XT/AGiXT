@@ -22,7 +22,7 @@
   // Bumped whenever the activity rendering pipeline changes, so the
   // backend log immediately tells us whether the running webview picked
   // up the latest code or is showing a cached/older bundle.
-  const CHAT_JS_VERSION = 'execution-collapse-v25';
+  const CHAT_JS_VERSION = 'activity-elapsed-v26';
   if (window.AgixtFrontendLog) {
     window.AgixtFrontendLog('info', `chat.js loaded (${CHAT_JS_VERSION})`);
   }
@@ -352,6 +352,89 @@
     return { short, long };
   }
 
+  // Compact, human-readable duration ("5s", "1m 5s", "1h 2m") for the
+  // "Worked/Working for …" label on activity blocks.
+  function formatDuration(ms) {
+    if (!Number.isFinite(ms) || ms < 0) ms = 0;
+    const totalSec = Math.round(ms / 1000);
+    if (totalSec < 60) return `${totalSec}s`;
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    if (m < 60) return s ? `${m}m ${s}s` : `${m}m`;
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    return mm ? `${h}h ${mm}m` : `${h}h`;
+  }
+
+  // Activity start/last timestamps live on the element as data attributes
+  // so the ticker and finalize pass (which work off the DOM, not the
+  // messages Map) can recompute elapsed time independently.
+  //   data-start-ms      server timestamp of the [ACTIVITY] message
+  //   data-last-ms       server timestamp of the most recent child event
+  //   data-client-start  Date.now() when the block first rendered live
+  //                       (absent for history replays so they use server
+  //                       timestamps instead of a bogus client clock)
+  function activityElapsedMs(elm, running) {
+    const startMs = Number(elm.dataset.startMs);
+    if (!Number.isFinite(startMs)) return 0;
+    const lastMs = Number(elm.dataset.lastMs);
+    let elapsed = Number.isFinite(lastMs) ? lastMs - startMs : 0;
+    if (running) {
+      const clientStart = Number(elm.dataset.clientStart);
+      if (Number.isFinite(clientStart)) {
+        elapsed = Math.max(elapsed, Date.now() - clientStart);
+      }
+    }
+    return elapsed < 0 ? 0 : elapsed;
+  }
+
+  function refreshActivityElapsed(elm) {
+    const span = elm.querySelector('.activity-elapsed');
+    if (!span) return;
+    const running = elm.getAttribute('data-running') === 'true'
+      && elm.getAttribute('data-finalized') !== 'true';
+    const verb = running ? 'Working' : 'Worked';
+    span.textContent = `${verb} for ${formatDuration(activityElapsedMs(elm, running))}`;
+  }
+
+  // Bump an activity's last-seen timestamp from a child event so the
+  // elapsed clock reflects server time, then redraw its label.
+  function touchActivityElapsed(entry, ts) {
+    if (!entry || entry.kind !== 'activity' || !entry.el) return;
+    const ms = ts ? Date.parse(ts) : NaN;
+    if (Number.isFinite(ms)) {
+      const prev = Number(entry.el.dataset.lastMs);
+      if (!Number.isFinite(prev) || ms > prev) entry.el.dataset.lastMs = String(ms);
+    }
+    refreshActivityElapsed(entry.el);
+  }
+
+  function initActivityElapsed(elm, ts, isInitial) {
+    const startMs = ts ? Date.parse(ts) : Date.now();
+    elm.dataset.startMs = String(startMs);
+    elm.dataset.lastMs = String(startMs);
+    if (!isInitial) elm.dataset.clientStart = String(Date.now());
+    refreshActivityElapsed(elm);
+  }
+
+  // Single shared ticker keeps every still-running activity's "Working
+  // for …" label counting up without a timer per block.
+  let elapsedTicker = null;
+  function ensureElapsedTicker() {
+    if (elapsedTicker) return;
+    elapsedTicker = setInterval(() => {
+      const running = document.querySelectorAll(
+        '.activity[data-running="true"]:not([data-finalized="true"])'
+      );
+      if (!running.length) {
+        clearInterval(elapsedTicker);
+        elapsedTicker = null;
+        return;
+      }
+      running.forEach(refreshActivityElapsed);
+    }, 1000);
+  }
+
   function renderPlain(role, body, timestamp) {
     const wrap = el('div', `message message-${role === 'user' ? 'user' : 'assistant'}`);
     const row = el('div', 'message-row');
@@ -387,6 +470,7 @@
     head.innerHTML = `
       <span class="chev">▸</span>
       <span class="activity-title"></span>
+      <span class="activity-elapsed"></span>
       <span class="activity-spinner"></span>
     `;
     head.querySelector('.activity-title').textContent = label || 'Working…';
@@ -627,10 +711,14 @@
       ) {
         activityIdAlias.set(msg.id, lastThinkingActivityId);
         // Mark this id as seen so update() / dedup don't re-create it.
-        messages.set(msg.id, messages.get(lastThinkingActivityId));
+        const merged = messages.get(lastThinkingActivityId);
+        messages.set(msg.id, merged);
+        touchActivityElapsed(merged, msg.timestamp);
         lastActivityId = lastThinkingActivityId;
       } else {
         const r = renderActivity(parsed.label, parsed.type);
+        initActivityElapsed(r.el, msg.timestamp, isInitial);
+        ensureElapsedTicker();
         list.appendChild(r.el);
         const entry = {
           id: msg.id, role, text: parsed.label, ts: msg.timestamp,
@@ -666,6 +754,8 @@
       if (!parent) {
         const synthId = `synthetic-act-${msg.id}`;
         const r = renderActivity('Thinking', 'thought');
+        initActivityElapsed(r.el, msg.timestamp, isInitial);
+        ensureElapsedTicker();
         list.appendChild(r.el);
         parent = {
           id: synthId, role, text: 'Thinking', ts: msg.timestamp,
@@ -676,6 +766,10 @@
         lastActivityId = synthId;
         lastThinkingActivityId = synthId;
       }
+
+      // Every child event extends the parent's elapsed clock to the
+      // latest server timestamp.
+      touchActivityElapsed(parent, msg.timestamp);
 
       // Tool-call grouping. AGiXT emits a CLIENT_TOOL marker, then a
       // string of REMOTE / untagged follow-ups (request queued, completed,
@@ -811,6 +905,7 @@
     } else if (existing.kind === 'activity') {
       const titleEl = existing.el.querySelector('.activity-title');
       if (titleEl) titleEl.textContent = parsed.label || parsed.body || existing.text;
+      touchActivityElapsed(existing, msg.timestamp);
     } else if (existing.kind === 'subactivity') {
       // EXECUTION renders as <details><summary class=sub-exec-title>…</summary>
       // <body class=sub-exec-body>…</body></details>; rebuild the whole node
@@ -844,11 +939,18 @@
   function finalizeActivityBlocks() {
     document.querySelectorAll('.activity').forEach((a) => {
       if (a.getAttribute('data-finalized') === 'true') return;
+      // Freeze elapsed at the value last shown while running (which may
+      // have come from the live client clock) so the final "Worked for …"
+      // doesn't snap backwards to a smaller server-timestamp delta.
+      const frozen = activityElapsedMs(a, true);
+      const startMs = Number(a.dataset.startMs);
+      if (Number.isFinite(startMs)) a.dataset.lastMs = String(startMs + frozen);
       a.setAttribute('data-finalized', 'true');
       a.setAttribute('data-running', 'false');
       a.setAttribute('aria-expanded', 'false');
       const titleEl = a.querySelector('.activity-title');
       if (titleEl) titleEl.textContent = 'Activities';
+      refreshActivityElapsed(a);
     });
   }
 
