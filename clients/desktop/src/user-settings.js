@@ -698,6 +698,14 @@
       return `${info.percentage}%${charging}`;
     }
 
+    function glassesStatusMessage(fallback) {
+      const message = fallback || '';
+      if (/le-connection-abort|link dropped before GATT|failed to discover services|Authentication/i.test(message)) {
+        return `${message} If phone Bluetooth is already off, unpair G1 in the Even app, forget both G1 devices in phone Bluetooth settings, quick-restart the glasses, then try Connect again.`;
+      }
+      return message;
+    }
+
     function renderStatus(next) {
       status = next || status;
       deviceList.innerHTML = '';
@@ -707,7 +715,7 @@
         return;
       }
       if (!status.supported) {
-        statusText.textContent = status.last_error || 'G1 is not supported on this platform.';
+        statusText.textContent = glassesStatusMessage(status.last_error) || 'G1 is not supported on this platform.';
         statusText.className = 'us-status-line error';
       } else if (status.scanning) {
         statusText.textContent = 'Scanning for glasses...';
@@ -716,7 +724,7 @@
         statusText.textContent = status.last_event || 'Connected.';
         statusText.className = 'us-status-line success';
       } else {
-        statusText.textContent = status.last_error || status.last_event || 'Not connected.';
+        statusText.textContent = glassesStatusMessage(status.last_error || status.last_event) || 'Not connected.';
         statusText.className = 'us-status-line';
       }
 

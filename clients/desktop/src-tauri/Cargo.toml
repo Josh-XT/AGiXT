@@ -77,6 +77,8 @@ jni = "0.21"
 gtk = "0.18"
 gdk = "0.18"
 webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
+dbus = "0.9"
+dbus-tokio = "0.7"
 
 [features]
 default = ["automation"]

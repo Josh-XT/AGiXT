@@ -30,6 +30,8 @@ dependencies = [
  "chrono",
  "cpal",
  "crc32fast",
+ "dbus",
+ "dbus-tokio",
  "dirs 5.0.1",
  "enigo",
  "futures-util",

@@ -193,6 +193,13 @@ struct G1Writer {
     tx: btleplug::api::Characteristic,
 }
 
+#[derive(Clone)]
+struct G1Candidate {
+    side: GlassSide,
+    name: String,
+    peripheral: Peripheral,
+}
+
 struct GlassConnection {
     side: GlassSide,
     name: String,
@@ -306,6 +313,247 @@ impl Default for G1Manager {
     }
 }
 
+#[cfg(target_os = "linux")]
+async fn connect_g1_peripheral(peripheral: &Peripheral, id: &str, side: GlassSide) -> Result<bool> {
+    for attempt in 1..=3 {
+        if peripheral.is_connected().await.unwrap_or(false) {
+            return Ok(true);
+        }
+
+        match tokio::time::timeout(
+            Duration::from_secs(28),
+            linux_bluez_connect_and_wait(id, side),
+        )
+        .await
+        {
+            Ok(Ok(())) => return Ok(true),
+            Ok(Err(bluez_err)) => {
+                let detail = format!("{bluez_err:#}");
+                tracing::warn!(
+                    "G1 {} BlueZ connect attempt {attempt}/3 failed: {detail}",
+                    side.as_str()
+                );
+
+                if bluez_device_object_is_stale(&detail) || bluez_device_pairing_failed(&detail) {
+                    return Err(anyhow!("{detail}"));
+                }
+                if attempt == 3 {
+                    return Err(anyhow!("connect attempt {attempt}/3 failed: {detail}"));
+                }
+
+                let _ = peripheral.disconnect().await;
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            Err(_) => {
+                tracing::warn!(
+                    "G1 {} BlueZ connect attempt {attempt}/3 timed out",
+                    side.as_str()
+                );
+                if attempt == 3 {
+                    return Err(anyhow!("connect attempt {attempt}/3 timed out"));
+                }
+                let _ = peripheral.disconnect().await;
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+#[cfg(target_os = "linux")]
+fn bluez_device_object_is_stale(message: &str) -> bool {
+    message.contains("doesn't exist")
+        || message.contains("UnknownObject")
+        || message.contains("No such object")
+        || message.contains("object disappeared")
+}
+
+#[cfg(target_os = "linux")]
+fn bluez_device_pairing_failed(message: &str) -> bool {
+    message.contains("BlueZ Pair failed")
+        || message.contains("AuthenticationFailed")
+        || message.contains("AuthenticationCanceled")
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn connect_g1_peripheral(
+    peripheral: &Peripheral,
+    _id: &str,
+    side: GlassSide,
+) -> Result<bool> {
+    for attempt in 1..=3 {
+        match peripheral.is_connected().await {
+            Ok(true) => return Ok(true),
+            _ => {
+                if let Err(err) = peripheral.connect().await {
+                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    if peripheral.is_connected().await.unwrap_or(false) {
+                        tracing::warn!(
+                            "G1 {} connect attempt {attempt}/3 returned {err:#}, but the link is up; continuing",
+                            side.as_str()
+                        );
+                        return Ok(true);
+                    }
+                    if attempt == 3 {
+                        return Err(anyhow!("connect attempt {attempt}/3 failed: {err:#}"));
+                    }
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                } else {
+                    return Ok(true);
+                }
+            }
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(target_os = "linux")]
+fn bluez_object_path(device_id: &str) -> Result<String> {
+    let device_id = device_id.trim();
+    if device_id.starts_with("/org/bluez/") {
+        return Ok(device_id.to_string());
+    }
+    if device_id.starts_with("hci") && device_id.contains("/dev_") {
+        return Ok(format!("/org/bluez/{device_id}"));
+    }
+    if device_id.contains(':') {
+        return Ok(format!(
+            "/org/bluez/hci0/dev_{}",
+            device_id.replace(':', "_")
+        ));
+    }
+    Err(anyhow!("unsupported BlueZ G1 device id '{device_id}'"))
+}
+
+#[cfg(target_os = "linux")]
+async fn linux_bluez_connect_and_wait(device_id: &str, side: GlassSide) -> Result<()> {
+    use dbus::nonblock::stdintf::org_freedesktop_dbus::Properties;
+
+    let object_path = bluez_object_path(device_id)?;
+    let path = dbus::Path::new(object_path.clone())
+        .map_err(|err| anyhow!("invalid BlueZ object path {object_path}: {err}"))?;
+    let (resource, conn) =
+        dbus_tokio::connection::new_system_sync().context("connect to system D-Bus")?;
+
+    struct ResourceTask(JoinHandle<()>);
+    impl Drop for ResourceTask {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    let _resource_task = ResourceTask(tokio::spawn(async move {
+        let err = resource.await;
+        tracing::debug!("BlueZ D-Bus connection ended: {err}");
+    }));
+
+    let proxy =
+        dbus::nonblock::Proxy::new("org.bluez", path, Duration::from_secs(30), conn.clone());
+
+    let paired: bool = proxy
+        .get("org.bluez.Device1", "Paired")
+        .await
+        .unwrap_or(false);
+    if !paired {
+        tracing::debug!(
+            "BlueZ pairing {} glass at {object_path} before GATT connect",
+            side.as_str()
+        );
+        let pair_result = tokio::time::timeout(Duration::from_secs(25), async {
+            let result: std::result::Result<(), dbus::Error> =
+                proxy.method_call("org.bluez.Device1", "Pair", ()).await;
+            result
+        })
+        .await;
+        match pair_result {
+            Ok(Ok(())) => {
+                let _: std::result::Result<(), dbus::Error> =
+                    proxy.set("org.bluez.Device1", "Trusted", true).await;
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
+            Ok(Err(err)) => {
+                return Err(anyhow!(
+                    "BlueZ Pair failed for {} glass at {object_path}: {err}. Unpair G1 in the Even app, forget both G1 devices in phone Bluetooth settings, quick-restart the glasses, then try Connect again.",
+                    side.as_str()
+                ));
+            }
+            Err(_) => {
+                return Err(anyhow!(
+                    "BlueZ Pair timed out for {} glass at {object_path}. Unpair G1 in the Even app, forget both G1 devices in phone Bluetooth settings, quick-restart the glasses, then try Connect again.",
+                    side.as_str()
+                ));
+            }
+        }
+    }
+
+    let mut connected: bool = proxy
+        .get("org.bluez.Device1", "Connected")
+        .await
+        .unwrap_or(false);
+    if !connected {
+        let connect_result: std::result::Result<(), dbus::Error> =
+            proxy.method_call("org.bluez.Device1", "Connect", ()).await;
+        if let Err(err) = connect_result {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            connected = proxy
+                .get("org.bluez.Device1", "Connected")
+                .await
+                .unwrap_or(false);
+            if !connected {
+                let detail = err.to_string();
+                if bluez_device_object_is_stale(&detail) {
+                    return Err(anyhow!(
+                        "BlueZ device object disappeared for {} glass at {object_path}; rescan needed: {detail}",
+                        side.as_str()
+                    ));
+                }
+                return Err(anyhow!(
+                    "BlueZ Connect failed for {} glass at {object_path}: {err}",
+                    side.as_str()
+                ));
+            }
+            tracing::warn!(
+                "BlueZ Connect for {} returned {err}, but the link is up; waiting for GATT services",
+                side.as_str()
+            );
+        }
+    }
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let services_resolved: bool = proxy
+            .get("org.bluez.Device1", "ServicesResolved")
+            .await
+            .unwrap_or(false);
+        if services_resolved {
+            tracing::debug!(
+                "BlueZ services resolved for {} glass at {object_path}",
+                side.as_str()
+            );
+            return Ok(());
+        }
+
+        connected = proxy
+            .get("org.bluez.Device1", "Connected")
+            .await
+            .unwrap_or(false);
+        if !connected {
+            return Err(anyhow!(
+                "BlueZ link dropped before GATT services resolved for {} glass at {object_path}",
+                side.as_str()
+            ));
+        }
+
+        if tokio::time::Instant::now() >= deadline {
+            return Err(anyhow!(
+                "BlueZ GATT services did not resolve within 20s for {} glass at {object_path}",
+                side.as_str()
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
 impl G1Manager {
     pub fn new() -> Self {
         Self::default()
@@ -348,8 +596,13 @@ impl G1Manager {
 
         let mut left: Option<GlassConnection> = None;
         let mut right: Option<GlassConnection> = None;
+        let mut left_candidate: Option<G1Candidate> = None;
+        let mut right_candidate: Option<G1Candidate> = None;
+        let mut errors = Vec::new();
         let scan_deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-        while tokio::time::Instant::now() < scan_deadline && (left.is_none() || right.is_none()) {
+        while tokio::time::Instant::now() < scan_deadline
+            && (left_candidate.is_none() || right_candidate.is_none())
+        {
             tokio::time::sleep(Duration::from_millis(900)).await;
             let peripherals = adapter.peripherals().await.context("read scan results")?;
             for peripheral in peripherals {
@@ -368,37 +621,77 @@ impl G1Manager {
                 } else {
                     continue;
                 };
-                if (side == GlassSide::Left && left.is_some())
-                    || (side == GlassSide::Right && right.is_some())
+                if (side == GlassSide::Left && left_candidate.is_some())
+                    || (side == GlassSide::Right && right_candidate.is_some())
                 {
                     continue;
                 }
-                match self
-                    .connect_peripheral(app.clone(), peripheral.clone(), name.clone(), side)
-                    .await
+                tracing::info!("G1 found {} candidate: {name}", side.as_str());
+                let candidate = G1Candidate {
+                    side,
+                    name: name.clone(),
+                    peripheral: peripheral.clone(),
+                };
+                if side == GlassSide::Left {
+                    left_candidate = Some(candidate);
+                } else {
+                    right_candidate = Some(candidate);
+                }
                 {
-                    Ok(conn) if side == GlassSide::Left => left = Some(conn),
-                    Ok(conn) => right = Some(conn),
-                    Err(err) => {
-                        tracing::warn!("G1 connect {} failed: {err:#}", side.as_str());
-                        let mut rt = self.runtime.lock().await;
-                        rt.last_error = Some(format!("{} glass: {err:#}", side.as_str()));
-                    }
+                    let mut rt = self.runtime.lock().await;
+                    rt.last_event = Some(format!("Found {} G1 glass: {name}", side.as_str()));
                 }
                 self.emit_status(&app).await;
             }
         }
+
         let _ = adapter.stop_scan().await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        if left_candidate.is_some() || right_candidate.is_some() {
+            {
+                let mut rt = self.runtime.lock().await;
+                rt.last_event = Some("Connecting to discovered G1 glasses".to_string());
+            }
+            self.emit_status(&app).await;
+        }
+        if let Some(candidate) = left_candidate.take() {
+            self.connect_collected_candidate(
+                app.clone(),
+                candidate,
+                &mut left,
+                &mut right,
+                &mut errors,
+            )
+            .await;
+        }
+        if let Some(candidate) = right_candidate.take() {
+            self.connect_collected_candidate(
+                app.clone(),
+                candidate,
+                &mut left,
+                &mut right,
+                &mut errors,
+            )
+            .await;
+        }
 
         {
             let mut rt = self.runtime.lock().await;
             rt.scanning = false;
             rt.left = left;
             rt.right = right;
+            rt.last_error = if errors.is_empty() {
+                None
+            } else {
+                Some(errors.join("; "))
+            };
             rt.last_event = Some(if rt.left.is_some() && rt.right.is_some() {
                 "G1 glasses connected".to_string()
+            } else if rt.left.is_none() && rt.right.is_none() && rt.last_error.is_none() {
+                "No G1 glasses found".to_string()
             } else {
-                "G1 scan completed".to_string()
+                "G1 connection completed with missing glasses".to_string()
             });
         }
         self.emit_status(&app).await;
@@ -446,8 +739,13 @@ impl G1Manager {
 
         let mut left: Option<GlassConnection> = None;
         let mut right: Option<GlassConnection> = None;
+        let mut left_candidate: Option<G1Candidate> = None;
+        let mut right_candidate: Option<G1Candidate> = None;
+        let mut errors = Vec::new();
         let scan_deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-        while tokio::time::Instant::now() < scan_deadline && (left.is_none() || right.is_none()) {
+        while tokio::time::Instant::now() < scan_deadline
+            && (left_candidate.is_none() || right_candidate.is_none())
+        {
             tokio::time::sleep(Duration::from_millis(900)).await;
             for peripheral in adapter.peripherals().await.context("read scan results")? {
                 let id = peripheral.id().to_string();
@@ -483,33 +781,71 @@ impl G1Manager {
                 } else {
                     continue;
                 };
-                if (side == GlassSide::Left && left.is_some())
-                    || (side == GlassSide::Right && right.is_some())
+                if (side == GlassSide::Left && left_candidate.is_some())
+                    || (side == GlassSide::Right && right_candidate.is_some())
                 {
                     continue;
                 }
-                match self
-                    .connect_peripheral(app.clone(), peripheral.clone(), name.clone(), side)
-                    .await
+                tracing::info!("G1 found saved {} candidate: {name}", side.as_str());
+                let candidate = G1Candidate {
+                    side,
+                    name: name.clone(),
+                    peripheral: peripheral.clone(),
+                };
+                if side == GlassSide::Left {
+                    left_candidate = Some(candidate);
+                } else {
+                    right_candidate = Some(candidate);
+                }
                 {
-                    Ok(conn) if side == GlassSide::Left => left = Some(conn),
-                    Ok(conn) => right = Some(conn),
-                    Err(err) => {
-                        tracing::warn!("G1 saved connect {} failed: {err:#}", side.as_str());
-                        let mut rt = self.runtime.lock().await;
-                        rt.last_error = Some(format!("{} glass: {err:#}", side.as_str()));
-                    }
+                    let mut rt = self.runtime.lock().await;
+                    rt.last_event = Some(format!("Found saved {} G1 glass: {name}", side.as_str()));
                 }
                 self.emit_status(&app).await;
             }
         }
+
         let _ = adapter.stop_scan().await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        if left_candidate.is_some() || right_candidate.is_some() {
+            {
+                let mut rt = self.runtime.lock().await;
+                rt.last_event = Some("Connecting to saved G1 glasses".to_string());
+            }
+            self.emit_status(&app).await;
+        }
+        if let Some(candidate) = left_candidate.take() {
+            self.connect_collected_candidate(
+                app.clone(),
+                candidate,
+                &mut left,
+                &mut right,
+                &mut errors,
+            )
+            .await;
+        }
+        if let Some(candidate) = right_candidate.take() {
+            self.connect_collected_candidate(
+                app.clone(),
+                candidate,
+                &mut left,
+                &mut right,
+                &mut errors,
+            )
+            .await;
+        }
 
         {
             let mut rt = self.runtime.lock().await;
             rt.scanning = false;
             rt.left = left;
             rt.right = right;
+            rt.last_error = if errors.is_empty() {
+                None
+            } else {
+                Some(errors.join("; "))
+            };
             rt.last_event = Some("Saved G1 reconnect completed".to_string());
         }
         self.emit_status(&app).await;
@@ -520,6 +856,44 @@ impl G1Manager {
         Ok(status)
     }
 
+    async fn connect_collected_candidate(
+        self: &Arc<Self>,
+        app: AppHandle,
+        candidate: G1Candidate,
+        left: &mut Option<GlassConnection>,
+        right: &mut Option<GlassConnection>,
+        errors: &mut Vec<String>,
+    ) {
+        let side = candidate.side;
+        tracing::info!(
+            "G1 connecting {} candidate: {} ({})",
+            side.as_str(),
+            candidate.name,
+            candidate.peripheral.id()
+        );
+        {
+            let mut rt = self.runtime.lock().await;
+            rt.last_event = Some(format!(
+                "Connecting {} G1 glass: {}",
+                side.as_str(),
+                candidate.name
+            ));
+        }
+        self.emit_status(&app).await;
+
+        match self
+            .connect_peripheral(app, candidate.peripheral, candidate.name, side)
+            .await
+        {
+            Ok(conn) if side == GlassSide::Left => *left = Some(conn),
+            Ok(conn) => *right = Some(conn),
+            Err(err) => {
+                tracing::warn!("G1 connect {} failed: {err:#}", side.as_str());
+                errors.push(format!("{} glass: {err:#}", side.as_str()));
+            }
+        }
+    }
+
     async fn connect_peripheral(
         self: &Arc<Self>,
         app: AppHandle,
@@ -528,20 +902,9 @@ impl G1Manager {
         side: GlassSide,
     ) -> Result<GlassConnection> {
         let id = peripheral.id().to_string();
-        for attempt in 1..=3 {
-            match peripheral.is_connected().await {
-                Ok(true) => break,
-                _ => {
-                    if let Err(err) = peripheral.connect().await {
-                        if attempt == 3 {
-                            return Err(anyhow!("connect attempt {attempt}/3 failed: {err:#}"));
-                        }
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                    } else {
-                        break;
-                    }
-                }
-            }
+        let connected = connect_g1_peripheral(&peripheral, &id, side).await?;
+        if !connected && !peripheral.is_connected().await.unwrap_or(false) {
+            return Err(anyhow!("G1 {} glass did not connect", side.as_str()));
         }
 
         peripheral
