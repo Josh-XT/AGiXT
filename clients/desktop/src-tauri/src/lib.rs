@@ -17,6 +17,13 @@ pub mod client_tool_specs;
 pub mod client_tools_prompt;
 pub mod config;
 pub mod filesystem;
+#[cfg(not(mobile))]
+pub mod g1;
+#[cfg(mobile)]
+#[path = "g1_mobile.rs"]
+pub mod g1;
+#[cfg(not(mobile))]
+pub mod g1_lc3;
 pub mod hardware;
 pub mod local_install;
 #[cfg(not(mobile))]
@@ -72,6 +79,7 @@ pub struct AppState {
     pub settings: Mutex<DesktopSettings>,
     pub terminals: Arc<terminal::TerminalManager>,
     pub voice: Arc<voice::VoiceRecorder>,
+    pub g1: Arc<g1::G1Manager>,
     pub sudo_keepalive: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// Set to `true` for ~400ms after a programmatic show to keep the
     /// blur handler from immediately re-hiding the popover when the
@@ -273,6 +281,208 @@ async fn voice_stop_recording(state: State<'_, AppState>) -> ToolResult<voice::V
 #[tauri::command]
 async fn voice_cancel_recording(state: State<'_, AppState>) -> ToolResult<()> {
     state.voice.cancel().map_err(ToolError::from)
+}
+
+// --------------------------------------------------------------------------
+// Even Realities G1 glasses
+// --------------------------------------------------------------------------
+
+async fn persist_g1_device_selection(
+    state: &State<'_, AppState>,
+    status: &g1::G1Status,
+) -> ToolResult<()> {
+    let mut settings = state.settings.lock().await.clone();
+    if let Some(left) = &status.left {
+        settings.g1_left_device_id = Some(left.id.clone());
+        settings.g1_left_device_name = Some(left.name.clone());
+    }
+    if let Some(right) = &status.right {
+        settings.g1_right_device_id = Some(right.id.clone());
+        settings.g1_right_device_name = Some(right.name.clone());
+    }
+    state.store.save(&settings).await.map_err(ToolError::from)?;
+    let mut current = state.settings.lock().await;
+    *current = settings;
+    Ok(())
+}
+
+#[tauri::command]
+async fn g1_status(state: State<'_, AppState>) -> ToolResult<g1::G1Status> {
+    Ok(state.g1.status().await)
+}
+
+#[tauri::command]
+async fn g1_scan_and_connect(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> ToolResult<g1::G1Status> {
+    let settings = state.settings.lock().await.clone();
+    let status = state
+        .g1
+        .clone()
+        .scan_and_connect(app, &settings)
+        .await
+        .map_err(ToolError::from)?;
+    persist_g1_device_selection(&state, &status).await?;
+    Ok(status)
+}
+
+#[tauri::command]
+async fn g1_reconnect_saved(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> ToolResult<g1::G1Status> {
+    let settings = state.settings.lock().await.clone();
+    let status = state
+        .g1
+        .clone()
+        .reconnect_saved(app, &settings)
+        .await
+        .map_err(ToolError::from)?;
+    persist_g1_device_selection(&state, &status).await?;
+    Ok(status)
+}
+
+#[tauri::command]
+async fn g1_disconnect(state: State<'_, AppState>) -> ToolResult<g1::G1Status> {
+    state.g1.disconnect().await.map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_sync(state: State<'_, AppState>) -> ToolResult<g1::G1Status> {
+    let settings = state.settings.lock().await.clone();
+    state.g1.sync(&settings).await.map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_send_text(
+    state: State<'_, AppState>,
+    text: String,
+    streaming: Option<bool>,
+    delay_ms: Option<u64>,
+) -> ToolResult<g1::G1Status> {
+    state
+        .g1
+        .send_text(&text, streaming.unwrap_or(false), delay_ms.unwrap_or(600))
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_clear_display(state: State<'_, AppState>) -> ToolResult<g1::G1Status> {
+    state.g1.clear_display().await.map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_send_notification(
+    state: State<'_, AppState>,
+    input: g1::G1NotificationInput,
+) -> ToolResult<g1::G1Status> {
+    state
+        .g1
+        .send_notification(input)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_send_note(
+    state: State<'_, AppState>,
+    input: g1::G1NoteInput,
+) -> ToolResult<g1::G1Status> {
+    state.g1.send_note(input).await.map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_delete_note(state: State<'_, AppState>, note_number: u8) -> ToolResult<g1::G1Status> {
+    state
+        .g1
+        .delete_note(note_number)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_send_bitmap(
+    state: State<'_, AppState>,
+    input: g1::G1BitmapInput,
+) -> ToolResult<g1::G1Status> {
+    state.g1.send_bitmap(input).await.map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_request_battery(state: State<'_, AppState>) -> ToolResult<g1::G1Status> {
+    state.g1.request_battery().await.map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_set_silent_mode(state: State<'_, AppState>, enabled: bool) -> ToolResult<g1::G1Status> {
+    state
+        .g1
+        .set_silent_mode(enabled)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_set_brightness(
+    state: State<'_, AppState>,
+    level: u8,
+    auto: bool,
+) -> ToolResult<g1::G1Status> {
+    state
+        .g1
+        .set_brightness(level, auto)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_set_headup_angle(state: State<'_, AppState>, angle: u8) -> ToolResult<g1::G1Status> {
+    state
+        .g1
+        .set_headup_angle(angle)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_set_wear_detection(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> ToolResult<g1::G1Status> {
+    state
+        .g1
+        .set_wear_detection(enabled)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_set_display_position(
+    state: State<'_, AppState>,
+    input: g1::G1DisplayPositionInput,
+) -> ToolResult<g1::G1Status> {
+    state
+        .g1
+        .set_display_position(input)
+        .await
+        .map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_set_microphone(state: State<'_, AppState>, open: bool) -> ToolResult<g1::G1Status> {
+    state.g1.set_microphone(open).await.map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_start_mic_capture(state: State<'_, AppState>) -> ToolResult<g1::G1Status> {
+    state.g1.start_mic_capture().await.map_err(ToolError::from)
+}
+
+#[tauri::command]
+async fn g1_stop_mic_capture(state: State<'_, AppState>) -> ToolResult<g1::G1MicCapture> {
+    state.g1.stop_mic_capture().await.map_err(ToolError::from)
 }
 
 // --------------------------------------------------------------------------
@@ -3926,6 +4136,7 @@ pub fn run() {
                 settings: Mutex::new(settings),
                 terminals: Arc::new(terminal::TerminalManager::new()),
                 voice: Arc::new(voice::VoiceRecorder::new()),
+                g1: Arc::new(g1::G1Manager::new()),
                 sudo_keepalive: Mutex::new(None),
                 suppress_blur_hide: Arc::new(AtomicBool::new(false)),
             });
@@ -4196,6 +4407,26 @@ pub fn run() {
             voice_start_recording,
             voice_stop_recording,
             voice_cancel_recording,
+            g1_status,
+            g1_scan_and_connect,
+            g1_reconnect_saved,
+            g1_disconnect,
+            g1_sync,
+            g1_send_text,
+            g1_clear_display,
+            g1_send_notification,
+            g1_send_note,
+            g1_delete_note,
+            g1_send_bitmap,
+            g1_request_battery,
+            g1_set_silent_mode,
+            g1_set_brightness,
+            g1_set_headup_angle,
+            g1_set_wear_detection,
+            g1_set_display_position,
+            g1_set_microphone,
+            g1_start_mic_capture,
+            g1_stop_mic_capture,
             biometric_face_capture_start,
             biometric_face_capture_stop,
             biometric_voice_enroll_start,
@@ -4340,6 +4571,7 @@ pub fn run() {
                 settings: Mutex::new(settings),
                 terminals: Arc::new(terminal::TerminalManager::new()),
                 voice: Arc::new(voice::VoiceRecorder::new()),
+                g1: Arc::new(g1::G1Manager::new()),
                 sudo_keepalive: Mutex::new(None),
                 suppress_blur_hide: Arc::new(AtomicBool::new(false)),
             });
@@ -4470,6 +4702,26 @@ pub fn run() {
             voice_start_recording,
             voice_stop_recording,
             voice_cancel_recording,
+            g1_status,
+            g1_scan_and_connect,
+            g1_reconnect_saved,
+            g1_disconnect,
+            g1_sync,
+            g1_send_text,
+            g1_clear_display,
+            g1_send_notification,
+            g1_send_note,
+            g1_delete_note,
+            g1_send_bitmap,
+            g1_request_battery,
+            g1_set_silent_mode,
+            g1_set_brightness,
+            g1_set_headup_angle,
+            g1_set_wear_detection,
+            g1_set_display_position,
+            g1_set_microphone,
+            g1_start_mic_capture,
+            g1_stop_mic_capture,
             biometric_face_capture_start,
             biometric_face_capture_stop,
             biometric_voice_enroll_start,

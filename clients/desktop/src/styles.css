@@ -3095,6 +3095,17 @@ body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .chat-mo
 }
 .us-check input[type="checkbox"] { accent-color: var(--accent); margin-top: 2px; }
 
+.us-range-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.us-range {
+  flex: 1;
+  min-width: 120px;
+  accent-color: var(--accent);
+}
+
 .us-row-list {
   display: flex;
   flex-direction: column;

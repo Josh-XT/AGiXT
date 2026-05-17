@@ -107,7 +107,35 @@ function loadFullApp({ ipc } = {}) {
             allow_client_commands: true,
             voice_enabled: false,
             desktop_auto_update: false,
+            g1_enabled: false,
+            g1_display_enabled: true,
+            g1_show_ai_responses: true,
+            g1_notification_forwarding: true,
+            g1_auto_connect: true,
+            g1_time_format: '12h',
+            g1_temperature_unit: 'fahrenheit',
+            g1_dashboard_layout: 'dual',
+            g1_weather_latitude: null,
+            g1_weather_longitude: null,
+            g1_brightness: 28,
+            g1_auto_brightness: true,
+            g1_headup_angle: 20,
+            g1_wear_detection: true,
+            g1_display_height: 0,
+            g1_display_depth: 5,
             user_email: 'test@example.com',
+          };
+        }
+        if (cmd.startsWith('g1_')) {
+          return {
+            supported: true,
+            scanning: false,
+            connected: false,
+            left: null,
+            right: null,
+            battery: { left: null, right: null, last_updated: null },
+            last_event: null,
+            last_error: null,
           };
         }
         if (cmd === 'list_companies') {
@@ -156,7 +184,7 @@ function loadFullApp({ ipc } = {}) {
   // and prompts.js own their own side panes and follow the same pattern.
   for (const name of [
     'markdown.js', 'audio.js', 'client-actions.js', 'chat.js',
-    'notifications.js', 'auth.js', 'dock.js',
+    'notifications.js', 'g1.js', 'auth.js', 'dock.js',
     'agixt-api.js', 'user-settings.js', 'chains.js', 'prompts.js',
     'team-chat-helpers.js', 'team-chat.js',
     'app.js',
@@ -888,6 +916,56 @@ test('app: enabling automatic desktop updates schedules install', async () => {
   await new Promise((resolve) => setTimeout(resolve, 600));
 
   assert.ok(calls.some((c) => c.cmd === 'desktop_update_install'));
+  window.AgixtChat.disconnect();
+});
+
+test('user settings: glasses tab saves G1 preferences and can send a test page', async () => {
+  const g1Status = {
+    supported: true,
+    scanning: false,
+    connected: true,
+    left: { side: 'left', name: 'G1_L_Test', id: 'left-id', connected: true },
+    right: { side: 'right', name: 'G1_R_Test', id: 'right-id', connected: true },
+    battery: {
+      left: { side: 'left', percentage: 91, voltage: 4, is_charging: false, timestamp: 'now' },
+      right: { side: 'right', percentage: 88, voltage: 4, is_charging: true, timestamp: 'now' },
+      last_updated: 'now',
+    },
+    last_event: 'G1 glasses connected',
+    last_error: null,
+  };
+  const { window, calls } = loadFullApp({
+    ipc: {
+      g1_status: async () => g1Status,
+      g1_send_text: async () => g1Status,
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  window.document.getElementById('btn-settings').click();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  window.document.querySelector('[data-us-tab="glasses"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+
+  assert.match(window.document.querySelector('[data-us-test="g1-status"]').textContent, /connected/i);
+  assert.match(window.document.querySelector('[data-us-test="g1-devices"]').textContent, /G1_L_Test/);
+
+  window.document.querySelector('[data-us-test="g1-enabled"]').checked = true;
+  window.document.querySelector('[data-us-test="g1-save"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  const saveCall = calls.filter((c) => c.cmd === 'save_settings').at(-1);
+  assert.equal(saveCall.args.settings.g1_enabled, true);
+  assert.equal(saveCall.args.settings.g1_dashboard_layout, 'dual');
+
+  const testText = window.document.querySelector('[data-us-test="g1-test-text"]');
+  testText.value = 'Desktop G1 smoke test';
+  window.document.querySelector('[data-us-test="g1-send-test"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  const textCall = calls.find((c) => c.cmd === 'g1_send_text');
+  assert.equal(textCall.args.text, 'Desktop G1 smoke test');
+  assert.equal(textCall.args.streaming, false);
   window.AgixtChat.disconnect();
 });
 

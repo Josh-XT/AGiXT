@@ -91,6 +91,38 @@ pub fn brand_default_web_url(slug: &str) -> &'static str {
     DEFAULT_WEB_URL
 }
 
+fn default_true() -> bool {
+    true
+}
+
+fn default_g1_time_format() -> String {
+    "12h".to_string()
+}
+
+fn default_g1_temperature_unit() -> String {
+    "fahrenheit".to_string()
+}
+
+fn default_g1_dashboard_layout() -> String {
+    "dual".to_string()
+}
+
+fn default_g1_brightness() -> u8 {
+    28
+}
+
+fn default_g1_headup_angle() -> u8 {
+    20
+}
+
+fn default_g1_display_height() -> u8 {
+    0
+}
+
+fn default_g1_display_depth() -> u8 {
+    5
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DesktopSettings {
     pub server_url: String,
@@ -127,6 +159,49 @@ pub struct DesktopSettings {
     /// the WM (mutter etc) doesn't place us in a random tile slot.
     pub dock_pos_x: Option<i32>,
     pub dock_pos_y: Option<i32>,
+    /// Even Realities G1 glasses integration. The values mirror the
+    /// Flutter mobile app defaults: display on, Fahrenheit, and 12-hour
+    /// time unless the user opts into different dashboard behavior.
+    #[serde(default)]
+    pub g1_enabled: bool,
+    #[serde(default = "default_true")]
+    pub g1_display_enabled: bool,
+    #[serde(default = "default_true")]
+    pub g1_show_ai_responses: bool,
+    #[serde(default = "default_true")]
+    pub g1_notification_forwarding: bool,
+    #[serde(default = "default_true")]
+    pub g1_auto_connect: bool,
+    #[serde(default = "default_g1_time_format")]
+    pub g1_time_format: String,
+    #[serde(default = "default_g1_temperature_unit")]
+    pub g1_temperature_unit: String,
+    #[serde(default = "default_g1_dashboard_layout")]
+    pub g1_dashboard_layout: String,
+    #[serde(default)]
+    pub g1_weather_latitude: Option<f64>,
+    #[serde(default)]
+    pub g1_weather_longitude: Option<f64>,
+    #[serde(default)]
+    pub g1_left_device_id: Option<String>,
+    #[serde(default)]
+    pub g1_left_device_name: Option<String>,
+    #[serde(default)]
+    pub g1_right_device_id: Option<String>,
+    #[serde(default)]
+    pub g1_right_device_name: Option<String>,
+    #[serde(default = "default_g1_brightness")]
+    pub g1_brightness: u8,
+    #[serde(default = "default_true")]
+    pub g1_auto_brightness: bool,
+    #[serde(default = "default_g1_headup_angle")]
+    pub g1_headup_angle: u8,
+    #[serde(default = "default_true")]
+    pub g1_wear_detection: bool,
+    #[serde(default = "default_g1_display_height")]
+    pub g1_display_height: u8,
+    #[serde(default = "default_g1_display_depth")]
+    pub g1_display_depth: u8,
 }
 
 impl DesktopSettings {
@@ -150,6 +225,26 @@ impl DesktopSettings {
             theme: "system".to_string(),
             dock_pos_x: None,
             dock_pos_y: None,
+            g1_enabled: false,
+            g1_display_enabled: true,
+            g1_show_ai_responses: true,
+            g1_notification_forwarding: true,
+            g1_auto_connect: true,
+            g1_time_format: default_g1_time_format(),
+            g1_temperature_unit: default_g1_temperature_unit(),
+            g1_dashboard_layout: default_g1_dashboard_layout(),
+            g1_weather_latitude: None,
+            g1_weather_longitude: None,
+            g1_left_device_id: None,
+            g1_left_device_name: None,
+            g1_right_device_id: None,
+            g1_right_device_name: None,
+            g1_brightness: default_g1_brightness(),
+            g1_auto_brightness: true,
+            g1_headup_angle: default_g1_headup_angle(),
+            g1_wear_detection: true,
+            g1_display_height: default_g1_display_height(),
+            g1_display_depth: default_g1_display_depth(),
         }
     }
 }
@@ -279,6 +374,58 @@ impl ConfigStore {
         if let Some(v) = self.get_raw("dock_pos_y").await? {
             s.dock_pos_y = v.parse().ok();
         }
+        if let Some(v) = self.get_raw("g1_enabled").await? {
+            s.g1_enabled = v == "1";
+        }
+        if let Some(v) = self.get_raw("g1_display_enabled").await? {
+            s.g1_display_enabled = v == "1";
+        }
+        if let Some(v) = self.get_raw("g1_show_ai_responses").await? {
+            s.g1_show_ai_responses = v == "1";
+        }
+        if let Some(v) = self.get_raw("g1_notification_forwarding").await? {
+            s.g1_notification_forwarding = v == "1";
+        }
+        if let Some(v) = self.get_raw("g1_auto_connect").await? {
+            s.g1_auto_connect = v == "1";
+        }
+        if let Some(v) = self.get_raw("g1_time_format").await? {
+            s.g1_time_format = v;
+        }
+        if let Some(v) = self.get_raw("g1_temperature_unit").await? {
+            s.g1_temperature_unit = v;
+        }
+        if let Some(v) = self.get_raw("g1_dashboard_layout").await? {
+            s.g1_dashboard_layout = v;
+        }
+        if let Some(v) = self.get_raw("g1_weather_latitude").await? {
+            s.g1_weather_latitude = v.parse().ok();
+        }
+        if let Some(v) = self.get_raw("g1_weather_longitude").await? {
+            s.g1_weather_longitude = v.parse().ok();
+        }
+        s.g1_left_device_id = self.get_raw("g1_left_device_id").await?;
+        s.g1_left_device_name = self.get_raw("g1_left_device_name").await?;
+        s.g1_right_device_id = self.get_raw("g1_right_device_id").await?;
+        s.g1_right_device_name = self.get_raw("g1_right_device_name").await?;
+        if let Some(v) = self.get_raw("g1_brightness").await? {
+            s.g1_brightness = v.parse().unwrap_or_else(|_| default_g1_brightness());
+        }
+        if let Some(v) = self.get_raw("g1_auto_brightness").await? {
+            s.g1_auto_brightness = v == "1";
+        }
+        if let Some(v) = self.get_raw("g1_headup_angle").await? {
+            s.g1_headup_angle = v.parse().unwrap_or_else(|_| default_g1_headup_angle());
+        }
+        if let Some(v) = self.get_raw("g1_wear_detection").await? {
+            s.g1_wear_detection = v == "1";
+        }
+        if let Some(v) = self.get_raw("g1_display_height").await? {
+            s.g1_display_height = v.parse().unwrap_or_else(|_| default_g1_display_height());
+        }
+        if let Some(v) = self.get_raw("g1_display_depth").await? {
+            s.g1_display_depth = v.parse().unwrap_or_else(|_| default_g1_display_depth());
+        }
         Ok(s)
     }
 
@@ -340,6 +487,82 @@ impl ConfigStore {
         if let Some(v) = s.dock_pos_y {
             self.put_raw("dock_pos_y", &v.to_string()).await?;
         }
+        self.put_raw("g1_enabled", if s.g1_enabled { "1" } else { "0" })
+            .await?;
+        self.put_raw(
+            "g1_display_enabled",
+            if s.g1_display_enabled { "1" } else { "0" },
+        )
+        .await?;
+        self.put_raw(
+            "g1_show_ai_responses",
+            if s.g1_show_ai_responses { "1" } else { "0" },
+        )
+        .await?;
+        self.put_raw(
+            "g1_notification_forwarding",
+            if s.g1_notification_forwarding {
+                "1"
+            } else {
+                "0"
+            },
+        )
+        .await?;
+        self.put_raw("g1_auto_connect", if s.g1_auto_connect { "1" } else { "0" })
+            .await?;
+        self.put_raw("g1_time_format", &s.g1_time_format).await?;
+        self.put_raw("g1_temperature_unit", &s.g1_temperature_unit)
+            .await?;
+        self.put_raw("g1_dashboard_layout", &s.g1_dashboard_layout)
+            .await?;
+        if let Some(v) = s.g1_weather_latitude {
+            self.put_raw("g1_weather_latitude", &v.to_string()).await?;
+        } else {
+            self.delete_raw("g1_weather_latitude").await?;
+        }
+        if let Some(v) = s.g1_weather_longitude {
+            self.put_raw("g1_weather_longitude", &v.to_string()).await?;
+        } else {
+            self.delete_raw("g1_weather_longitude").await?;
+        }
+        if let Some(v) = &s.g1_left_device_id {
+            self.put_raw("g1_left_device_id", v).await?;
+        } else {
+            self.delete_raw("g1_left_device_id").await?;
+        }
+        if let Some(v) = &s.g1_left_device_name {
+            self.put_raw("g1_left_device_name", v).await?;
+        } else {
+            self.delete_raw("g1_left_device_name").await?;
+        }
+        if let Some(v) = &s.g1_right_device_id {
+            self.put_raw("g1_right_device_id", v).await?;
+        } else {
+            self.delete_raw("g1_right_device_id").await?;
+        }
+        if let Some(v) = &s.g1_right_device_name {
+            self.put_raw("g1_right_device_name", v).await?;
+        } else {
+            self.delete_raw("g1_right_device_name").await?;
+        }
+        self.put_raw("g1_brightness", &s.g1_brightness.to_string())
+            .await?;
+        self.put_raw(
+            "g1_auto_brightness",
+            if s.g1_auto_brightness { "1" } else { "0" },
+        )
+        .await?;
+        self.put_raw("g1_headup_angle", &s.g1_headup_angle.to_string())
+            .await?;
+        self.put_raw(
+            "g1_wear_detection",
+            if s.g1_wear_detection { "1" } else { "0" },
+        )
+        .await?;
+        self.put_raw("g1_display_height", &s.g1_display_height.to_string())
+            .await?;
+        self.put_raw("g1_display_depth", &s.g1_display_depth.to_string())
+            .await?;
         Ok(())
     }
 
@@ -388,6 +611,20 @@ mod tests {
         // Theme defaults to "system" so first-launch matches the OS
         // (light-mode users don't get force-flashed dark).
         assert_eq!(s.theme, "system");
+        assert!(!s.g1_enabled);
+        assert!(s.g1_display_enabled);
+        assert!(s.g1_show_ai_responses);
+        assert!(s.g1_notification_forwarding);
+        assert!(s.g1_auto_connect);
+        assert_eq!(s.g1_time_format, "12h");
+        assert_eq!(s.g1_temperature_unit, "fahrenheit");
+        assert_eq!(s.g1_dashboard_layout, "dual");
+        assert_eq!(s.g1_brightness, 28);
+        assert!(s.g1_auto_brightness);
+        assert_eq!(s.g1_headup_angle, 20);
+        assert!(s.g1_wear_detection);
+        assert_eq!(s.g1_display_height, 0);
+        assert_eq!(s.g1_display_depth, 5);
     }
 
     #[tokio::test]
@@ -425,6 +662,26 @@ mod tests {
         s.desktop_auto_update = false;
         s.sidebar_open = false;
         s.allow_client_commands = false;
+        s.g1_enabled = true;
+        s.g1_display_enabled = false;
+        s.g1_show_ai_responses = false;
+        s.g1_notification_forwarding = false;
+        s.g1_auto_connect = false;
+        s.g1_time_format = "24h".into();
+        s.g1_temperature_unit = "celsius".into();
+        s.g1_dashboard_layout = "minimal".into();
+        s.g1_weather_latitude = Some(40.7128);
+        s.g1_weather_longitude = Some(-74.0060);
+        s.g1_left_device_id = Some("left-id".into());
+        s.g1_left_device_name = Some("G1_L".into());
+        s.g1_right_device_id = Some("right-id".into());
+        s.g1_right_device_name = Some("G1_R".into());
+        s.g1_brightness = 12;
+        s.g1_auto_brightness = false;
+        s.g1_headup_angle = 30;
+        s.g1_wear_detection = false;
+        s.g1_display_height = 3;
+        s.g1_display_depth = 7;
         store.save(&s).await.unwrap();
 
         let loaded = store.load().await.unwrap();
@@ -443,6 +700,26 @@ mod tests {
         assert!(!loaded.desktop_auto_update);
         assert!(!loaded.sidebar_open);
         assert!(!loaded.allow_client_commands);
+        assert!(loaded.g1_enabled);
+        assert!(!loaded.g1_display_enabled);
+        assert!(!loaded.g1_show_ai_responses);
+        assert!(!loaded.g1_notification_forwarding);
+        assert!(!loaded.g1_auto_connect);
+        assert_eq!(loaded.g1_time_format, "24h");
+        assert_eq!(loaded.g1_temperature_unit, "celsius");
+        assert_eq!(loaded.g1_dashboard_layout, "minimal");
+        assert_eq!(loaded.g1_weather_latitude, Some(40.7128));
+        assert_eq!(loaded.g1_weather_longitude, Some(-74.0060));
+        assert_eq!(loaded.g1_left_device_id.as_deref(), Some("left-id"));
+        assert_eq!(loaded.g1_left_device_name.as_deref(), Some("G1_L"));
+        assert_eq!(loaded.g1_right_device_id.as_deref(), Some("right-id"));
+        assert_eq!(loaded.g1_right_device_name.as_deref(), Some("G1_R"));
+        assert_eq!(loaded.g1_brightness, 12);
+        assert!(!loaded.g1_auto_brightness);
+        assert_eq!(loaded.g1_headup_angle, 30);
+        assert!(!loaded.g1_wear_detection);
+        assert_eq!(loaded.g1_display_height, 3);
+        assert_eq!(loaded.g1_display_depth, 7);
     }
 
     #[tokio::test]

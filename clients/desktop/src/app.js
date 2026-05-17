@@ -1732,6 +1732,7 @@
     chunks: [],
     native: false,
     state: 'idle', // 'idle' | 'recording' | 'busy'
+    mode: 'voice', // 'voice' | 'conversation'
   };
 
   function setMicState(state) {
@@ -1739,8 +1740,11 @@
     if (micBtn) {
       micBtn.setAttribute('data-state', state);
       if (state === 'recording') {
-        micBtn.title = 'Send recording (Esc to cancel)';
-        micBtn.setAttribute('aria-label', 'Send recording');
+        const isConversation = micState.mode === 'conversation';
+        micBtn.title = isConversation
+          ? 'Send conversation recording (Esc to cancel)'
+          : 'Send recording (Esc to cancel)';
+        micBtn.setAttribute('aria-label', isConversation ? 'Send conversation recording' : 'Send recording');
       } else if (state === 'busy') {
         micBtn.title = 'Transcribing…';
         micBtn.setAttribute('aria-label', 'Transcribing');
@@ -1799,9 +1803,22 @@
     return (clean.split('/')[1] || 'wav').replace(/[^a-z0-9]/g, '') || 'wav';
   }
 
+  function buildConversationPrompt(transcript) {
+    return [
+      'The following is a transcription of a live conversation captured from my desktop app.',
+      '',
+      'Please summarize the conversation, identify decisions, action items, names, dates, and any follow-up questions I should ask.',
+      '',
+      'Transcript:',
+      transcript,
+    ].join('\n');
+  }
+
   async function transcribeAndSendBlob(blob, mime) {
+    const recordingMode = micState.mode || 'voice';
     if (!blob.size) {
       setMicState('idle');
+      micState.mode = 'voice';
       window.AgixtChat.setComposerStatus('No audio captured', 'error');
       return;
     }
@@ -1836,6 +1853,7 @@
       transcript = (data && (data.text || data.transcript)) || '';
     } catch (err) {
       setMicState('idle');
+      micState.mode = 'voice';
       window.AgixtChat.setComposerStatus(
         `Transcription failed: ${err && err.message ? err.message : err}`,
         'error',
@@ -1846,14 +1864,18 @@
     transcript = (transcript || '').trim();
     if (!transcript) {
       setMicState('idle');
+      micState.mode = 'voice';
       window.AgixtChat.setComposerStatus("Couldn't hear anything", 'error');
       return;
     }
 
-    composerInput.value = transcript;
+    composerInput.value = recordingMode === 'conversation'
+      ? buildConversationPrompt(transcript)
+      : transcript;
     autoResize();
     setMicState('idle');
-    window.AgixtChat.setComposerStatus('Voice sent.');
+    micState.mode = 'voice';
+    window.AgixtChat.setComposerStatus(recordingMode === 'conversation' ? 'Conversation sent.' : 'Voice sent.');
     const sendPromise = sendCurrent();
     setTimeout(() => {
       if (micState.state === 'idle') window.AgixtChat.setComposerStatus('');
@@ -1861,14 +1883,15 @@
     await sendPromise;
   }
 
-  async function startNativeRecording() {
+  async function startNativeRecording(mode) {
     try {
       const info = await invoke('voice_start_recording');
       micState.native = true;
       micState.cancelled = false;
       setMicState('recording');
       const label = info && info.device_name ? ` (${info.device_name})` : '';
-      window.AgixtChat.setComposerStatus(`Listening${label} — tap the red button to send, Esc to cancel`);
+      const prefix = mode === 'conversation' ? 'Recording conversation' : 'Listening';
+      window.AgixtChat.setComposerStatus(`${prefix}${label} — tap the red button to send, Esc to cancel`);
       frontendLog('info', 'native voice recording started', JSON.stringify(info || {}));
       return true;
     } catch (err) {
@@ -1878,12 +1901,15 @@
     }
   }
 
-  async function startRecording() {
+  async function startRecording(options) {
     if (micState.state !== 'idle') return;
+    const mode = options && options.mode === 'conversation' ? 'conversation' : 'voice';
+    micState.mode = mode;
     if (!settings) await loadSettings();
-    if (await startNativeRecording()) return;
+    if (await startNativeRecording(mode)) return;
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      micState.mode = 'voice';
       window.AgixtChat.setComposerStatus('Microphone API unavailable in this webview', 'error');
       return;
     }
@@ -1891,6 +1917,7 @@
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
+      micState.mode = 'voice';
       window.AgixtChat.setComposerStatus(micErrorMessage(err), 'error');
       return;
     }
@@ -1909,7 +1936,11 @@
     recorder.addEventListener('stop', handleRecordingStopped);
     recorder.start(250);
     setMicState('recording');
-    window.AgixtChat.setComposerStatus('Listening — tap the red button to send, Esc to cancel');
+    window.AgixtChat.setComposerStatus(
+      mode === 'conversation'
+        ? 'Recording conversation — tap the red button to send, Esc to cancel'
+        : 'Listening — tap the red button to send, Esc to cancel',
+    );
   }
 
   function teardownRecorderStream() {
@@ -1932,6 +1963,7 @@
       } catch (err) {
         micState.native = false;
         setMicState('idle');
+        micState.mode = 'voice';
         window.AgixtChat.setComposerStatus(micErrorMessage(err), 'error');
         frontendLog('error', 'native voice stop failed', err && (err.error || err.message || String(err)));
       }
@@ -1963,6 +1995,7 @@
       try { await invoke('voice_cancel_recording'); } catch (_) { /* ignore */ }
       micState.native = false;
       setMicState('idle');
+      micState.mode = 'voice';
       window.AgixtChat.setComposerStatus('');
       return;
     }
@@ -1972,6 +2005,7 @@
     micState.recorder = null;
     micState.chunks = [];
     setMicState('idle');
+    micState.mode = 'voice';
     window.AgixtChat.setComposerStatus('');
   }
 
@@ -1982,6 +2016,7 @@
     if (micState.cancelled) {
       micState.chunks = [];
       setMicState('idle');
+      micState.mode = 'voice';
       return;
     }
     const mime = (r && r.mimeType) || 'audio/webm';
@@ -1996,6 +2031,27 @@
       else if (micState.state === 'idle') await startRecording();
     });
   }
+
+  window.AgixtVoiceInput = {
+    start: () => startRecording({ mode: 'voice' }),
+    stop: () => stopRecording(),
+    cancel: () => cancelRecording(),
+    startConversation: () => startRecording({ mode: 'conversation' }),
+    stopConversation: () => stopRecording(),
+    transcribeBlob: (blob, mime, options) => {
+      const mode = options && options.mode === 'conversation' ? 'conversation' : 'voice';
+      micState.mode = mode;
+      return transcribeAndSendBlob(blob, mime);
+    },
+    toggleConversation: async () => {
+      if (micState.state === 'recording' && micState.mode === 'conversation') {
+        await stopRecording();
+      } else if (micState.state === 'idle') {
+        await startRecording({ mode: 'conversation' });
+      }
+    },
+    getState: () => ({ state: micState.state, mode: micState.mode || 'voice' }),
+  };
 
   // Esc cancels an in-progress recording without sending. Doesn't
   // interfere when the user is just typing (recording state guards it).

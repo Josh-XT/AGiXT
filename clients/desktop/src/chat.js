@@ -27,6 +27,12 @@
     window.AgixtFrontendLog('info', `chat.js loaded (${CHAT_JS_VERSION})`);
   }
 
+  function dispatchAssistantEvent(name, detail) {
+    try {
+      window.dispatchEvent(new CustomEvent(name, { detail: detail || {} }));
+    } catch (_) {}
+  }
+
   let ws = null;
   let pingTimer = null;
   let reconnectTimer = null;
@@ -721,17 +727,23 @@
 
     if (parsed.kind === 'activity') {
       const isThinking = (parsed.body || '').toLowerCase().includes('thinking');
+      const existingThinking = lastThinkingActivityId
+        ? messages.get(lastThinkingActivityId)
+        : null;
+      const shouldMergeThinking = isThinking
+        && lastThinkingActivityId
+        && existingThinking
+        // A persisted server parent must not alias onto the transient
+        // live-stream parent. The matching persisted subactivity removes
+        // that transient block, then attaches to the real server parent.
+        && !(existingThinking.transient && !String(msg.id).startsWith('local-'));
       // Thinking-merge: when AGiXT emits a second "Thinking" activity in
       // the same turn, attach future subactivities to the existing block
       // instead of opening a new one. Mirrors web's groupMessages().
-      if (
-        isThinking
-        && lastThinkingActivityId
-        && messages.has(lastThinkingActivityId)
-      ) {
+      if (shouldMergeThinking) {
         activityIdAlias.set(msg.id, lastThinkingActivityId);
         // Mark this id as seen so update() / dedup don't re-create it.
-        const merged = messages.get(lastThinkingActivityId);
+        const merged = existingThinking;
         messages.set(msg.id, merged);
         touchActivityElapsed(merged, msg.timestamp);
         lastActivityId = lastThinkingActivityId;
@@ -1548,6 +1560,11 @@
             assistantText += inc;
             asstEntry.text = assistantText;
             renderMdInto(placeholder.content, assistantText);
+            dispatchAssistantEvent('agixt-chat-assistant-stream', {
+              text: assistantText,
+              chunk: inc,
+              streamId,
+            });
             scrollToBottom();
             break;
           }
@@ -1613,6 +1630,10 @@
               placeholder.content.classList.remove('cursor-blink');
               asstEntry.text = finalText;
               renderMdInto(placeholder.content, finalText);
+              dispatchAssistantEvent('agixt-chat-assistant-final', {
+                text: finalText,
+                streamId,
+              });
             } else if (placeholder) {
               placeholder.content.classList.remove('cursor-blink');
             }

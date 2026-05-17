@@ -427,6 +427,7 @@
 
   const TAB_RENDERERS = {
     app: renderApp,
+    glasses: renderGlasses,
     account: renderAccount,
     settings: renderSettings,
     developer: renderDeveloper,
@@ -478,7 +479,7 @@
 
   async function renderApp(panel) {
     panel.innerHTML = '';
-    const settings = await loadDesktopSettings(true);
+    let settings = await loadDesktopSettings(true);
     const user = settings && settings.jwt ? await loadUser().catch(() => null) : null;
 
     // Identity card — who am I + log out.
@@ -675,6 +676,362 @@
     }
     renderSudoStatus();
     doDesktopUpdateCheck(updateStatus, installUpdateBtn);
+  }
+
+  async function renderGlasses(panel) {
+    panel.innerHTML = '';
+    let settings = await loadDesktopSettings(true);
+    let status = null;
+
+    const statusText = el('span', {
+      class: 'us-status-line',
+      dataset: { usTest: 'g1-status' },
+    }, 'Checking...');
+    const deviceList = el('div', {
+      class: 'us-row-list',
+      dataset: { usTest: 'g1-devices' },
+    });
+
+    function batteryText(info) {
+      if (!info) return 'Battery unknown';
+      const charging = info.is_charging ? ' charging' : '';
+      return `${info.percentage}%${charging}`;
+    }
+
+    function renderStatus(next) {
+      status = next || status;
+      deviceList.innerHTML = '';
+      if (!status) {
+        statusText.textContent = 'Status unavailable.';
+        statusText.className = 'us-status-line error';
+        return;
+      }
+      if (!status.supported) {
+        statusText.textContent = status.last_error || 'G1 is not supported on this platform.';
+        statusText.className = 'us-status-line error';
+      } else if (status.scanning) {
+        statusText.textContent = 'Scanning for glasses...';
+        statusText.className = 'us-status-line';
+      } else if (status.connected) {
+        statusText.textContent = status.last_event || 'Connected.';
+        statusText.className = 'us-status-line success';
+      } else {
+        statusText.textContent = status.last_error || status.last_event || 'Not connected.';
+        statusText.className = 'us-status-line';
+      }
+
+      [
+        { label: 'Left', device: status.left, battery: status.battery && status.battery.left },
+        { label: 'Right', device: status.right, battery: status.battery && status.battery.right },
+      ].forEach((entry) => {
+        const connected = entry.device && entry.device.connected;
+        deviceList.appendChild(el('div', { class: 'us-list-item' }, [
+          el('div', { class: 'us-list-item-grow' }, [
+            el('p', { class: 'us-list-item-title' },
+              `${entry.label}: ${entry.device ? entry.device.name : 'Not paired'}`),
+            el('p', { class: 'us-list-item-meta' },
+              entry.device ? `${entry.device.id} - ${batteryText(entry.battery)}` : 'No saved device connected'),
+          ]),
+          badge(connected ? 'Connected' : 'Offline', connected ? 'success' : ''),
+        ]));
+      });
+    }
+
+    async function refresh() {
+      try {
+        const next = window.AgixtG1 && typeof window.AgixtG1.refreshStatus === 'function'
+          ? await window.AgixtG1.refreshStatus()
+          : await invoke('g1_status');
+        renderStatus(next);
+        return next;
+      } catch (err) {
+        statusText.textContent = errMsg(err);
+        statusText.className = 'us-status-line error';
+        return null;
+      }
+    }
+
+    async function runStatusCommand(label, command) {
+      statusText.textContent = label + '...';
+      statusText.className = 'us-status-line';
+      try {
+        const next = await command();
+        renderStatus(next);
+        if (/connect/i.test(label)) settings = await loadDesktopSettings(true).catch(() => settings);
+        toast(label + ' complete', 'success');
+        return next;
+      } catch (err) {
+        statusText.textContent = errMsg(err);
+        statusText.className = 'us-status-line error';
+        toast(errMsg(err), 'error');
+        return null;
+      }
+    }
+
+    const connectBtn = btn('Connect', {
+      kind: 'primary',
+      onclick: () => runStatusCommand('Connect', () => (
+        window.AgixtG1 ? window.AgixtG1.scanAndConnect() : invoke('g1_scan_and_connect')
+      )),
+    });
+    connectBtn.dataset.usTest = 'g1-connect';
+    const reconnectBtn = btn('Reconnect saved', {
+      onclick: () => runStatusCommand('Reconnect saved', () => (
+        window.AgixtG1 ? window.AgixtG1.reconnectSaved() : invoke('g1_reconnect_saved')
+      )),
+    });
+    reconnectBtn.dataset.usTest = 'g1-reconnect';
+    const disconnectBtn = btn('Disconnect', {
+      onclick: () => runStatusCommand('Disconnect', () => (
+        window.AgixtG1 ? window.AgixtG1.disconnect() : invoke('g1_disconnect')
+      )),
+    });
+    disconnectBtn.dataset.usTest = 'g1-disconnect';
+    const syncBtn = btn('Sync now', {
+      onclick: () => runStatusCommand('Sync now', () => (
+        window.AgixtG1 ? window.AgixtG1.sync() : invoke('g1_sync')
+      )),
+    });
+    syncBtn.dataset.usTest = 'g1-sync';
+    const batteryBtn = btn('Battery', {
+      onclick: () => runStatusCommand('Battery', () => (
+        window.AgixtG1 ? window.AgixtG1.requestBattery() : invoke('g1_request_battery')
+      )),
+    });
+    batteryBtn.dataset.usTest = 'g1-battery';
+
+    panel.appendChild(section('Even Realities G1', null, [
+      statusText,
+      deviceList,
+      el('div', { class: 'us-section-row' }, [connectBtn, reconnectBtn, disconnectBtn, syncBtn, batteryBtn]),
+    ]));
+
+    const enabled = el('input', { type: 'checkbox', dataset: { usTest: 'g1-enabled' } });
+    enabled.checked = !!settings.g1_enabled;
+    const displayEnabled = el('input', { type: 'checkbox', dataset: { usTest: 'g1-display-enabled' } });
+    displayEnabled.checked = settings.g1_display_enabled !== false;
+    const showAi = el('input', { type: 'checkbox', dataset: { usTest: 'g1-show-ai' } });
+    showAi.checked = settings.g1_show_ai_responses !== false;
+    const forwardNotifications = el('input', { type: 'checkbox', dataset: { usTest: 'g1-forward-notifications' } });
+    forwardNotifications.checked = settings.g1_notification_forwarding !== false;
+    const autoConnect = el('input', { type: 'checkbox', dataset: { usTest: 'g1-auto-connect' } });
+    autoConnect.checked = settings.g1_auto_connect !== false;
+
+    panel.appendChild(section('Behavior', null, [
+      el('label', { class: 'us-check' }, [enabled, el('span', null, 'Enable G1 glasses integration')]),
+      el('label', { class: 'us-check' }, [displayEnabled, el('span', null, 'Show content on the glasses display')]),
+      el('label', { class: 'us-check' }, [showAi, el('span', null, 'Stream assistant responses to the glasses')]),
+      el('label', { class: 'us-check' }, [forwardNotifications, el('span', null, 'Forward AGiXT notifications')]),
+      el('label', { class: 'us-check' }, [autoConnect, el('span', null, 'Reconnect to saved glasses on launch')]),
+    ]));
+
+    function selectOption(value, label) {
+      return el('option', { value }, label);
+    }
+    const timeFormat = el('select', { class: 'us-select' }, [
+      selectOption('12h', '12-hour'),
+      selectOption('24h', '24-hour'),
+    ]);
+    timeFormat.value = settings.g1_time_format || '12h';
+    const tempUnit = el('select', { class: 'us-select' }, [
+      selectOption('fahrenheit', 'Fahrenheit'),
+      selectOption('celsius', 'Celsius'),
+    ]);
+    tempUnit.value = settings.g1_temperature_unit || 'fahrenheit';
+    const dashboardLayout = el('select', { class: 'us-select' }, [
+      selectOption('dual', 'Dual'),
+      selectOption('full', 'Full'),
+      selectOption('minimal', 'Minimal'),
+    ]);
+    dashboardLayout.value = settings.g1_dashboard_layout || 'dual';
+    const weatherLat = el('input', {
+      class: 'us-input',
+      type: 'number',
+      step: '0.000001',
+      placeholder: 'Latitude',
+      value: settings.g1_weather_latitude == null ? '' : String(settings.g1_weather_latitude),
+    });
+    const weatherLon = el('input', {
+      class: 'us-input',
+      type: 'number',
+      step: '0.000001',
+      placeholder: 'Longitude',
+      value: settings.g1_weather_longitude == null ? '' : String(settings.g1_weather_longitude),
+    });
+
+    panel.appendChild(section('Dashboard', null, [
+      el('div', { class: 'us-grid-2' }, [
+        field('Time Format', timeFormat),
+        field('Temperature', tempUnit),
+      ]),
+      field('Layout', dashboardLayout),
+      el('div', { class: 'us-grid-2' }, [
+        field('Weather Latitude', weatherLat, 'Leave blank to use the fallback dashboard weather.'),
+        field('Weather Longitude', weatherLon),
+      ]),
+    ]));
+
+    function rangeInput(value, min, max) {
+      return el('input', {
+        class: 'us-range',
+        type: 'range',
+        min: String(min),
+        max: String(max),
+        value: String(value),
+      });
+    }
+    function rangeField(labelText, input, suffix) {
+      const value = el('span', { class: 'us-status-line' }, `${input.value}${suffix || ''}`);
+      input.addEventListener('input', () => { value.textContent = `${input.value}${suffix || ''}`; });
+      return el('label', { class: 'us-label' }, [
+        el('span', { class: 'us-label-text' }, labelText),
+        el('div', { class: 'us-range-row' }, [input, value]),
+      ]);
+    }
+
+    const brightness = rangeInput(settings.g1_brightness == null ? 28 : settings.g1_brightness, 0, 42);
+    const autoBrightness = el('input', { type: 'checkbox' });
+    autoBrightness.checked = settings.g1_auto_brightness !== false;
+    const headupAngle = rangeInput(settings.g1_headup_angle == null ? 20 : settings.g1_headup_angle, 0, 60);
+    const wearDetection = el('input', { type: 'checkbox' });
+    wearDetection.checked = settings.g1_wear_detection !== false;
+    const displayHeight = rangeInput(settings.g1_display_height == null ? 0 : settings.g1_display_height, 0, 8);
+    const displayDepth = rangeInput(settings.g1_display_depth == null ? 5 : settings.g1_display_depth, 1, 9);
+
+    panel.appendChild(section('Display Fit', null, [
+      rangeField('Brightness', brightness),
+      el('label', { class: 'us-check' }, [autoBrightness, el('span', null, 'Auto brightness')]),
+      rangeField('Head-up Angle', headupAngle, ' deg'),
+      el('label', { class: 'us-check' }, [wearDetection, el('span', null, 'Wear detection')]),
+      el('div', { class: 'us-grid-2' }, [
+        rangeField('Display Height', displayHeight),
+        rangeField('Display Depth', displayDepth),
+      ]),
+    ]));
+
+    const testText = el('textarea', {
+      class: 'us-textarea',
+      rows: 4,
+      dataset: { usTest: 'g1-test-text' },
+    }, 'AGiXT is connected to your Even Realities G1 glasses.');
+    const sendTestBtn = btn('Send test text', {
+      onclick: () => runStatusCommand('Send test text', () => invoke('g1_send_text', {
+        text: testText.value,
+        streaming: false,
+        delayMs: 600,
+      })),
+    });
+    sendTestBtn.dataset.usTest = 'g1-send-test';
+    const clearBtn = btn('Clear display', {
+      onclick: () => runStatusCommand('Clear display', () => (
+        window.AgixtG1 ? window.AgixtG1.clearDisplay() : invoke('g1_clear_display')
+      )),
+    });
+    clearBtn.dataset.usTest = 'g1-clear';
+
+    function numberOrNull(input) {
+      const raw = String(input.value || '').trim();
+      if (!raw) return null;
+      const value = Number(raw);
+      return Number.isFinite(value) ? value : null;
+    }
+
+    function settingsPatch() {
+      return {
+        ...settings,
+        g1_enabled: enabled.checked,
+        g1_display_enabled: displayEnabled.checked,
+        g1_show_ai_responses: showAi.checked,
+        g1_notification_forwarding: forwardNotifications.checked,
+        g1_auto_connect: autoConnect.checked,
+        g1_time_format: timeFormat.value,
+        g1_temperature_unit: tempUnit.value,
+        g1_dashboard_layout: dashboardLayout.value,
+        g1_weather_latitude: numberOrNull(weatherLat),
+        g1_weather_longitude: numberOrNull(weatherLon),
+        g1_brightness: Number(brightness.value),
+        g1_auto_brightness: autoBrightness.checked,
+        g1_headup_angle: Number(headupAngle.value),
+        g1_wear_detection: wearDetection.checked,
+        g1_display_height: Number(displayHeight.value),
+        g1_display_depth: Number(displayDepth.value),
+      };
+    }
+
+    async function saveGlassesSettings({ syncNow }) {
+      try {
+        const next = await invoke('save_settings', { settings: settingsPatch() });
+        settings = next;
+        cache.desktopSettings = next;
+        if (window.AgixtG1 && typeof window.AgixtG1.syncSettings === 'function') {
+          window.AgixtG1.syncSettings(next);
+        }
+        window.dispatchEvent(new CustomEvent('agixt-g1-settings-saved', { detail: { settings: next } }));
+        toast('Glasses settings saved', 'success');
+        if (syncNow && status && status.connected) {
+          await runStatusCommand('Sync now', () => (
+            window.AgixtG1 ? window.AgixtG1.sync() : invoke('g1_sync')
+          ));
+        }
+      } catch (err) {
+        toast(errMsg(err), 'error');
+      }
+    }
+
+    const saveBtn = btn('Save', {
+      kind: 'primary',
+      onclick: () => saveGlassesSettings({ syncNow: false }),
+    });
+    saveBtn.dataset.usTest = 'g1-save';
+    const saveSyncBtn = btn('Save and sync', {
+      onclick: () => saveGlassesSettings({ syncNow: true }),
+    });
+    saveSyncBtn.dataset.usTest = 'g1-save-sync';
+    const applyDisplayBtn = btn('Apply display', {
+      onclick: async () => {
+        try {
+          const next = await invoke('save_settings', { settings: settingsPatch() });
+          settings = next;
+          cache.desktopSettings = next;
+          if (window.AgixtG1 && typeof window.AgixtG1.syncSettings === 'function') {
+            window.AgixtG1.syncSettings(next);
+          }
+          window.dispatchEvent(new CustomEvent('agixt-g1-settings-saved', { detail: { settings: next } }));
+          if (window.AgixtG1 && typeof window.AgixtG1.applyDisplaySettings === 'function') {
+            await window.AgixtG1.applyDisplaySettings(next);
+          } else {
+            await invoke('g1_set_brightness', { level: Number(brightness.value), auto: autoBrightness.checked });
+            await invoke('g1_set_headup_angle', { angle: Number(headupAngle.value) });
+            await invoke('g1_set_wear_detection', { enabled: wearDetection.checked });
+            await invoke('g1_set_display_position', {
+              input: { height: Number(displayHeight.value), depth: Number(displayDepth.value) },
+            });
+            await invoke('g1_set_silent_mode', { enabled: !displayEnabled.checked });
+          }
+          await refresh();
+          toast('Display settings applied', 'success');
+        } catch (err) {
+          toast(errMsg(err), 'error');
+        }
+      },
+    });
+    applyDisplayBtn.dataset.usTest = 'g1-apply-display';
+
+    panel.appendChild(section('Test and Save', null, [
+      testText,
+      el('div', { class: 'us-section-row between' }, [
+        el('div', { class: 'us-section-row' }, [sendTestBtn, clearBtn]),
+        el('div', { class: 'us-section-row' }, [applyDisplayBtn, saveSyncBtn, saveBtn]),
+      ]),
+    ]));
+
+    if (panel._g1StatusHandler) {
+      window.removeEventListener('agixt-g1-status', panel._g1StatusHandler);
+    }
+    panel._g1StatusHandler = (ev) => renderStatus(ev.detail);
+    window.addEventListener('agixt-g1-status', panel._g1StatusHandler);
+    renderStatus(window.AgixtG1 && window.AgixtG1.getStatus ? window.AgixtG1.getStatus() : null);
+    await refresh();
   }
 
   async function doDesktopUpdateCheck(statusEl, installBtn) {
