@@ -22,7 +22,7 @@
   // Bumped whenever the activity rendering pipeline changes, so the
   // backend log immediately tells us whether the running webview picked
   // up the latest code or is showing a cached/older bundle.
-  const CHAT_JS_VERSION = 'activity-elapsed-v26';
+  const CHAT_JS_VERSION = 'activity-elapsed-v27';
   if (window.AgixtFrontendLog) {
     window.AgixtFrontendLog('info', `chat.js loaded (${CHAT_JS_VERSION})`);
   }
@@ -146,6 +146,7 @@
   let lastActivityId = null;
   let lastThinkingActivityId = null;
   const activityIdAlias = new Map(); // alias id -> effective parent id
+  let activeStreamingActivity = null; // one live activity block across tool-result recursion
   // Each tool call produces a CLIENT_TOOL subactivity followed by a string
   // of REMOTE / untagged subactivities ("Requesting remote execution…",
   // "Remote execution completed", "Received tool result", "Uploaded …",
@@ -193,6 +194,7 @@
     lastActivityId = null;
     lastThinkingActivityId = null;
     currentToolGroup = null;
+    activeStreamingActivity = null;
     activityIdAlias.clear();
   }
 
@@ -207,6 +209,7 @@
     if (lastActivityId === id) lastActivityId = null;
     if (lastThinkingActivityId === id) lastThinkingActivityId = null;
     if (currentToolGroup && currentToolGroup.id === id) currentToolGroup = null;
+    if (activeStreamingActivity && activeStreamingActivity.id === id) activeStreamingActivity = null;
     activityIdAlias.delete(id);
   }
 
@@ -250,6 +253,22 @@
     }
   }
 
+  function replaceMatchingLocalSubactivity(body, tag) {
+    const incoming = comparableText(body);
+    if (!incoming) return;
+    const wantedTag = tag || '';
+    for (const id of order.slice()) {
+      if (!id.startsWith('local-sub-')) continue;
+      const m = messages.get(id);
+      if (!m || !['subactivity', 'tool-group'].includes(m.kind)) continue;
+      if ((m.tag || '') !== wantedTag) continue;
+      if (comparableText(m.text) === incoming) {
+        removeMessage(id);
+        return;
+      }
+    }
+  }
+
   function showChat() {
     const { empty } = els();
     if (empty) empty.style.display = 'none';
@@ -272,7 +291,7 @@
     return 'execution';
   }
 
-  const KNOWN_SUB_TAGS = new Set(['THOUGHT', 'INFO', 'ERROR', 'WARNING', 'CLIENT_TOOL', 'REMOTE', 'DIAGRAM', 'EXECUTION']);
+  const KNOWN_SUB_TAGS = new Set(['THOUGHT', 'REFLECTION', 'INFO', 'ERROR', 'WARNING', 'CLIENT_TOOL', 'REMOTE', 'DIAGRAM', 'EXECUTION']);
 
   // Returns { kind, label, body, tag, parentRef }
   function parseMessageEnvelope(raw) {
@@ -489,6 +508,7 @@
   // pulling in an SVG library.
   const SUB_TAG_META = {
     THOUGHT:     { icon: '◐', label: 'Thought' },
+    REFLECTION:  { icon: '◇', label: 'Reflection' },
     INFO:        { icon: 'ⓘ', label: 'Info' },
     ERROR:       { icon: '✖', label: 'Error' },
     WARNING:     { icon: '⚠', label: 'Warning' },
@@ -770,6 +790,9 @@
       // Every child event extends the parent's elapsed clock to the
       // latest server timestamp.
       touchActivityElapsed(parent, msg.timestamp);
+      if (!String(msg.id).startsWith('local-')) {
+        replaceMatchingLocalSubactivity(parsed.body, parsed.tag);
+      }
 
       // Tool-call grouping. AGiXT emits a CLIENT_TOOL marker, then a
       // string of REMOTE / untagged follow-ups (request queued, completed,
@@ -813,7 +836,7 @@
         if (!isInitial) dispatchClientToolFromText(parsed.body);
         messages.set(msg.id, {
           id: msg.id, role, text: parsed.body, ts: msg.timestamp,
-          kind: 'tool-group', el: det,
+          kind: 'tool-group', el: det, tag: parsed.tag,
         });
         order.push(msg.id);
         scrollToBottom();
@@ -827,7 +850,7 @@
         parent.el.setAttribute('aria-expanded', 'true');
         messages.set(msg.id, {
           id: msg.id, role, text: parsed.body, ts: msg.timestamp,
-          kind: 'subactivity', el: sub,
+          kind: 'subactivity', el: sub, tag: parsed.tag,
         });
         order.push(msg.id);
         scrollToBottom();
@@ -837,7 +860,7 @@
       const sub = renderSubactivity(parsed.body, parsed.tag);
       parent.body.appendChild(sub);
       parent.el.setAttribute('aria-expanded', 'true');
-      messages.set(msg.id, { id: msg.id, role, text: parsed.body, ts: msg.timestamp, kind: 'subactivity', el: sub });
+      messages.set(msg.id, { id: msg.id, role, text: parsed.body, ts: msg.timestamp, kind: 'subactivity', el: sub, tag: parsed.tag });
       order.push(msg.id);
     } else {
       // AGiXT writes assistant messages with the agent's name as the
@@ -952,6 +975,8 @@
       if (titleEl) titleEl.textContent = 'Activities';
       refreshActivityElapsed(a);
     });
+    activeStreamingActivity = null;
+    currentToolGroup = null;
   }
 
   function dispatchClientToolFromText(text) {
@@ -1290,6 +1315,95 @@
     return `stream-${Date.now()}-${suffix}`;
   }
 
+  function streamActivityTag(kind) {
+    switch (String(kind || '').toLowerCase()) {
+      case 'thinking':
+      case 'thinking_stream':
+        return 'THOUGHT';
+      case 'reflection':
+      case 'reflection_stream':
+        return 'REFLECTION';
+      case 'client_tool':
+        return 'CLIENT_TOOL';
+      case 'remote':
+        return 'REMOTE';
+      case 'activity_error':
+      case 'error':
+        return 'ERROR';
+      case 'execute':
+      case 'activity':
+        return 'EXECUTION';
+      default:
+        return 'THOUGHT';
+    }
+  }
+
+  function appendLiveSubactivity(parent, body, tag, streamId) {
+    if (!parent || !parent.body || !body) return null;
+    if (parent.el) {
+      parent.el.setAttribute('data-running', 'true');
+      refreshActivityElapsed(parent.el);
+      ensureElapsedTicker();
+    }
+    const msgId = `local-sub-${streamId}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const isToolStart = tag === 'CLIENT_TOOL';
+    const isThought = tag === 'THOUGHT' || tag === 'REFLECTION';
+    if (isToolStart || isThought) currentToolGroup = null;
+
+    if (isToolStart) {
+      const meta = extractClientToolMeta(body);
+      const det = document.createElement('details');
+      det.className = 'sub-tool-group';
+      const sum = document.createElement('summary');
+      sum.className = 'sub-tool-group-summary';
+      sum.appendChild(document.createTextNode('Called '));
+      const code = el('code', 'sub-tool-name');
+      code.textContent = meta ? meta.name : 'tool';
+      sum.appendChild(code);
+      det.appendChild(sum);
+      const groupBody = el('div', 'sub-tool-group-body');
+      det.appendChild(groupBody);
+      if (meta && (meta.data || meta.jsonText)) {
+        const pre = el('pre', 'sub-tool-pre');
+        pre.textContent = meta.data
+          ? JSON.stringify(meta.data, null, 2)
+          : (meta.jsonText || '');
+        groupBody.appendChild(pre);
+      }
+      parent.body.appendChild(det);
+      parent.el.setAttribute('aria-expanded', 'true');
+      currentToolGroup = { el: det, body: groupBody, parentId: parent.id, id: msgId };
+      messages.set(msgId, {
+        id: msgId, role: 'assistant', text: body, ts: new Date().toISOString(),
+        kind: 'tool-group', el: det, tag,
+      });
+      order.push(msgId);
+      return det;
+    }
+
+    if (currentToolGroup && currentToolGroup.parentId === parent.id && !isThought) {
+      const sub = renderSubactivity(body, tag);
+      currentToolGroup.body.appendChild(sub);
+      parent.el.setAttribute('aria-expanded', 'true');
+      messages.set(msgId, {
+        id: msgId, role: 'assistant', text: body, ts: new Date().toISOString(),
+        kind: 'subactivity', el: sub, tag,
+      });
+      order.push(msgId);
+      return sub;
+    }
+
+    const sub = renderSubactivity(body, tag);
+    parent.body.appendChild(sub);
+    parent.el.setAttribute('aria-expanded', 'true');
+    messages.set(msgId, {
+      id: msgId, role: 'assistant', text: body, ts: new Date().toISOString(),
+      kind: 'subactivity', el: sub, tag,
+    });
+    order.push(msgId);
+    return sub;
+  }
+
   async function send(userInput, conversationName, turnContext) {
     if (!userInput || !userInput.trim()) return;
     const inv = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
@@ -1313,6 +1427,8 @@
     // New turn — clear any sticky stopped flag from a prior run so this
     // user message is allowed to recurse normally.
     turnStopped = false;
+    activeStreamingActivity = null;
+    currentToolGroup = null;
     setGenerating(true);
     try {
       const message = { role: 'user', content: userInput };
@@ -1358,21 +1474,54 @@
     const streamId = newStreamId();
     const collectedTools = [];
     let assistantText = '';
-    // One rolling "Thinking" block per turn, shared across all
-    // activity.stream events. AGiXT emits these incrementally — first a
-    // short "Analyzing request…" status, then the full reasoning. Each
-    // event carries the latest accumulated content for that activity, so
-    // we replace the body rather than append. Without this consolidation
-    // each event would create a new activity block, producing the
-    // "broken up" rendering the user reported.
-    let streamingActivity = null;
-    // Accumulator for the rolling Thinking block. Each `activity.stream`
-    // event carries a *delta* chunk (typically a single token) — see
-    // AGiXT/agixt/Interactions.py:4480-4488 — so we have to concatenate
-    // them. Replacing the body each event was the bug behind the report
-    // "streaming one word at a time, displaying that word at a time, then
-    // the whole message appears together."
-    let streamingActivityText = '';
+    // One rolling activity block is shared across recursive tool rounds:
+    // user prompt -> client tool request -> role:tool result -> final answer.
+    // This mirrors AGiXT Python's single [ACTIVITY] Thinking parent.
+    function ensureStreamingActivity() {
+      if (
+        activeStreamingActivity
+        && activeStreamingActivity.el
+        && activeStreamingActivity.el.getAttribute('data-finalized') !== 'true'
+      ) {
+        return activeStreamingActivity;
+      }
+      const r = renderActivity('Thinking', 'thought');
+      const activityId = `local-activity-${streamId}`;
+      if (placeholder && placeholder.el && placeholder.el.parentNode) {
+        placeholder.el.parentNode.insertBefore(r.el, placeholder.el);
+      } else {
+        els().list.appendChild(r.el);
+      }
+      r.el.setAttribute('aria-expanded', 'true');
+      const entry = {
+        id: activityId,
+        role: 'assistant',
+        text: '',
+        ts: new Date().toISOString(),
+        kind: 'activity',
+        el: r.el,
+        body: r.body,
+        type: 'thought',
+        transient: true,
+        streamText: '',
+      };
+      messages.set(activityId, entry);
+      order.push(activityId);
+      lastActivityId = activityId;
+      lastThinkingActivityId = activityId;
+      activeStreamingActivity = {
+        id: activityId,
+        kind: 'activity',
+        el: r.el,
+        body: r.body,
+        subContent: null,
+        subTag: null,
+        streamText: '',
+      };
+      initActivityElapsed(r.el, entry.ts, false);
+      ensureElapsedTicker();
+      return activeStreamingActivity;
+    }
     let unlisten;
     let resolveFinished;
     const finished = new Promise((resolve) => { resolveFinished = resolve; });
@@ -1413,58 +1562,34 @@
           }
           case 'activity': {
             const chunk = (ev.data && ev.data.content) || '';
+            const tag = streamActivityTag(ev.data && ev.data.kind);
             const complete = !!(ev.data && ev.data.complete);
             if (!chunk && !complete) break;
-            if (!streamingActivity) {
-              const r = renderActivity('Thinking', 'thought');
-              const activityId = `local-activity-${streamId}`;
-              // If a text placeholder exists, slot the activity above
-              // it (thinking → answer). Otherwise just append; if a
-              // delta later creates a placeholder it'll land below.
-              if (placeholder && placeholder.el && placeholder.el.parentNode) {
-                placeholder.el.parentNode.insertBefore(r.el, placeholder.el);
-              } else {
-                els().list.appendChild(r.el);
-              }
-              r.el.setAttribute('aria-expanded', 'true');
-              streamingActivity = r;
-              streamingActivityText = '';
-              // Single THOUGHT subactivity that we keep appending into;
-              // re-using one node lets the browser do incremental layout
-              // instead of swapping the entire subtree for every token.
-              const sub = renderSubactivity('', 'THOUGHT');
-              r.body.appendChild(sub);
-              streamingActivity.subContent = sub.querySelector('.sub-content .md') || sub;
-              messages.set(activityId, {
-                id: activityId,
-                role: 'assistant',
-                text: '',
-                ts: new Date().toISOString(),
-                kind: 'activity',
-                el: r.el,
-                body: r.body,
-                type: 'thought',
-                transient: true,
-                streamText: '',
-              });
-              order.push(activityId);
-            }
+            const streamingActivity = ensureStreamingActivity();
             if (chunk) {
-              // AGiXT emits each activity.stream event as a *delta*
-              // (typically a single token, see Interactions.py:4480-4488),
-              // not the full cumulative text. Concatenate so we render
-              // the rolling reasoning instead of just the latest word.
-              streamingActivityText += chunk;
-              if (streamingActivity.subContent) {
-                renderMdInto(streamingActivity.subContent, streamingActivityText);
-              }
-              const activityEntry = messages.get(`local-activity-${streamId}`);
-              if (activityEntry) {
-                activityEntry.text = streamingActivityText;
-                activityEntry.streamText = streamingActivityText;
+              if (tag === 'THOUGHT' || tag === 'REFLECTION') {
+                if (!streamingActivity.subContent || streamingActivity.subTag !== tag) {
+                  currentToolGroup = null;
+                  const sub = renderSubactivity('', tag);
+                  streamingActivity.body.appendChild(sub);
+                  streamingActivity.subContent = sub.querySelector('.sub-content .md') || sub;
+                  streamingActivity.subTag = tag;
+                  streamingActivity.streamText = '';
+                }
+                // AGiXT emits each thinking/reflection activity.stream event
+                // as a delta, so concatenate into one rolling subactivity.
+                streamingActivity.streamText += chunk;
+                renderMdInto(streamingActivity.subContent, streamingActivity.streamText);
+                const activityEntry = messages.get(streamingActivity.id);
+                if (activityEntry) {
+                  activityEntry.text = streamingActivity.streamText;
+                  activityEntry.streamText = streamingActivity.streamText;
+                }
+              } else {
+                appendLiveSubactivity(streamingActivity, chunk, tag, streamId);
               }
             }
-            if (complete) {
+            if (complete && (tag === 'THOUGHT' || tag === 'REFLECTION')) {
               streamingActivity.el.setAttribute('data-running', 'false');
             }
             scrollToBottom();
