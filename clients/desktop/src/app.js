@@ -2086,6 +2086,11 @@
   function paneIdFor(viewId) { return PANE_ALIASES[viewId] || viewId; }
   function setActiveView(viewId) {
     if (!viewId) return;
+    // Picking any section leaves the chat's full-window focus mode and
+    // restores the side-by-side split with that page.
+    if (document.body.classList.contains('chat-expanded')) {
+      preserveChatScroll(() => document.body.classList.remove('chat-expanded'));
+    }
     activeView = viewId;
     document.querySelectorAll('.sidenav-btn[data-view]').forEach((btn) => {
       const on = btn.dataset.view === viewId;
@@ -2318,6 +2323,7 @@
 
   const handleEl = document.querySelector('.chat-resize-handle');
   const collapseBtnEl = handleEl && handleEl.querySelector('.chat-collapse-btn');
+  const expandBtnEl = handleEl && handleEl.querySelector('.chat-expand-btn');
   const collapsedStripEl = document.querySelector('.chat-collapsed-strip');
 
   if (handleEl) {
@@ -2326,7 +2332,7 @@
     let startWidth = 0;
     handleEl.addEventListener('pointerdown', (e) => {
       // Don't start a resize when the user clicks the collapse button.
-      if (e.target.closest('.chat-collapse-btn')) return;
+      if (e.target.closest('.chat-handle-actions')) return;
       const chatPane = document.querySelector('.chat-screen-main .view-pane[data-view="chat"]');
       if (!chatPane) return;
       dragging = true;
@@ -2351,7 +2357,7 @@
     handleEl.addEventListener('pointercancel', stop);
     // Double-click to reset to default.
     handleEl.addEventListener('dblclick', (e) => {
-      if (e.target.closest('.chat-collapse-btn')) return;
+      if (e.target.closest('.chat-handle-actions')) return;
       applyChatPaneWidth(DEFAULT_CHAT_WIDTH);
       try { window.localStorage.setItem(CHAT_WIDTH_KEY, String(DEFAULT_CHAT_WIDTH)); } catch (_) {}
     });
@@ -2367,8 +2373,19 @@
       document.body.classList.toggle('chat-collapsed', !!collapsed);
     });
   }
+  // Expanded = chat fills the whole content area, hiding the open
+  // content page. Transient (not persisted): it's a momentary focus
+  // mode the user leaves by picking any sidenav section again. Mutually
+  // exclusive with collapsed.
+  function setChatExpanded(expanded) {
+    preserveChatScroll(() => {
+      if (expanded) document.body.classList.remove('chat-collapsed');
+      document.body.classList.toggle('chat-expanded', !!expanded);
+    });
+  }
   function setChatCollapsed(collapsed) {
     preserveChatScroll(() => {
+      if (collapsed) document.body.classList.remove('chat-expanded');
       document.body.classList.toggle('chat-collapsed', !!collapsed);
     });
     // On a phone the collapse state tracks navigation, not a deliberate
@@ -2378,6 +2395,9 @@
   }
   if (collapseBtnEl) {
     collapseBtnEl.addEventListener('click', (e) => { e.stopPropagation(); setChatCollapsed(true); });
+  }
+  if (expandBtnEl) {
+    expandBtnEl.addEventListener('click', (e) => { e.stopPropagation(); setChatExpanded(true); });
   }
   if (collapsedStripEl) {
     collapsedStripEl.addEventListener('click', () => setChatCollapsed(false));
@@ -2789,29 +2809,18 @@
         detail: { token },
       }));
     });
-    // Whenever Rust hides the popover (tray X, window decorate's close
-    // button, Esc, etc.) it reverts chrome to popover-form before
-    // emitting this event. Reset the active sidenav view to chat and
-    // sync the window-mode flag so the next show is a clean popover.
+    // Legacy popover mode has been retired — the desktop window is now
+    // always a regular full-app window (see refreshWindowMode). The old
+    // handler tore down `window-mode` and shoved the topbar-stack (with
+    // its brand logo) back into the global topbar on every hide, which
+    // on boot produced a duplicate logo + topbar that only corrected
+    // once the next setActiveView re-asserted window mode. Hiding to the
+    // tray and reopening must keep the full-app chrome stable, so we
+    // just close any open menus and re-assert window mode (idempotent).
     event.listen('popover-visible', (ev) => {
       if (ev && ev.payload === false) {
-        activeView = 'chat';
-        document.querySelectorAll('.sidenav-btn[data-view]').forEach((btn) => {
-          const on = btn.dataset.view === 'chat';
-          btn.classList.toggle('is-active', on);
-          btn.setAttribute('aria-selected', on ? 'true' : 'false');
-        });
-        document.querySelectorAll('.chat-screen-main .view-pane[data-view]').forEach((pane) => {
-          pane.hidden = pane.dataset.view !== 'chat';
-        });
-        document.body.classList.remove('window-mode');
-        document.body.classList.remove('with-content-pane');
-        document.body.classList.remove('chat-collapsed');
-        _windowDecorated = false;
-        _preDecoratedGeom = null;
-        // Send the topbar-stack back to the global topbar so the next
-        // popover show has the chips up top.
-        relocateTopbarStack();
+        closeMenus();
+        refreshWindowMode();
       }
     });
   }

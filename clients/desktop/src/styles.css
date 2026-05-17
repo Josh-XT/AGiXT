@@ -1481,11 +1481,19 @@ body.window-mode.with-content-pane .chat-resize-handle {
 .chat-resize-handle.is-dragging {
   background: rgba(107, 123, 255, 0.35);
 }
-.chat-collapse-btn {
+/* Stacked handle controls — expand (fill window) above, collapse
+   (hide chat) below. Centered on the seam; revealed on hover/focus. */
+.chat-handle-actions {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chat-expand-btn,
+.chat-collapse-btn {
   width: 18px;
   height: 36px;
   padding: 0;
@@ -1500,13 +1508,32 @@ body.window-mode.with-content-pane .chat-resize-handle {
   opacity: 0;
   transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
+.chat-resize-handle:hover .chat-expand-btn,
 .chat-resize-handle:hover .chat-collapse-btn,
+.chat-expand-btn:focus-visible,
 .chat-collapse-btn:focus-visible {
   opacity: 1;
 }
+.chat-expand-btn:hover,
 .chat-collapse-btn:hover {
   color: var(--text);
   background: var(--panel);
+}
+
+/* Expanded — chat fills the whole content area, the content pane
+   (extension or workspace) is hidden. The sidenav icons remain the
+   way back to whatever page was open. Mutually exclusive with the
+   collapsed state. */
+body.window-mode.chat-expanded.with-content-pane .view-pane[data-view="chat"] {
+  flex: 1 1 auto;
+  border-right: 0;
+}
+body.window-mode.chat-expanded.with-content-pane .chat-screen-main > .view-pane:not([data-view="chat"]),
+body.window-mode.chat-expanded.with-content-pane .chat-screen-main > #workspace-screen {
+  display: none;
+}
+body.window-mode.chat-expanded .chat-resize-handle {
+  display: none;
 }
 
 /* Collapsed re-expand strip — replaces the chat pane when collapsed. */

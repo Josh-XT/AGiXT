@@ -470,13 +470,23 @@
           <div class="chat-resize-handle" hidden role="separator"
                aria-orientation="vertical" aria-label="Resize chat pane"
                tabindex="0">
-            <button type="button" class="chat-collapse-btn"
-                    title="Collapse chat" aria-label="Collapse chat">
-              <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-                <path fill="none" stroke="currentColor" stroke-width="2"
-                      stroke-linecap="round" stroke-linejoin="round" d="m15 18-6-6 6-6"/>
-              </svg>
-            </button>
+            <div class="chat-handle-actions">
+              <button type="button" class="chat-expand-btn"
+                      title="Expand chat to fill the window"
+                      aria-label="Expand chat to fill the window">
+                <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/>
+                </svg>
+              </button>
+              <button type="button" class="chat-collapse-btn"
+                      title="Collapse chat" aria-label="Collapse chat">
+                <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" d="m15 18-6-6 6-6"/>
+                </svg>
+              </button>
+            </div>
           </div>
 
           <!-- Team chat pane — vanilla-JS port of the web's Discord-style
