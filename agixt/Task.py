@@ -73,6 +73,8 @@ class Task:
         memory_collection: str = "0",
         task_type: str = "prompt",
         command_script: str = None,
+        command_name: str = None,
+        command_args: str = None,
         deployment_id: str = None,
         target_machines: str = None,
     ) -> str:
@@ -111,6 +113,8 @@ class Task:
             memory_collection=memory_collection,
             task_type=task_type,
             command_script=command_script,
+            command_name=command_name,
+            command_args=command_args,
             deployment_id=deployment_id,
             target_machines=target_machines,
         )
@@ -136,6 +140,8 @@ class Task:
         memory_collection: str = "0",
         task_type: str = "prompt",
         command_script: str = None,
+        command_name: str = None,
+        command_args: str = None,
         deployment_id: str = None,
         target_machines: str = None,
     ) -> str:
@@ -185,6 +191,8 @@ class Task:
                     memory_collection=memory_collection,
                     task_type=task_type,
                     command_script=command_script,
+                    command_name=command_name,
+                    command_args=command_args,
                     deployment_id=deployment_id,
                     target_machines=target_machines,
                 )
@@ -217,6 +225,8 @@ class Task:
                                 memory_collection=memory_collection,
                                 task_type=task_type,
                                 command_script=command_script,
+                                command_name=command_name,
+                                command_args=command_args,
                                 deployment_id=deployment_id,
                                 target_machines=target_machines,
                             )
@@ -240,6 +250,8 @@ class Task:
                         memory_collection=memory_collection,
                         task_type=task_type,
                         command_script=command_script,
+                        command_name=command_name,
+                        command_args=command_args,
                         deployment_id=deployment_id,
                         target_machines=target_machines,
                     )
@@ -262,6 +274,8 @@ class Task:
                     memory_collection=memory_collection,
                     task_type=task_type,
                     command_script=command_script,
+                    command_name=command_name,
+                    command_args=command_args,
                     deployment_id=deployment_id,
                     target_machines=target_machines,
                 )
@@ -291,6 +305,8 @@ class Task:
                     memory_collection=memory_collection,
                     task_type=task_type,
                     command_script=command_script,
+                    command_name=command_name,
+                    command_args=command_args,
                     deployment_id=deployment_id,
                     target_machines=target_machines,
                 )
@@ -311,6 +327,8 @@ class Task:
                     memory_collection=memory_collection,
                     task_type=task_type,
                     command_script=command_script,
+                    command_name=command_name,
+                    command_args=command_args,
                     deployment_id=deployment_id,
                     target_machines=target_machines,
                 )
@@ -374,6 +392,8 @@ class Task:
                 "category_name": task.category.name if task.category else "Follow-ups",
                 "task_type": task.task_type if task.task_type else "prompt",
                 "command_script": task.command_script,
+                "command_name": task.command_name,
+                "command_args": task.command_args,
                 "deployment_id": task.deployment_id,
                 "target_machines": task.target_machines,
             }
@@ -472,16 +492,81 @@ class Task:
                             )
                             succeeded = False
             elif task_type == "command":
-                # Command execution on target machines
-                # This will be handled by the XTSystems extension via API call
+                # Command execution. Preferred path: run an AGiXT agent command
+                # that the task's agent has enabled. Legacy fallback: shell
+                # command on target machines via the XTSystems extension.
                 try:
                     import json
                     import requests
 
-                    target_machines = (
-                        json.loads(task.target_machines) if task.target_machines else []
-                    )
-                    if target_machines and task.command_script:
+                    if task.command_name:
+                        # Execute an AGiXT agent command via the agent
+                        try:
+                            command_args = (
+                                json.loads(task.command_args)
+                                if task.command_args
+                                else {}
+                            )
+                        except Exception:
+                            command_args = {}
+                        if not task.agent_id:
+                            logging.warning(
+                                f"Command task {task.id} has no agent assigned"
+                            )
+                            succeeded = False
+                        else:
+                            try:
+                                response = await asyncio.wait_for(
+                                    asyncio.to_thread(
+                                        requests.post,
+                                        f"{getenv('AGIXT_SERVER')}/v1/agent/{task.agent_id}/command",
+                                        headers={
+                                            "Authorization": f"Bearer {self.auth.token}"
+                                        },
+                                        json={
+                                            "command_name": task.command_name,
+                                            "command_args": command_args,
+                                            "conversation_name": task.memory_collection,
+                                        },
+                                        timeout=300,
+                                    ),
+                                    timeout=320,
+                                )
+                                if response.status_code != 200:
+                                    logging.error(
+                                        f"Failed to execute command '{task.command_name}' "
+                                        f"for task {task.id}: {response.text}"
+                                    )
+                                    succeeded = False
+                                else:
+                                    logging.info(
+                                        f"Command task {task.id} executed agent command "
+                                        f"'{task.command_name}'"
+                                    )
+                            except asyncio.TimeoutError:
+                                logging.error(
+                                    f"Command task {task.id} timed out executing "
+                                    f"'{task.command_name}'"
+                                )
+                                succeeded = False
+                            except Exception as cmd_e:
+                                logging.error(
+                                    f"Error executing agent command for task {task.id}: {str(cmd_e)}"
+                                )
+                                succeeded = False
+                    else:
+                        # Legacy: shell command on target machines
+                        target_machines = (
+                            json.loads(task.target_machines)
+                            if task.target_machines
+                            else []
+                        )
+                        if not (target_machines and task.command_script):
+                            logging.warning(
+                                f"Command task {task.id} has no agent command, "
+                                f"and no target machines or command script"
+                            )
+                            succeeded = False
                         # Queue commands for each target machine via the XTSystems machines extension
                         for machine_id in target_machines:
                             try:
@@ -507,14 +592,11 @@ class Task:
                                     f"Error queuing command for machine {machine_id}: {str(cmd_e)}"
                                 )
                                 succeeded = False
-                        logging.info(
-                            f"Command task {task.id} queued for {len(target_machines)} machines"
-                        )
-                    else:
-                        logging.warning(
-                            f"Command task {task.id} has no target machines or command script"
-                        )
-                        succeeded = False
+                        if target_machines and task.command_script:
+                            logging.info(
+                                f"Command task {task.id} queued for "
+                                f"{len(target_machines)} machines"
+                            )
                 except Exception as cmd_e:
                     logging.error(
                         f"Error executing command task {task.id}: {str(cmd_e)}"
@@ -772,6 +854,12 @@ class Task:
                     else None
                 ),
                 "category_name": task.category.name if task.category else "Follow-ups",
+                "task_type": task.task_type if task.task_type else "prompt",
+                "command_script": task.command_script,
+                "command_name": task.command_name,
+                "command_args": task.command_args,
+                "deployment_id": task.deployment_id,
+                "target_machines": task.target_machines,
             }
             new_tasks.append(task_dict)
         session.close()

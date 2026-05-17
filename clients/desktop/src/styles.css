@@ -4983,23 +4983,24 @@ body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .chat-mo
    only fully visible on hover. */
 .tc-message {
   position: relative;
-  /* Reserve a sliver at the top so the absolutely-positioned hover
-     toolbar can sit inside the message bounds without overlapping the
-     header line. Without this, top:-10px puts the toolbar into the
-     previous message's footer / above the scroll container's edge
-     where containment clips it. */
-  padding-top: 4px;
+  /* `content-visibility: auto` (set below for scroll perf) silently
+     applies PAINT containment to every on-screen row, not just size
+     containment for off-screen ones. Paint containment clips anything
+     outside this border box, so the hover toolbar must live entirely
+     INSIDE the message — no negative `top` / upward transform, or its
+     top edge (the reaction buttons) gets sheared off. The toolbar is
+     right-aligned and opaque; it floats over the top-right corner on
+     hover (Slack/Discord-style) while the header text stays at left,
+     so a tight top padding is enough — no big reserved band. */
+  padding-top: 6px;
 }
 .tc-msg-toolbar {
   position: absolute;
-  /* Anchor INSIDE the message box — keeps the toolbar inside any
-     parent containment (the scroll container uses contain: strict).
-     Pulls slightly upward visually with a -4px translate so it still
-     reads as "floating above the message header" without escaping
-     the paint area. */
+  /* Sits fully within the reserved top sliver above — no upward
+     transform, so paint containment from content-visibility:auto
+     can't clip the reaction buttons at the top. */
   top: 2px;
   right: 8px;
-  transform: translateY(-50%);
   display: flex;
   align-items: center;
   gap: 1px;
@@ -5064,6 +5065,11 @@ body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .chat-mo
 }
 .tc-reaction-emoji { line-height: 1; }
 .tc-reaction-count { font-size: 11px; color: var(--text-dim); }
+
+/* Optimistically-rendered message awaiting its server echo — shown
+   immediately on send, dimmed slightly until the real record arrives
+   and replaces it. Keeps "press send" feeling instant. */
+.tc-message.tc-msg-pending { opacity: 0.55; }
 
 /* "(edited)" label */
 .tc-message-edited {

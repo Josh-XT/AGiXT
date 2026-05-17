@@ -2201,8 +2201,12 @@ class TaskItem(Base):
     priority = Column(Integer)
     # Task type: 'prompt' (default), 'command', or 'deployment'
     task_type = Column(String, default="prompt")
-    # For command tasks: the shell command/script to execute
+    # For command tasks: the shell command/script to execute (legacy machine command)
     command_script = Column(Text, nullable=True)
+    # For command tasks: the AGiXT agent command name to execute
+    command_name = Column(String, nullable=True)
+    # For command tasks: JSON object of arguments for the agent command
+    command_args = Column(Text, nullable=True)
     # For deployment tasks: reference to deployment ID
     deployment_id = Column(String, nullable=True)
     # Target machines for command/deployment tasks (JSON array of machine IDs)
@@ -5565,6 +5569,8 @@ def migrate_task_item_table():
             columns_to_add = [
                 ("task_type", "TEXT", "'prompt'"),  # Default to 'prompt'
                 ("command_script", "TEXT", None),
+                ("command_name", "TEXT", None),  # AGiXT agent command name
+                ("command_args", "TEXT", None),  # JSON object of command args
                 ("deployment_id", "TEXT", None),
                 ("target_machines", "TEXT", None),  # JSON array of machine IDs
             ]
@@ -9050,6 +9056,16 @@ def check_schema_migrations_needed():
                             return True
                 except Exception:
                     return True
+
+                # Sentinel for the agent-command scheduled task migration
+                try:
+                    result = session.execute(text("PRAGMA table_info(task_item)"))
+                    task_columns = {row[1] for row in result.fetchall()}
+                    for column_name in ("command_name", "command_args"):
+                        if column_name not in task_columns:
+                            return True
+                except Exception:
+                    return True
             else:
                 # PostgreSQL - check for latest migration indicators
                 result = session.execute(
@@ -9168,6 +9184,21 @@ def check_schema_migrations_needed():
                             """
                             SELECT 1 FROM information_schema.columns
                             WHERE table_name = 'payment_transaction'
+                            AND column_name = :column_name
+                            """
+                        ),
+                        {"column_name": column_name},
+                    )
+                    if not result.fetchone():
+                        return True
+
+                # Sentinel for the agent-command scheduled task migration
+                for column_name in ("command_name", "command_args"):
+                    result = session.execute(
+                        text(
+                            """
+                            SELECT 1 FROM information_schema.columns
+                            WHERE table_name = 'task_item'
                             AND column_name = :column_name
                             """
                         ),

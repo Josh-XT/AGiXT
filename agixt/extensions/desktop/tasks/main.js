@@ -149,6 +149,8 @@ TasksView.prototype.openCreate = async function () {
         priority: Number(values.priority) || 1,
         task_type: values.task_type,
         command_script: values.command_script || null,
+        command_name: values.command_name || null,
+        command_args: values.command_args || null,
         deployment_id: values.deployment_id || null,
         target_machines: values.target_machines || null,
       }});
@@ -161,6 +163,8 @@ TasksView.prototype.openCreate = async function () {
         timezone: tz || null,
         task_type: values.task_type,
         command_script: values.command_script || null,
+        command_name: values.command_name || null,
+        command_args: values.command_args || null,
         deployment_id: values.deployment_id || null,
         target_machines: values.target_machines || null,
       };
@@ -197,6 +201,61 @@ TasksView.prototype.fetchDeployments = async function () {
     const data = await this.fetchJson('/v1/deployments');
     return Array.isArray(data) ? data : (data && data.deployments) || [];
   } catch (_) { return []; }
+};
+
+/* Args injected/handled by the system or used structurally — not user-configurable. */
+const IGNORE_CMD_ARGS_TK = [
+  'agent_name', 'COMMANDS', 'command_list', 'date', 'working_directory',
+  'helper_agent_name', 'conversation_history', 'persona', 'import_files', 'output_url',
+  'prompt_name', 'prompt_category', 'command_name', 'chain', 'chain_name',
+  'context', 'user_input',
+];
+
+/* Load the commands an agent has, grouped by extension. Cached per agent name. */
+TasksView.prototype.loadAgentCommands = async function (agentName) {
+  this._cmdCacheByAgent = this._cmdCacheByAgent || {};
+  if (this._cmdCacheByAgent[agentName]) return this._cmdCacheByAgent[agentName];
+  const agent = (this.agents || []).find((a) => a.name === agentName);
+  const groups = {};
+  if (agent && agent.id) {
+    try {
+      const data = await this.fetchJson('/v1/agent/' + encodeURIComponent(agent.id) + '/extensions');
+      const exts = (data && data.extensions) || [];
+      for (const ext of exts) {
+        const extName = ext.extension_name || 'Other';
+        for (const c of (ext.commands || [])) {
+          const nm = c.friendly_name || c.command_name || '';
+          if (!nm) continue;
+          if (!groups[extName]) groups[extName] = [];
+          groups[extName].push(nm);
+        }
+      }
+    } catch (_) {}
+  }
+  const sorted = {};
+  Object.keys(groups).filter((k) => groups[k].length).sort().forEach((k) => {
+    sorted[k] = groups[k].sort();
+  });
+  this._cmdCacheByAgent[agentName] = sorted;
+  return sorted;
+};
+
+/* Resolve the configurable argument names + defaults for a command. Cached. */
+TasksView.prototype.loadCommandArgs = async function (commandName) {
+  this._argCacheByCmd = this._argCacheByCmd || {};
+  if (this._argCacheByCmd[commandName]) return this._argCacheByCmd[commandName];
+  let raw = {};
+  try {
+    const data = await this.fetchJson('/v1/extensions/' + encodeURIComponent(commandName) + '/args');
+    raw = (data && data.command_args) || {};
+  } catch (_) { raw = {}; }
+  let names = [];
+  if (Array.isArray(raw)) names = raw;
+  else if (raw && typeof raw === 'object') names = Object.keys(raw);
+  const filtered = names.filter((n) => n && IGNORE_CMD_ARGS_TK.indexOf(n) < 0);
+  const result = { names: filtered, defaults: (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {} };
+  this._argCacheByCmd[commandName] = result;
+  return result;
 };
 
 TasksView.prototype.modifyTask = async function (t) {
@@ -260,6 +319,8 @@ TasksView.prototype.showTaskDialog = function (opts) {
       title: '',
       task_description: '',
       command_script: '',
+      command_name: '',
+      command_args: {},
       deployment_id: (opts.deployments && opts.deployments[0]) ? opts.deployments[0].id : '',
       target_machines: [],
       task_type: 'prompt',
@@ -350,7 +411,13 @@ TasksView.prototype.showTaskDialog = function (opts) {
         const o = document.createElement('option'); o.value = a.name; o.textContent = a.name; sel.appendChild(o);
       }
       sel.value = state.agent_name;
-      sel.addEventListener('change', () => { state.agent_name = sel.value; });
+      sel.addEventListener('change', () => {
+        if (state.task_type === 'command') {
+          setState({ agent_name: sel.value, command_name: '', command_args: {} });
+        } else {
+          state.agent_name = sel.value;
+        }
+      });
       fAgent.appendChild(sel); attachField(fAgent);
 
       // Title
@@ -387,13 +454,33 @@ TasksView.prototype.showTaskDialog = function (opts) {
         ta.addEventListener('input', () => { state.task_description = ta.value; });
         fPrompt.appendChild(ta); attachField(fPrompt);
       } else if (state.task_type === 'command') {
-        const fScript = field('Command script', true);
-        const ta = document.createElement('textarea'); ta.rows = 4; ta.className = 'tk-mono';
-        ta.placeholder = 'Shell command or script to execute on the target machines';
-        ta.value = state.command_script;
-        ta.addEventListener('input', () => { state.command_script = ta.value; });
-        fScript.appendChild(ta); attachField(fScript);
-        renderMachinePicker();
+        const fCmd = field('Command', true, 'Select a command the agent has enabled. The agent runs it on schedule.');
+        const groups = view._cmdCacheByAgent && view._cmdCacheByAgent[state.agent_name];
+        if (!groups) {
+          const loading = document.createElement('div'); loading.className = 'tk-empty-pick';
+          loading.textContent = 'Loading commands…';
+          fCmd.appendChild(loading); attachField(fCmd);
+          view.loadAgentCommands(state.agent_name).then(() => { if (!resolved) setState({}); });
+        } else if (!Object.keys(groups).length) {
+          const empty = document.createElement('div'); empty.className = 'tk-empty-pick';
+          empty.textContent = 'No commands enabled for this agent. Enable commands in agent settings first.';
+          fCmd.appendChild(empty); attachField(fCmd);
+        } else {
+          const csel = document.createElement('select');
+          const ph = document.createElement('option'); ph.value = ''; ph.textContent = 'Select a command…';
+          csel.appendChild(ph);
+          Object.keys(groups).forEach((gName) => {
+            const og = document.createElement('optgroup'); og.label = gName;
+            groups[gName].forEach((cmd) => {
+              const o = document.createElement('option'); o.value = cmd; o.textContent = cmd; og.appendChild(o);
+            });
+            csel.appendChild(og);
+          });
+          csel.value = state.command_name || '';
+          csel.addEventListener('change', () => { setState({ command_name: csel.value, command_args: {} }); });
+          fCmd.appendChild(csel); attachField(fCmd);
+          if (state.command_name) renderCommandArgs();
+        }
       } else if (state.task_type === 'deployment') {
         const fDep = field('Deployment', true);
         if (!opts.deployments || !opts.deployments.length) {
@@ -475,6 +562,57 @@ TasksView.prototype.showTaskDialog = function (opts) {
       const np = document.createElement('input'); np.type = 'number'; np.min = '1'; np.max = '5'; np.value = String(state.priority || 1);
       np.addEventListener('input', () => { state.priority = Number(np.value) || 1; });
       fPri.appendChild(np); attachField(fPri);
+    }
+
+    function renderCommandArgs() {
+      const cached = view._argCacheByCmd && view._argCacheByCmd[state.command_name];
+      if (!cached) {
+        const fLoad = field('Command arguments');
+        const loading = document.createElement('div'); loading.className = 'tk-empty-pick';
+        loading.textContent = 'Loading arguments…';
+        fLoad.appendChild(loading); attachField(fLoad);
+        view.loadCommandArgs(state.command_name).then((res) => {
+          if (resolved) return;
+          const seeded = {};
+          (res.names || []).forEach((n) => {
+            seeded[n] = Object.prototype.hasOwnProperty.call(state.command_args, n)
+              ? state.command_args[n]
+              : (res.defaults && res.defaults[n] != null ? res.defaults[n] : '');
+          });
+          state.command_args = seeded;
+          setState({});
+        });
+        return;
+      }
+      if (!cached.names.length) {
+        const fNone = field('Command arguments', false, 'No configurable arguments.');
+        attachField(fNone);
+        return;
+      }
+      for (const name of cached.names) {
+        const label = name.replace(/_/g, ' ').replace(/(?:^|\s)\S/g, (c) => c.toUpperCase());
+        const cur = Object.prototype.hasOwnProperty.call(state.command_args, name) ? state.command_args[name] : '';
+        const isBool = typeof cur === 'boolean' || ['true', 'false'].indexOf(String(cur).toLowerCase()) >= 0;
+        if (isBool) {
+          const fb = document.createElement('div'); fb.className = 'tk-field tk-checkbox-row';
+          const cb = document.createElement('input'); cb.type = 'checkbox';
+          cb.id = 'tk-arg-' + name;
+          cb.checked = cur === true || String(cur).toLowerCase() === 'true';
+          cb.addEventListener('change', () => { state.command_args[name] = cb.checked; });
+          fb.appendChild(cb);
+          const lb = document.createElement('label'); lb.htmlFor = 'tk-arg-' + name; lb.textContent = label;
+          fb.appendChild(lb);
+          attachField(fb);
+        } else {
+          const fa = field(label);
+          const isNum = typeof cur === 'number';
+          const inp = document.createElement('input'); inp.type = isNum ? 'number' : 'text';
+          inp.value = cur == null ? '' : String(cur);
+          inp.placeholder = 'Enter ' + label;
+          inp.addEventListener('input', () => { state.command_args[name] = inp.value; });
+          fa.appendChild(inp); attachField(fa);
+        }
+      }
     }
 
     function renderMachinePicker() {
@@ -572,8 +710,7 @@ TasksView.prototype.showTaskDialog = function (opts) {
         if (!state.task_description.trim()) { showError('Prompt is required.'); return; }
       }
       if (state.task_type === 'command') {
-        if (!state.command_script.trim()) { showError('Command script is required.'); return; }
-        if (!state.target_machines.length) { showError('Pick at least one target machine.'); return; }
+        if (!state.command_name) { showError('Pick a command for the agent to run.'); return; }
       }
       if (state.task_type === 'deployment') {
         if (!state.deployment_id) { showError('Pick a deployment.'); return; }
@@ -603,12 +740,11 @@ TasksView.prototype.showTaskDialog = function (opts) {
         out.task_description = state.task_description;
       }
       if (state.task_type === 'command') {
-        out.command_script = state.command_script;
+        out.command_name = state.command_name;
+        out.command_args = JSON.stringify(state.command_args || {});
       }
       if (state.task_type === 'deployment') {
         out.deployment_id = state.deployment_id;
-      }
-      if (state.task_type !== 'prompt') {
         out.target_machines = JSON.stringify(state.target_machines);
       }
       if (startIso) out.start_date = startIso;

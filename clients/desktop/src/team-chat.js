@@ -66,6 +66,9 @@
   let currentUser = null;
   let messageCache = new Map();        // channelId -> [message, ...]
   let renderedMessageIds = new Set();
+  // Optimistically-rendered sends awaiting their WebSocket echo.
+  // [{ tempId, channelId, normBody, hasAttach, ts, timer }]
+  let pendingOptimistic = [];
   let activeWs = null;
   let activeWsChannelId = null;
   let wsReconnectTimer = null;
@@ -1374,6 +1377,188 @@
     } else {
       list.appendChild(node);
     }
+  }
+
+  // ---- Incremental DOM updates -----------------------------------------
+  // These exist so WebSocket events (edits, reactions, deletes, reconnect
+  // `initial_data`) don't nuke + rebuild the whole message list via
+  // renderMessages(). A full rebuild blanks the scroller, re-runs the
+  // 1.5s pinScrollToBottom snap loop, and visibly "reloads the page".
+  // Touching only the affected node keeps scroll position rock-steady.
+
+  function findMessageNode(id) {
+    if (!id) return null;
+    const list = el('tc-messages');
+    if (!list) return null;
+    const safe = (typeof CSS !== 'undefined' && CSS.escape)
+      ? CSS.escape(id) : String(id).replace(/["\\]/g, '\\$&');
+    return list.querySelector('[data-message-id="' + safe + '"]');
+  }
+
+  // Swap a single message's node in place. Preserves scroll: if the user
+  // was pinned to the bottom we re-pin after the height change, otherwise
+  // we leave their position untouched. Returns false when the node isn't
+  // currently mounted (caller can fall back to reconcile/append).
+  function replaceMessageNode(msg) {
+    if (!msg || !msg.id) return false;
+    const old = findMessageNode(msg.id);
+    if (!old) return false;
+    const scroller = el('tc-messages-scroll');
+    const wasAtBottom = scroller
+      && (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight) < 60;
+    const trimmed = String(msg.message || '').trim();
+    if (trimmed.startsWith('[ACTIVITY]') || trimmed.startsWith('[SUBACTIVITY]')) {
+      // Became an activity record — drop it rather than render it.
+      old.remove();
+      renderedMessageIds.delete(msg.id);
+      return true;
+    }
+    old.replaceWith(buildMessageNode(msg));
+    renderedMessageIds.add(msg.id);
+    if (wasAtBottom && scroller) scroller.scrollTop = scroller.scrollHeight;
+    return true;
+  }
+
+  // Remove specific messages without rebuilding the rest.
+  function removeMessageNodes(ids) {
+    const list = el('tc-messages');
+    if (!list) return;
+    for (const id of ids) {
+      const n = findMessageNode(id);
+      if (n) n.remove();
+      renderedMessageIds.delete(id);
+    }
+    const empty = el('tc-messages-empty');
+    if (empty && !list.children.length) {
+      empty.hidden = false;
+      empty.textContent = 'No messages yet — say hi.';
+    }
+  }
+
+  // Reconcile the live DOM with the (already-merged) message cache while
+  // touching as little as possible. The common cases — a reconnect that
+  // re-sends the same backlog, or a backlog that simply grew — resolve to
+  // "do nothing" or "append the new tail". Only genuine divergence
+  // (an edit/reorder/deletion mid-list) falls back to a full rebuild,
+  // and those paths now have their own incremental handlers anyway.
+  function reconcileMessages() {
+    const list = el('tc-messages');
+    if (!list || !list.children.length || !renderedMessageIds.size) {
+      renderMessages();
+      return;
+    }
+    const msgs = activeChannelId ? (messageCache.get(activeChannelId) || []) : [];
+    const domIds = Array.from(list.children)
+      .map((c) => c.dataset && c.dataset.messageId)
+      .filter(Boolean);
+    let i = 0;
+    for (const m of msgs) {
+      if (!m || !m.id) continue;
+      const t = String(m.message || '').trim();
+      if (t.startsWith('[ACTIVITY]') || t.startsWith('[SUBACTIVITY]')) continue;
+      if (i < domIds.length) {
+        if (domIds[i] !== m.id) { renderMessages(); return; } // mid-list change
+        i++;
+      } else {
+        appendMessage(m, true); // brand-new tail message
+      }
+    }
+    if (i < domIds.length) { renderMessages(); return; } // trailing deletions
+  }
+
+  // ---- Optimistic send -------------------------------------------------
+  // Show the user's message instantly instead of waiting for the
+  // server→WebSocket round-trip (that gap is the "nothing happens, then
+  // it pops in" jump on send). A lightweight temp node is rendered
+  // immediately and swapped out when the real echo arrives.
+
+  function normForMatch(s) { return String(s || '').trim(); }
+
+  // Remove an optimistic placeholder (DOM + cache + bookkeeping).
+  function dropOptimistic(tempId) {
+    const idx = pendingOptimistic.findIndex((p) => p.tempId === tempId);
+    if (idx < 0) return;
+    const entry = pendingOptimistic[idx];
+    pendingOptimistic.splice(idx, 1);
+    if (entry.timer) clearTimeout(entry.timer);
+    const node = findMessageNode(tempId);
+    if (node) node.remove();
+    renderedMessageIds.delete(tempId);
+    const arr = messageCache.get(entry.channelId);
+    if (arr) {
+      const k = arr.findIndex((m) => m && m.id === tempId);
+      if (k >= 0) arr.splice(k, 1);
+    }
+  }
+
+  // When a real message_added arrives, swap the matching placeholder
+  // (same channel, our own user, body matches — or it carried an
+  // attachment the server rewrites, so body can't be compared) for the
+  // server's record IN PLACE. This preserves message order and keeps
+  // scroll dead-still (no remove-then-append shuffle). Returns true if a
+  // placeholder was consumed, in which case the caller must not append.
+  function consumeOptimistic(realMsg, channelId) {
+    if (!realMsg || !realMsg.id || !pendingOptimistic.length) return false;
+    const senderId = getMessageSenderId(realMsg);
+    if (senderId && currentUserId() && senderId !== currentUserId()) return false;
+    const body = normForMatch(realMsg.message);
+    const now = Date.now();
+    const pi = pendingOptimistic.findIndex((p) =>
+      p.channelId === channelId
+      && (now - p.ts) < 90000
+      && (p.hasAttach || p.normBody === body));
+    if (pi < 0) return false;
+    const entry = pendingOptimistic[pi];
+    pendingOptimistic.splice(pi, 1);
+    if (entry.timer) clearTimeout(entry.timer);
+    // Replace the temp record in the cache array at the same index.
+    const arr = messageCache.get(channelId) || [];
+    const ci = arr.findIndex((m) => m && m.id === entry.tempId);
+    if (ci >= 0) arr[ci] = realMsg; else arr.push(realMsg);
+    messageCache.set(channelId, arr);
+    // Swap the DOM node in place; fall back to a plain append if the
+    // placeholder node is somehow gone.
+    const tempNode = findMessageNode(entry.tempId);
+    renderedMessageIds.delete(entry.tempId);
+    if (tempNode) {
+      const scroller = el('tc-messages-scroll');
+      const wasAtBottom = scroller
+        && (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight) < 60;
+      tempNode.replaceWith(buildMessageNode(realMsg));
+      renderedMessageIds.add(realMsg.id);
+      if (wasAtBottom && scroller) scroller.scrollTop = scroller.scrollHeight;
+    } else {
+      appendMessage(realMsg, true);
+    }
+    return true;
+  }
+
+  function addOptimisticMessage(channelId, wireBody, hasAttach) {
+    const tempId = 'optimistic-' + Date.now() + '-'
+      + Math.random().toString(36).slice(2, 8);
+    const msg = {
+      id: tempId,
+      role: 'user',
+      message: wireBody,
+      timestamp: new Date().toISOString(),
+      sender_user_id: currentUserId() || undefined,
+      _optimistic: true,
+    };
+    const arr = messageCache.get(channelId) || [];
+    arr.push(msg);
+    messageCache.set(channelId, arr);
+    appendMessage(msg, true);
+    const node = findMessageNode(tempId);
+    if (node) node.classList.add('tc-msg-pending');
+    const entry = {
+      tempId, channelId,
+      normBody: normForMatch(wireBody),
+      hasAttach: !!hasAttach,
+      ts: Date.now(),
+      timer: setTimeout(() => dropOptimistic(tempId), 15000),
+    };
+    pendingOptimistic.push(entry);
+    return tempId;
   }
 
   // The "real" message renderer — handles reply cards, mention/emoji
@@ -3939,7 +4124,10 @@
             if (Array.isArray(data)) {
               const merged = mergeMessageList(messageCache.get(channelId) || [], data);
               messageCache.set(channelId, merged);
-              if (activeChannelId === channelId) renderMessages();
+              // Reconnect re-sends the whole backlog — reconcile instead
+              // of blowing the list away so an idle channel doesn't
+              // visibly "reload" every time the socket flaps.
+              if (activeChannelId === channelId) reconcileMessages();
             }
             break;
           case 'initial_message':
@@ -3951,8 +4139,11 @@
               if (idx >= 0) {
                 arr[idx] = merged;
                 messageCache.set(channelId, arr);
-                renderMessages();
-              } else {
+                // Already known (e.g. our own echo / a re-send): update
+                // just that node in place rather than rebuilding.
+                if (!replaceMessageNode(merged)) reconcileMessages();
+              } else if (!consumeOptimistic(merged, channelId)) {
+                // Not one of our optimistic placeholders — normal append.
                 arr.push(merged);
                 messageCache.set(channelId, arr);
                 appendMessage(merged, true);
@@ -3964,9 +4155,12 @@
               const arr = messageCache.get(channelId) || [];
               const idx = arr.findIndex((m) => m.id === data.id);
               if (idx >= 0) {
-                arr[idx] = mergeMessageRecord(arr[idx], data);
+                const merged = mergeMessageRecord(arr[idx], data);
+                arr[idx] = merged;
                 messageCache.set(channelId, arr);
-                renderMessages();
+                // Edits / reaction changes touch one message — swap that
+                // single node, keep everything else (and scroll) put.
+                if (!replaceMessageNode(merged)) reconcileMessages();
               }
             }
             break;
@@ -3981,10 +4175,11 @@
                   channelId,
                   arr.filter((m) => !deletedIds.includes(m.id)),
                 );
+                removeMessageNodes(deletedIds);
               } else {
                 messageCache.set(channelId, []);
+                renderMessages();
               }
-              renderMessages();
             }
             break;
         }
@@ -3997,15 +4192,35 @@
     }).catch(() => {});
   }
 
+  // A compact fingerprint of the participant set so the poll can tell
+  // whether anything actually changed. Message nodes resolve sender
+  // names/avatars from this list, so we only need to re-render messages
+  // when membership genuinely shifts — NOT every 30s on a timer (that
+  // unconditional rebuild was the periodic "whole list reloads" jump).
+  function participantsSignature(cid) {
+    const list = participantsByChannel.get(cid) || [];
+    return list
+      .map((p) => (p && (p.user_id || p.id || p.email || '')) + ':'
+        + ((p && (p.first_name || p.display_name || '')) || '')
+        + ':' + ((p && p.avatar_url) || ''))
+      .sort()
+      .join('|');
+  }
+
   function startParticipantsPoll() {
     if (participantsPollTimer) clearInterval(participantsPollTimer);
     participantsPollTimer = setInterval(() => {
       const cid = activeChannelId;
       if (!cid) return;
+      const before = participantsSignature(cid);
       loadParticipants(cid).then(() => {
         if (cid !== activeChannelId) return;
         renderMembers();
-        renderMessages();
+        // Only rebuild the message list if sender metadata actually
+        // changed (a join/leave or a late-resolving profile name) — that
+        // genuinely needs existing nodes re-rendered. On the common case
+        // of "nothing changed" we leave the DOM and scroll fully alone.
+        if (participantsSignature(cid) !== before) renderMessages();
       });
     }, 30000);
   }
@@ -4046,6 +4261,8 @@
       toSend = header + '\n' + quote + '\n\n' + text;
     }
 
+    const sendChannelId = activeChannelId;
+    const hadAttachments = pendingAttachments.length > 0;
     input.value = '';
     drafts.delete(activeChannelId); // sent ⇒ clear draft
     input.style.height = 'auto';
@@ -4054,6 +4271,9 @@
     pendingAttachments = [];
     renderAttachments();
     clearReplyTarget();
+    // Paint the message immediately; the WebSocket echo will swap this
+    // placeholder for the server's record (see consumeOptimistic).
+    const optimisticId = addOptimisticMessage(sendChannelId, toSend, hadAttachments);
     try {
       const channels = activeCompanyId
         ? (channelsByCompany.get(activeCompanyId) || [])
@@ -4067,6 +4287,9 @@
       }
       if (status) status.textContent = '';
     } catch (e) {
+      // Send failed — pull the placeholder back out so we don't leave a
+      // ghost message the server never accepted.
+      dropOptimistic(optimisticId);
       if (status) {
         status.textContent = (e && e.message) || 'Failed to send';
         status.classList.add('is-error');
@@ -5181,6 +5404,12 @@
   function unmount() {
     closeWs();
     if (participantsPollTimer) clearInterval(participantsPollTimer);
+    // Clear any in-flight optimistic-send safety timers so the pane
+    // doesn't keep the event loop (or a stale timer) alive after teardown.
+    for (const p of pendingOptimistic) {
+      if (p.timer) clearTimeout(p.timer);
+    }
+    pendingOptimistic = [];
   }
 
   window.AgixtTeamChat = {

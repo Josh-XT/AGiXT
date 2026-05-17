@@ -32,8 +32,12 @@ class TaskModel(BaseModel):
     conversation_id: str = None
     # Task type: 'prompt' (default), 'command', or 'deployment'
     task_type: Optional[str] = "prompt"
-    # For command tasks: the shell command/script to execute
+    # For command tasks: the shell command/script to execute (legacy machine command)
     command_script: Optional[str] = None
+    # For command tasks: the AGiXT agent command name to execute
+    command_name: Optional[str] = None
+    # For command tasks: JSON object of arguments for the agent command
+    command_args: Optional[str] = None
     # For deployment tasks: reference to deployment ID
     deployment_id: Optional[str] = None
     # Target machines for command/deployment tasks (JSON array of machine IDs)
@@ -54,8 +58,12 @@ class ReoccurringTaskModel(BaseModel):
     conversation_id: Optional[str] = None
     # Task type: 'prompt' (default), 'command', or 'deployment'
     task_type: Optional[str] = "prompt"
-    # For command tasks: the shell command/script to execute
+    # For command tasks: the shell command/script to execute (legacy machine command)
     command_script: Optional[str] = None
+    # For command tasks: the AGiXT agent command name to execute
+    command_name: Optional[str] = None
+    # For command tasks: JSON object of arguments for the agent command
+    command_args: Optional[str] = None
     # For deployment tasks: reference to deployment ID
     deployment_id: Optional[str] = None
     # Target machines for command/deployment tasks (JSON array of machine IDs)
@@ -229,6 +237,8 @@ async def new_task(
         memory_collection=task.conversation_id,  # This ensures context preservation
         task_type=task.task_type if task.task_type else "prompt",
         command_script=task.command_script,
+        command_name=task.command_name,
+        command_args=task.command_args,
         deployment_id=task.deployment_id,
         target_machines=task.target_machines,
     )
@@ -283,6 +293,8 @@ async def new_reoccurring_task(
         memory_collection=task.conversation_id,  # This ensures context preservation
         task_type=task.task_type if task.task_type else "prompt",
         command_script=task.command_script,
+        command_name=task.command_name,
+        command_args=task.command_args,
         deployment_id=task.deployment_id,
         target_machines=task.target_machines,
     )
