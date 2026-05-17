@@ -22,7 +22,7 @@
   // Bumped whenever the activity rendering pipeline changes, so the
   // backend log immediately tells us whether the running webview picked
   // up the latest code or is showing a cached/older bundle.
-  const CHAT_JS_VERSION = 'activity-elapsed-v27';
+  const CHAT_JS_VERSION = 'activity-elapsed-v28';
   if (window.AgixtFrontendLog) {
     window.AgixtFrontendLog('info', `chat.js loaded (${CHAT_JS_VERSION})`);
   }
@@ -230,18 +230,29 @@
     return String(text || '').trim().replace(/\s+/g, ' ');
   }
 
-  function replaceMatchingLocalPlain(role, body) {
+  function findMatchingPlainId(role, body, opts) {
     const incoming = (body || '').trim();
-    if (!incoming) return;
+    if (!incoming) return null;
     const incomingRole = comparableRole(role);
-    for (const id of order.slice()) {
-      if (!id.startsWith('local-')) continue;
+    const options = opts || {};
+    const startIndex = Number.isFinite(options.startIndex) ? options.startIndex : 0;
+    for (const id of order.slice(startIndex)) {
+      const isLocal = id.startsWith('local-');
+      if (options.local === true && !isLocal) continue;
+      if (options.local === false && isLocal) continue;
       const m = messages.get(id);
       if (!m || m.kind !== 'plain' || comparableRole(m.role) !== incomingRole) continue;
       if (comparableText(m.text) === comparableText(incoming)) {
-        removeMessage(id);
-        return;
+        return id;
       }
+    }
+    return null;
+  }
+
+  function replaceMatchingLocalPlain(role, body) {
+    const id = findMatchingPlainId(role, body, { local: true });
+    if (id) {
+      removeMessage(id);
     }
   }
 
@@ -1416,6 +1427,19 @@
     return sub;
   }
 
+  function mergeStreamText(existing, incoming) {
+    const current = String(existing || '');
+    const chunk = String(incoming || '');
+    if (!chunk) return current;
+    if (!current) return chunk;
+    // The Rust stream bridge normalizes cumulative snapshots into deltas,
+    // but keep the renderer defensive for older bridges or direct test
+    // harnesses. Snapshot: "hello" -> "hello world"; delta: " world".
+    if (chunk.startsWith(current)) return chunk;
+    if (current.startsWith(chunk)) return current;
+    return current + chunk;
+  }
+
   async function send(userInput, conversationName, turnContext) {
     if (!userInput || !userInput.trim()) return;
     const inv = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
@@ -1460,6 +1484,7 @@
    *  continue from its server-side conversation state. */
   async function runStreamingTurn(inv, event, conversationName, turnMessages, originalTask) {
     const asstId = `local-asst-${Date.now()}`;
+    const turnBoundaryIndex = order.length;
     // Lazy placeholder: pure tool-call rounds (the model produces no
     // text, only `remote_command.request` events) used to leave behind
     // an empty grey bubble in the chat. We now defer creating the
@@ -1557,13 +1582,14 @@
             const inc = (ev.data && ev.data.text) || '';
             if (!inc && !assistantText) break;
             ensurePlaceholder();
-            assistantText += inc;
+            assistantText = mergeStreamText(assistantText, inc);
             asstEntry.text = assistantText;
             renderMdInto(placeholder.content, assistantText);
             dispatchAssistantEvent('agixt-chat-assistant-stream', {
               text: assistantText,
               chunk: inc,
               streamId,
+              conversationId,
             });
             scrollToBottom();
             break;
@@ -1626,13 +1652,26 @@
               break;
             }
             if (finalText && finalText.trim()) {
-              ensurePlaceholder();
-              placeholder.content.classList.remove('cursor-blink');
-              asstEntry.text = finalText;
-              renderMdInto(placeholder.content, finalText);
+              const matchingServerId = findMatchingPlainId('assistant', finalText, {
+                local: false,
+                startIndex: turnBoundaryIndex,
+              });
+              if (matchingServerId) {
+                if (placeholder) {
+                  removeMessage(asstId);
+                  placeholder = null;
+                  asstEntry = null;
+                }
+              } else {
+                ensurePlaceholder();
+                placeholder.content.classList.remove('cursor-blink');
+                asstEntry.text = finalText;
+                renderMdInto(placeholder.content, finalText);
+              }
               dispatchAssistantEvent('agixt-chat-assistant-final', {
                 text: finalText,
                 streamId,
+                conversationId,
               });
             } else if (placeholder) {
               placeholder.content.classList.remove('cursor-blink');
@@ -1644,6 +1683,12 @@
             if (finalText && finalText.trim()) {
               finalizeActivityBlocks();
             }
+            dispatchAssistantEvent('agixt-chat-turn-complete', {
+              text: finalText || '',
+              streamId,
+              conversationId,
+              finishReason: ev.data.finish_reason || '',
+            });
             resolveFinished(ev.data.finish_reason || '');
             break;
           }

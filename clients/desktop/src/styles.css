@@ -4102,18 +4102,34 @@ body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .chat-mo
 .tc-composer-status {
   padding: 4px 14px 6px;
   font-size: 11px;
-  line-height: 14px;
-  /* Reserve one line's worth of height at all times (4 + 14 + 6). The
-     status toggles between "" / "Sending…" / an error on every send;
-     collapsing it with display:none made the whole composer + message
-     list jump up and back down each time. Keeping the box and just
-     hiding its contents when empty removes that layout shift. */
-  min-height: 24px;
   color: var(--text-dim);
   background: var(--panel);
 }
 .tc-composer-status.is-error { color: #ff8a96; }
-.tc-composer-status:empty { visibility: hidden; }
+.tc-composer-status:empty { display: none; }
+
+/* Typing indicator — a thin line ABOVE the composer, mirroring the
+   web's chat-input ("X is typing..."): 11px, muted, gently pulsing,
+   only present while someone is actually typing (hidden otherwise so
+   it doesn't reserve a permanent blank strip). Send feedback is shown
+   via the textarea placeholder instead, so nothing toggles here on a
+   normal send and the composer never jumps. */
+.tc-typing-indicator {
+  padding: 2px 14px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  background: var(--panel);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: tc-typing-pulse 1.6s ease-in-out infinite;
+}
+.tc-typing-indicator[hidden] { display: none; }
+@keyframes tc-typing-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
 
 /* Member list (collapsible). */
 .tc-member-list {
@@ -5929,4 +5945,158 @@ body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .chat-mo
 @keyframes tc-mic-pulse {
   0%, 100% { opacity: 0.85; transform: scale(1); }
   50%      { opacity: 1; transform: scale(1.15); }
+}
+
+/* ------------------------------------------------------------------ */
+/* Prompt Guidance bar — vanilla-JS port of the web's                  */
+/* ResourceGuidanceCard. Pinned to the bottom of the chat pane,        */
+/* between #chat-scroll and .composer, swapping its suggestions to     */
+/* match the active content page (see prompt-guidance.js).             */
+/* ------------------------------------------------------------------ */
+.prompt-guidance {
+  flex: 0 0 auto;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  padding: 8px 12px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.prompt-guidance[hidden] { display: none; }
+.pg-bar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pg-bar-titlewrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.pg-bar-spark { color: var(--accent); font-size: 12px; line-height: 1; }
+.pg-bar-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pg-bar-toggle {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+}
+.pg-bar-toggle:hover { color: var(--text); background: var(--panel-2); }
+.pg-chips {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.pg-chips::-webkit-scrollbar { height: 6px; }
+.pg-chips::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+.prompt-guidance.is-collapsed .pg-chips { display: none; }
+.pg-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  padding: 6px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.pg-chip:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.pg-chip-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pg-chip-badge {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* Builder modal — reuses .modal / .modal-card / .modal-header /
+   .modal-body / .modal-close / .btn from the shared design system. */
+.prompt-guidance-modal .modal-card { max-width: 520px; }
+.pg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pg-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.pg-field-desc {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.pg-input {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 9px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.pg-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+textarea.pg-input { resize: vertical; min-height: 56px; }
+.pg-preview {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 8px 10px;
+  max-height: 140px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+.pg-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pg-actions .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

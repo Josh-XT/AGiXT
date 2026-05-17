@@ -446,6 +446,10 @@
     splitFraction: 0.5,
     monaco: null,
     pollIntervalId: null,
+    refreshTimerId: null,
+    refreshInFlight: false,
+    pendingRefresh: false,
+    workspaceSignature: '',
   };
 
   // Roots + cached element references built on first open.
@@ -698,20 +702,128 @@
   // Workspace data load / mutate
   // ===================================================================
 
-  async function refresh() {
+  const LIVE_REFRESH_MS = 4000;
+  const EVENT_REFRESH_DELAY_MS = 250;
+
+  function flattenItems(items, out) {
+    const target = out || [];
+    for (const item of items || []) {
+      target.push(item);
+      if (item && item.children && item.children.length) flattenItems(item.children, target);
+    }
+    return target;
+  }
+
+  function workspaceSignature(items) {
+    return flattenItems(items)
+      .map((item) => [
+        item && item.path ? item.path : '',
+        item && item.type ? item.type : '',
+        item && item.size != null ? item.size : '',
+        item && item.modified ? item.modified : '',
+      ].join('|'))
+      .sort()
+      .join('\n');
+  }
+
+  function findItemByPath(items, path) {
+    const wanted = normalizePath(path || '');
+    return flattenItems(items).find((item) => normalizePath(item && item.path) === wanted) || null;
+  }
+
+  function metadataChanged(a, b) {
+    if (!a || !b) return !!(a || b);
+    return (a.size || 0) !== (b.size || 0)
+      || String(a.modified || '') !== String(b.modified || '')
+      || String(a.type || '') !== String(b.type || '');
+  }
+
+  function activeFileDirty() {
+    const f = state.activeFile;
+    if (!f) return false;
+    const isMedia = window.AgixtWorkspacePreview && window.AgixtWorkspacePreview.isPreviewableMedia(f.name);
+    return isMedia ? state.mediaDirty : state.editorContent !== state.editorOriginal;
+  }
+
+  function startLiveRefresh() {
+    if (state.pollIntervalId) return;
+    state.pollIntervalId = setInterval(() => {
+      refresh({ silent: true, reason: 'poll' }).catch((err) => {
+        console.warn('workspace live refresh failed', err);
+      });
+    }, LIVE_REFRESH_MS);
+  }
+
+  function stopLiveRefresh() {
+    if (state.pollIntervalId) {
+      clearInterval(state.pollIntervalId);
+      state.pollIntervalId = null;
+    }
+    if (state.refreshTimerId) {
+      clearTimeout(state.refreshTimerId);
+      state.refreshTimerId = null;
+    }
+    state.pendingRefresh = false;
+  }
+
+  function scheduleLiveRefresh(reason, delay) {
+    if (!state.open) return;
+    if (state.refreshTimerId) clearTimeout(state.refreshTimerId);
+    state.refreshTimerId = setTimeout(() => {
+      state.refreshTimerId = null;
+      refresh({ silent: true, reason: reason || 'event' }).catch((err) => {
+        console.warn('workspace event refresh failed', err);
+      });
+    }, delay == null ? EVENT_REFRESH_DELAY_MS : delay);
+  }
+
+  async function refresh(options) {
     if (!state.cfg || !state.conversationId) return;
-    state.isLoading = true;
-    renderTree();
+    const opts = options || {};
+    const silent = !!opts.silent;
+    if (state.refreshInFlight) {
+      state.pendingRefresh = true;
+      return;
+    }
+    state.refreshInFlight = true;
+    const previousItems = state.items || [];
+    const previousSignature = state.workspaceSignature || workspaceSignature(previousItems);
+    const previousActive = state.activeFile ? findItemByPath(previousItems, state.activeFile.path) : null;
+    if (!silent) {
+      state.isLoading = true;
+      renderTree();
+    }
     try {
       const data = await window.AgixtWorkspaceApi.getWorkspace(state.cfg, state.conversationId, { recursive: true });
-      state.items = data.items || [];
+      const nextItems = data.items || [];
+      const nextSignature = workspaceSignature(nextItems);
+      const changed = nextSignature !== previousSignature;
+      state.items = nextItems;
       state.tree = buildTree(state.items);
+      state.workspaceSignature = nextSignature;
+      if (changed || !silent) renderTree();
+      if (state.activeFile) {
+        const nextActive = findItemByPath(nextItems, state.activeFile.path);
+        if (!nextActive && !activeFileDirty()) {
+          closeActiveFile();
+        } else if (nextActive && metadataChanged(previousActive, nextActive) && !activeFileDirty() && !state.isSaving) {
+          state.activeFile = { name: nextActive.name, path: nextActive.path };
+          await loadFile({ silent: true });
+        }
+      }
     } catch (err) {
       console.error('workspace getWorkspace failed', err);
-      toast('Failed to load workspace', 'error');
+      if (!silent) toast('Failed to load workspace', 'error');
     } finally {
-      state.isLoading = false;
-      renderTree();
+      if (!silent) {
+        state.isLoading = false;
+        renderTree();
+      }
+      state.refreshInFlight = false;
+      if (state.pendingRefresh && state.open) {
+        state.pendingRefresh = false;
+        scheduleLiveRefresh('pending', 0);
+      }
     }
     // Initialise cross-file Monaco models in the background.
     if (state.monaco && window.AgixtWorkspaceModels) {
@@ -855,11 +967,13 @@
     renderTree();
   }
 
-  async function loadFile() {
+  async function loadFile(options) {
     if (!state.activeFile) return;
+    const opts = options || {};
+    const silent = !!opts.silent;
     state.isLoading = true;
     state.mediaDirty = false;
-    showEditorLoading();
+    if (!silent) showEditorLoading();
 
     const isMedia = window.AgixtWorkspacePreview.isPreviewableMedia(state.activeFile.name);
     const MAX_RETRIES = 2;
@@ -886,7 +1000,7 @@
       }
     }
     state.isLoading = false;
-    if (lastError) toast('Failed to load file', 'error');
+    if (lastError && !silent) toast('Failed to load file', 'error');
     renderEditorBody();
     syncDirtyButtons();
   }
@@ -1148,8 +1262,17 @@
 
   async function open(opts) {
     ensureRoot();
+    const nextConversationId = opts.conversationId;
+    const conversationChanged = nextConversationId && nextConversationId !== state.conversationId;
     state.cfg = { serverUrl: opts.serverUrl, jwt: opts.jwt, agentName: opts.agentName };
-    state.conversationId = opts.conversationId;
+    state.conversationId = nextConversationId;
+    if (conversationChanged) {
+      state.items = [];
+      state.tree = [];
+      state.workspaceSignature = '';
+      state.expandedFolders.clear();
+      if (state.activeFile) closeActiveFile();
+    }
     if (!state.cfg.serverUrl || !state.cfg.jwt) {
       toast('Sign in first', 'error'); return;
     }
@@ -1182,12 +1305,14 @@
     renderSidebarVisibility();
     renderTree();
     refresh();
+    startLiveRefresh();
     bindKeyboard();
   }
 
   async function close() {
     if (!state.open) return;
     state.open = false;
+    stopLiveRefresh();
     if (root) root.hidden = true;
     document.body.classList.remove('workspace-open');
     if (window.AgixtSidenav && typeof window.AgixtSidenav.syncContentPaneClass === 'function') {
@@ -1240,10 +1365,13 @@
     if (!state.open) return;
     if (opts && opts.conversationId && opts.conversationId !== state.conversationId) {
       state.conversationId = opts.conversationId;
+      state.items = [];
+      state.tree = [];
+      state.workspaceSignature = '';
       closeActiveFile();
       state.expandedFolders.clear();
     }
-    refresh();
+    refresh({ silent: !!(opts && opts.silent) });
   }
 
   // Snapshot the workspace context the chat composer should send along
@@ -1277,6 +1405,7 @@
   function cleanupAfterHide() {
     if (!state.open) return;
     state.open = false;
+    stopLiveRefresh();
     if (root) root.hidden = true;
     document.body.classList.remove('workspace-open');
     closeActiveFile();
@@ -1285,6 +1414,24 @@
     }
     unbindKeyboard();
   }
+
+  function eventMatchesWorkspaceConversation(detail) {
+    const id = detail && (detail.conversationId || detail.conversation_id || detail.id);
+    return !id || !state.conversationId || String(id) === String(state.conversationId);
+  }
+
+  window.addEventListener('agixt-chat-turn-complete', (ev) => {
+    if (!eventMatchesWorkspaceConversation(ev && ev.detail)) return;
+    scheduleLiveRefresh('chat-turn-complete', 0);
+  });
+  window.addEventListener('agixt-chat-assistant-final', (ev) => {
+    if (!eventMatchesWorkspaceConversation(ev && ev.detail)) return;
+    scheduleLiveRefresh('chat-assistant-final');
+  });
+  window.addEventListener('agixt-workspace-mutated', (ev) => {
+    if (!eventMatchesWorkspaceConversation(ev && ev.detail)) return;
+    scheduleLiveRefresh('workspace-mutated', 0);
+  });
 
   try {
     const ev = window.__TAURI__ && window.__TAURI__.event;

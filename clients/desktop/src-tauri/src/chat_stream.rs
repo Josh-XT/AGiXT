@@ -365,10 +365,9 @@ fn handle_sse_event<F: FnMut(StreamEvent)>(
         return;
     };
     if let Some(text) = delta.get("content").and_then(|v| v.as_str()) {
-        if !text.is_empty() {
-            full_text.push_str(text);
+        if let Some(incremental_text) = normalize_full_text_delta(full_text, text) {
             on_event(StreamEvent::Delta {
-                text: text.to_string(),
+                text: incremental_text,
             });
         }
     }
@@ -391,6 +390,35 @@ fn handle_sse_event<F: FnMut(StreamEvent)>(
             }
         }
     }
+}
+
+fn normalize_full_text_delta(full_text: &mut String, chunk: &str) -> Option<String> {
+    if chunk.is_empty() {
+        return None;
+    }
+    if full_text.is_empty() {
+        full_text.push_str(chunk);
+        return Some(chunk.to_string());
+    }
+    // Most OpenAI-compatible providers send token deltas, but some AGiXT/
+    // WorkConductor paths can forward cumulative snapshots. Convert those
+    // snapshots into the missing suffix so the webview always receives
+    // append-only text.
+    if chunk.starts_with(full_text.as_str()) {
+        let suffix = chunk[full_text.len()..].to_string();
+        full_text.clear();
+        full_text.push_str(chunk);
+        return if suffix.is_empty() {
+            None
+        } else {
+            Some(suffix)
+        };
+    }
+    if full_text.starts_with(chunk) {
+        return None;
+    }
+    full_text.push_str(chunk);
+    Some(chunk.to_string())
 }
 
 fn flush_pending_tools<F: FnMut(StreamEvent)>(
@@ -523,6 +551,28 @@ mod tests {
             StreamEvent::Delta { text } => assert_eq!(text, "hello"),
             other => panic!("expected delta, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn normalizes_cumulative_text_snapshots() {
+        let evs = parse_events(&[
+            r#"{"choices":[{"delta":{"content":"hello"}}]}"#,
+            r#"{"choices":[{"delta":{"content":"hello world"}}]}"#,
+            r#"{"choices":[{"delta":{"content":"hello world"}}]}"#,
+            "[DONE]",
+        ]);
+        let deltas: Vec<_> = evs
+            .iter()
+            .filter_map(|e| match e {
+                StreamEvent::Delta { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(deltas, vec!["hello", " world"]);
+        assert!(matches!(
+            evs.last(),
+            Some(StreamEvent::Done { text, .. }) if text == "hello world"
+        ));
     }
 
     #[test]

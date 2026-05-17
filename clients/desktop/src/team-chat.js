@@ -74,6 +74,11 @@
   let wsReconnectTimer = null;
   let wsBackoffMs = 1000;
   let participantsPollTimer = null;
+  // Remote typing indicator (web parity): userId -> { name, timeout }.
+  // We send `{type:'typing'}` at most every 3s while typing and expire
+  // a remote typist after 4s of silence, exactly like the web hook.
+  let typingUsers = new Map();
+  let lastTypingSent = 0;
   // Per-server unread badge counts, fed by the channel:notification
   // WebSocket events. Matches GroupRail.tsx's `serverNotifications` state
   // so the company-rail badges light up the same way they do on web.
@@ -1559,6 +1564,67 @@
     };
     pendingOptimistic.push(entry);
     return tempId;
+  }
+
+  // ---- Typing indicator (web parity) -----------------------------------
+  // Outbound: debounced to once per 3s while the user is typing, sent
+  // only when the socket for the active channel is open.
+  function sendTypingIndicator() {
+    const now = Date.now();
+    if (now - lastTypingSent < 3000) return;
+    if (activeWs && activeWs.readyState === WebSocket.OPEN) {
+      try { activeWs.send(JSON.stringify({ type: 'typing' })); } catch (_) {}
+      lastTypingSent = now;
+    }
+  }
+
+  function clearTypingUsers() {
+    for (const v of typingUsers.values()) {
+      if (v && v.timeout) clearTimeout(v.timeout);
+    }
+    typingUsers.clear();
+    renderTypingIndicator();
+  }
+
+  // Inbound: a remote user is typing. Self-filtered, name-resolved via
+  // the participant roster, and auto-expired after 4s of silence —
+  // matching useConversationWebSocketStable's typing_indicator handler.
+  function noteTypingUser(data) {
+    if (!data) return;
+    const uid = data.user_id || data.userId;
+    if (!uid || uid === currentUserId()) return;
+    const roster = userById(uid);
+    const name = (roster && displayNameForUser(roster))
+      || [data.first_name, data.last_name].filter(Boolean).join(' ').trim()
+      || data.email || 'Someone';
+    const existing = typingUsers.get(uid);
+    if (existing && existing.timeout) clearTimeout(existing.timeout);
+    typingUsers.set(uid, {
+      name,
+      timeout: setTimeout(() => {
+        typingUsers.delete(uid);
+        renderTypingIndicator();
+      }, 4000),
+    });
+    renderTypingIndicator();
+  }
+
+  function renderTypingIndicator() {
+    const elx = el('tc-typing-indicator');
+    if (!elx) return;
+    const names = Array.from(typingUsers.values()).map((v) => v.name);
+    if (!names.length || replyTarget) {
+      elx.hidden = true;
+      elx.textContent = '';
+      return;
+    }
+    let text;
+    if (names.length === 1) text = names[0] + ' is typing…';
+    else if (names.length === 2) text = names[0] + ' and ' + names[1] + ' are typing…';
+    else text = names.slice(0, -1).join(', ') + ' and '
+      + names[names.length - 1] + ' are typing…';
+    elx.textContent = text;
+    elx.hidden = false;
   }
 
   // The "real" message renderer — handles reply cards, mention/emoji
@@ -3324,6 +3390,7 @@
       preview: flattenForReplyPreview(renderedText || '').slice(0, 200),
     };
     renderReplyChip();
+    renderTypingIndicator(); // web hides the typing line while replying
     const input = el('tc-composer-input');
     if (input) input.focus();
   }
@@ -3331,6 +3398,7 @@
   function clearReplyTarget() {
     replyTarget = null;
     renderReplyChip();
+    renderTypingIndicator();
   }
 
   function renderReplyChip() {
@@ -3409,6 +3477,8 @@
     }
     activeChannelId = channelId;
     clearReplyTarget();
+    clearTypingUsers(); // typists are per-channel — reset on switch
+    lastTypingSent = 0;
     lsSet(STORAGE_LAST_CHANNEL_PREFIX + (activeCompanyId || 'private'), channelId);
     renderChannelList();
     renderContentHeader();
@@ -4120,6 +4190,9 @@
         if (!envelope || !envelope.type) return;
         const data = envelope.data;
         switch (envelope.type) {
+          case 'typing_indicator':
+            if (activeChannelId === channelId) noteTypingUser(data);
+            break;
           case 'initial_data':
             if (Array.isArray(data)) {
               const merged = mergeMessageList(messageCache.get(channelId) || [], data);
@@ -4230,7 +4303,6 @@
   async function sendMessage() {
     const input = el('tc-composer-input');
     const sendBtn = el('tc-send-btn');
-    const status = el('tc-composer-status');
     if (!input || !activeChannelId) return;
     let text = (input.value || '').trim();
     if (!text && !pendingAttachments.length) return;
@@ -4267,7 +4339,12 @@
     drafts.delete(activeChannelId); // sent ⇒ clear draft
     input.style.height = 'auto';
     sendBtn.disabled = true;
-    if (status) { status.textContent = 'Sending…'; status.classList.remove('is-error'); }
+    // Web parity: surface "sending" via the textarea placeholder rather
+    // than a status line under the bar. The placeholder lives inside the
+    // input box, so toggling it can't shift the composer or the message
+    // list. The optimistic message (above) is the real feedback anyway.
+    const prevPlaceholder = input.placeholder;
+    input.placeholder = 'Sending…';
     pendingAttachments = [];
     renderAttachments();
     clearReplyTarget();
@@ -4285,18 +4362,15 @@
       } else {
         await window.AgixtApi.postChannelMessage(convName, toSend, 'USER');
       }
-      if (status) status.textContent = '';
     } catch (e) {
       // Send failed — pull the placeholder back out so we don't leave a
-      // ghost message the server never accepted.
+      // ghost message the server never accepted, and surface it via a
+      // toast (web does the same; no status strip to shift the layout).
       dropOptimistic(optimisticId);
-      if (status) {
-        status.textContent = (e && e.message) || 'Failed to send';
-        status.classList.add('is-error');
-      }
-      toast('Failed to send message', true);
+      toast((e && e.message) || 'Failed to send message', true);
       input.value = text;
     } finally {
+      input.placeholder = prevPlaceholder;
       sendBtn.disabled = false;
       input.focus();
     }
@@ -5344,6 +5418,7 @@
       input.style.height = Math.min(input.scrollHeight, 132) + 'px';
       updateEmojiAutocomplete();
       paintComposerOverlay();
+      if (input.value) sendTypingIndicator();
     });
     input.addEventListener('scroll', () => {
       const overlay = el('tc-composer-overlay');
@@ -5410,6 +5485,7 @@
       if (p.timer) clearTimeout(p.timer);
     }
     pendingOptimistic = [];
+    clearTypingUsers();
   }
 
   window.AgixtTeamChat = {

@@ -406,6 +406,13 @@
               <div id="messages" class="messages" role="log" aria-live="polite"></div>
             </main>
 
+            <!-- Prompt Guidance bar — per-page suggestions / mini
+                 prompt-builders, ported from the web app's
+                 ResourceGuidanceCard. Populated by prompt-guidance.js
+                 from the active content view; hidden when the active
+                 page has no guidance (e.g. plain chat). -->
+            <div class="prompt-guidance" id="prompt-guidance" hidden></div>
+
             <footer class="composer">
           <!-- Attachment chips tray. Hidden until the user picks files via
                the paperclip; each chip is removable. The selected paths
@@ -599,6 +606,7 @@
                     <div class="tc-messages" id="tc-messages" role="log" aria-live="polite"></div>
                   </div>
                   <div class="tc-attachments" id="tc-attachments" hidden></div>
+                  <div class="tc-typing-indicator" id="tc-typing-indicator" hidden></div>
                   <footer class="tc-composer">
                     <input type="file" id="tc-attach-input" multiple hidden />
                     <button class="tc-icon-btn tc-composer-action" id="tc-attach-btn"
@@ -1079,5 +1087,11 @@
     <script src="team-chat-helpers.js"></script>
     <script src="team-chat.js"></script>
     <script src="app.js"></script>
+    <!-- Prompt Guidance bar — per-page suggestions / mini prompt-builders
+         ported from the web's ResourceGuidanceCard. Data first, then the
+         module; loaded after app.js so window.AgixtSidenav exists when
+         the bar first renders. -->
+    <script src="prompt-guidance-data.js"></script>
+    <script src="prompt-guidance.js"></script>
   </body>
 </html>

@@ -24,12 +24,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(__dirname, '..', 'src');
 const WEB = path.join(__dirname, '..', '..', 'web');
 
-function loadFrontend({ ipc, WebSocketClass } = {}) {
+function loadFrontend({ ipc, WebSocketClass, eventListen } = {}) {
   const dom = new JSDOM(
     fs.readFileSync(path.join(SRC, 'index.html'), 'utf8'),
     { runScripts: 'outside-only', url: 'http://localhost/' },
   );
   const { window } = dom;
+  window.requestAnimationFrame = window.requestAnimationFrame || ((cb) => setTimeout(() => cb(Date.now()), 0));
+  window.cancelAnimationFrame = window.cancelAnimationFrame || ((id) => clearTimeout(id));
   // Stub Tauri IPC.
   const calls = [];
   window.__TAURI__ = {
@@ -40,7 +42,12 @@ function loadFrontend({ ipc, WebSocketClass } = {}) {
         return null;
       },
     },
-    event: { listen: async () => () => {} },
+    event: {
+      listen: async (name, cb) => {
+        if (eventListen) return eventListen(name, cb);
+        return () => {};
+      },
+    },
   };
   // jsdom doesn't implement WebSocket; provide a no-op so chat.js loads.
   if (WebSocketClass) {
@@ -87,6 +94,8 @@ function loadFullApp({ ipc } = {}) {
     { runScripts: 'outside-only', url: 'http://localhost/' },
   );
   const { window } = dom;
+  window.requestAnimationFrame = window.requestAnimationFrame || ((cb) => setTimeout(() => cb(Date.now()), 0));
+  window.cancelAnimationFrame = window.cancelAnimationFrame || ((id) => clearTimeout(id));
   const calls = [];
   const listeners = new Map();
   window.__TAURI__ = {
@@ -188,6 +197,7 @@ function loadFullApp({ ipc } = {}) {
     'agixt-api.js', 'user-settings.js', 'chains.js', 'prompts.js',
     'team-chat-helpers.js', 'team-chat.js',
     'app.js',
+    'prompt-guidance-data.js', 'prompt-guidance.js',
   ]) {
     const code = fs.readFileSync(path.join(SRC, name), 'utf8');
     vm.runInContext(code, dom.getInternalVMContext(), { filename: name });
@@ -466,6 +476,76 @@ test('chat: classifyActivity tags activities by content', () => {
   assert.equal(typeof window.AgixtChat.send, 'function');
   assert.equal(typeof window.AgixtChat.connect, 'function');
   assert.equal(typeof window.AgixtChat.disconnect, 'function');
+});
+
+test('chat: persisted assistant message does not duplicate live placeholder', async () => {
+  const streamListeners = new Map();
+  let socket = null;
+  class TestWebSocket {
+    constructor() {
+      this.readyState = TestWebSocket.OPEN;
+      socket = this;
+      setTimeout(() => this.onopen && this.onopen(), 0);
+    }
+    send() {}
+    close() {
+      this.readyState = 3;
+    }
+  }
+  TestWebSocket.OPEN = 1;
+
+  const { window } = loadFrontend({
+    WebSocketClass: TestWebSocket,
+    eventListen: async (name, cb) => {
+      streamListeners.set(name, cb);
+      return () => streamListeners.delete(name);
+    },
+    ipc: {
+      chat_send: async ({ args }) => {
+        const streamId = args.stream_id;
+        setTimeout(() => {
+          streamListeners.get(`chat-stream:${streamId}`)?.({
+            payload: { event: { kind: 'delta', data: { text: 'Partial' } } },
+          });
+        }, 0);
+        setTimeout(() => {
+          socket?.onmessage?.({
+            data: JSON.stringify({
+              type: 'message_added',
+              data: {
+                id: 'server-assistant-1',
+                role: 'assistant',
+                message: 'Full answer',
+                timestamp: '2026-05-17T12:00:00.000Z',
+              },
+            }),
+          });
+        }, 1);
+        setTimeout(() => {
+          streamListeners.get(`chat-stream:${streamId}`)?.({
+            payload: { event: { kind: 'done', data: { text: 'Full answer', finish_reason: 'stop' } } },
+          });
+        }, 2);
+        return streamId;
+      },
+    },
+  });
+  window.AgixtChat.configure({
+    serverUrl: 'http://localhost:7437',
+    jwt: 'jwt',
+    conversationId: 'c',
+  });
+
+  await window.AgixtChat.send('make a file', 'c');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const assistantMessages = [...window.document.querySelectorAll('#messages .message-assistant')]
+    .map((node) => node.textContent.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  assert.equal(assistantMessages.length, 1);
+  assert.ok(assistantMessages[0].startsWith('Full answer'));
+  assert.doesNotMatch(assistantMessages.join('\n'), /Partial/);
+  window.AgixtChat.disconnect();
 });
 
 test('chat: workspace media auth only attaches to configured AGiXT origins', async () => {
@@ -2626,4 +2706,81 @@ test('markdown: code blocks inside a block spoiler render correctly when reveale
   assert.ok(codeblock, 'fenced code block survives inside the spoiler');
   assert.match(codeblock.outerHTML, /title="Copy"/);
   assert.match(codeblock.outerHTML, /md-codeblock-lang">js</);
+});
+
+test('prompt guidance: hidden on chat, shows page suggestions on a content view', async () => {
+  const { window } = loadFullApp();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const bar = window.document.getElementById('prompt-guidance');
+  assert.ok(bar, '#prompt-guidance container exists');
+  assert.equal(bar.hidden, true, 'bar is hidden while on plain chat');
+
+  window.AgixtSidenav.setActiveView('secrets');
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(bar.hidden, false, 'bar shows when a guided page is active');
+  const chips = bar.querySelectorAll('.pg-chip');
+  assert.ok(chips.length >= 3, 'suggestion chips rendered for secrets');
+  assert.match(bar.querySelector('.pg-bar-title').textContent, /secrets/i);
+
+  window.AgixtSidenav.setActiveView('chat');
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(bar.hidden, true, 'bar hides again back on chat');
+  window.AgixtChat.disconnect();
+});
+
+test('prompt guidance: clicking a no-field suggestion sends it to chat', async () => {
+  const { window, calls } = loadFullApp();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  window.AgixtSidenav.setActiveView('secrets');
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  const bar = window.document.getElementById('prompt-guidance');
+  const chip = bar.querySelector('.pg-chip');
+  chip.click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const send = calls.find((c) => c.cmd === 'chat_send');
+  assert.ok(send, 'a no-field suggestion sends immediately');
+  const sent = send.args.args.messages[0].content;
+  assert.equal(sent, window.AgixtPromptGuidanceData.secrets.examples[0].prompt);
+  window.AgixtChat.disconnect();
+});
+
+test('prompt guidance: builder fills placeholders before sending', async () => {
+  const { window, calls } = loadFullApp();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  window.AgixtSidenav.setActiveView('tickets');
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  const bar = window.document.getElementById('prompt-guidance');
+  // First tickets example ("Triage the open backlog") has a {{company}}
+  // placeholder, so its chip carries the builder badge.
+  const builderChip = Array.from(bar.querySelectorAll('.pg-chip'))
+    .find((c) => c.querySelector('.pg-chip-badge'));
+  assert.ok(builderChip, 'a placeholder-bearing chip renders with a badge');
+  builderChip.click();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  const modal = window.document.querySelector('.prompt-guidance-modal');
+  assert.ok(modal && modal.classList.contains('open'), 'builder modal opens');
+  const input = modal.querySelector('.pg-input');
+  input.value = 'Acme Corp';
+  input.dispatchEvent(new window.Event('input', { bubbles: true }));
+  const preview = modal.querySelector('.pg-preview');
+  assert.match(preview.textContent, /Acme Corp/);
+  assert.doesNotMatch(preview.textContent, /\{\{company\}\}/);
+
+  const sendBtn = Array.from(modal.querySelectorAll('.btn'))
+    .find((b) => b.textContent === 'Send to chat');
+  sendBtn.click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(window.document.querySelector('.prompt-guidance-modal'), null,
+    'modal closes after send');
+  const send = calls.find((c) => c.cmd === 'chat_send');
+  assert.ok(send, 'composed prompt is sent');
+  const sent = send.args.args.messages[0].content;
+  assert.match(sent, /Acme Corp/);
+  assert.doesNotMatch(sent, /\{\{company\}\}/);
+  window.AgixtChat.disconnect();
 });

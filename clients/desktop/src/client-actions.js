@@ -65,6 +65,17 @@
     return fallback;
   }
 
+  function dispatchWorkspaceMutated(source) {
+    try {
+      const conversationId = window.AgixtChat && typeof window.AgixtChat.getConversationId === 'function'
+        ? window.AgixtChat.getConversationId()
+        : null;
+      window.dispatchEvent(new CustomEvent('agixt-workspace-mutated', {
+        detail: { source: source || 'client-action', conversationId },
+      }));
+    } catch (_) { /* best-effort UI refresh hint */ }
+  }
+
   function keyList(keys, singleKey) {
     const raw = keys ?? singleKey ?? null;
     if (raw == null || raw === '') return null;
@@ -1026,11 +1037,14 @@ Other valid actions:
         // ---- Workspace bridge --------------------------------------
 
         case 'workspace_upload':
-        case 'upload_to_workspace':
-          return await inv('workspace_upload_local', {
+        case 'upload_to_workspace': {
+          const result = await inv('workspace_upload_local', {
             localPath: a.local_path || a.path,
             workspacePath: a.workspace_path || null,
           });
+          dispatchWorkspaceMutated('workspace-upload');
+          return result;
+        }
 
         case 'workspace_download':
         case 'download_from_workspace':

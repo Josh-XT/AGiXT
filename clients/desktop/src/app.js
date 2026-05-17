@@ -1575,6 +1575,11 @@
       `Uploaded ${uploaded.length} file${uploaded.length === 1 ? '' : 's'} to workspace.`,
       'success',
     );
+    try {
+      window.dispatchEvent(new CustomEvent('agixt-workspace-mutated', {
+        detail: { source: 'attachment-upload', conversationId: settings && settings.conversation_id },
+      }));
+    } catch (_) {}
     return uploaded;
   }
 
@@ -2188,6 +2193,14 @@
         && typeof window.AgixtDesktopExtensions.reflowSidenav === 'function') {
       try { window.AgixtDesktopExtensions.reflowSidenav(); } catch (_) {}
     }
+    // Notify the Prompt Guidance bar (and any future view-aware module)
+    // so it can swap its per-page suggestions to match the page the
+    // user just switched to.
+    try {
+      window.dispatchEvent(new CustomEvent('agixt-view-changed', {
+        detail: { viewId },
+      }));
+    } catch (_) {}
   }
   document.querySelectorAll('.sidenav-btn[data-view]').forEach((btn) => {
     btn.addEventListener('click', () => setActiveView(btn.dataset.view));
