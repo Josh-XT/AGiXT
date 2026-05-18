@@ -17,6 +17,7 @@
   const invoke = () => (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke);
   let lastScreenshot = null;
   let recorderQueue = Promise.resolve();
+  let activeCancellableAction = null;
 
   function argsFor(action) {
     if (action.tool_args) return action.tool_args;
@@ -217,6 +218,87 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  function cancellationError(reason) {
+    const err = new Error(reason || 'Action stopped');
+    err.name = 'AbortError';
+    err.code = 'CLIENT_ACTION_CANCELLED';
+    return err;
+  }
+
+  function isCancellationError(err) {
+    return !!(err && (err.code === 'CLIENT_ACTION_CANCELLED' || err.name === 'AbortError'));
+  }
+
+  function createCancellationToken(kind) {
+    const listeners = new Set();
+    const token = {
+      kind: kind || 'client-action',
+      cancelled: false,
+      reason: '',
+      cancel(reason) {
+        if (token.cancelled) return;
+        token.cancelled = true;
+        token.reason = reason || 'Action stopped';
+        listeners.forEach((cb) => {
+          try { cb(token.reason); } catch (_) { /* ignore listener cleanup failures */ }
+        });
+        listeners.clear();
+      },
+      onCancel(cb) {
+        if (typeof cb !== 'function') return () => {};
+        if (token.cancelled) {
+          cb(token.reason);
+          return () => {};
+        }
+        listeners.add(cb);
+        return () => listeners.delete(cb);
+      },
+      throwIfCancelled() {
+        if (token.cancelled) throw cancellationError(token.reason);
+      },
+    };
+    return token;
+  }
+
+  function beginCancellableAction(kind) {
+    if (activeCancellableAction) {
+      activeCancellableAction.cancel('Superseded by a new client action.');
+    }
+    const token = createCancellationToken(kind);
+    activeCancellableAction = token;
+    return token;
+  }
+
+  function endCancellableAction(token) {
+    if (activeCancellableAction === token) activeCancellableAction = null;
+  }
+
+  function stopActiveAction(reason) {
+    if (!activeCancellableAction) return false;
+    activeCancellableAction.cancel(reason || 'Stopped by user.');
+    frontendLog('info', `Stopped active ${activeCancellableAction.kind || 'client action'}.`);
+    return true;
+  }
+
+  function assertNotCancelled(token) {
+    if (token && typeof token.throwIfCancelled === 'function') token.throwIfCancelled();
+  }
+
+  function cancellableDelay(ms, token) {
+    assertNotCancelled(token);
+    if (!token) return delay(ms);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        off();
+        resolve();
+      }, ms);
+      const off = token.onCancel((reason) => {
+        clearTimeout(timer);
+        reject(cancellationError(reason));
+      });
+    });
+  }
+
   function screenshotDataUrl(result) {
     if (!result || !result.image_data) return '';
     let format = String(result.format || 'jpeg').toLowerCase().replace(/[^a-z0-9.+-]/g, '');
@@ -275,24 +357,30 @@
     return blob;
   }
 
-  function computerUseWorkspaceContext() {
-    if (
-      !window.AgixtWorkspaceApi ||
-      typeof window.AgixtWorkspaceApi.uploadFiles !== 'function' ||
-      typeof window.AgixtWorkspaceApi.downloadFile !== 'function'
-    ) {
-      return null;
-    }
+  function workspaceApiContext() {
+    if (!window.AgixtWorkspaceApi) return null;
     const chat = window.AgixtChat;
     if (!chat || typeof chat.getConfig !== 'function') return null;
     const cfg = chat.getConfig();
     if (!cfg || !cfg.serverUrl || !cfg.jwt || !cfg.conversationId) return null;
-    if (typeof window.Blob !== 'function' || typeof window.atob !== 'function') return null;
     return {
       api: window.AgixtWorkspaceApi,
       cfg: { serverUrl: cfg.serverUrl, jwt: cfg.jwt },
       conversationId: cfg.conversationId,
     };
+  }
+
+  function computerUseWorkspaceContext() {
+    const ctx = workspaceApiContext();
+    if (
+      !ctx ||
+      typeof ctx.api.uploadFiles !== 'function' ||
+      typeof ctx.api.downloadFile !== 'function'
+    ) {
+      return null;
+    }
+    if (typeof window.Blob !== 'function' || typeof window.atob !== 'function') return null;
+    return ctx;
   }
 
   async function readComputerUseLog(ctx) {
@@ -752,6 +840,44 @@ ${rows || '<p>No steps recorded yet.</p>'}
     };
   }
 
+  async function loadWorkspaceVisionContext() {
+    const ctx = workspaceApiContext();
+    if (!ctx || !ctx.api || typeof ctx.api.getWorkspace !== 'function') return '';
+    try {
+      const result = await ctx.api.getWorkspace(ctx.cfg, ctx.conversationId, { recursive: true });
+      const items = Array.isArray(result && result.items) ? result.items : [];
+      if (!items.length) {
+        return [
+          'Conversation workspace: available, currently empty.',
+          'If the user mentions workspace files or folders, this means the AGiXT conversation workspace, not Ubuntu virtual desktops.',
+        ].join('\n');
+      }
+      const lines = [];
+      const seen = new Set();
+      for (const item of items) {
+        const rawPath = normalizeWorkspacePath(item && (item.path || item.name || item.filename));
+        if (!rawPath || seen.has(rawPath)) continue;
+        seen.add(rawPath);
+        const isDir = String((item && (item.type || item.kind)) || '').toLowerCase().includes('dir')
+          || String((item && (item.type || item.kind)) || '').toLowerCase().includes('folder');
+        lines.push(`${isDir ? '- folder: ' : '- file: '}${rawPath}${isDir && !rawPath.endsWith('/') ? '/' : ''}`);
+        if (lines.length >= 80) break;
+      }
+      if (items.length > lines.length) lines.push(`- ... ${items.length - lines.length} more workspace items`);
+      return [
+        'Conversation workspace files available to this AGiXT task:',
+        ...lines,
+        'If the user mentions workspace files or folders, this means the AGiXT conversation workspace/file tree. Do not click Ubuntu workspace thumbnails, the Ubuntu workspace switcher, or virtual desktop controls for workspace-file tasks.',
+      ].join('\n');
+    } catch (err) {
+      frontendLog('warn', `desktop_vision_control workspace context unavailable: ${String(err && err.message ? err.message : err).slice(0, 500)}`);
+      return [
+        'Conversation workspace lookup failed in the desktop client.',
+        'If the user mentions workspace files or folders, do not guess by clicking Ubuntu virtual desktop/workspace controls; use visible AGiXT workspace UI only when it is clearly on screen.',
+      ].join('\n');
+    }
+  }
+
   function unquoteActionArg(value) {
     const raw = String(value || '').trim();
     if (!raw) return '';
@@ -873,7 +999,7 @@ ${rows || '<p>No steps recorded yet.</p>'}
     return null;
   }
 
-  function buildVisionControlPrompt(task, shot, history, lastCoordinates, iteration) {
+  function buildVisionControlPrompt(task, shot, history, lastCoordinates, iteration, workspaceContext) {
     const width = positiveIntOr(shot.width, DEFAULT_SCREENSHOT_TARGET_WIDTH);
     const height = positiveIntOr(shot.height, 0);
     const historyText = history.length
@@ -929,6 +1055,8 @@ ${recentClicks}
 Previous actions:
 ${historyText}
 
+${workspaceContext ? `Workspace context:\n${workspaceContext}\n` : ''}
+
 Response format:
 Return exactly one JSON object. Prefer this Qwen grounding shape:
 {"action":"click","point_2d":[x,y],"observation":"what matters","thought":"why"}
@@ -944,7 +1072,8 @@ Other valid actions:
 {"action":"failed","summary":"reason"}`;
   }
 
-  async function executeVisionAction(inv, task, action, shot) {
+  async function executeVisionAction(inv, task, action, shot, token) {
+    assertNotCancelled(token);
     const vision = action.coordinate_mode === 'screenshot'
       ? screenshotVisionArgs(shot)
       : normalizedVisionArgs(shot);
@@ -966,6 +1095,7 @@ Other valid actions:
             coordinate: { x: action.x, y: action.y },
           };
         }
+        assertNotCancelled(token);
         const result = await inv('desktop_click', {
           args: {
             x: action.x,
@@ -975,6 +1105,7 @@ Other valid actions:
             ...vision,
           },
         });
+        assertNotCancelled(token);
         return {
           action: `${action.name}(${action.x}, ${action.y})`,
           coordinate: { x: action.x, y: action.y },
@@ -982,12 +1113,16 @@ Other valid actions:
         };
       }
       case 'type': {
+        assertNotCancelled(token);
         const result = await inv('desktop_type', { text: action.text, keys: null });
+        assertNotCancelled(token);
         return { action: `type(${JSON.stringify(action.text)})`, result };
       }
       case 'hotkey': {
         const keys = keyList(action.keys, null);
+        assertNotCancelled(token);
         const result = await inv('desktop_type', { text: null, keys });
+        assertNotCancelled(token);
         return { action: `hotkey(${action.keys})`, result };
       }
       case 'scroll': {
@@ -995,11 +1130,13 @@ Other valid actions:
           ? action.amount
           : -action.amount;
         const axis = ['left', 'right'].includes(action.direction) ? 'horizontal' : 'vertical';
+        assertNotCancelled(token);
         const result = await inv('desktop_scroll', { amount, axis });
+        assertNotCancelled(token);
         return { action: `scroll(${action.direction}, ${action.amount})`, result };
       }
       case 'wait':
-        await delay(action.seconds * 1000);
+        await cancellableDelay(action.seconds * 1000, token);
         return { action: `wait(${action.seconds})`, result: { waited_seconds: action.seconds } };
       case 'done':
         return { done: true, action: action.raw, summary: action.summary };
@@ -1010,7 +1147,7 @@ Other valid actions:
     }
   }
 
-  async function runVisionControl(inv, a) {
+  async function runVisionControl(inv, a, token) {
     const task = String(a.task || a.prompt || a.goal || a.__original_task || '').trim();
     if (!task) return { error: 'desktop_vision_control requires a task' };
     const monitorIndex = intOr(a.monitor_index, null);
@@ -1021,118 +1158,146 @@ Other valid actions:
     const lastCoordinates = [];
     const recorder = createComputerUseRecorder(inv, task, { useSmartest });
     let pendingRecord = null;
+    let workspaceContext = '';
 
-    for (let iteration = 0; ; iteration += 1) {
-      const shot = rememberScreenshot(await inv('desktop_screenshot', {
-        monitorIndex,
-        targetWidth,
-        targetHeight,
-      }));
-      if (!shot || shot.error) {
-        if (recorder) recorder.finish('failed', (shot && shot.error) || 'desktop_screenshot failed');
-        return {
-          success: false,
-          error: (shot && shot.error) || 'desktop_screenshot failed',
-          actions_taken: history.map((h) => h.action),
-          action_history: history,
-          ...computerUseResultFields(recorder),
+    try {
+      assertNotCancelled(token);
+      workspaceContext = await loadWorkspaceVisionContext();
+      assertNotCancelled(token);
+      for (let iteration = 0; ; iteration += 1) {
+        assertNotCancelled(token);
+        const shot = rememberScreenshot(await inv('desktop_screenshot', {
+          monitorIndex,
+          targetWidth,
+          targetHeight,
+        }));
+        assertNotCancelled(token);
+        if (!shot || shot.error) {
+          if (recorder) recorder.finish('failed', (shot && shot.error) || 'desktop_screenshot failed');
+          return {
+            success: false,
+            error: (shot && shot.error) || 'desktop_screenshot failed',
+            actions_taken: history.map((h) => h.action),
+            action_history: history,
+            ...computerUseResultFields(recorder),
+          };
+        }
+
+        if (pendingRecord && recorder) {
+          recorder.recordStep(pendingRecord.step, pendingRecord.beforeShot, shot);
+          pendingRecord = null;
+        }
+
+        const imageUrl = screenshotDataUrl(shot);
+        if (!imageUrl) {
+          if (recorder) recorder.finish('failed', 'desktop_screenshot did not return image data');
+          return {
+            success: false,
+            error: 'desktop_screenshot did not return image data',
+            actions_taken: history.map((h) => h.action),
+            action_history: history,
+            ...computerUseResultFields(recorder),
+          };
+        }
+
+        const prompt = buildVisionControlPrompt(
+          task,
+          shot,
+          history,
+          lastCoordinates,
+          iteration,
+          workspaceContext,
+        );
+        frontendLog(
+          'info',
+          `desktop_vision_control step=${iteration + 1} screenshot=${shot.width}x${shot.height} original=${shot.original_width}x${shot.original_height}`,
+        );
+        assertNotCancelled(token);
+        const vision = await inv('agent_vision', {
+          args: { prompt, images: [imageUrl], use_smartest: useSmartest },
+        });
+        assertNotCancelled(token);
+        const visionText = String((vision && vision.response) || '').trim();
+        frontendLog(
+          'info',
+          `desktop_vision_control vision step=${iteration + 1}: ${visionText.replace(/\s+/g, ' ').slice(0, 800)}`,
+        );
+        if (!visionText || /Unable to process request/i.test(visionText)) {
+          if (recorder) recorder.finish('failed', visionText || 'vision inference returned no action');
+          return {
+            success: false,
+            error: visionText || 'vision inference returned no action',
+            actions_taken: history.map((h) => h.action),
+            action_history: history,
+            ...computerUseResultFields(recorder),
+          };
+        }
+
+        const { observation, thought } = extractObservationAndThought(visionText);
+        const action = parseVisionAction(visionText);
+        assertNotCancelled(token);
+        const actionResult = await executeVisionAction(inv, task, action, shot, token);
+        assertNotCancelled(token);
+        frontendLog(
+          actionResult.error ? 'warn' : 'info',
+          `desktop_vision_control action step=${iteration + 1}: ${actionResult.action || action.raw}${actionResult.error ? ` error=${actionResult.error}` : ''}`,
+        );
+        const resultSummary = summarizeForHistory(actionResult.result || actionResult.error || actionResult.summary);
+        const historyEntry = {
+          step: iteration + 1,
+          action: actionResult.action || action.raw,
+          observation,
+          reasoning: thought,
+          result: resultSummary,
         };
-      }
+        history.push(historyEntry);
+        if (actionResult.coordinate) lastCoordinates.push(actionResult.coordinate);
+        const stepRecord = {
+          ...historyEntry,
+          timestamp: new Date().toISOString(),
+          request: task,
+          action_type: action.name || 'unknown',
+          raw_model_response: visionText,
+          coordinate: actionResult.coordinate || null,
+          coordinate_space: actionResult.coordinate ? 'normalized_0_1000' : null,
+          resolved_coordinate: coordinateFromActionResult(actionResult.result),
+          success: !actionResult.error && actionResult.success !== false,
+          error: actionResult.error || '',
+        };
 
+        if (actionResult.done) {
+          if (recorder) {
+            recorder.recordStep(stepRecord, shot, shot);
+            recorder.finish(actionResult.success === false ? 'failed' : 'completed', actionResult.summary || 'Task completed');
+          }
+          return {
+            success: actionResult.success !== false,
+            summary: actionResult.summary || 'Task completed',
+            actions_taken: history.map((h) => h.action),
+            action_history: history,
+            ...computerUseResultFields(recorder),
+          };
+        }
+
+        pendingRecord = { step: stepRecord, beforeShot: shot };
+
+        await cancellableDelay(VISION_ACTION_SETTLE_MS, token);
+      }
+    } catch (err) {
+      if (!isCancellationError(err)) throw err;
       if (pendingRecord && recorder) {
-        recorder.recordStep(pendingRecord.step, pendingRecord.beforeShot, shot);
+        recorder.recordStep(pendingRecord.step, pendingRecord.beforeShot, pendingRecord.beforeShot);
         pendingRecord = null;
       }
-
-      const imageUrl = screenshotDataUrl(shot);
-      if (!imageUrl) {
-        if (recorder) recorder.finish('failed', 'desktop_screenshot did not return image data');
-        return {
-          success: false,
-          error: 'desktop_screenshot did not return image data',
-          actions_taken: history.map((h) => h.action),
-          action_history: history,
-          ...computerUseResultFields(recorder),
-        };
-      }
-
-      const prompt = buildVisionControlPrompt(
-        task,
-        shot,
-        history,
-        lastCoordinates,
-        iteration,
-      );
-      frontendLog(
-        'info',
-        `desktop_vision_control step=${iteration + 1} screenshot=${shot.width}x${shot.height} original=${shot.original_width}x${shot.original_height}`,
-      );
-      const vision = await inv('agent_vision', {
-        args: { prompt, images: [imageUrl], use_smartest: useSmartest },
-      });
-      const visionText = String((vision && vision.response) || '').trim();
-      frontendLog(
-        'info',
-        `desktop_vision_control vision step=${iteration + 1}: ${visionText.replace(/\s+/g, ' ').slice(0, 800)}`,
-      );
-      if (!visionText || /Unable to process request/i.test(visionText)) {
-        if (recorder) recorder.finish('failed', visionText || 'vision inference returned no action');
-        return {
-          success: false,
-          error: visionText || 'vision inference returned no action',
-          actions_taken: history.map((h) => h.action),
-          action_history: history,
-          ...computerUseResultFields(recorder),
-        };
-      }
-
-      const { observation, thought } = extractObservationAndThought(visionText);
-      const action = parseVisionAction(visionText);
-      const actionResult = await executeVisionAction(inv, task, action, shot);
-      frontendLog(
-        actionResult.error ? 'warn' : 'info',
-        `desktop_vision_control action step=${iteration + 1}: ${actionResult.action || action.raw}${actionResult.error ? ` error=${actionResult.error}` : ''}`,
-      );
-      const resultSummary = summarizeForHistory(actionResult.result || actionResult.error || actionResult.summary);
-      const historyEntry = {
-        step: iteration + 1,
-        action: actionResult.action || action.raw,
-        observation,
-        reasoning: thought,
-        result: resultSummary,
+      if (recorder) recorder.finish('stopped', 'Stopped by user.');
+      return {
+        success: false,
+        stopped: true,
+        error: 'desktop_vision_control stopped by user',
+        actions_taken: history.map((h) => h.action),
+        action_history: history,
+        ...computerUseResultFields(recorder),
       };
-      history.push(historyEntry);
-      if (actionResult.coordinate) lastCoordinates.push(actionResult.coordinate);
-      const stepRecord = {
-        ...historyEntry,
-        timestamp: new Date().toISOString(),
-        request: task,
-        action_type: action.name || 'unknown',
-        raw_model_response: visionText,
-        coordinate: actionResult.coordinate || null,
-        coordinate_space: actionResult.coordinate ? 'normalized_0_1000' : null,
-        resolved_coordinate: coordinateFromActionResult(actionResult.result),
-        success: !actionResult.error && actionResult.success !== false,
-        error: actionResult.error || '',
-      };
-
-      if (actionResult.done) {
-        if (recorder) {
-          recorder.recordStep(stepRecord, shot, shot);
-          recorder.finish(actionResult.success === false ? 'failed' : 'completed', actionResult.summary || 'Task completed');
-        }
-        return {
-          success: actionResult.success !== false,
-          summary: actionResult.summary || 'Task completed',
-          actions_taken: history.map((h) => h.action),
-          action_history: history,
-          ...computerUseResultFields(recorder),
-        };
-      }
-
-      pendingRecord = { step: stepRecord, beforeShot: shot };
-
-      await delay(VISION_ACTION_SETTLE_MS);
     }
   }
 
@@ -1282,10 +1447,15 @@ Other valid actions:
           'info',
           `Upgrading ${name} to desktop_vision_control for visible UI task: ${String(task).slice(0, 300)}`,
         );
-        return await runVisionControl(inv, {
-          ...a,
-          task,
-        });
+        const token = beginCancellableAction('desktop_vision_control');
+        try {
+          return await runVisionControl(inv, {
+            ...a,
+            task,
+          }, token);
+        } finally {
+          endCancellableAction(token);
+        }
       }
 
       switch (name) {
@@ -1329,8 +1499,14 @@ Other valid actions:
 
         case 'desktop_vision_control':
         case 'vision_desktop_control':
-        case 'desktop_control':
-          return await runVisionControl(inv, a);
+        case 'desktop_control': {
+          const token = beginCancellableAction('desktop_vision_control');
+          try {
+            return await runVisionControl(inv, a, token);
+          } finally {
+            endCancellableAction(token);
+          }
+        }
 
         case 'shell_run':
         case 'run_shell':
@@ -1592,5 +1768,5 @@ Other valid actions:
     return recorderQueue.catch(() => {});
   }
 
-  window.AgixtClientActions = { execute, flushComputerUseRecorder };
+  window.AgixtClientActions = { execute, flushComputerUseRecorder, stopActiveAction };
 })();

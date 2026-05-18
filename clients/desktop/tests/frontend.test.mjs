@@ -901,6 +901,19 @@ test('chat: live activity appends below streamed assistant text until final orde
   window.AgixtChat.disconnect();
 });
 
+test('chat: stop cancels any active local client action', async () => {
+  const { window } = loadFrontend();
+  let stopped = 0;
+  window.AgixtClientActions.stopActiveAction = () => {
+    stopped += 1;
+    return true;
+  };
+
+  await window.AgixtChat.stop();
+
+  assert.equal(stopped, 1);
+});
+
 test('chat: workspace file links open in desktop workspace', async () => {
   const opened = [];
   const { window } = loadFrontend({
@@ -1785,10 +1798,53 @@ test('client-actions: desktop_vision_control uses qwen-style normalized coords',
   assert.equal(args.screen_width, 3840);
 });
 
+test('client-actions: stopping desktop_vision_control cancels the pending click', async () => {
+  let resolveVision;
+  let clickCalls = 0;
+  const { window } = loadFrontend({
+    ipc: {
+      desktop_screenshot: async () => ({
+        image_data: 'AAAA',
+        width: 1920,
+        height: 1080,
+        original_width: 3840,
+        original_height: 2160,
+        monitor_offset_x: 0,
+        monitor_offset_y: 0,
+        format: 'jpeg',
+      }),
+      agent_vision: async () => new Promise((resolve) => {
+        resolveVision = resolve;
+      }),
+      desktop_click: async () => {
+        clickCalls += 1;
+        return { ok: true };
+      },
+    },
+  });
+
+  const running = window.AgixtClientActions.execute({
+    tool_name: 'desktop_vision_control',
+    tool_args: { task: 'Click the Spotify icon' },
+  });
+  while (!resolveVision) await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(window.AgixtClientActions.stopActiveAction('Stopped by test.'), true);
+  resolveVision({
+    response: '{"action":"click","point_2d":[25,320],"observation":"I see the dock icon.","thought":"Click it."}',
+  });
+  const res = await running;
+
+  assert.equal(res.stopped, true);
+  assert.equal(res.success, false);
+  assert.equal(clickCalls, 0);
+});
+
 test('client-actions: desktop_vision_control records computer-use workspace artifacts', async () => {
   let screenshotCalls = 0;
   let controlVisionCalls = 0;
   let narrationVisionCalls = 0;
+  const controlPrompts = [];
   const uploads = [];
   const moves = [];
   const folders = [];
@@ -1830,6 +1886,7 @@ test('client-actions: desktop_vision_control records computer-use workspace arti
           };
         }
         controlVisionCalls += 1;
+        controlPrompts.push(args.prompt);
         return controlVisionCalls === 1
           ? { response: '{"action":"click","point_2d":[25,320],"observation":"I see the dock icon.","thought":"Click its center."}' }
           : { response: '{"action":"done","summary":"AGiXT opened Spotify."}' };
@@ -1844,6 +1901,12 @@ test('client-actions: desktop_vision_control records computer-use workspace arti
     reconnect: false,
   });
   window.AgixtWorkspaceApi = {
+    getWorkspace: async () => ({
+      items: [
+        { type: 'folder', name: 'docs', path: 'docs' },
+        { type: 'file', name: 'notes.md', path: 'docs/notes.md' },
+      ],
+    }),
     downloadFile: async (_cfg, _conversationId, filePath) => {
       if (!workspaceFiles.has(filePath)) throw new Error(`${filePath} does not exist yet`);
       return { blob: new window.Blob([workspaceFiles.get(filePath).text]) };
@@ -1904,6 +1967,9 @@ test('client-actions: desktop_vision_control records computer-use workspace arti
   assert.equal(res.computer_use_artifacts.video_plan_json, 'computer-use/video-plan.json');
   assert.equal(controlVisionCalls, 2);
   assert.equal(narrationVisionCalls, 2);
+  assert.match(controlPrompts[0], /Conversation workspace files available/i);
+  assert.match(controlPrompts[0], /docs\/notes\.md/);
+  assert.match(controlPrompts[0], /Do not click Ubuntu workspace thumbnails/i);
   assert.ok(uploads.some((upload) => upload.destinationPath === 'computer-use/screenshots'
     && upload.files.some((file) => /step-001.*-before\.jpeg$/.test(file.name))));
   const storyboardUploads = uploads.filter((upload) => upload.destinationPath === 'computer-use'

@@ -1506,6 +1506,11 @@
   async function stop() {
     const turn = activeTurn;
     turnStopped = true;
+    try {
+      if (clientActions && typeof clientActions.stopActiveAction === 'function') {
+        clientActions.stopActiveAction('Stopped by user.');
+      }
+    } catch (_) { /* best-effort local tool cancellation */ }
     activeTurn = null;
     setGenerating(false);
     if (!turn) return;
