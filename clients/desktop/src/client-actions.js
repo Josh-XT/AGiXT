@@ -11,8 +11,12 @@
 (function () {
   const DEFAULT_SCREENSHOT_TARGET_WIDTH = 1920;
   const VISION_ACTION_SETTLE_MS = 1200;
+  const COMPUTER_USE_LOG_PATH = 'computer-use-log.json';
+  const COMPUTER_USE_FOLDER = 'computer-use';
+  const COMPUTER_USE_SCREENSHOT_FOLDER = `${COMPUTER_USE_FOLDER}/screenshots`;
   const invoke = () => (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke);
   let lastScreenshot = null;
+  let recorderQueue = Promise.resolve();
 
   function argsFor(action) {
     if (action.tool_args) return action.tool_args;
@@ -220,6 +224,393 @@
     return `data:image/${format};base64,${result.image_data}`;
   }
 
+  function timestampForFile(value) {
+    return String(value || new Date().toISOString())
+      .replace(/\.\d{3}Z$/, 'Z')
+      .replace(/[^0-9A-Za-z]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  function randomId(prefix) {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return `${prefix}-${window.crypto.randomUUID()}`;
+    }
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function fileFromBase64(base64, filename, mimeType) {
+    if (!base64) return null;
+    const mime = mimeType || 'application/octet-stream';
+    const binary = window.atob(String(base64).replace(/\s+/g, ''));
+    const chunks = [];
+    for (let offset = 0; offset < binary.length; offset += 8192) {
+      const slice = binary.slice(offset, offset + 8192);
+      const bytes = new Uint8Array(slice.length);
+      for (let i = 0; i < slice.length; i += 1) bytes[i] = slice.charCodeAt(i);
+      chunks.push(bytes);
+    }
+    if (typeof window.File === 'function') {
+      return new window.File(chunks, filename, { type: mime });
+    }
+    const blob = new window.Blob(chunks, { type: mime });
+    blob.name = filename;
+    return blob;
+  }
+
+  function jsonFile(name, value) {
+    const blob = new window.Blob([JSON.stringify(value, null, 2)], { type: 'application/json' });
+    if (typeof window.File === 'function') {
+      return new window.File([blob], name, { type: 'application/json' });
+    }
+    blob.name = name;
+    return blob;
+  }
+
+  function textFile(name, value, type = 'text/plain') {
+    const blob = new window.Blob([String(value || '')], { type });
+    if (typeof window.File === 'function') {
+      return new window.File([blob], name, { type });
+    }
+    blob.name = name;
+    return blob;
+  }
+
+  function computerUseWorkspaceContext() {
+    if (
+      !window.AgixtWorkspaceApi ||
+      typeof window.AgixtWorkspaceApi.uploadFiles !== 'function' ||
+      typeof window.AgixtWorkspaceApi.downloadFile !== 'function'
+    ) {
+      return null;
+    }
+    const chat = window.AgixtChat;
+    if (!chat || typeof chat.getConfig !== 'function') return null;
+    const cfg = chat.getConfig();
+    if (!cfg || !cfg.serverUrl || !cfg.jwt || !cfg.conversationId) return null;
+    if (typeof window.Blob !== 'function' || typeof window.atob !== 'function') return null;
+    return {
+      api: window.AgixtWorkspaceApi,
+      cfg: { serverUrl: cfg.serverUrl, jwt: cfg.jwt },
+      conversationId: cfg.conversationId,
+    };
+  }
+
+  async function readComputerUseLog(ctx) {
+    try {
+      const file = await ctx.api.downloadFile(ctx.cfg, ctx.conversationId, COMPUTER_USE_LOG_PATH);
+      const text = await file.blob.text();
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object' && Array.isArray(parsed.sessions)) return parsed;
+    } catch (_) { /* first run, or older workspace without the log */ }
+    return {
+      schema_version: 1,
+      kind: 'agixt-desktop-computer-use-log',
+      sessions: [],
+    };
+  }
+
+  function upsertComputerUseSession(log, session) {
+    const sessions = Array.isArray(log.sessions) ? log.sessions : [];
+    const idx = sessions.findIndex((item) => item && item.session_id === session.session_id);
+    if (idx >= 0) sessions[idx] = session;
+    else sessions.push(session);
+    log.sessions = sessions;
+    log.latest_session_id = session.session_id;
+    log.updated_at = new Date().toISOString();
+    return log;
+  }
+
+  async function uploadComputerUseFile(ctx, file, destinationPath) {
+    if (!file) return null;
+    await ctx.api.uploadFiles(ctx.cfg, ctx.conversationId, [file], destinationPath || undefined);
+    return destinationPath ? `${destinationPath}/${file.name}` : file.name;
+  }
+
+  function fallbackStepNarration(step) {
+    const action = step.action || 'inspected the screen';
+    const target = step.observation ? ` after seeing ${step.observation}` : '';
+    return `Step ${step.step}: ${action}${target}.`;
+  }
+
+  function computerUseResultFields(recorder) {
+    if (!recorder || !recorder.session) return {};
+    return {
+      computer_use_log: COMPUTER_USE_LOG_PATH,
+      computer_use_session_id: recorder.session.session_id,
+      computer_use_artifacts: recorder.session.artifacts,
+    };
+  }
+
+  function coordinateFromActionResult(result) {
+    if (!result || typeof result !== 'object') return null;
+    const x = numberOr(result.x ?? result.screen_x ?? result.screenX ?? result.pixel_x, null);
+    const y = numberOr(result.y ?? result.screen_y ?? result.screenY ?? result.pixel_y, null);
+    return x != null && y != null ? { x, y } : null;
+  }
+
+  function buildStepNarrationPrompt(session, step) {
+    return [
+      'You are writing a concise computer-use demo log for AGiXT Desktop.',
+      'Compare the before and after screenshots and return JSON only.',
+      'The agent performed the action listed below. Do not say the app or page was already open unless the before screenshot clearly shows it was already open before this agent action.',
+      'Keep narration suitable for TTS and a demo video: one short sentence, active voice.',
+      '',
+      `Original user request: ${session.task}`,
+      `Step ${step.step} action: ${step.action}`,
+      `Vision observation before acting: ${step.observation || 'not provided'}`,
+      `Vision reasoning: ${step.reasoning || 'not provided'}`,
+      `Tool result: ${step.result || 'not provided'}`,
+      '',
+      'Return this exact JSON shape:',
+      '{"summary":"short factual step summary","narration":"one short spoken sentence","before_state":"what changed from","after_state":"what changed to","effect":"what the agent caused"}',
+    ].join('\n');
+  }
+
+  async function narrateComputerUseStep(inv, session, step, beforeShot, afterShot, useSmartest) {
+    const beforeUrl = screenshotDataUrl(beforeShot);
+    const afterUrl = screenshotDataUrl(afterShot);
+    if (!beforeUrl || !afterUrl) {
+      return { narration: fallbackStepNarration(step) };
+    }
+    const response = await inv('agent_vision', {
+      args: {
+        prompt: buildStepNarrationPrompt(session, step),
+        images: [beforeUrl, afterUrl],
+        use_smartest: !!useSmartest,
+      },
+    });
+    const text = String((response && response.response) || '').trim();
+    if (!text) return { narration: fallbackStepNarration(step) };
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        const parsed = JSON.parse(text.slice(start, end + 1));
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch (_) { /* fall back below */ }
+    }
+    return { narration: text.slice(0, 500) };
+  }
+
+  function createComputerUseRecorder(inv, task, options = {}) {
+    const ctx = computerUseWorkspaceContext();
+    if (!ctx) return null;
+    const now = new Date().toISOString();
+    const sessionId = randomId('computer-use');
+    const session = {
+      session_id: sessionId,
+      task,
+      started_at: now,
+      updated_at: now,
+      status: 'running',
+      artifacts: {
+        log_json: COMPUTER_USE_LOG_PATH,
+        screenshot_folder: COMPUTER_USE_SCREENSHOT_FOLDER,
+        storyboard_html: `${COMPUTER_USE_FOLDER}/storyboard.html`,
+        video_plan_json: `${COMPUTER_USE_FOLDER}/video-plan.json`,
+      },
+      steps: [],
+    };
+    const pendingNarrations = [];
+
+    function enqueue(work) {
+      recorderQueue = recorderQueue
+        .catch(() => {})
+        .then(work)
+        .catch((err) => {
+          frontendLog('warn', `computer-use recorder failed: ${String(err && err.message ? err.message : err).slice(0, 600)}`);
+        });
+      return recorderQueue;
+    }
+
+    async function persistSession() {
+      const log = upsertComputerUseSession(await readComputerUseLog(ctx), session);
+      await uploadComputerUseFile(ctx, jsonFile(COMPUTER_USE_LOG_PATH, log), null);
+      await uploadComputerUseFile(ctx, textFile('storyboard.html', buildComputerUseStoryboard(log), 'text/html'), COMPUTER_USE_FOLDER);
+      await uploadComputerUseFile(ctx, jsonFile('video-plan.json', buildComputerUseVideoPlan(log)), COMPUTER_USE_FOLDER);
+      dispatchWorkspaceMutated('computer-use-log');
+    }
+
+    function recordStep(step, beforeShot, afterShot) {
+      const stepSnapshot = { ...step, narration: fallbackStepNarration(step) };
+      session.steps.push(stepSnapshot);
+      session.updated_at = new Date().toISOString();
+      enqueue(async () => {
+        const format = String((beforeShot && beforeShot.format) || 'jpeg').replace(/[^a-z0-9]+/gi, '') || 'jpeg';
+        const mime = `image/${format === 'jpg' ? 'jpeg' : format}`;
+        const stamp = timestampForFile(stepSnapshot.timestamp);
+        const beforeName = `step-${String(stepSnapshot.step).padStart(3, '0')}-${stamp}-before.${format}`;
+        const afterName = `step-${String(stepSnapshot.step).padStart(3, '0')}-${stamp}-after.${format}`;
+        const beforePath = await uploadComputerUseFile(
+          ctx,
+          fileFromBase64(beforeShot && beforeShot.image_data, beforeName, mime),
+          COMPUTER_USE_SCREENSHOT_FOLDER,
+        );
+        const afterPath = await uploadComputerUseFile(
+          ctx,
+          fileFromBase64(afterShot && afterShot.image_data, afterName, mime),
+          COMPUTER_USE_SCREENSHOT_FOLDER,
+        );
+        stepSnapshot.before_image = beforePath || null;
+        stepSnapshot.after_image = afterPath || beforePath || null;
+        stepSnapshot.narration_pending = true;
+        pendingNarrations.push({ stepSnapshot, beforeShot, afterShot });
+        await persistSession();
+      });
+      return stepSnapshot;
+    }
+
+    async function narratePendingSteps() {
+      while (pendingNarrations.length) {
+        const { stepSnapshot, beforeShot, afterShot } = pendingNarrations.shift();
+        try {
+          const narration = await narrateComputerUseStep(inv, session, stepSnapshot, beforeShot, afterShot, options.useSmartest);
+          stepSnapshot.summary = narration.summary || stepSnapshot.summary || stepSnapshot.action;
+          stepSnapshot.narration = narration.narration || stepSnapshot.narration;
+          stepSnapshot.before_state = narration.before_state || '';
+          stepSnapshot.after_state = narration.after_state || '';
+          stepSnapshot.effect = narration.effect || '';
+          stepSnapshot.narration_pending = false;
+        } catch (err) {
+          stepSnapshot.narration_pending = false;
+          stepSnapshot.narration_error = String(err && err.message ? err.message : err).slice(0, 600);
+          frontendLog('warn', `computer-use narration failed: ${String(err && err.message ? err.message : err).slice(0, 600)}`);
+        }
+        await persistSession();
+      }
+    }
+
+    function finish(status, summary) {
+      session.status = status || 'completed';
+      session.summary = summary || session.summary || '';
+      session.completed_at = new Date().toISOString();
+      session.updated_at = session.completed_at;
+      enqueue(async () => {
+        await persistSession();
+        await narratePendingSteps();
+      });
+    }
+
+    enqueue(persistSession);
+    return { session, recordStep, finish };
+  }
+
+  function buildComputerUseStoryboard(log) {
+    const sessions = Array.isArray(log.sessions) ? log.sessions : [];
+    const latest = sessions.find((item) => item && item.session_id === log.latest_session_id) || sessions[sessions.length - 1] || {};
+    const steps = Array.isArray(latest.steps) ? latest.steps : [];
+    const esc = (value) => String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+    const rows = steps.map((step) => {
+      const image = esc(step.after_image || step.before_image || '');
+      const marker = step.coordinate
+        ? `<span class="marker" style="left:${Math.max(0, Math.min(100, Number(step.coordinate.x || 0) / 10))}%;top:${Math.max(0, Math.min(100, Number(step.coordinate.y || 0) / 10))}%"></span>`
+        : '';
+      return `<section class="step"><div class="frame">${image ? `<img src="../${image}" alt="Step ${esc(step.step)}">` : ''}${marker}</div><div class="copy"><h2>Step ${esc(step.step)}</h2><p>${esc(step.narration || step.summary || step.action)}</p><code>${esc(step.action || '')}</code></div></section>`;
+    }).join('\n');
+    return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Computer Use Storyboard</title>
+<style>
+body{margin:0;background:#111;color:#f4f4f5;font-family:Inter,system-ui,sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:32px}
+h1{font-size:28px;margin:0 0 8px}
+.meta{color:#b6bcc6;margin:0 0 24px}
+.step{display:grid;grid-template-columns:minmax(0,2fr) minmax(260px,1fr);gap:20px;margin:0 0 28px;align-items:start}
+.frame{position:relative;background:#000;border:1px solid #2f3440;min-height:220px}
+.frame img{display:block;width:100%;height:auto}
+.marker{position:absolute;width:34px;height:34px;border:3px solid #38bdf8;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 0 10px rgba(56,189,248,.24)}
+.marker:after{content:"";position:absolute;inset:7px;border-radius:50%;background:#38bdf8}
+.copy{padding:4px 0}
+.copy h2{font-size:16px;margin:0 0 8px}
+.copy p{line-height:1.5}
+code{white-space:pre-wrap;color:#cbd5e1}
+@media (max-width:800px){.step{grid-template-columns:1fr}.wrap{padding:18px}}
+</style>
+</head>
+<body>
+<main class="wrap">
+<h1>Computer Use Storyboard</h1>
+<p class="meta">${esc(latest.task || '')}</p>
+${rows || '<p>No steps recorded yet.</p>'}
+</main>
+</body>
+</html>`;
+  }
+
+  function computerUseLatestSession(log) {
+    const sessions = Array.isArray(log.sessions) ? log.sessions : [];
+    return sessions.find((item) => item && item.session_id === log.latest_session_id) || sessions[sessions.length - 1] || {};
+  }
+
+  function clipDurationSeconds(text) {
+    const words = String(text || '').trim().split(/\s+/).filter(Boolean).length;
+    return Math.max(2, Math.min(8, Number((words / 2.6 + 0.75).toFixed(2))));
+  }
+
+  function buildComputerUseVideoPlan(log) {
+    const latest = computerUseLatestSession(log);
+    const steps = Array.isArray(latest.steps) ? latest.steps : [];
+    const clips = steps.map((step) => {
+      const narration = step.narration || step.summary || step.action || `Step ${step.step}`;
+      const image = step.after_image || step.before_image || '';
+      const click = step.coordinate
+        ? {
+          normalized: step.coordinate,
+          x_percent: Math.max(0, Math.min(100, Number(step.coordinate.x || 0) / 10)),
+          y_percent: Math.max(0, Math.min(100, Number(step.coordinate.y || 0) / 10)),
+          animation: 'ripple',
+        }
+        : null;
+      return {
+        id: `step-${String(step.step).padStart(3, '0')}`,
+        step: step.step,
+        action: step.action || '',
+        action_type: step.action_type || '',
+        image,
+        before_image: step.before_image || '',
+        after_image: step.after_image || '',
+        narration,
+        duration_seconds: clipDurationSeconds(narration),
+        click,
+      };
+    });
+    return {
+      schema_version: 1,
+      kind: 'agixt-desktop-computer-use-video-plan',
+      created_at: new Date().toISOString(),
+      session_id: latest.session_id || '',
+      task: latest.task || '',
+      status: latest.status || '',
+      artifacts: latest.artifacts || {},
+      render: {
+        target: 'mp4',
+        fps: 30,
+        transition_seconds: 0.25,
+        click_animation: 'draw a short blue ripple at click.x_percent/click.y_percent for clips that include click data',
+      },
+      tts: {
+        provider: 'ezlocalai-openai-compatible',
+        endpoint: '/v1/audio/speech',
+        payload_defaults: {
+          model: 'tts-1',
+          voice: 'Morgan_Freeman',
+          language: 'en',
+        },
+      },
+      clips,
+      script: clips.map((clip) => ({
+        step: clip.step,
+        input: clip.narration,
+      })),
+    };
+  }
+
   function summarizeForHistory(value) {
     if (value == null) return '';
     if (typeof value === 'string') return value.slice(0, 500);
@@ -399,7 +790,7 @@
       ? `Recent click coordinates in the normalized 0..1000 grid: ${lastCoordinates.slice(-4).map((c) => `(${c.x},${c.y})`).join(', ')}. Do not repeat a click that did not work.`
       : '';
     const goalCheck = iteration > 0
-      ? 'First check whether the goal is already complete in the current screenshot. If it is complete, use done("summary").'
+      ? 'First check whether the previous AGiXT desktop action completed the goal in the current screenshot. If it is complete, use done("summary") and phrase the summary as something AGiXT just accomplished, not as a pre-existing condition.'
       : '';
 
     return `You are a computer use agent controlling the user's local desktop from a screenshot.
@@ -425,10 +816,11 @@ failed("reason")
 
 Rules:
 1. Output exactly one action.
-2. Before acting, inspect the current screenshot and decide if the goal is already done.
+2. Before acting, inspect the current screenshot and decide if the goal is complete.
 3. If an action did not work, try a different route instead of repeating it.
 4. To type in a field or launcher, first focus it with click() or hotkey().
 5. For opening apps through the desktop UI, hotkey("super"), type("app name"), then hotkey("enter") is allowed if visible icon clicking is not reliable.
+6. Previous actions are actions this AGiXT desktop agent already took during this run. When the goal becomes complete because of those actions, say AGiXT completed/opened/navigated it. Only say "already" if it was complete in the first screenshot before any action.
 
 Goal:
 ${task}
@@ -530,6 +922,8 @@ Other valid actions:
     const useSmartest = boolOr(a.use_smartest ?? a.useSmartest, false);
     const history = [];
     const lastCoordinates = [];
+    const recorder = createComputerUseRecorder(inv, task, { useSmartest });
+    let pendingRecord = null;
 
     for (let iteration = 0; ; iteration += 1) {
       const shot = rememberScreenshot(await inv('desktop_screenshot', {
@@ -538,21 +932,30 @@ Other valid actions:
         targetHeight,
       }));
       if (!shot || shot.error) {
+        if (recorder) recorder.finish('failed', (shot && shot.error) || 'desktop_screenshot failed');
         return {
           success: false,
           error: (shot && shot.error) || 'desktop_screenshot failed',
           actions_taken: history.map((h) => h.action),
           action_history: history,
+          ...computerUseResultFields(recorder),
         };
+      }
+
+      if (pendingRecord && recorder) {
+        recorder.recordStep(pendingRecord.step, pendingRecord.beforeShot, shot);
+        pendingRecord = null;
       }
 
       const imageUrl = screenshotDataUrl(shot);
       if (!imageUrl) {
+        if (recorder) recorder.finish('failed', 'desktop_screenshot did not return image data');
         return {
           success: false,
           error: 'desktop_screenshot did not return image data',
           actions_taken: history.map((h) => h.action),
           action_history: history,
+          ...computerUseResultFields(recorder),
         };
       }
 
@@ -576,11 +979,13 @@ Other valid actions:
         `desktop_vision_control vision step=${iteration + 1}: ${visionText.replace(/\s+/g, ' ').slice(0, 800)}`,
       );
       if (!visionText || /Unable to process request/i.test(visionText)) {
+        if (recorder) recorder.finish('failed', visionText || 'vision inference returned no action');
         return {
           success: false,
           error: visionText || 'vision inference returned no action',
           actions_taken: history.map((h) => h.action),
           action_history: history,
+          ...computerUseResultFields(recorder),
         };
       }
 
@@ -592,23 +997,43 @@ Other valid actions:
         `desktop_vision_control action step=${iteration + 1}: ${actionResult.action || action.raw}${actionResult.error ? ` error=${actionResult.error}` : ''}`,
       );
       const resultSummary = summarizeForHistory(actionResult.result || actionResult.error || actionResult.summary);
-      history.push({
+      const historyEntry = {
         step: iteration + 1,
         action: actionResult.action || action.raw,
         observation,
         reasoning: thought,
         result: resultSummary,
-      });
+      };
+      history.push(historyEntry);
       if (actionResult.coordinate) lastCoordinates.push(actionResult.coordinate);
+      const stepRecord = {
+        ...historyEntry,
+        timestamp: new Date().toISOString(),
+        request: task,
+        action_type: action.name || 'unknown',
+        raw_model_response: visionText,
+        coordinate: actionResult.coordinate || null,
+        coordinate_space: actionResult.coordinate ? 'normalized_0_1000' : null,
+        resolved_coordinate: coordinateFromActionResult(actionResult.result),
+        success: !actionResult.error && actionResult.success !== false,
+        error: actionResult.error || '',
+      };
 
       if (actionResult.done) {
+        if (recorder) {
+          recorder.recordStep(stepRecord, shot, shot);
+          recorder.finish(actionResult.success === false ? 'failed' : 'completed', actionResult.summary || 'Task completed');
+        }
         return {
           success: actionResult.success !== false,
           summary: actionResult.summary || 'Task completed',
           actions_taken: history.map((h) => h.action),
           action_history: history,
+          ...computerUseResultFields(recorder),
         };
       }
+
+      pendingRecord = { step: stepRecord, beforeShot: shot };
 
       await delay(VISION_ACTION_SETTLE_MS);
     }
@@ -1066,5 +1491,9 @@ Other valid actions:
     }
   }
 
-  window.AgixtClientActions = { execute };
+  function flushComputerUseRecorder() {
+    return recorderQueue.catch(() => {});
+  }
+
+  window.AgixtClientActions = { execute, flushComputerUseRecorder };
 })();

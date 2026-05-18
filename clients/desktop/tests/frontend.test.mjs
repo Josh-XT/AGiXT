@@ -1729,6 +1729,139 @@ test('client-actions: desktop_vision_control uses qwen-style normalized coords',
   assert.equal(args.screen_width, 3840);
 });
 
+test('client-actions: desktop_vision_control records computer-use workspace artifacts', async () => {
+  let screenshotCalls = 0;
+  let controlVisionCalls = 0;
+  let narrationVisionCalls = 0;
+  const uploads = [];
+  const screenshots = ['AAAA', 'BBBB', 'CCCC'];
+  const { window } = loadFrontend({
+    ipc: {
+      desktop_screenshot: async () => {
+        const imageData = screenshots[Math.min(screenshotCalls, screenshots.length - 1)];
+        screenshotCalls += 1;
+        return {
+          image_data: imageData,
+          width: 1920,
+          height: 1080,
+          original_width: 3840,
+          original_height: 2160,
+          monitor_offset_x: 0,
+          monitor_offset_y: 0,
+          format: 'jpeg',
+        };
+      },
+      agent_vision: async ({ args }) => {
+        if (/computer-use demo log/i.test(args.prompt)) {
+          narrationVisionCalls += 1;
+          assert.equal(args.images.length, 2);
+          assert.match(args.images[0], /^data:image\/jpeg;base64,/);
+          assert.match(args.images[1], /^data:image\/jpeg;base64,/);
+          const step = Number((args.prompt.match(/Step (\d+) action:/) || [0, 0])[1]);
+          return {
+            response: JSON.stringify({
+              summary: step === 1 ? 'AGiXT clicked Spotify.' : 'AGiXT confirmed Spotify opened.',
+              narration: step === 1
+                ? 'AGiXT clicked the Spotify icon.'
+                : 'AGiXT confirmed Spotify opened.',
+              before_state: step === 1 ? 'Spotify was not foregrounded.' : 'Spotify was open.',
+              after_state: 'Spotify was open.',
+              effect: step === 1 ? 'The click opened Spotify.' : 'The task was verified.',
+            }),
+          };
+        }
+        controlVisionCalls += 1;
+        return controlVisionCalls === 1
+          ? { response: '{"action":"click","point_2d":[25,320],"observation":"I see the dock icon.","thought":"Click its center."}' }
+          : { response: '{"action":"done","summary":"AGiXT opened Spotify."}' };
+      },
+      desktop_click: async () => ({ ok: true, x: 48, y: 346 }),
+    },
+  });
+  window.AgixtChat.configure({
+    serverUrl: 'http://localhost:7437',
+    jwt: 'jwt',
+    conversationId: 'convo-id',
+    reconnect: false,
+  });
+  window.AgixtWorkspaceApi = {
+    downloadFile: async () => {
+      throw new Error('computer-use-log.json does not exist yet');
+    },
+    uploadFiles: async (cfg, conversationId, files, destinationPath) => {
+      const fileRecords = [];
+      for (const file of files) {
+        let text = '';
+        if (typeof file.text === 'function') text = await file.text();
+        else if (typeof file.arrayBuffer === 'function') {
+          text = new TextDecoder().decode(await file.arrayBuffer());
+        } else {
+          const implSymbol = Object.getOwnPropertySymbols(file)
+            .find((symbol) => String(symbol) === 'Symbol(impl)');
+          const buffer = implSymbol && file[implSymbol] && file[implSymbol]._buffer;
+          if (buffer) text = Buffer.from(buffer).toString('utf8');
+        }
+        fileRecords.push({
+          name: file.name,
+          type: file.type,
+          text,
+        });
+      }
+      uploads.push({ cfg, conversationId, destinationPath: destinationPath || '', files: fileRecords });
+      return { items: fileRecords.map((file) => ({ name: file.name })) };
+    },
+  };
+
+  const res = await window.AgixtClientActions.execute({
+    tool_name: 'desktop_vision_control',
+    tool_args: { task: 'Open Spotify' },
+  });
+  await window.AgixtClientActions.flushComputerUseRecorder();
+
+  assert.equal(res.success, true);
+  assert.equal(res.summary, 'AGiXT opened Spotify.');
+  assert.equal(res.computer_use_log, 'computer-use-log.json');
+  assert.equal(res.computer_use_artifacts.screenshot_folder, 'computer-use/screenshots');
+  assert.equal(res.computer_use_artifacts.video_plan_json, 'computer-use/video-plan.json');
+  assert.equal(controlVisionCalls, 2);
+  assert.equal(narrationVisionCalls, 2);
+  assert.ok(uploads.some((upload) => upload.destinationPath === 'computer-use/screenshots'
+    && upload.files.some((file) => /step-001.*-before\.jpeg$/.test(file.name))));
+  assert.ok(uploads.some((upload) => upload.destinationPath === 'computer-use'
+    && upload.files.some((file) => file.name === 'storyboard.html')));
+  const videoPlanUploads = uploads.filter((upload) => upload.destinationPath === 'computer-use'
+    && upload.files.some((file) => file.name === 'video-plan.json'));
+  assert.ok(videoPlanUploads.length > 0);
+  const latestVideoPlanUpload = videoPlanUploads[videoPlanUploads.length - 1];
+  const videoPlanFile = latestVideoPlanUpload.files.find((file) => file.name === 'video-plan.json');
+  const videoPlan = JSON.parse(videoPlanFile.text);
+  assert.equal(videoPlan.kind, 'agixt-desktop-computer-use-video-plan');
+  assert.equal(videoPlan.clips[0].narration, 'AGiXT clicked the Spotify icon.');
+  assert.equal(videoPlan.clips[0].click.x_percent, 2.5);
+  assert.equal(videoPlan.tts.endpoint, '/v1/audio/speech');
+
+  const logUploads = uploads.filter((upload) => upload.destinationPath === ''
+    && upload.files.some((file) => file.name === 'computer-use-log.json'));
+  assert.ok(logUploads.length > 0);
+  const latestLogUpload = logUploads[logUploads.length - 1];
+  const logFile = latestLogUpload.files.find((file) => file.name === 'computer-use-log.json');
+  const log = JSON.parse(logFile.text);
+  const session = log.sessions.find((item) => item.session_id === res.computer_use_session_id);
+  assert.equal(session.task, 'Open Spotify');
+  assert.equal(session.status, 'completed');
+  assert.equal(session.summary, 'AGiXT opened Spotify.');
+  assert.equal(session.steps.length, 2);
+  assert.equal(session.steps[0].action, 'click(25, 320)');
+  assert.equal(session.steps[0].action_type, 'click');
+  assert.equal(session.steps[0].coordinate.x, 25);
+  assert.equal(session.steps[0].resolved_coordinate.x, 48);
+  assert.match(session.steps[0].before_image, /^computer-use\/screenshots\/step-001/);
+  assert.match(session.steps[0].after_image, /^computer-use\/screenshots\/step-001/);
+  assert.equal(session.steps[0].narration, 'AGiXT clicked the Spotify icon.');
+  assert.equal(session.steps[1].action_type, 'done');
+  assert.equal(session.steps[1].narration, 'AGiXT confirmed Spotify opened.');
+});
+
 test('client-actions: visible-ui low-level click upgrades to vision control', async () => {
   let visionCalls = 0;
   const { window, calls } = loadFrontend({

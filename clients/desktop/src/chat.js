@@ -22,7 +22,7 @@
   // Bumped whenever the activity rendering pipeline changes, so the
   // backend log immediately tells us whether the running webview picked
   // up the latest code or is showing a cached/older bundle.
-  const CHAT_JS_VERSION = 'activity-elapsed-v30';
+  const CHAT_JS_VERSION = 'computer-use-recorder-v31';
   if (window.AgixtFrontendLog) {
     window.AgixtFrontendLog('info', `chat.js loaded (${CHAT_JS_VERSION})`);
   }
@@ -1418,6 +1418,7 @@
   }
 
   function toolResultText(tc, result, summary, originalTask) {
+    const toolName = String((tc && tc.name) || '').toLowerCase();
     const taskText = originalTask && originalTask.trim()
       ? `\nOriginal user task: ${originalTask.trim()}`
       : '';
@@ -1435,6 +1436,14 @@
         'Any x/y values in this result are actual screen pixels where the action happened; do not treat them as requested coordinates and do not click them again unless a fresh screenshot shows another click is needed.',
         'For visible UI tasks, take a fresh desktop_screenshot to verify the result before answering unless the user explicitly asked only to click exact coordinates.',
       );
+    }
+    if (toolName === 'desktop_vision_control') {
+      guidance.push(
+        'The action_history in this result describes actions the desktop agent performed during this tool call. Do not describe the final state as already true unless the first screenshot or action_history says it was true before any action.',
+      );
+      if (result && result.computer_use_log) {
+        guidance.push(`Computer-use screenshots, narration metadata, and storyboard artifacts were saved in the workspace at ${result.computer_use_log}.`);
+      }
     }
     if (isError) {
       guidance.push('Do not stop on this failure if another desktop route can complete the user task.');
@@ -2165,6 +2174,7 @@
   }
 
   function getConversationId() { return conversationId; }
+  function getConfig() { return { serverUrl, jwt, conversationId }; }
   function isConnected() { return !!(ws && ws.readyState === WebSocket.OPEN); }
 
   window.AgixtChat = {
@@ -2177,6 +2187,7 @@
     clear,
     loadHistory,
     getConversationId,
+    getConfig,
     isConnected,
     setComposerStatus,
   };
