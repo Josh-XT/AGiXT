@@ -1076,12 +1076,7 @@
       // If the workspace is open, point it at the new conversation
       // so the file list refreshes instead of showing stale entries
       // from the previous thread.
-      if (window.AgixtWorkspace
-          && typeof window.AgixtWorkspace.isOpen === 'function'
-          && window.AgixtWorkspace.isOpen()
-          && typeof window.AgixtWorkspace.reload === 'function') {
-        window.AgixtWorkspace.reload({ conversationId: conv.id });
-      }
+      reloadWorkspaceForActiveConversation({ conversationId: conv.id });
     } catch (e) {
       console.warn('select_conversation failed', e);
     }
@@ -1131,6 +1126,8 @@
     if (!settings.jwt) return;
     if (settings.conversation_id && !options.forceNew) {
       conversationName = settings.conversation_name || '-';
+      reconnectChat();
+      reloadWorkspaceForActiveConversation();
       return;
     }
     try {
@@ -1142,22 +1139,31 @@
       settings = await invoke('get_settings');
       conversationName = (resp && (resp.display_name || resp.name)) || name;
       rememberAgentConversation(settings.agent_id, settings.conversation_id);
+      reconnectChat();
       reloadWorkspaceForActiveConversation();
     } catch (err) {
       console.warn('new_conversation failed', err);
     }
   }
 
-  function reloadWorkspaceForActiveConversation() {
+  function reloadWorkspaceForActiveConversation(options = {}) {
+    const targetConversationId = options.conversationId || (settings && settings.conversation_id);
     if (!window.AgixtWorkspace
         || typeof window.AgixtWorkspace.isOpen !== 'function'
         || !window.AgixtWorkspace.isOpen()
         || typeof window.AgixtWorkspace.reload !== 'function'
         || !settings
-        || !settings.conversation_id) {
+        || !targetConversationId) {
       return;
     }
-    window.AgixtWorkspace.reload({ conversationId: settings.conversation_id, silent: true });
+    window.AgixtWorkspace.reload({
+      serverUrl: settings.server_url,
+      jwt: settings.jwt,
+      agentName: settings.agent_name || (agents && agents[0] && agents[0].name) || 'XT',
+      conversationId: targetConversationId,
+      silent: options.silent !== false,
+      burst: options.burst !== false,
+    });
   }
 
   async function ensureConversationForActiveAgent(options = {}) {

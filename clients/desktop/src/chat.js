@@ -22,7 +22,7 @@
   // Bumped whenever the activity rendering pipeline changes, so the
   // backend log immediately tells us whether the running webview picked
   // up the latest code or is showing a cached/older bundle.
-  const CHAT_JS_VERSION = 'activity-elapsed-v29';
+  const CHAT_JS_VERSION = 'activity-elapsed-v30';
   if (window.AgixtFrontendLog) {
     window.AgixtFrontendLog('info', `chat.js loaded (${CHAT_JS_VERSION})`);
   }
@@ -1700,10 +1700,10 @@
     // Lazy placeholder: pure tool-call rounds (the model produces no
     // text, only `remote_command.request` events) used to leave behind
     // an empty grey bubble in the chat. We now defer creating the
-    // placeholder until the first 'delta' actually arrives. Activities
-    // still get a sane insertion point — when no placeholder exists
-    // they just append to the list, which is fine because the next
-    // round's bubble (if any) lands below them.
+    // placeholder until the first 'delta' actually arrives. Live events
+    // are appended in arrival order so new activity doesn't appear above
+    // text that is already visible; when the turn finishes, the final
+    // answer bubble is moved after the activity block.
     let placeholder = null;
     let asstEntry = null;
     function ensurePlaceholder() {
@@ -1718,6 +1718,17 @@
       order.push(asstId);
       placeholder.content.classList.add('cursor-blink');
       return placeholder;
+    }
+
+    function movePlaceholderAfterStreamingActivity() {
+      if (!placeholder || !placeholder.el || !placeholder.el.parentNode) return;
+      const activityEl = activeStreamingActivity && activeStreamingActivity.el;
+      if (!activityEl || !activityEl.parentNode) return;
+      const relation = placeholder.el.compareDocumentPosition(activityEl);
+      const following = (window.Node && window.Node.DOCUMENT_POSITION_FOLLOWING) || 4;
+      if (relation & following) {
+        activityEl.parentNode.insertBefore(placeholder.el, activityEl.nextSibling);
+      }
     }
 
     const streamId = newStreamId();
@@ -1736,11 +1747,7 @@
       }
       const r = renderActivity('Thinking', 'thought');
       const activityId = `local-activity-${streamId}`;
-      if (placeholder && placeholder.el && placeholder.el.parentNode) {
-        placeholder.el.parentNode.insertBefore(r.el, placeholder.el);
-      } else {
-        els().list.appendChild(r.el);
-      }
+      els().list.appendChild(r.el);
       r.el.setAttribute('aria-expanded', 'true');
       const entry = {
         id: activityId,
@@ -1879,6 +1886,7 @@
                 placeholder.content.classList.remove('cursor-blink');
                 asstEntry.text = finalText;
                 renderMdInto(placeholder.content, finalText);
+                movePlaceholderAfterStreamingActivity();
               }
               dispatchAssistantEvent('agixt-chat-assistant-final', {
                 text: finalText,

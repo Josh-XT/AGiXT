@@ -35,6 +35,7 @@ function cleanupWindow(window) {
   try { if (window.AgixtNotifications) window.AgixtNotifications.stop(); } catch (_) {}
   try { if (window.AgixtTeamChat) window.AgixtTeamChat.unmount(); } catch (_) {}
   try { if (window.AgixtDesktopExtensions) window.AgixtDesktopExtensions.stop(); } catch (_) {}
+  try { if (window.AgixtWorkspace) window.AgixtWorkspace.close(); } catch (_) {}
   try {
     if (window.AgixtDesktopUpdates
         && typeof window.AgixtDesktopUpdates.syncSettings === 'function'
@@ -333,6 +334,41 @@ function loadWorkspaceModelsOnly() {
   return { window };
 }
 
+function loadWorkspaceOnly({ getWorkspace } = {}) {
+  const dom = new JSDOM('<!doctype html><body><div class="chat-screen-main"></div></body>', {
+    runScripts: 'outside-only',
+    url: 'http://localhost/',
+  });
+  const { window } = dom;
+  trackDom(dom);
+  window.requestAnimationFrame = window.requestAnimationFrame || ((cb) => setTimeout(() => cb(Date.now()), 0));
+  window.cancelAnimationFrame = window.cancelAnimationFrame || ((id) => clearTimeout(id));
+  window.AgixtWorkspacePreview = {
+    isPreviewableMedia: () => false,
+    render: () => {},
+    extractTextFromBlob: async () => '',
+  };
+  window.AgixtWorkspaceModels = {
+    init: () => {},
+    ensureModelsLoaded: async () => {},
+    dispose: () => {},
+  };
+  window.AgixtWorkspaceApi = {
+    getWorkspace: getWorkspace || (async () => ({ items: [] })),
+    downloadFile: async () => ({ blob: new window.Blob(['']), text: '' }),
+    uploadFiles: async () => ({ items: [] }),
+    createFolder: async () => ({ items: [] }),
+    deleteItem: async () => ({ items: [] }),
+    moveItem: async () => ({ items: [] }),
+  };
+  vm.runInContext(
+    fs.readFileSync(path.join(SRC, 'workspace.js'), 'utf8'),
+    dom.getInternalVMContext(),
+    { filename: 'workspace.js' },
+  );
+  return { window };
+}
+
 function createFakeMonaco() {
   const models = new Map();
   const makeDisposable = () => ({ dispose() {} });
@@ -493,6 +529,51 @@ test('workspace models: bounded preload avoids Monaco listener leak threshold', 
 
   window.AgixtWorkspaceModels.dispose(monaco);
   assert.equal(monaco.editor.getModels().length, 0);
+});
+
+test('workspace: conversation reload ignores stale in-flight listing', async () => {
+  let resolveOld;
+  const calls = [];
+  const { window } = loadWorkspaceOnly({
+    getWorkspace: async (_cfg, conversationId) => {
+      calls.push(conversationId);
+      if (conversationId === 'old') {
+        return new Promise((resolve) => {
+          resolveOld = () => resolve({
+            items: [{ path: 'old.md', name: 'old.md', type: 'file', size: 3 }],
+          });
+        });
+      }
+      return {
+        items: [{ path: 'new.md', name: 'new.md', type: 'file', size: 3 }],
+      };
+    },
+  });
+
+  await window.AgixtWorkspace.open({
+    serverUrl: 'http://localhost:7437',
+    jwt: 'jwt',
+    agentName: 'XT',
+    conversationId: 'old',
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(calls, ['old']);
+
+  window.AgixtWorkspace.reload({
+    serverUrl: 'http://localhost:7437',
+    jwt: 'jwt',
+    agentName: 'XT',
+    conversationId: 'new',
+    silent: true,
+  });
+  resolveOld();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  assert.ok(calls.includes('new'), 'new conversation was refreshed after stale request finished');
+  const treeText = window.document.querySelector('.wk-tree').textContent;
+  assert.match(treeText, /new\.md/);
+  assert.doesNotMatch(treeText, /old\.md/);
+  await window.AgixtWorkspace.close();
 });
 
 test('web runtime: localStorage settings omit runtime auth fields', async () => {
@@ -705,6 +786,62 @@ test('chat: persisted activity and answer adopt live stream placeholders', async
     .filter(Boolean);
   assert.equal(assistantMessages.length, 1);
   assert.match(assistantMessages[0], /oranges\.md/);
+  window.AgixtChat.disconnect();
+});
+
+test('chat: live activity appends below streamed assistant text until final order settles', async () => {
+  const streamListeners = new Map();
+  let emitDone = null;
+  const { window } = loadFrontend({
+    eventListen: async (name, cb) => {
+      streamListeners.set(name, cb);
+      return () => streamListeners.delete(name);
+    },
+    ipc: {
+      chat_send: async ({ args }) => {
+        const streamId = args.stream_id;
+        setTimeout(() => {
+          const cb = streamListeners.get(`chat-stream:${streamId}`);
+          cb?.({ payload: { event: { kind: 'delta', data: { text: 'Drafting response' } } } });
+          cb?.({ payload: { event: { kind: 'activity', data: { content: 'Creating oranges.md', complete: false } } } });
+        }, 0);
+        emitDone = () => {
+          streamListeners.get(`chat-stream:${streamId}`)?.({
+            payload: { event: { kind: 'done', data: { text: 'Done.', finish_reason: 'stop' } } },
+          });
+        };
+        return streamId;
+      },
+    },
+  });
+  window.AgixtChat.configure({
+    serverUrl: 'http://localhost:7437',
+    jwt: 'jwt',
+    conversationId: 'c',
+    reconnect: false,
+  });
+
+  const sendPromise = window.AgixtChat.send('make oranges.md', 'c');
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  const assistant = window.document.querySelector('#messages .message-assistant');
+  const activity = window.document.querySelector('#messages .activity');
+  assert.ok(assistant, 'assistant text is visible while streaming');
+  assert.ok(activity, 'activity is visible while streaming');
+  assert.ok(
+    assistant.compareDocumentPosition(activity) & window.Node.DOCUMENT_POSITION_FOLLOWING,
+    'new live activity appears below already-visible streamed text',
+  );
+
+  emitDone();
+  await sendPromise;
+
+  const finalAssistant = window.document.querySelector('#messages .message-assistant');
+  const finalActivity = window.document.querySelector('#messages .activity');
+  assert.ok(
+    finalActivity.compareDocumentPosition(finalAssistant) & window.Node.DOCUMENT_POSITION_FOLLOWING,
+    'final assistant answer settles below the activity block',
+  );
   window.AgixtChat.disconnect();
 });
 

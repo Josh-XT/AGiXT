@@ -450,6 +450,7 @@
     refreshBurstTimerIds: [],
     refreshInFlight: false,
     pendingRefresh: false,
+    refreshSeq: 0,
     workspaceSignature: '',
   };
 
@@ -805,6 +806,9 @@
       return;
     }
     state.refreshInFlight = true;
+    const refreshSeq = ++state.refreshSeq;
+    const requestConversationId = state.conversationId;
+    const requestCfg = { ...state.cfg };
     const previousItems = state.items || [];
     const previousSignature = state.workspaceSignature || workspaceSignature(previousItems);
     const previousActive = state.activeFile ? findItemByPath(previousItems, state.activeFile.path) : null;
@@ -813,7 +817,14 @@
       renderTree();
     }
     try {
-      const data = await window.AgixtWorkspaceApi.getWorkspace(state.cfg, state.conversationId, { recursive: true });
+      const data = await window.AgixtWorkspaceApi.getWorkspace(requestCfg, requestConversationId, { recursive: true });
+      if (
+        refreshSeq !== state.refreshSeq
+        || String(requestConversationId) !== String(state.conversationId)
+      ) {
+        state.pendingRefresh = true;
+        return;
+      }
       const nextItems = data.items || [];
       const nextSignature = workspaceSignature(nextItems);
       const changed = nextSignature !== previousSignature;
@@ -1283,6 +1294,7 @@
     ensureRoot();
     const nextConversationId = opts.conversationId;
     const conversationChanged = nextConversationId && nextConversationId !== state.conversationId;
+    state.refreshSeq += 1;
     state.cfg = { serverUrl: opts.serverUrl, jwt: opts.jwt, agentName: opts.agentName };
     state.conversationId = nextConversationId;
     if (conversationChanged) {
@@ -1382,15 +1394,26 @@
   // file list rather than show stale files from the previous thread.
   function reload(opts) {
     if (!state.open) return;
+    if (opts && (opts.serverUrl || opts.jwt || opts.agentName)) {
+      state.refreshSeq += 1;
+      state.cfg = {
+        serverUrl: opts.serverUrl || (state.cfg && state.cfg.serverUrl),
+        jwt: opts.jwt || (state.cfg && state.cfg.jwt),
+        agentName: opts.agentName || (state.cfg && state.cfg.agentName),
+      };
+    }
     if (opts && opts.conversationId && opts.conversationId !== state.conversationId) {
+      state.refreshSeq += 1;
       state.conversationId = opts.conversationId;
       state.items = [];
       state.tree = [];
       state.workspaceSignature = '';
       closeActiveFile();
       state.expandedFolders.clear();
+      renderTree();
     }
     refresh({ silent: !!(opts && opts.silent) });
+    if (opts && opts.burst) scheduleLiveRefreshBurst('conversation-reload');
   }
 
   async function openPath(path, opts) {
@@ -1405,6 +1428,7 @@
         conversationId: nextOpts.conversationId || state.conversationId,
       });
     } else if (nextOpts.conversationId && nextOpts.conversationId !== state.conversationId) {
+      state.refreshSeq += 1;
       state.cfg = {
         serverUrl: nextOpts.serverUrl || (state.cfg && state.cfg.serverUrl),
         jwt: nextOpts.jwt || (state.cfg && state.cfg.jwt),
