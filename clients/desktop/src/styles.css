@@ -1611,10 +1611,92 @@ body.mobile-portrait.window-mode .chat-resize-handle {
   display: none;
 }
 
-/* The pop-open "Chat" strip is the only way back to chat on a phone —
-   give it a touch-friendly width. */
+/* The pop-open "Chat" affordance becomes a floating action button on a
+   phone. A 40px vertical strip is both a poor touch target and gets
+   buried under horizontally-overflowing content (e.g. team chat's
+   fixed columns). As an absolute child of `.chat-screen-main` (which
+   is already inset by the dock-panel safe-area padding) it floats
+   clear of the status bar / home indicator with no env() math, and a
+   high z-index keeps it tappable above any content. */
 body.mobile-portrait.window-mode.chat-collapsed .chat-collapsed-strip {
-  flex-basis: 40px;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 60;
+  flex: none;
+  width: auto;
+  height: auto;
+  flex-direction: row;
+  gap: 7px;
+  /* Vertically-centred right-edge tab: clear of the team-chat header
+     (top) and any composer / send button (bottom), and conceptually
+     the same "edge handle" the desktop collapsed strip is. */
+  padding: 12px 14px 12px 16px;
+  border: 0;
+  border-radius: 999px 0 0 999px;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: -4px 4px 20px rgba(0, 0, 0, 0.4);
+}
+body.mobile-portrait.window-mode.chat-collapsed .chat-collapsed-strip:hover,
+body.mobile-portrait.window-mode.chat-collapsed .chat-collapsed-strip:active {
+  background: var(--accent);
+  color: #fff;
+  filter: brightness(1.06);
+}
+body.mobile-portrait .chat-collapsed-strip .chat-collapsed-strip-label {
+  writing-mode: horizontal-tb;
+  transform: none;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  opacity: 1;
+}
+
+/* ---- Status bar / notch / home-indicator (mobile only) -------------
+   In window mode the global `.topbar` (which carried the
+   env(safe-area-inset-top) padding) is hidden, so without this the
+   chat/content surface renders under the device status bar and its
+   top row of controls can't be tapped. Inset the whole app shell by
+   the reported safe areas; on desktop every env() is 0 so this is a
+   no-op. Scoped away from auth-mode because the auth/landing screens
+   keep their own topbar inset. */
+body.window-mode:not(.auth-mode) .dock-panel {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* ---- Team chat: columns → slide-over drawers (mobile portrait) -----
+   The Discord-style layout is four side-by-side columns
+   (company rail 56px · channel list 220px · content · member list
+   220px). On a phone that crushes the message surface to a sliver.
+   Keep the thin company rail inline, but float the channel + member
+   lists as absolute drawers over the content so the conversation
+   always gets the full width. The existing
+   `.tc-channels-collapsed` / `.tc-members-collapsed` rules
+   (display:none) still close them; team-chat.js drives those classes
+   from a transient mobile state so a phone session never overwrites
+   the desktop collapse preference. */
+body.mobile-portrait .view-pane-team-chat .tc-body { position: relative; }
+body.mobile-portrait .view-pane-team-chat .tc-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+body.mobile-portrait .view-pane-team-chat .tc-channel-list,
+body.mobile-portrait .view-pane-team-chat .tc-member-list {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 8;
+  width: min(80vw, 300px);
+  box-shadow: 0 0 34px rgba(0, 0, 0, 0.45);
+}
+body.mobile-portrait .view-pane-team-chat .tc-channel-list {
+  left: 56px; /* docked just right of the 56px company rail */
+}
+body.mobile-portrait .view-pane-team-chat .tc-member-list {
+  right: 0;
 }
 
 /* Back bar — present only while the chat overlay is up on a phone.

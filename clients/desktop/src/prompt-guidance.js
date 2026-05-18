@@ -25,242 +25,216 @@
   const VIEW_ALIASES = { deployments: 'packages' };
 
   // Fallback shown whenever the active page has no ported, page-specific
-  // guidance (plain chat, dashboard, network, settings, etc.). The set
-  // is chosen by deployment platform because the client-side tool
-  // surface differs: a native desktop build has full computer use +
-  // local filesystem + shell; a mobile (Android/iOS) build can open
-  // apps/URLs/settings and see the screen but has no shell/filesystem;
-  // a plain web deployment has no client-side device tools at all. The
-  // platform is resolved at init via the Tauri `client_platform`
-  // command (see client-actions.js / src-tauri client_tool_specs).
-  const DEFAULT_GUIDANCE_DESKTOP = {
-    title: 'Put your agent to work on this computer',
-    examples: [
-      {
-        label: 'See my screen & suggest next steps',
-        prompt: 'Take a screenshot of my screen, describe what is currently open and what I appear to be working on, then suggest the 3 most useful things you could do for me right now.',
-      },
-      {
-        label: 'Do this on screen for me',
-        prompt: 'Using full computer control, do the following on my screen: {{task}}. Start by taking a screenshot to see the current state, work step by step, take screenshots to verify each step, and stop to tell me if anything looks risky before continuing.',
-        placeholders: [
-          { id: 'task', label: 'What should the agent do?', description: 'e.g. clean up my desktop icons into folders by type', required: true, inputType: 'textarea' },
-        ],
-      },
-      {
-        label: 'Open an app and set it up',
-        prompt: 'Open {{app}} on this computer. Once it is open, take a screenshot, then {{goal}}. Verify it worked with a final screenshot and summarize what you changed.',
-        placeholders: [
-          { id: 'app', label: 'Application', description: 'e.g. Settings, Chrome, VS Code, Spotify', required: true, inputType: 'text' },
-          { id: 'goal', label: 'What to do once it is open', required: true, inputType: 'textarea' },
-        ],
-      },
-      {
-        label: 'Find files on my computer',
-        prompt: 'Search {{folder}} for files matching "{{what}}". List every match with its full path, size, and last-modified date, and give a one-line summary of what each file appears to be. Do not modify anything.',
-        placeholders: [
-          { id: 'what', label: 'What to look for', description: 'name, extension, or keyword', required: true, inputType: 'text' },
-          { id: 'folder', label: 'Where to search', description: 'e.g. ~/Downloads, ~/Documents (defaults to home)', inputType: 'text' },
-        ],
-      },
-      {
-        label: 'Summarize a file or folder',
-        prompt: 'Read {{path}} from my computer and give me a clear summary: what it is, the key points, anything that looks wrong or needs attention, and recommended next steps. If it is a folder, summarize its structure and the notable files first.',
-        placeholders: [
-          { id: 'path', label: 'File or folder path', required: true, inputType: 'text' },
-        ],
-      },
-      {
-        label: 'Run a command and explain it',
-        prompt: 'Run this in a terminal on my computer: `{{command}}`. Show me the exact output, explain what it means in plain language, and flag anything concerning. Ask before running anything destructive.',
-        placeholders: [
-          { id: 'command', label: 'Command', required: true, inputType: 'text' },
-        ],
-      },
-      {
-        label: 'Troubleshoot something on my machine',
-        prompt: 'Help me fix this problem on my computer: {{problem}}. Investigate using screenshots and terminal/diagnostic commands as needed, tell me the most likely root cause with evidence, then propose a fix and apply it once I approve. Do not make destructive changes without confirmation.',
-        placeholders: [
-          { id: 'problem', label: 'Describe the problem', required: true, inputType: 'textarea' },
-        ],
-      },
-      {
-        label: 'Automate a repetitive task',
-        prompt: 'I regularly do this manually on my computer: {{routine}}. Watch what is on screen, work out the exact steps, then perform it for me end to end using computer control. Afterward, write the steps up as a repeatable runbook so we can schedule or automate it next time.',
-        placeholders: [
-          { id: 'routine', label: 'The routine you want automated', required: true, inputType: 'textarea' },
-        ],
-      },
-      {
-        label: 'Research this in my browser',
-        prompt: 'Open my web browser and research: {{topic}}. Use the browser to visit relevant sources, take screenshots of key findings, then give me a concise briefing with the answer, the sources, and anything surprising.',
-        placeholders: [
-          { id: 'topic', label: 'What to research', required: true, inputType: 'textarea' },
-        ],
-      },
-      {
-        label: 'Organize a messy folder',
-        prompt: 'Look at {{folder}} on my computer. Propose a clean organization scheme (subfolders by type/date/project), show me the plan with how many files go where, and once I approve, move the files into place and report exactly what moved. Never delete anything.',
-        placeholders: [
-          { id: 'folder', label: 'Folder to organize', description: 'e.g. ~/Downloads, ~/Desktop', required: true, inputType: 'text' },
-        ],
-      },
-    ],
+  // guidance (plain chat, dashboard, settings, etc.). One pool of
+  // suggestions; each is optionally tagged with the client tool(s) it
+  // needs and is only shown when EVERY required tool is actually present
+  // on this build. The real tool list comes from the Tauri
+  // `client_platform` command (see client-actions.js / src-tauri
+  // client_tool_specs), so the same data self-corrects across desktop
+  // (full computer use), mobile (open app/url/settings + workspace only —
+  // no screen, shell, or filesystem), and a plain web deployment (no
+  // client tools at all). Untagged examples are server-side agent
+  // abilities and always show.
+  const DEFAULT_TITLES = {
+    desktop: 'Put your agent to work on this computer',
+    mobile: 'Put your agent to work on this device',
+    web: 'Get started with your agent',
   };
+  const DEFAULT_POOL = [
+    // ---- Server-side agent abilities (no client tool) — always shown --
+    {
+      label: 'What can you help me with?',
+      prompt: 'Based on your currently enabled abilities and tools, give me a short, concrete list of the most useful things you can do for me right now, with an example request for each.',
+    },
+    {
+      label: 'Research a topic',
+      prompt: 'Research the following and give me a concise briefing with the answer, the key sources, and anything surprising: {{topic}}.',
+      placeholders: [
+        { id: 'topic', label: 'What to research', required: true, inputType: 'textarea' },
+      ],
+    },
+    {
+      label: 'Draft something for me',
+      prompt: 'Help me write {{what}}. Keep the tone {{tone}}, make it clear and concise, and show me the draft for review.',
+      placeholders: [
+        { id: 'what', label: 'What to write', description: 'e.g. a customer email, a project proposal', required: true, inputType: 'textarea' },
+        { id: 'tone', label: 'Tone', description: 'e.g. professional, friendly, apologetic', inputType: 'text' },
+      ],
+    },
+    {
+      label: 'Summarize text I paste',
+      prompt: "I'll paste a document, email, or thread next. Summarize it: the key points, decisions or asks, risks, and the most useful next step.",
+    },
+    {
+      label: 'Plan a project',
+      prompt: 'Help me plan this: {{goal}}. Break it into phases and concrete tasks, call out dependencies and risks, and propose a realistic order of operations.',
+      placeholders: [
+        { id: 'goal', label: 'What you want to accomplish', required: true, inputType: 'textarea' },
+      ],
+    },
+    {
+      label: 'Set up a recurring report',
+      prompt: 'Set up a {{cadence}} task that {{task}} and messages me with the results. Confirm the schedule with me before creating it.',
+      placeholders: [
+        { id: 'task', label: 'What it should cover / do', required: true, inputType: 'textarea' },
+        { id: 'cadence', label: 'How often', description: 'e.g. every Monday 9am, daily', required: true, inputType: 'text' },
+      ],
+    },
+    {
+      label: 'Look at a file I share',
+      prompt: "I'll attach a file next. Read it from the workspace and give me a clear summary: what it is, the key points, anything that needs attention, and recommended next steps.",
+      requires: ['workspace_download'],
+    },
 
-  // Mobile (Android/iOS) build: the agent can look at the screen and
-  // open apps / links / device settings, but there is no shell or
-  // general filesystem, so the suggestions stay device- and
-  // assistant-oriented rather than promising desktop-style control.
-  const DEFAULT_GUIDANCE_MOBILE = {
-    title: 'Put your agent to work on this device',
-    examples: [
-      {
-        label: "See what's on my screen",
-        prompt: "Look at what's currently on my screen, tell me what app or page I'm on, and suggest the most useful things you could help me with right here.",
-      },
-      {
-        label: 'Open an app for me',
-        prompt: 'Open the {{app}} app on my device. Once it is open, tell me what you see and {{goal}}.',
-        placeholders: [
-          { id: 'app', label: 'App name', description: 'e.g. Maps, Calendar, Gmail, Spotify', required: true, inputType: 'text' },
-          { id: 'goal', label: 'What you want to do there', required: true, inputType: 'textarea' },
-        ],
-      },
-      {
-        label: 'Open a website & summarize it',
-        prompt: 'Open {{url_or_topic}} in my browser, read the page, and give me a short plain-language summary of the key points plus anything I should act on.',
-        placeholders: [
-          { id: 'url_or_topic', label: 'URL or topic', required: true, inputType: 'text' },
-        ],
-      },
-      {
-        label: 'Change a device setting',
-        prompt: 'I want to change this setting on my device: {{setting}}. Open the right device settings screen, walk me through it step by step, and confirm once it looks correct.',
-        placeholders: [
-          { id: 'setting', label: 'Setting to change', description: 'e.g. Wi-Fi, notifications, display brightness', required: true, inputType: 'text' },
-        ],
-      },
-      {
-        label: 'Research this for me',
-        prompt: 'Research the following and give me a concise briefing with the answer, the key sources, and anything surprising: {{topic}}.',
-        placeholders: [
-          { id: 'topic', label: 'What to research', required: true, inputType: 'textarea' },
-        ],
-      },
-      {
-        label: 'Draft a message',
-        prompt: 'Help me write {{what}}. Keep the tone {{tone}}, make it concise, and show me the draft for review before I send it anywhere.',
-        placeholders: [
-          { id: 'what', label: 'What to write', description: 'e.g. a reply to my landlord, a birthday text', required: true, inputType: 'textarea' },
-          { id: 'tone', label: 'Tone', description: 'e.g. friendly, professional, apologetic', inputType: 'text' },
-        ],
-      },
-      {
-        label: 'Summarize something I paste',
-        prompt: "I'll paste some text, an email, or a message thread next. Summarize it for me: the key points, who needs what, and the single most useful next step.",
-      },
-      {
-        label: 'Set up a reminder or recurring check-in',
-        prompt: 'Set up a {{cadence}} task that {{task}} and messages me with the results. Confirm the schedule with me before creating it.',
-        placeholders: [
-          { id: 'task', label: 'What it should do', required: true, inputType: 'textarea' },
-          { id: 'cadence', label: 'How often', description: 'e.g. every morning, weekly on Monday', required: true, inputType: 'text' },
-        ],
-      },
-    ],
-  };
+    // ---- Desktop computer use (screenshots + vision + shell + fs) -----
+    {
+      label: 'See my screen & suggest next steps',
+      prompt: 'Take a screenshot of my screen, describe what is currently open and what I appear to be working on, then suggest the 3 most useful things you could do for me right now.',
+      requires: ['desktop_screenshot'],
+    },
+    {
+      label: 'Do this on screen for me',
+      prompt: 'Using full computer control, do the following on my screen: {{task}}. Start by taking a screenshot to see the current state, work step by step, take screenshots to verify each step, and stop to tell me if anything looks risky before continuing.',
+      placeholders: [
+        { id: 'task', label: 'What should the agent do?', description: 'e.g. clean up my desktop icons into folders by type', required: true, inputType: 'textarea' },
+      ],
+      requires: ['desktop_screenshot', 'desktop_vision_control'],
+    },
+    {
+      label: 'Open an app and set it up',
+      prompt: 'Open {{app}} on this computer. Once it is open, take a screenshot, then {{goal}}. Verify it worked with a final screenshot and summarize what you changed.',
+      placeholders: [
+        { id: 'app', label: 'Application', description: 'e.g. Settings, Chrome, VS Code, Spotify', required: true, inputType: 'text' },
+        { id: 'goal', label: 'What to do once it is open', required: true, inputType: 'textarea' },
+      ],
+      requires: ['shell_run', 'desktop_screenshot'],
+    },
+    {
+      label: 'Research this in my browser',
+      prompt: 'Open my web browser and research: {{topic}}. Visit relevant sources, take screenshots of key findings, then give me a concise briefing with the answer, the sources, and anything surprising.',
+      placeholders: [
+        { id: 'topic', label: 'What to research', required: true, inputType: 'textarea' },
+      ],
+      requires: ['desktop_screenshot'],
+    },
+    {
+      label: 'Troubleshoot something on my machine',
+      prompt: 'Help me fix this problem on my computer: {{problem}}. Investigate using screenshots and terminal/diagnostic commands as needed, tell me the most likely root cause with evidence, then propose a fix and apply it once I approve. Do not make destructive changes without confirmation.',
+      placeholders: [
+        { id: 'problem', label: 'Describe the problem', required: true, inputType: 'textarea' },
+      ],
+      requires: ['desktop_screenshot', 'shell_run'],
+    },
+    {
+      label: 'Automate a repetitive task',
+      prompt: 'I regularly do this manually on my computer: {{routine}}. Watch what is on screen, work out the exact steps, then perform it for me end to end using computer control. Afterward, write the steps up as a repeatable runbook so we can schedule or automate it next time.',
+      placeholders: [
+        { id: 'routine', label: 'The routine you want automated', required: true, inputType: 'textarea' },
+      ],
+      requires: ['desktop_screenshot', 'desktop_vision_control'],
+    },
+    {
+      label: 'Find files on my computer',
+      prompt: 'Search {{folder}} for files matching "{{what}}". List every match with its full path, size, and last-modified date, and give a one-line summary of what each file appears to be. Do not modify anything.',
+      placeholders: [
+        { id: 'what', label: 'What to look for', description: 'name, extension, or keyword', required: true, inputType: 'text' },
+        { id: 'folder', label: 'Where to search', description: 'e.g. ~/Downloads, ~/Documents (defaults to home)', inputType: 'text' },
+      ],
+      requires: ['fs_list'],
+    },
+    {
+      label: 'Summarize a file or folder',
+      prompt: 'Read {{path}} from my computer and give me a clear summary: what it is, the key points, anything that looks wrong or needs attention, and recommended next steps. If it is a folder, summarize its structure and the notable files first.',
+      placeholders: [
+        { id: 'path', label: 'File or folder path', required: true, inputType: 'text' },
+      ],
+      requires: ['fs_read'],
+    },
+    {
+      label: 'Run a command and explain it',
+      prompt: 'Run this in a terminal on my computer: `{{command}}`. Show me the exact output, explain what it means in plain language, and flag anything concerning. Ask before running anything destructive.',
+      placeholders: [
+        { id: 'command', label: 'Command', required: true, inputType: 'text' },
+      ],
+      requires: ['shell_run'],
+    },
+    {
+      label: 'Organize a messy folder',
+      prompt: 'Look at {{folder}} on my computer. Propose a clean organization scheme (subfolders by type/date/project), show me the plan with how many files go where, and once I approve, move the files into place and report exactly what moved. Never delete anything.',
+      placeholders: [
+        { id: 'folder', label: 'Folder to organize', description: 'e.g. ~/Downloads, ~/Desktop', required: true, inputType: 'text' },
+      ],
+      requires: ['fs_list'],
+    },
 
-  // Plain web deployment (no Tauri): no client-side device tools at all.
-  // Keep suggestions to what any agent can do server-side — research,
-  // drafting, analysis, planning, and scheduling with its abilities.
-  const DEFAULT_GUIDANCE_WEB = {
-    title: 'Get started with your agent',
-    examples: [
-      {
-        label: 'What can you help me with?',
-        prompt: 'Based on your currently enabled abilities and tools, give me a short, concrete list of the most useful things you can do for me right now, with an example request for each.',
-      },
-      {
-        label: 'Research a topic',
-        prompt: 'Research the following and give me a concise briefing with the answer, the key sources, and anything surprising: {{topic}}.',
-        placeholders: [
-          { id: 'topic', label: 'What to research', required: true, inputType: 'textarea' },
-        ],
-      },
-      {
-        label: 'Draft something for me',
-        prompt: 'Help me write {{what}}. Keep the tone {{tone}}, make it clear and concise, and show me the draft for review.',
-        placeholders: [
-          { id: 'what', label: 'What to write', description: 'e.g. a project proposal, a customer email', required: true, inputType: 'textarea' },
-          { id: 'tone', label: 'Tone', description: 'e.g. professional, friendly, persuasive', inputType: 'text' },
-        ],
-      },
-      {
-        label: 'Summarize text I paste',
-        prompt: "I'll paste a document, email, or thread next. Summarize it: the key points, decisions or asks, risks, and the most useful next step.",
-      },
-      {
-        label: 'Plan a project',
-        prompt: 'Help me plan this: {{goal}}. Break it into phases and concrete tasks, call out dependencies and risks, and propose a realistic order of operations.',
-        placeholders: [
-          { id: 'goal', label: 'What you want to accomplish', required: true, inputType: 'textarea' },
-        ],
-      },
-      {
-        label: 'Analyze data I provide',
-        prompt: "I'll provide some data (paste it or attach a file) next. Analyze it for the trends, outliers, and takeaways that matter most, and recommend what I should do about them.",
-      },
-      {
-        label: 'Set up a recurring report',
-        prompt: 'Set up a {{cadence}} task that {{task}} and messages me with the results. Confirm the schedule with me before creating it.',
-        placeholders: [
-          { id: 'task', label: 'What the report should cover', required: true, inputType: 'textarea' },
-          { id: 'cadence', label: 'How often', description: 'e.g. every Monday 9am, daily', required: true, inputType: 'text' },
-        ],
-      },
-    ],
-  };
-
-  const DEFAULTS_BY_TIER = {
-    desktop: DEFAULT_GUIDANCE_DESKTOP,
-    mobile: DEFAULT_GUIDANCE_MOBILE,
-    web: DEFAULT_GUIDANCE_WEB,
-  };
+    // ---- Mobile device actions (open app / url / settings) -----------
+    {
+      label: 'Open an app for me',
+      prompt: 'Open the {{app}} app on my device. Tell me once it is open, and I will tell you what to do next from there.',
+      placeholders: [
+        { id: 'app', label: 'App name', description: 'e.g. Maps, Calendar, Gmail, Spotify', required: true, inputType: 'text' },
+      ],
+      requires: ['device_open_app'],
+    },
+    {
+      label: 'Open a website for me',
+      prompt: 'Open {{url}} in my browser.',
+      placeholders: [
+        { id: 'url', label: 'Website or URL', required: true, inputType: 'text' },
+      ],
+      requires: ['device_open_url'],
+    },
+    {
+      label: 'Jump to a device setting',
+      prompt: 'Open the device settings screen for {{setting}}, then walk me through changing it step by step.',
+      placeholders: [
+        { id: 'setting', label: 'Setting', description: 'e.g. Wi-Fi, notifications, display brightness', required: true, inputType: 'text' },
+      ],
+      requires: ['device_open_settings'],
+    },
+  ];
   const DEFAULT_KEY = '__default__';
 
-  // Synchronous best-guess: a Tauri build is the desktop client until
-  // client_platform tells us it's mobile; no Tauri means a web build.
-  let platformTier = (window.__TAURI__
+  // What client tools this build actually exposes. `null` = not known
+  // yet (a Tauri build before client_platform answers): stay
+  // conservative and show only the untagged server-side suggestions, so
+  // a device/computer item never flashes on a platform that can't run
+  // it. A plain web build has no Tauri to ask, so it starts as an empty
+  // set (server-side suggestions only, permanently).
+  const HAS_TAURI = !!(window.__TAURI__
     && window.__TAURI__.core
-    && typeof window.__TAURI__.core.invoke === 'function')
-    ? 'desktop'
-    : 'web';
+    && typeof window.__TAURI__.core.invoke === 'function');
+  let platformTier = HAS_TAURI ? 'desktop' : 'web';
+  let availableTools = HAS_TAURI ? null : new Set();
 
-  // Refine the guess once the native side answers. Only the desktop ->
-  // mobile correction matters in practice (web has no Tauri to ask).
+  // Ask the native side which platform/tools this build really has and
+  // re-render with the corrected set. Failures keep the conservative
+  // default. Web has no Tauri, so this is a no-op there.
   function detectPlatformTier() {
-    const invoke = window.__TAURI__
-      && window.__TAURI__.core
-      && window.__TAURI__.core.invoke;
-    if (typeof invoke !== 'function') return;
+    if (!HAS_TAURI) return;
+    const invoke = window.__TAURI__.core.invoke;
     Promise.resolve()
       .then(() => invoke('client_platform'))
       .then((info) => {
         if (!info) return;
-        const next = info.mobile ? 'mobile' : 'desktop';
-        if (next === platformTier) return;
-        platformTier = next;
+        platformTier = info.mobile ? 'mobile' : 'desktop';
+        availableTools = new Set(Array.isArray(info.tools) ? info.tools : []);
         // Force the next render to rebuild even if the view is unchanged.
         currentView = null;
         if (containerEl) containerEl.removeAttribute('data-key');
         render();
       })
-      .catch(() => { /* keep the synchronous best-guess */ });
+      .catch(() => { /* keep the conservative default */ });
   }
 
   function defaultGuidance() {
-    return DEFAULTS_BY_TIER[platformTier] || DEFAULT_GUIDANCE_DESKTOP;
+    const examples = DEFAULT_POOL.filter((ex) => !ex.requires
+      || (availableTools
+          && ex.requires.every((t) => availableTools.has(t))));
+    return {
+      title: DEFAULT_TITLES[platformTier] || DEFAULT_TITLES.desktop,
+      examples,
+    };
   }
 
   const COLLAPSE_KEY = 'agixt.desktop.promptGuidance.collapsed.v1';

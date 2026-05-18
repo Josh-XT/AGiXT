@@ -3481,6 +3481,12 @@
     lastTypingSent = 0;
     lsSet(STORAGE_LAST_CHANNEL_PREFIX + (activeCompanyId || 'private'), channelId);
     renderChannelList();
+    // On a phone the channel list is a drawer over the conversation —
+    // close it on select so the user lands straight in the messages.
+    if (isMobilePortrait() && mobileChannelsOpen) {
+      mobileChannelsOpen = false;
+      applyCollapseState();
+    }
     renderContentHeader();
     el('tc-send-btn').disabled = false;
     el('tc-composer-input').disabled = false;
@@ -5254,19 +5260,52 @@
 
   // ----- Collapse state -------------------------------------------------
 
+  // On a phone the channel / member columns are slide-over drawers
+  // (see styles.css) whose open state is transient — held here, NOT in
+  // localStorage — so a mobile session never clobbers the desktop
+  // collapse preference. Both start closed so the message surface owns
+  // the screen; the user opens them via the expand strip / member
+  // toggle and they auto-close again on channel select.
+  let mobileChannelsOpen = false;
+  let mobileMembersOpen = false;
+  function isMobilePortrait() {
+    return document.body.classList.contains('mobile-portrait');
+  }
+  function channelsCollapsed() {
+    return isMobilePortrait()
+      ? !mobileChannelsOpen
+      : lsGet(STORAGE_COLLAPSE_CHANNELS) === '1';
+  }
+  function membersCollapsed() {
+    return isMobilePortrait()
+      ? !mobileMembersOpen
+      : lsGet(STORAGE_COLLAPSE_MEMBERS) === '1';
+  }
+
   function applyCollapseState() {
     const pane = document.querySelector('.view-pane-team-chat');
     if (!pane) return;
-    pane.classList.toggle('tc-channels-collapsed', lsGet(STORAGE_COLLAPSE_CHANNELS) === '1');
-    pane.classList.toggle('tc-members-collapsed', lsGet(STORAGE_COLLAPSE_MEMBERS) === '1');
+    const chCollapsed = channelsCollapsed();
+    pane.classList.toggle('tc-channels-collapsed', chCollapsed);
+    pane.classList.toggle('tc-members-collapsed', membersCollapsed());
     const expand = el('tc-channel-collapsed');
-    if (expand) expand.hidden = lsGet(STORAGE_COLLAPSE_CHANNELS) !== '1';
+    if (expand) expand.hidden = !chCollapsed;
   }
   function toggleChannels(collapse) {
+    if (isMobilePortrait()) {
+      mobileChannelsOpen = !collapse;
+      applyCollapseState();
+      return;
+    }
     lsSet(STORAGE_COLLAPSE_CHANNELS, collapse ? '1' : '0');
     applyCollapseState();
   }
   function toggleMembers(collapse) {
+    if (isMobilePortrait()) {
+      mobileMembersOpen = !collapse;
+      applyCollapseState();
+      return;
+    }
     lsSet(STORAGE_COLLAPSE_MEMBERS, collapse ? '1' : '0');
     applyCollapseState();
   }
@@ -5303,7 +5342,7 @@
     el('tc-channel-collapsed').addEventListener('click', () => toggleChannels(false));
     el('tc-member-collapse').addEventListener('click', () => toggleMembers(true));
     el('tc-member-toggle').addEventListener('click', () => {
-      toggleMembers(lsGet(STORAGE_COLLAPSE_MEMBERS) !== '1');
+      toggleMembers(!membersCollapsed());
     });
     const inviteBtn = el('tc-member-invite');
     if (inviteBtn) inviteBtn.addEventListener('click', openInviteDialog);
@@ -5492,5 +5531,8 @@
     mount,
     unmount,
     refresh,
+    // Called by app.js when the viewport flips between portrait/desktop
+    // so the channel/member columns re-resolve drawer-vs-column.
+    applyCollapseState,
   };
 })();

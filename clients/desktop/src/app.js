@@ -2518,6 +2518,13 @@
       try { pref = window.localStorage.getItem(CHAT_COLLAPSED_KEY) === '1'; } catch (_) {}
       setChatCollapsedTransient(pref);
     }
+    // Team chat resolves its channel/member columns as inline columns
+    // (desktop) vs slide-over drawers (portrait) off body.mobile-portrait;
+    // nudge it to re-evaluate now that the class flipped.
+    if (window.AgixtTeamChat
+        && typeof window.AgixtTeamChat.applyCollapseState === 'function') {
+      try { window.AgixtTeamChat.applyCollapseState(); } catch (_) {}
+    }
     syncContentPaneClass();
   }
   if (mpMql) {
