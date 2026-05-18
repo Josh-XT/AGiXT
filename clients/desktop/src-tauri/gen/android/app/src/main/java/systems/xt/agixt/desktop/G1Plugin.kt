@@ -11,7 +11,6 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager as AndroidBluetoothManager
 import android.bluetooth.BluetoothProfile
-import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
@@ -154,7 +153,7 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
             currentTx,
             next.data,
             BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
-          ) == BluetoothStatusCodes.SUCCESS
+          ) == GATT_API_SUCCESS
         } else {
           @Suppress("DEPRECATION")
           run {
@@ -969,5 +968,6 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
     private const val CONNECT_TIMEOUT_MS = 20_000L
     private const val HEARTBEAT_MS = 5_000L
     private const val G1_PERMISSION_REQUEST_CODE = 7438
+    private const val GATT_API_SUCCESS = 0
   }
 }

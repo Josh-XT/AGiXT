@@ -10,6 +10,8 @@ src-tauri/gen/android/app/src/*
 !src-tauri/gen/android/app/src/main/
 src-tauri/gen/android/app/src/main/*
 !src-tauri/gen/android/app/src/main/AndroidManifest.xml
+!src-tauri/gen/android/app/src/main/res/
+!src-tauri/gen/android/app/src/main/res/**
 !src-tauri/gen/android/app/src/main/java/
 src-tauri/gen/android/app/src/main/java/*
 !src-tauri/gen/android/app/src/main/java/systems/
