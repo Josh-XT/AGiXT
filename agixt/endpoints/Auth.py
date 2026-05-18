@@ -1467,9 +1467,13 @@ async def get_company_members(
 ):
     try:
         auth = MagicalAuth(token=authorization)
-        # Verify the requesting user belongs to this company
-        user_companies = auth.get_user_companies()
-        if str(company_id) not in [str(c) for c in user_companies]:
+        # Verify the requesting user can access this company. Use
+        # can_access_company (direct membership OR admin of a parent in
+        # the hierarchy) so a tenant/super admin opening a child company's
+        # "Manage in detail" view isn't falsely rejected — get_all_companies
+        # exposes those child companies in the list, so the per-company
+        # endpoints must honor the same accessibility rule.
+        if not auth.can_access_company(str(company_id)):
             raise HTTPException(
                 status_code=403,
                 detail="You are not a member of this company.",

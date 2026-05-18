@@ -245,7 +245,7 @@ async def get_custom_roles(
         company_id = auth.company_id
 
     # Verify user has access to this company
-    if str(company_id) not in auth.get_user_companies():
+    if not auth.can_access_company(str(company_id)):
         raise HTTPException(
             status_code=403,
             detail="Access denied to the specified company",
@@ -317,7 +317,7 @@ async def create_custom_role(
         company_id = auth.company_id
 
     # Verify user has access to this company
-    if str(company_id) not in auth.get_user_companies():
+    if not auth.can_access_company(str(company_id)):
         raise HTTPException(
             status_code=403,
             detail="Access denied to the specified company",
@@ -436,7 +436,7 @@ async def get_custom_role(
             raise HTTPException(status_code=404, detail="Custom role not found")
 
         # Verify user has access to this company
-        if str(custom_role.company_id) not in auth.get_user_companies():
+        if not auth.can_access_company(str(custom_role.company_id)):
             raise HTTPException(
                 status_code=403,
                 detail="Access denied to the specified role",
@@ -499,7 +499,7 @@ async def update_custom_role(
 
         # Verify user has access to this company
         company_id = str(custom_role.company_id)
-        if company_id not in auth.get_user_companies():
+        if not auth.can_access_company(str(company_id)):
             raise HTTPException(
                 status_code=403,
                 detail="Access denied to the specified role",
@@ -624,7 +624,7 @@ async def delete_custom_role(
             raise HTTPException(status_code=404, detail="Custom role not found")
 
         # Verify user has access to this company
-        if str(custom_role.company_id) not in auth.get_user_companies():
+        if not auth.can_access_company(str(custom_role.company_id)):
             raise HTTPException(
                 status_code=403,
                 detail="Access denied to the specified role",
@@ -679,7 +679,7 @@ async def assign_user_custom_role(
         company_id = auth.company_id
 
     # Verify user has access to this company
-    if str(company_id) not in auth.get_user_companies():
+    if not auth.can_access_company(str(company_id)):
         raise HTTPException(
             status_code=403,
             detail="Access denied to the specified company",
@@ -828,7 +828,7 @@ async def remove_user_custom_role(
         company_id = auth.company_id
 
     # Verify user has access to this company
-    if str(company_id) not in auth.get_user_companies():
+    if not auth.can_access_company(str(company_id)):
         raise HTTPException(
             status_code=403,
             detail="Access denied to the specified company",
@@ -886,7 +886,7 @@ async def get_user_custom_roles(
         company_id = auth.company_id
 
     # Verify user has access to this company
-    if str(company_id) not in auth.get_user_companies():
+    if not auth.can_access_company(str(company_id)):
         raise HTTPException(
             status_code=403,
             detail="Access denied to the specified company",
