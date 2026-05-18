@@ -1,9 +1,13 @@
 /* Desktop session guard.
  *
  * The web client validates JWTs in middleware before protected routes
- * render and redirects to auth on 401/403. Desktop has no NextJS
- * middleware layer, so this module provides the same centralized
+ * render and redirects to auth on an invalid session. Desktop has no
+ * NextJS middleware layer, so this module provides the same centralized
  * behavior for boot checks, core API calls, and desktop extensions.
+ *
+ * Only 401 (invalid/expired token) returns the user to auth. 403 is a
+ * per-resource permission/scope denial with a still-valid token and is
+ * surfaced to the caller as a normal error, never a logout.
  */
 (function () {
   const tauri = window.__TAURI__;
@@ -44,7 +48,17 @@
   }
 
   async function handleStatus(status, body) {
-    if ((status === 401 || status === 403)
+    // 401 means the token/session itself is invalid (expired, missing,
+    // unknown user) — the backend raises it only for auth failures, so
+    // recover by returning to the auth screen.
+    //
+    // 403 is NOT a session problem: the backend raises it solely for
+    // "Insufficient permissions. Required scope: ..." with a fully valid
+    // token. Logging out on 403 means a normal permission denial on any
+    // scope-gated sub-resource (e.g. /v1/roles needing roles:read while
+    // viewing "Manage in detail") boots the user out. Let it throw as a
+    // regular error so the caller can handle/ignore it instead.
+    if (status === 401
         && window.AgixtApp
         && typeof window.AgixtApp.handleAuthExpired === 'function') {
       await window.AgixtApp.handleAuthExpired({ status, body });
@@ -108,9 +122,11 @@
       await request('/v1/user/minimal');
       return true;
     } catch (err) {
-      if (err && (err.status === 401 || err.status === 403 || err.status === 402)) {
+      if (err && (err.status === 401 || err.status === 402)) {
         return false;
       }
+      // 403 = valid token, lacks a scope. Session is still alive.
+      if (err && err.status === 403) return true;
       if (err && err.status >= 500) return true;
       console.warn('desktop-session: verification failed', err);
       return true;
@@ -126,7 +142,9 @@
   async function routeFailureStatus(status, body) {
     if (status >= 400 && status !== 404) {
       await handleStatus(status, body);
-      return status === 401 || status === 402 || status === 403
+      // 403 is intentionally absent: it is a permission denial the caller
+      // must surface itself, not a centrally-recovered auth/server state.
+      return status === 401 || status === 402
         || status === 502 || status >= 500;
     }
     return false;
