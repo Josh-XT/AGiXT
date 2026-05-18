@@ -3363,17 +3363,30 @@ test('markdown: code blocks inside a block spoiler render correctly when reveale
 });
 
 test('prompt guidance: default computer-use suggestions on chat, page-specific on a content view', async () => {
-  const { window } = loadFullApp();
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  const { window } = loadFullApp({
+    ipc: {
+      client_platform: () => ({
+        os: 'linux', family: 'desktop', mobile: false, desktop: true,
+        tools: ['desktop_screenshot', 'desktop_vision_control', 'shell_run',
+          'fs_read', 'fs_list', 'workspace_download'],
+      }),
+    },
+  });
+  // Wait for the async client_platform detection + re-render.
+  await new Promise((resolve) => setTimeout(resolve, 60));
   const bar = window.document.getElementById('prompt-guidance');
   assert.ok(bar, '#prompt-guidance container exists');
   // On plain chat there is no page-specific guidance, so the default
   // desktop computer-use set is shown instead of hiding the bar.
   assert.equal(bar.hidden, false, 'bar shows default suggestions on chat');
   assert.equal(bar.dataset.key, '__default__', 'default guidance is active');
-  assert.ok(bar.querySelectorAll('.pg-chip').length >= 5,
-    'default suggestion chips rendered');
   assert.match(bar.querySelector('.pg-bar-title').textContent, /this computer/i);
+  const deskLabels = Array.from(bar.querySelectorAll('.pg-chip-label'))
+    .map((n) => n.textContent);
+  assert.ok(deskLabels.some((l) => /see my screen/i.test(l)),
+    'desktop tools surface the screenshot suggestion');
+  assert.ok(deskLabels.some((l) => /run a command/i.test(l)),
+    'desktop tools surface the shell suggestion');
 
   window.AgixtSidenav.setActiveView('secrets');
   await new Promise((resolve) => setTimeout(resolve, 5));
@@ -3463,8 +3476,13 @@ test('prompt guidance: builder fills placeholders before sending', async () => {
 test('prompt guidance: mobile platform shows device-oriented defaults', async () => {
   const { window } = loadFullApp({
     ipc: {
+      // The exact tool set a mobile (Android/iOS) build exposes — no
+      // screenshot, shell, or filesystem (see src-tauri
+      // client_tool_specs::mobile_tools).
       client_platform: () => ({
-        os: 'android', family: 'mobile', mobile: true, desktop: false, tools: [],
+        os: 'android', family: 'mobile', mobile: true, desktop: false,
+        tools: ['device_open_url', 'device_open_app', 'device_open_settings',
+          'workspace_upload', 'workspace_download'],
       }),
     },
   });
@@ -3478,8 +3496,10 @@ test('prompt guidance: mobile platform shows device-oriented defaults', async ()
     .map((n) => n.textContent);
   assert.ok(labels.some((l) => /open an app/i.test(l)),
     'mobile defaults include device-app suggestions');
-  assert.ok(!labels.some((l) => /terminal|computer/i.test(l)),
-    'mobile defaults do not promise desktop shell/computer control');
+  // Screen viewing / shell / filesystem tools do not exist on mobile, so
+  // none of those suggestions should be offered there.
+  assert.ok(!labels.some((l) => /screen|terminal|run a command|files on my computer|computer/i.test(l)),
+    'mobile defaults do not show desktop screen/shell/filesystem items');
   window.AgixtChat.disconnect();
 });
 

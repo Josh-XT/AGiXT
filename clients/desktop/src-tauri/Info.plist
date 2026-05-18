@@ -2,7 +2,32 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>AGiXT uses Bluetooth to scan, pair, and stay connected with Even Realities glasses.</string>
+  <key>NSBluetoothPeripheralUsageDescription</key>
+  <string>AGiXT uses Bluetooth to scan, pair, and stay connected with Even Realities glasses.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>AGiXT uses calendar access to show events and create reminders when you ask.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>AGiXT uses calendar access to show events and create reminders when you ask.</string>
+  <key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+  <string>AGiXT uses calendar write access to create events and reminders when you ask.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>AGiXT uses the camera only when you choose a camera-based workflow.</string>
+  <key>NSContactsUsageDescription</key>
+  <string>AGiXT uses contacts to help find people when you ask to send messages or make calls.</string>
+  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+  <string>AGiXT uses location to provide location-aware responses and device workflows when you ask.</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>AGiXT uses location to provide location-aware responses and device workflows when you ask.</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>AGiXT Desktop uses the microphone when you tap the mic button to send a voice message.</string>
+  <string>AGiXT uses the microphone when you tap the mic button to send a voice message or use voice features.</string>
+  <key>LSApplicationQueriesSchemes</key>
+  <array>
+    <string>phantom</string>
+    <string>solflare</string>
+    <string>solana-wallet</string>
+    <string>https</string>
+  </array>
 </dict>
 </plist>
