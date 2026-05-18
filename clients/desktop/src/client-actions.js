@@ -596,12 +596,17 @@
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+    const storyboardImageSrc = (value) => {
+      const clean = normalizeWorkspacePath(value);
+      const prefix = `${COMPUTER_USE_FOLDER}/`;
+      return clean.startsWith(prefix) ? clean.slice(prefix.length) : clean;
+    };
     const rows = steps.map((step) => {
-      const image = esc(step.after_image || step.before_image || '');
+      const image = esc(storyboardImageSrc(step.after_image || step.before_image || ''));
       const marker = step.coordinate
         ? `<span class="marker" style="left:${Math.max(0, Math.min(100, Number(step.coordinate.x || 0) / 10))}%;top:${Math.max(0, Math.min(100, Number(step.coordinate.y || 0) / 10))}%"></span>`
         : '';
-      return `<section class="step"><div class="frame">${image ? `<img src="../${image}" alt="Step ${esc(step.step)}">` : ''}${marker}</div><div class="copy"><h2>Step ${esc(step.step)}</h2><p>${esc(step.narration || step.summary || step.action)}</p><code>${esc(step.action || '')}</code></div></section>`;
+      return `<section class="step"><div class="frame">${image ? `<img src="${image}" alt="Step ${esc(step.step)}">` : ''}${marker}</div><div class="copy"><h2>Step ${esc(step.step)}</h2><p>${esc(step.narration || step.summary || step.action)}</p><code>${esc(step.action || '')}</code></div></section>`;
     }).join('\n');
     return `<!doctype html>
 <html>

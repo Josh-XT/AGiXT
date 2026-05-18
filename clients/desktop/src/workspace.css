@@ -75,6 +75,27 @@
   z-index: 1;
 }
 
+/* Drag seam between the editor and the Files panel. A hairline that
+   widens to an accent bar on hover/drag; generous hit area via padding. */
+.wk-sidebar-resize {
+  flex: 0 0 auto;
+  width: 5px;
+  cursor: col-resize;
+  background: var(--border, #1a1f24);
+  position: relative;
+  z-index: 2;
+}
+.wk-sidebar-resize:hover,
+.wk-sidebar-resize.is-dragging {
+  background: var(--accent, #2563eb);
+}
+.wk-sidebar-resize::before {
+  /* Invisible padded hit target so the thin seam is easy to grab. */
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; left: -4px; right: -4px;
+}
+
 .wk-sidebar-collapsed {
   flex: 0 0 auto;
   width: 28px;

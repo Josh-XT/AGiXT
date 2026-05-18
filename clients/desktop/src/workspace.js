@@ -457,6 +457,29 @@
   // Roots + cached element references built on first open.
   let root = null;
   let sidebarEl, sidebarCollapsedEl, sidebarTreeEl, sidebarHeaderEl, newFolderRow, newFolderInput;
+  let sidebarResizeEl;
+
+  // Files panel is user-resizable; width persists across sessions.
+  // Mirrors the chat-pane resize pattern in app.js.
+  const WK_SIDEBAR_WIDTH_KEY = 'agixt.desktop.workspaceSidebarWidth.v1';
+  const WK_SIDEBAR_MIN = 180;
+  const WK_SIDEBAR_MAX = 560;
+  const WK_SIDEBAR_DEFAULT = 260;
+
+  function applySidebarWidth(w) {
+    const n = Math.max(WK_SIDEBAR_MIN, Math.min(WK_SIDEBAR_MAX,
+      Math.round(w || WK_SIDEBAR_DEFAULT)));
+    if (sidebarEl) sidebarEl.style.width = n + 'px';
+    return n;
+  }
+
+  function storedSidebarWidth() {
+    try {
+      const v = window.localStorage.getItem(WK_SIDEBAR_WIDTH_KEY);
+      if (v != null) return Number(v);
+    } catch (_) {}
+    return WK_SIDEBAR_DEFAULT;
+  }
   let editorAreaEl, editorMountEl, previewEl;
   let modeToggleEl, dirtyEl, fileNameEl, splitContainer, splitHandle;
   let splitLeft, splitRight;
@@ -499,6 +522,13 @@
     ]);
     editorAreaEl.appendChild(welcomePane);
     body.appendChild(editorAreaEl);
+
+    // Drag seam between the editor and the Files panel. Sits to the
+    // panel's left; dragging it left widens the panel.
+    sidebarResizeEl = el('div', { class: 'wk-sidebar-resize',
+      title: 'Drag to resize · double-click to reset' });
+    body.appendChild(sidebarResizeEl);
+    bindSidebarResize();
 
     // Files panel (right). Header gets a chevron that collapses the panel
     // down to `.wk-sidebar-collapsed`; clicking the strip restores it.
@@ -546,6 +576,7 @@
     sidebarTreeEl = el('div', { class: 'wk-tree' });
     sidebarEl.appendChild(sidebarTreeEl);
     body.appendChild(sidebarEl);
+    applySidebarWidth(storedSidebarWidth());
 
     // Collapsed strip — replaces the Files panel when the user collapses
     // it. Click anywhere on the strip to bring the Files panel back.
@@ -625,7 +656,41 @@
 
   function renderSidebarVisibility() {
     if (sidebarEl) sidebarEl.style.display = state.sidebarOpen ? '' : 'none';
+    if (sidebarResizeEl) sidebarResizeEl.style.display = state.sidebarOpen ? '' : 'none';
     if (sidebarCollapsedEl) sidebarCollapsedEl.style.display = state.sidebarOpen ? 'none' : '';
+  }
+
+  // Files panel sits to the right of the seam, so dragging the handle
+  // left (clientX decreasing) should widen it.
+  function bindSidebarResize() {
+    if (!sidebarResizeEl) return;
+    let dragging = false, startX = 0, startWidth = 0;
+    sidebarResizeEl.addEventListener('pointerdown', (e) => {
+      if (!sidebarEl) return;
+      dragging = true;
+      sidebarResizeEl.classList.add('is-dragging');
+      startX = e.clientX;
+      startWidth = sidebarEl.getBoundingClientRect().width;
+      try { sidebarResizeEl.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault();
+    });
+    sidebarResizeEl.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const next = applySidebarWidth(startWidth - (e.clientX - startX));
+      try { window.localStorage.setItem(WK_SIDEBAR_WIDTH_KEY, String(next)); } catch (_) {}
+    });
+    const stop = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      sidebarResizeEl.classList.remove('is-dragging');
+      try { sidebarResizeEl.releasePointerCapture(e.pointerId); } catch (_) {}
+    };
+    sidebarResizeEl.addEventListener('pointerup', stop);
+    sidebarResizeEl.addEventListener('pointercancel', stop);
+    sidebarResizeEl.addEventListener('dblclick', () => {
+      applySidebarWidth(WK_SIDEBAR_DEFAULT);
+      try { window.localStorage.setItem(WK_SIDEBAR_WIDTH_KEY, String(WK_SIDEBAR_DEFAULT)); } catch (_) {}
+    });
   }
 
   function renderNewFolderRow() {
@@ -693,7 +758,10 @@
     wrap.appendChild(row);
 
     if (isFolder && isExpanded && node.children.length) {
-      const kids = el('div', { class: 'wk-tree-children', style: `margin-left:${12 + node.depth * 14}px` });
+      // No margin here: each child row already encodes its full depth via
+      // its own `padding-left` inline style. Adding depth-based margin to
+      // the container too would compound the indent every level deeper.
+      const kids = el('div', { class: 'wk-tree-children' });
       for (const child of node.children) kids.appendChild(renderTreeNode(child));
       wrap.appendChild(kids);
     }
@@ -1118,7 +1186,14 @@
     if (isHtmlFile(f.name) && window.AgixtWorkspacePreview &&
         window.AgixtWorkspacePreview.renderHtmlDoc) {
       const paint = () => window.AgixtWorkspacePreview.renderHtmlDoc(
-        target, state.editorContent || '');
+        target,
+        state.editorContent || '',
+        {
+          api: window.AgixtWorkspaceApi,
+          cfg: state.cfg,
+          conversationId: state.conversationId,
+          filePath: f.path,
+        });
       if (target.querySelector('.wkfp-html')) {
         clearTimeout(_htmlPreviewTimer);
         _htmlPreviewTimer = setTimeout(paint, 300);

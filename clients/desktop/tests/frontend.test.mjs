@@ -334,6 +334,22 @@ function loadWorkspaceModelsOnly() {
   return { window };
 }
 
+function loadWorkspacePreviewOnly() {
+  const dom = new JSDOM('<!doctype html><body></body>', {
+    runScripts: 'outside-only',
+    url: 'http://localhost/',
+  });
+  const { window } = dom;
+  trackDom(dom);
+  let objectUrlCount = 0;
+  const revoked = [];
+  window.URL.createObjectURL = () => `blob:workspace-preview-${++objectUrlCount}`;
+  window.URL.revokeObjectURL = (url) => { revoked.push(url); };
+  const code = fs.readFileSync(path.join(SRC, 'workspace-preview.js'), 'utf8');
+  vm.runInContext(code, dom.getInternalVMContext(), { filename: 'workspace-preview.js' });
+  return { window, revoked };
+}
+
 function loadWorkspaceOnly({ getWorkspace } = {}) {
   const dom = new JSDOM('<!doctype html><body><div class="chat-screen-main"></div></body>', {
     runScripts: 'outside-only',
@@ -529,6 +545,46 @@ test('workspace models: bounded preload avoids Monaco listener leak threshold', 
 
   window.AgixtWorkspaceModels.dispose(monaco);
   assert.equal(monaco.editor.getModels().length, 0);
+});
+
+test('workspace preview: html resolves workspace-relative image URLs', async () => {
+  const { window, revoked } = loadWorkspacePreviewOnly();
+  const target = window.document.createElement('div');
+  window.document.body.appendChild(target);
+  const downloads = [];
+  const api = {
+    downloadFile: async (_cfg, conversationId, filePath) => {
+      downloads.push({ conversationId, filePath });
+      if (filePath !== 'computer-use/screenshots/step-001-after.jpeg') {
+        throw new Error(`${filePath} missing`);
+      }
+      return { blob: new window.Blob(['image-bytes'], { type: 'image/jpeg' }) };
+    },
+  };
+
+  window.AgixtWorkspacePreview.renderHtmlDoc(
+    target,
+    '<!doctype html><html><body><img src="../computer-use/screenshots/step-001-after.jpeg"><img src="https://example.com/logo.png"></body></html>',
+    {
+      api,
+      cfg: { serverUrl: 'http://localhost:7437', jwt: 'jwt' },
+      conversationId: 'conversation-1',
+      filePath: 'computer-use/storyboard.html',
+    },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const iframe = target.querySelector('.wkfp-html');
+  assert.ok(iframe, 'preview iframe rendered');
+  assert.match(iframe.srcdoc, /src="blob:workspace-preview-1"/);
+  assert.match(iframe.srcdoc, /src="https:\/\/example\.com\/logo\.png"/);
+  assert.deepEqual(downloads, [{
+    conversationId: 'conversation-1',
+    filePath: 'computer-use/screenshots/step-001-after.jpeg',
+  }]);
+
+  window.AgixtWorkspacePreview.destroy(target);
+  assert.deepEqual(revoked, ['blob:workspace-preview-1']);
 });
 
 test('workspace: conversation reload ignores stale in-flight listing', async () => {
@@ -1850,8 +1906,13 @@ test('client-actions: desktop_vision_control records computer-use workspace arti
   assert.equal(narrationVisionCalls, 2);
   assert.ok(uploads.some((upload) => upload.destinationPath === 'computer-use/screenshots'
     && upload.files.some((file) => /step-001.*-before\.jpeg$/.test(file.name))));
-  assert.ok(uploads.some((upload) => upload.destinationPath === 'computer-use'
-    && upload.files.some((file) => file.name === 'storyboard.html')));
+  const storyboardUploads = uploads.filter((upload) => upload.destinationPath === 'computer-use'
+    && upload.files.some((file) => file.name === 'storyboard.html'));
+  const storyboardUpload = storyboardUploads[storyboardUploads.length - 1];
+  assert.ok(storyboardUpload);
+  const storyboardFile = storyboardUpload.files.find((file) => file.name === 'storyboard.html');
+  assert.match(storyboardFile.text, /src="screenshots\/step-001/);
+  assert.doesNotMatch(storyboardFile.text, /src="\.\.\/computer-use\/screenshots\//);
   assert.ok(folders.some((folder) => folder.folderName === 'screenshots'
     && folder.parentPath === 'computer-use'));
   assert.ok(moves.some((move) => /step-001.*-before\.jpeg$/.test(move.sourcePath)

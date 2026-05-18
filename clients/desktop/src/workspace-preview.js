@@ -64,6 +64,109 @@
     el.appendChild(wrap);
   }
 
+  function normalizeWorkspacePath(path) {
+    const parts = String(path || '')
+      .replace(/\\/g, '/')
+      .split('/');
+    const out = [];
+    for (const raw of parts) {
+      const part = raw.trim();
+      if (!part || part === '.') continue;
+      if (part === '..') out.pop();
+      else out.push(part);
+    }
+    return out.join('/');
+  }
+
+  function workspaceParentPath(path) {
+    const parts = normalizeWorkspacePath(path).split('/').filter(Boolean);
+    parts.pop();
+    return parts.join('/');
+  }
+
+  function isExternalPreviewUrl(value) {
+    const url = String(value || '').trim();
+    return !url || url.startsWith('#') || url.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(url);
+  }
+
+  function workspaceAssetCandidates(rawUrl, currentFilePath) {
+    const value = String(rawUrl || '').trim();
+    if (isExternalPreviewUrl(value)) return [];
+    const clean = value.replace(/[?#].*$/, '');
+    if (!clean || isExternalPreviewUrl(clean)) return [];
+    const candidates = [];
+    const push = (path) => {
+      const normalized = normalizeWorkspacePath(path);
+      if (normalized && !candidates.includes(normalized)) candidates.push(normalized);
+    };
+    if (clean.startsWith('/')) {
+      push(clean);
+    } else {
+      const basePath = workspaceParentPath(currentFilePath);
+      push(`${basePath}/${clean}`);
+      push(clean);
+    }
+    return candidates;
+  }
+
+  function canResolveWorkspaceAssets(opts) {
+    return opts && opts.api && typeof opts.api.downloadFile === 'function'
+      && opts.cfg && opts.conversationId && opts.filePath
+      && window.URL && typeof window.URL.createObjectURL === 'function';
+  }
+
+  function revokeObjectUrls(urls) {
+    for (const url of urls || []) {
+      try { window.URL.revokeObjectURL(url); } catch (_) {}
+    }
+  }
+
+  async function hydrateHtmlWorkspaceAssets(htmlString, opts, objectUrls) {
+    if (!canResolveWorkspaceAssets(opts)) return htmlString;
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlString, 'text/html');
+    const cache = new Map();
+    const resourceAttrs = [
+      ['img[src]', 'src'],
+      ['video[src]', 'src'],
+      ['video[poster]', 'poster'],
+      ['audio[src]', 'src'],
+      ['source[src]', 'src'],
+      ['track[src]', 'src'],
+      ['link[href]', 'href'],
+      ['script[src]', 'src'],
+    ];
+
+    async function objectUrlFor(rawUrl) {
+      const candidates = workspaceAssetCandidates(rawUrl, opts.filePath);
+      for (const candidate of candidates) {
+        if (cache.has(candidate)) return cache.get(candidate);
+        try {
+          const result = await opts.api.downloadFile(opts.cfg, opts.conversationId, candidate);
+          if (result && result.blob) {
+            const objectUrl = window.URL.createObjectURL(result.blob);
+            objectUrls.push(objectUrl);
+            cache.set(candidate, objectUrl);
+            return objectUrl;
+          }
+        } catch (_) { /* try the next candidate */ }
+      }
+      return null;
+    }
+
+    const rewrites = [];
+    for (const [selector, attr] of resourceAttrs) {
+      doc.querySelectorAll(selector).forEach((node) => {
+        const raw = node.getAttribute(attr);
+        rewrites.push(objectUrlFor(raw).then((url) => {
+          if (url) node.setAttribute(attr, url);
+        }));
+      });
+    }
+    await Promise.all(rewrites);
+    return `<!doctype html>\n${doc.documentElement.outerHTML}`;
+  }
+
   function fillUnknown(el, onDownload) {
     clear(el);
     const wrap = document.createElement('div');
@@ -139,12 +242,31 @@
   // Mirrors the safe pattern from web's CodeBlock.tsx: srcdoc + sandbox,
   // with a small viewport-fix wrap so full-page layouts size correctly.
   // Isolation is via the iframe sandbox only (no DOM injection into the host).
-  function renderHtmlDoc(el, htmlString) {
-    clear(el);
+  function renderHtmlDoc(el, htmlString, opts) {
+    destroy(el);
     const src = String(htmlString || '');
     const wrapped = src
       .replace(/<style>/i, '<style>\n  html, body { height: 100%; margin: 0; padding: 0; }\n')
       .replace(/height:\s*100vh/gi, 'height: 100%');
+    const token = {};
+    const objectUrls = [];
+    el._wkfpHtmlToken = token;
+
+    const paint = (html) => {
+      if (el._wkfpHtmlToken !== token) {
+        revokeObjectUrls(objectUrls);
+        return;
+      }
+      clear(el);
+      renderHtmlFrame(el, html, objectUrls);
+    };
+
+    hydrateHtmlWorkspaceAssets(wrapped, opts || {}, objectUrls)
+      .then((html) => paint(html))
+      .catch(() => paint(wrapped));
+  }
+
+  function renderHtmlFrame(el, htmlString, objectUrls) {
     const wrap = document.createElement('div');
     wrap.className = 'wkfp-html-wrap';
     const iframe = document.createElement('iframe');
@@ -156,9 +278,10 @@
     // file cannot navigate the app or submit anywhere.
     iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
     iframe.setAttribute('referrerpolicy', 'no-referrer');
-    iframe.srcdoc = wrapped;
+    iframe.srcdoc = htmlString;
     wrap.appendChild(iframe);
     el.appendChild(wrap);
+    el._wkfpRevoke = () => revokeObjectUrls(objectUrls);
   }
 
   function renderTable(el, headers, rows, footer) {
@@ -310,6 +433,7 @@
 
   function destroy(el) {
     if (!el) return;
+    el._wkfpHtmlToken = null;
     if (typeof el._wkfpRevoke === 'function') {
       try { el._wkfpRevoke(); } catch {}
       el._wkfpRevoke = null;
