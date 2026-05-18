@@ -474,14 +474,20 @@
     wrap.querySelectorAll('[data-scope]').forEach((node) => {
       const scope = node.dataset.scope || 'user';
       const allowed = canUseChainScope(scope);
-      node.classList.toggle('is-active', scope === STATE.scope);
-      node.classList.toggle('is-locked', !allowed);
+      // Company/Server are admin-only surfaces. Rather than show them
+      // locked, hide them entirely for users without access so the
+      // header only advertises scopes they can actually use.
+      node.hidden = !allowed;
+      node.classList.toggle('is-active', allowed && scope === STATE.scope);
+      node.classList.remove('is-locked');
       node.disabled = !allowed;
-      node.setAttribute('aria-selected', scope === STATE.scope ? 'true' : 'false');
-      node.title = allowed
-        ? `${scopeLabel(scope)} chains`
-        : `You don't have access to ${scopeLabel(scope).toLowerCase()} chains. Ask an admin for the ${scope}:chains scope.`;
+      node.setAttribute('aria-selected', allowed && scope === STATE.scope ? 'true' : 'false');
+      node.title = `${scopeLabel(scope)} chains`;
     });
+    // If only one scope remains visible, the switcher adds no value.
+    const visible = Array.prototype.filter.call(
+      wrap.querySelectorAll('[data-scope]'), (n) => !n.hidden);
+    wrap.hidden = visible.length <= 1;
   }
 
   async function switchScope(scope) {

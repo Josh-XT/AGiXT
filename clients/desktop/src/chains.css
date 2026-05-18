@@ -213,7 +213,14 @@
   border-bottom: 1px solid var(--border-muted);
 }
 .cn-search {
+  /* Strip the native WebKitGTK searchfield appearance — its themed
+     intrinsic height inflates the box on reflow (e.g. when a chain is
+     opened for editing). Pin an explicit height so it stays compact. */
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 0 0 auto;
   width: 100%;
+  height: 32px;
   padding: 7px 10px;
   background: var(--panel-2);
   color: var(--text);
@@ -222,6 +229,11 @@
   font-family: inherit;
   font-size: 12.5px;
   box-sizing: border-box;
+}
+.cn-search::-webkit-search-decoration,
+.cn-search::-webkit-search-cancel-button {
+  appearance: none;
+  -webkit-appearance: none;
 }
 .cn-search:focus {
   outline: 1px solid var(--accent);
