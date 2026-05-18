@@ -3463,7 +3463,11 @@
       : (allConversationsCache || []);
     let target = null;
     if (lastId && channels.some((c) => c.id === lastId)) target = lastId;
-    else if (activeCompanyId && channels.length) target = channels[0].id;
+    // No remembered selection yet → drop the user into the most recent
+    // conversation rather than an empty pane. `channels` is the company's
+    // channel list (server order) or, in DM mode, allConversationsCache
+    // which is sorted most-recent-first.
+    else if (channels.length) target = channels[0].id;
     if (target) await selectChannel(target);
   }
 
@@ -5511,6 +5515,10 @@
       const convos = allConversationsCache || [];
       let target = null;
       if (lastId && convos.some((c) => c.id === lastId)) target = lastId;
+      // First-run / no tracked state → open the most recent DM
+      // (allConversationsCache is sorted most-recent-first) so the user
+      // never lands on a blank "no channel selected" screen.
+      else if (convos.length) target = convos[0].id;
       if (target) await selectChannel(target);
     }
   }

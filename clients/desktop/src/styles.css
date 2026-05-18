@@ -1611,47 +1611,17 @@ body.mobile-portrait.window-mode .chat-resize-handle {
   display: none;
 }
 
-/* The pop-open "Chat" affordance becomes a floating action button on a
-   phone. A 40px vertical strip is both a poor touch target and gets
-   buried under horizontally-overflowing content (e.g. team chat's
-   fixed columns). As an absolute child of `.chat-screen-main` (which
-   is already inset by the dock-panel safe-area padding) it floats
-   clear of the status bar / home indicator with no env() math, and a
-   high z-index keeps it tappable above any content. */
+/* The pop-open "Chat" affordance keeps the exact same look it has when
+   collapsed on desktop (the vertical edge strip) so it reads as part
+   of the app rather than a bolted-on mobile control. The only mobile
+   concessions: a slightly wider touch target and a raised z-index so
+   it always stays tappable above page content. Once each page flexes
+   to mobile (no horizontal overflow) the strip is no longer buried, so
+   no special positioning is needed — it stays the inline left-edge
+   column it is on desktop. */
 body.mobile-portrait.window-mode.chat-collapsed .chat-collapsed-strip {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  flex-basis: 38px;
   z-index: 60;
-  flex: none;
-  width: auto;
-  height: auto;
-  flex-direction: row;
-  gap: 7px;
-  /* Vertically-centred right-edge tab: clear of the team-chat header
-     (top) and any composer / send button (bottom), and conceptually
-     the same "edge handle" the desktop collapsed strip is. */
-  padding: 12px 14px 12px 16px;
-  border: 0;
-  border-radius: 999px 0 0 999px;
-  background: var(--accent);
-  color: #fff;
-  box-shadow: -4px 4px 20px rgba(0, 0, 0, 0.4);
-}
-body.mobile-portrait.window-mode.chat-collapsed .chat-collapsed-strip:hover,
-body.mobile-portrait.window-mode.chat-collapsed .chat-collapsed-strip:active {
-  background: var(--accent);
-  color: #fff;
-  filter: brightness(1.06);
-}
-body.mobile-portrait .chat-collapsed-strip .chat-collapsed-strip-label {
-  writing-mode: horizontal-tb;
-  transform: none;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  opacity: 1;
 }
 
 /* ---- Status bar / notch / home-indicator (mobile only) -------------
@@ -1697,6 +1667,108 @@ body.mobile-portrait .view-pane-team-chat .tc-channel-list {
 }
 body.mobile-portrait .view-pane-team-chat .tc-member-list {
   right: 0;
+}
+
+/* ===== Mobile portrait: make every page flex ========================
+   The panes were designed for a wide desktop split; on a phone their
+   fixed multi-column layouts overflow, producing window-level
+   side-scrollbars and truncated content. These rules (all gated on
+   body.mobile-portrait, so desktop/landscape are untouched) clip the
+   page, turn list+detail layouts into single-surface drawers, and let
+   genuinely-wide content (tables, code) scroll inside its own box
+   instead of widening the whole app. */
+
+/* Nothing produces a window-level horizontal scrollbar or bleeds over
+   the chat strip — every pane clips and scrolls internally. */
+body.mobile-portrait .chat-screen-main { overflow: hidden; }
+
+/* Tables are the #1 side-scroll culprit. Scroll them inside their own
+   wrapper rather than widening the page — covers the app's own
+   *-table-wrap convention and server-delivered extensions. */
+body.mobile-portrait [class*="-table-wrap"],
+body.mobile-portrait [class*="-table-scroll"],
+body.mobile-portrait .view-pane-extension [class*="table"] {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Header / toolbar rows wrap instead of overflowing; tab strips that
+   can't wrap (segmented controls) scroll horizontally. */
+body.mobile-portrait .cn-header,
+body.mobile-portrait .pl-header,
+body.mobile-portrait .as-header,
+body.mobile-portrait .as-panel-toolbar,
+body.mobile-portrait .view-pane-extension [class*="-title-row"],
+body.mobile-portrait .view-pane-extension [class*="-toolbar"] {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+body.mobile-portrait .cn-scope-tabs,
+body.mobile-portrait .pl-scope-tabs,
+body.mobile-portrait .us-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Workspace: the Files tree becomes a right-side slide-over drawer so
+   the editor always gets the full width (same pattern as team chat).
+   The collapsed 28px re-expand strip is untouched — it's already thin
+   enough and is the affordance to reopen the drawer. */
+body.mobile-portrait .wk-body { position: relative; }
+body.mobile-portrait .wk-sidebar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 8;
+  width: min(82vw, 300px);
+  box-shadow: 0 0 34px rgba(0, 0, 0, 0.45);
+}
+body.mobile-portrait .wk-sidebar-resize { display: none; }
+
+/* List+editor panes (chains, prompts) already stack via their own
+   ≤720px viewport media query; guarantee the list spans full width and
+   the editor can shrink so neither forces a side-scroll on a phone. */
+body.mobile-portrait .cn-list,
+body.mobile-portrait .pl-list {
+  width: 100%;
+  max-width: 100%;
+}
+body.mobile-portrait .cn-editor,
+body.mobile-portrait .pl-editor,
+body.mobile-portrait .cn-step-body,
+body.mobile-portrait .pl-edit-grid {
+  min-width: 0;
+}
+
+/* Inputs / title wrappers that hard-pin a min-width wider than a phone
+   would otherwise blow out their row. */
+body.mobile-portrait .as-search-wrap,
+body.mobile-portrait .cn-editor-titlewrap,
+body.mobile-portrait .pl-editor-titlewrap {
+  min-width: 0;
+}
+
+/* Generic server-extension safety. Their CSS is delivered, not editable
+   here, so clamp media/code/tables to the viewport and let wide blocks
+   scroll internally; flow rows wrap rather than overflow. */
+body.mobile-portrait .view-pane-extension { overflow: auto; }
+body.mobile-portrait .view-pane-extension img,
+body.mobile-portrait .view-pane-extension pre,
+body.mobile-portrait .view-pane-extension table,
+body.mobile-portrait .view-pane-extension video {
+  max-width: 100%;
+}
+body.mobile-portrait .view-pane-extension pre {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+body.mobile-portrait .view-pane-extension [class*="-row"],
+body.mobile-portrait .view-pane-extension [class*="-actions"],
+body.mobile-portrait .view-pane-extension [class*="-filters"] {
+  flex-wrap: wrap;
 }
 
 /* Back bar — present only while the chat overlay is up on a phone.

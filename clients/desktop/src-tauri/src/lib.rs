@@ -22,7 +22,7 @@ pub mod g1;
 #[cfg(mobile)]
 #[path = "g1_mobile.rs"]
 pub mod g1;
-#[cfg(not(mobile))]
+#[cfg(any(not(mobile), target_os = "android"))]
 pub mod g1_lc3;
 pub mod hardware;
 pub mod local_install;
@@ -4560,6 +4560,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(g1::init())
         .setup(|app| {
             let settings_db = app
                 .path()

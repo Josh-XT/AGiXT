@@ -13,6 +13,7 @@
   let settingsCache = null;
   let statusCache = null;
   let unlistenG1 = null;
+  let nativeG1Channel = null;
   let started = false;
   let streamTimer = null;
   let pendingStreamText = '';
@@ -276,6 +277,22 @@
     }
   }
 
+  async function listenNativeG1Plugin() {
+    const isAndroid = /Android/i.test(window.navigator && window.navigator.userAgent || '');
+    if (!isAndroid || nativeG1Channel || !tauri.core.Channel) return;
+    try {
+      nativeG1Channel = new tauri.core.Channel();
+      nativeG1Channel.onmessage = handleG1Event;
+      await invoke('plugin:g1|registerListener', {
+        event: 'g1-event',
+        handler: nativeG1Channel,
+      });
+    } catch (err) {
+      nativeG1Channel = null;
+      log('warn', 'Native G1 event listener failed', errMsg(err));
+    }
+  }
+
   async function scanAndConnect() {
     await loadSettings(true);
     return invokeStatus('g1_scan_and_connect');
@@ -355,6 +372,7 @@
         log('warn', 'G1 event listener failed', errMsg(err));
       }
     }
+    await listenNativeG1Plugin();
     window.addEventListener('agixt-chat-assistant-stream', handleAssistantStream);
     window.addEventListener('agixt-chat-assistant-final', handleAssistantFinal);
     [

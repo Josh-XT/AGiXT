@@ -8,7 +8,7 @@ fn main() {
 
 fn build_lc3_decoder() {
     let target = env::var("TARGET").unwrap_or_default();
-    if target.contains("android") || target.contains("ios") {
+    if target.contains("ios") {
         return;
     }
 

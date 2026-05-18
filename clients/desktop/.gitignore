@@ -1,6 +1,27 @@
 # Build artifacts
 src-tauri/target/
-src-tauri/gen/
+src-tauri/gen/*
+!src-tauri/gen/android/
+src-tauri/gen/android/*
+!src-tauri/gen/android/app/
+src-tauri/gen/android/app/*
+!src-tauri/gen/android/app/src/
+src-tauri/gen/android/app/src/*
+!src-tauri/gen/android/app/src/main/
+src-tauri/gen/android/app/src/main/*
+!src-tauri/gen/android/app/src/main/AndroidManifest.xml
+!src-tauri/gen/android/app/src/main/java/
+src-tauri/gen/android/app/src/main/java/*
+!src-tauri/gen/android/app/src/main/java/systems/
+src-tauri/gen/android/app/src/main/java/systems/*
+!src-tauri/gen/android/app/src/main/java/systems/xt/
+src-tauri/gen/android/app/src/main/java/systems/xt/*
+!src-tauri/gen/android/app/src/main/java/systems/xt/agixt/
+src-tauri/gen/android/app/src/main/java/systems/xt/agixt/*
+!src-tauri/gen/android/app/src/main/java/systems/xt/agixt/desktop/
+src-tauri/gen/android/app/src/main/java/systems/xt/agixt/desktop/*
+!src-tauri/gen/android/app/src/main/java/systems/xt/agixt/desktop/G1Plugin.kt
+!src-tauri/gen/android/app/src/main/java/systems/xt/agixt/desktop/MainActivity.kt
 src-tauri/Cargo.lock.bak
 target/
 
