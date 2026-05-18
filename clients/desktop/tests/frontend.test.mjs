@@ -1734,6 +1734,9 @@ test('client-actions: desktop_vision_control records computer-use workspace arti
   let controlVisionCalls = 0;
   let narrationVisionCalls = 0;
   const uploads = [];
+  const moves = [];
+  const folders = [];
+  const workspaceFiles = new Map();
   const screenshots = ['AAAA', 'BBBB', 'CCCC'];
   const { window } = loadFrontend({
     ipc: {
@@ -1785,8 +1788,9 @@ test('client-actions: desktop_vision_control records computer-use workspace arti
     reconnect: false,
   });
   window.AgixtWorkspaceApi = {
-    downloadFile: async () => {
-      throw new Error('computer-use-log.json does not exist yet');
+    downloadFile: async (_cfg, _conversationId, filePath) => {
+      if (!workspaceFiles.has(filePath)) throw new Error(`${filePath} does not exist yet`);
+      return { blob: new window.Blob([workspaceFiles.get(filePath).text]) };
     },
     uploadFiles: async (cfg, conversationId, files, destinationPath) => {
       const fileRecords = [];
@@ -1806,9 +1810,28 @@ test('client-actions: desktop_vision_control records computer-use workspace arti
           type: file.type,
           text,
         });
+        // Simulate the WorkConductor Rust API bug where destination_path is
+        // accepted but the uploaded file is stored at the workspace root.
+        workspaceFiles.set(file.name, { text, destinationPath: destinationPath || '' });
       }
       uploads.push({ cfg, conversationId, destinationPath: destinationPath || '', files: fileRecords });
       return { items: fileRecords.map((file) => ({ name: file.name })) };
+    },
+    createFolder: async (_cfg, _conversationId, folderName, parentPath) => {
+      folders.push({ folderName, parentPath: parentPath || '' });
+      return {};
+    },
+    moveItem: async (_cfg, _conversationId, sourcePath, destinationPath) => {
+      if (!workspaceFiles.has(sourcePath)) throw new Error(`${sourcePath} missing`);
+      if (workspaceFiles.has(destinationPath)) throw new Error(`${destinationPath} exists`);
+      workspaceFiles.set(destinationPath, workspaceFiles.get(sourcePath));
+      workspaceFiles.delete(sourcePath);
+      moves.push({ sourcePath, destinationPath });
+      return {};
+    },
+    deleteItem: async (_cfg, _conversationId, filePath) => {
+      workspaceFiles.delete(filePath);
+      return {};
     },
   };
 
@@ -1829,6 +1852,18 @@ test('client-actions: desktop_vision_control records computer-use workspace arti
     && upload.files.some((file) => /step-001.*-before\.jpeg$/.test(file.name))));
   assert.ok(uploads.some((upload) => upload.destinationPath === 'computer-use'
     && upload.files.some((file) => file.name === 'storyboard.html')));
+  assert.ok(folders.some((folder) => folder.folderName === 'screenshots'
+    && folder.parentPath === 'computer-use'));
+  assert.ok(moves.some((move) => /step-001.*-before\.jpeg$/.test(move.sourcePath)
+    && /^computer-use\/screenshots\/step-001/.test(move.destinationPath)));
+  assert.equal(
+    Array.from(workspaceFiles.keys()).some((path) => /^step-001.*-before\.jpeg$/.test(path)),
+    false,
+  );
+  assert.equal(
+    Array.from(workspaceFiles.keys()).some((path) => /^computer-use\/screenshots\/step-001.*-before\.jpeg$/.test(path)),
+    true,
+  );
   const videoPlanUploads = uploads.filter((upload) => upload.destinationPath === 'computer-use'
     && upload.files.some((file) => file.name === 'video-plan.json'));
   assert.ok(videoPlanUploads.length > 0);

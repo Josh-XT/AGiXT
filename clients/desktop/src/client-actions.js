@@ -322,8 +322,100 @@
 
   async function uploadComputerUseFile(ctx, file, destinationPath) {
     if (!file) return null;
-    await ctx.api.uploadFiles(ctx.cfg, ctx.conversationId, [file], destinationPath || undefined);
-    return destinationPath ? `${destinationPath}/${file.name}` : file.name;
+    const cleanDestination = normalizeWorkspacePath(destinationPath);
+    await ctx.api.uploadFiles(ctx.cfg, ctx.conversationId, [file], cleanDestination || undefined);
+    if (!cleanDestination) return file.name;
+    const expectedPath = normalizeWorkspacePath(`${cleanDestination}/${file.name}`);
+    if (await workspaceFileMatches(ctx, file.name, file)) {
+      await repairDroppedWorkspaceUpload(ctx, file.name, expectedPath);
+      return expectedPath;
+    }
+    if (await workspaceFileExists(ctx, expectedPath)) return expectedPath;
+    return expectedPath;
+  }
+
+  function normalizeWorkspacePath(path) {
+    return String(path || '')
+      .replace(/\\/g, '/')
+      .split('/')
+      .map((part) => part.trim())
+      .filter((part) => part && part !== '.')
+      .join('/');
+  }
+
+  function workspaceParentPath(path) {
+    const parts = normalizeWorkspacePath(path).split('/').filter(Boolean);
+    parts.pop();
+    return parts.join('/');
+  }
+
+  async function workspaceFileExists(ctx, path) {
+    try {
+      await ctx.api.downloadFile(ctx.cfg, ctx.conversationId, path);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function workspaceFileMatches(ctx, path, file) {
+    let downloaded;
+    try {
+      downloaded = await ctx.api.downloadFile(ctx.cfg, ctx.conversationId, path);
+    } catch (_) {
+      return false;
+    }
+    const blob = downloaded && downloaded.blob;
+    if (!blob) return true;
+    const blobSize = typeof blob.size === 'number' ? blob.size : null;
+    const fileSize = typeof file.size === 'number' ? file.size : null;
+    if (blobSize != null && fileSize != null && blobSize !== fileSize) return false;
+    try {
+      if (typeof blob.arrayBuffer === 'function' && typeof file.arrayBuffer === 'function') {
+        const [left, right] = await Promise.all([blob.arrayBuffer(), file.arrayBuffer()]);
+        if (left.byteLength !== right.byteLength) return false;
+        const leftBytes = new Uint8Array(left);
+        const rightBytes = new Uint8Array(right);
+        for (let i = 0; i < leftBytes.length; i += 1) {
+          if (leftBytes[i] !== rightBytes[i]) return false;
+        }
+        return true;
+      }
+      if (typeof blob.text === 'function' && typeof file.text === 'function') {
+        return await blob.text() === await file.text();
+      }
+    } catch (_) { /* fall through to size-only match */ }
+    return true;
+  }
+
+  async function ensureWorkspaceFolder(ctx, folderPath) {
+    if (!folderPath || typeof ctx.api.createFolder !== 'function') return;
+    const parts = normalizeWorkspacePath(folderPath).split('/').filter(Boolean);
+    let parent = '';
+    for (const part of parts) {
+      try {
+        await ctx.api.createFolder(ctx.cfg, ctx.conversationId, part, parent || undefined);
+      } catch (_) { /* folder may already exist, or backend may auto-create */ }
+      parent = normalizeWorkspacePath(`${parent}/${part}`);
+    }
+  }
+
+  async function repairDroppedWorkspaceUpload(ctx, rootFileName, expectedPath) {
+    if (typeof ctx.api.moveItem !== 'function') return;
+    const sourcePath = normalizeWorkspacePath(rootFileName);
+    if (!sourcePath || sourcePath === expectedPath) return;
+    if (!await workspaceFileExists(ctx, sourcePath)) return;
+    const parentPath = workspaceParentPath(expectedPath);
+    await ensureWorkspaceFolder(ctx, parentPath);
+    try {
+      await ctx.api.moveItem(ctx.cfg, ctx.conversationId, sourcePath, expectedPath);
+      return;
+    } catch (_) {
+      if (typeof ctx.api.deleteItem === 'function') {
+        try { await ctx.api.deleteItem(ctx.cfg, ctx.conversationId, expectedPath); } catch (_) { /* best effort */ }
+        try { await ctx.api.moveItem(ctx.cfg, ctx.conversationId, sourcePath, expectedPath); } catch (_) { /* best effort */ }
+      }
+    }
   }
 
   function fallbackStepNarration(step) {
