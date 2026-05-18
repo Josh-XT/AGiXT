@@ -135,6 +135,32 @@
     el._wkfpRevoke = () => URL.revokeObjectURL(url);
   }
 
+  // Render a raw HTML string as a live document inside a sandboxed iframe.
+  // Mirrors the safe pattern from web's CodeBlock.tsx: srcdoc + sandbox,
+  // with a small viewport-fix wrap so full-page layouts size correctly.
+  // Isolation is via the iframe sandbox only (no DOM injection into the host).
+  function renderHtmlDoc(el, htmlString) {
+    clear(el);
+    const src = String(htmlString || '');
+    const wrapped = src
+      .replace(/<style>/i, '<style>\n  html, body { height: 100%; margin: 0; padding: 0; }\n')
+      .replace(/height:\s*100vh/gi, 'height: 100%');
+    const wrap = document.createElement('div');
+    wrap.className = 'wkfp-html-wrap';
+    const iframe = document.createElement('iframe');
+    iframe.className = 'wkfp-html';
+    iframe.title = 'HTML Preview';
+    // allow-scripts so interactive pages work; allow-same-origin so the
+    // page can access its own document (and we can read it for auto-fit).
+    // No allow-forms / allow-popups / allow-top-navigation: a previewed
+    // file cannot navigate the app or submit anywhere.
+    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+    iframe.setAttribute('referrerpolicy', 'no-referrer');
+    iframe.srcdoc = wrapped;
+    wrap.appendChild(iframe);
+    el.appendChild(wrap);
+  }
+
   function renderTable(el, headers, rows, footer) {
     clear(el);
     const scroll = document.createElement('div');
@@ -374,6 +400,7 @@
     getPreviewKind,
     isPreviewableMedia,
     render,
+    renderHtmlDoc,
     destroy,
     extractTextFromBlob,
     rebuildBlobFromText,

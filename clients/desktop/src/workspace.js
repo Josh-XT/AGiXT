@@ -1108,13 +1108,29 @@
     splitContainer.addEventListener('pointerup', () => { dragging = false; });
   }
 
+  let _htmlPreviewTimer = null;
   function renderTextPreview(target) {
     const f = state.activeFile;
     if (!f) return;
+    // HTML files render as a live document in a sandboxed iframe rather
+    // than being run through the markdown renderer + injected into the
+    // host doc. Debounced so split-mode keystrokes don't reload the frame.
+    if (isHtmlFile(f.name) && window.AgixtWorkspacePreview &&
+        window.AgixtWorkspacePreview.renderHtmlDoc) {
+      const paint = () => window.AgixtWorkspacePreview.renderHtmlDoc(
+        target, state.editorContent || '');
+      if (target.querySelector('.wkfp-html')) {
+        clearTimeout(_htmlPreviewTimer);
+        _htmlPreviewTimer = setTimeout(paint, 300);
+      } else {
+        paint();
+      }
+      return;
+    }
     const md = window.AgixtMarkdown;
     const language = getFileLanguage(f.name);
     let html;
-    if (isMarkdownLike(f.name) || isHtmlFile(f.name)) {
+    if (isMarkdownLike(f.name)) {
       html = md ? md.render(state.editorContent || '') : escape(state.editorContent || '');
     } else {
       const code = `\`\`\`${language}\n${state.editorContent || ''}\n\`\`\``;
