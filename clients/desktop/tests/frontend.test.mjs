@@ -3093,3 +3093,59 @@ test('prompt guidance: builder fills placeholders before sending', async () => {
   assert.doesNotMatch(sent, /\{\{company\}\}/);
   window.AgixtChat.disconnect();
 });
+
+test('prompt guidance: mobile platform shows device-oriented defaults', async () => {
+  const { window } = loadFullApp({
+    ipc: {
+      client_platform: () => ({
+        os: 'android', family: 'mobile', mobile: true, desktop: false, tools: [],
+      }),
+    },
+  });
+  // Wait long enough for the async client_platform detection + re-render.
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const bar = window.document.getElementById('prompt-guidance');
+  assert.equal(bar.hidden, false);
+  assert.equal(bar.dataset.key, '__default__');
+  assert.match(bar.querySelector('.pg-bar-title').textContent, /this device/i);
+  const labels = Array.from(bar.querySelectorAll('.pg-chip-label'))
+    .map((n) => n.textContent);
+  assert.ok(labels.some((l) => /open an app/i.test(l)),
+    'mobile defaults include device-app suggestions');
+  assert.ok(!labels.some((l) => /terminal|computer/i.test(l)),
+    'mobile defaults do not promise desktop shell/computer control');
+  window.AgixtChat.disconnect();
+});
+
+test('prompt guidance: web deployment (no Tauri) shows generic agent defaults', async () => {
+  const dom = new JSDOM(
+    '<!doctype html><body>'
+    + '<button class="sidenav-btn is-active" data-view="chat"></button>'
+    + '<div id="prompt-guidance" hidden></div>'
+    + '<textarea id="composer-input"></textarea><button id="btn-send"></button>'
+    + '</body>',
+    { runScripts: 'outside-only', url: 'http://localhost/' },
+  );
+  const { window } = dom;
+  // No window.__TAURI__ — this is the plain web deployment path.
+  window.AgixtSidenav = { getActiveView: () => 'chat' };
+  for (const name of ['prompt-guidance-data.js', 'prompt-guidance.js']) {
+    const code = fs.readFileSync(path.join(SRC, name), 'utf8');
+    vm.runInContext(code, dom.getInternalVMContext(), { filename: name });
+  }
+  // init() defers to DOMContentLoaded when the document is still
+  // parsing; let that fire before asserting.
+  if (window.document.readyState === 'loading') {
+    await new Promise((resolve) => {
+      window.document.addEventListener('DOMContentLoaded', resolve);
+      setTimeout(resolve, 50);
+    });
+  }
+  const bar = window.document.getElementById('prompt-guidance');
+  assert.equal(bar.hidden, false, 'bar still shows on web');
+  assert.equal(bar.dataset.key, '__default__');
+  assert.match(bar.querySelector('.pg-bar-title').textContent, /get started/i);
+  const text = bar.textContent;
+  assert.ok(!/screenshot|terminal|my computer/i.test(text),
+    'web defaults avoid client-side device/computer tooling');
+});

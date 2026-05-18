@@ -25,13 +25,15 @@
   const VIEW_ALIASES = { deployments: 'packages' };
 
   // Fallback shown whenever the active page has no ported, page-specific
-  // guidance (plain chat, dashboard, network, settings, etc.). These
-  // lean on the desktop client's local tool surface — full computer use
-  // (screenshots + mouse/keyboard + vision control), local filesystem,
-  // shell / persistent terminals, app launching, and workspace file
-  // transfer — so the agent's standout desktop powers are one click away
-  // from any page. See client-actions.js for the underlying tools.
-  const DEFAULT_GUIDANCE = {
+  // guidance (plain chat, dashboard, network, settings, etc.). The set
+  // is chosen by deployment platform because the client-side tool
+  // surface differs: a native desktop build has full computer use +
+  // local filesystem + shell; a mobile (Android/iOS) build can open
+  // apps/URLs/settings and see the screen but has no shell/filesystem;
+  // a plain web deployment has no client-side device tools at all. The
+  // platform is resolved at init via the Tauri `client_platform`
+  // command (see client-actions.js / src-tauri client_tool_specs).
+  const DEFAULT_GUIDANCE_DESKTOP = {
     title: 'Put your agent to work on this computer',
     examples: [
       {
@@ -105,7 +107,161 @@
       },
     ],
   };
+
+  // Mobile (Android/iOS) build: the agent can look at the screen and
+  // open apps / links / device settings, but there is no shell or
+  // general filesystem, so the suggestions stay device- and
+  // assistant-oriented rather than promising desktop-style control.
+  const DEFAULT_GUIDANCE_MOBILE = {
+    title: 'Put your agent to work on this device',
+    examples: [
+      {
+        label: "See what's on my screen",
+        prompt: "Look at what's currently on my screen, tell me what app or page I'm on, and suggest the most useful things you could help me with right here.",
+      },
+      {
+        label: 'Open an app for me',
+        prompt: 'Open the {{app}} app on my device. Once it is open, tell me what you see and {{goal}}.',
+        placeholders: [
+          { id: 'app', label: 'App name', description: 'e.g. Maps, Calendar, Gmail, Spotify', required: true, inputType: 'text' },
+          { id: 'goal', label: 'What you want to do there', required: true, inputType: 'textarea' },
+        ],
+      },
+      {
+        label: 'Open a website & summarize it',
+        prompt: 'Open {{url_or_topic}} in my browser, read the page, and give me a short plain-language summary of the key points plus anything I should act on.',
+        placeholders: [
+          { id: 'url_or_topic', label: 'URL or topic', required: true, inputType: 'text' },
+        ],
+      },
+      {
+        label: 'Change a device setting',
+        prompt: 'I want to change this setting on my device: {{setting}}. Open the right device settings screen, walk me through it step by step, and confirm once it looks correct.',
+        placeholders: [
+          { id: 'setting', label: 'Setting to change', description: 'e.g. Wi-Fi, notifications, display brightness', required: true, inputType: 'text' },
+        ],
+      },
+      {
+        label: 'Research this for me',
+        prompt: 'Research the following and give me a concise briefing with the answer, the key sources, and anything surprising: {{topic}}.',
+        placeholders: [
+          { id: 'topic', label: 'What to research', required: true, inputType: 'textarea' },
+        ],
+      },
+      {
+        label: 'Draft a message',
+        prompt: 'Help me write {{what}}. Keep the tone {{tone}}, make it concise, and show me the draft for review before I send it anywhere.',
+        placeholders: [
+          { id: 'what', label: 'What to write', description: 'e.g. a reply to my landlord, a birthday text', required: true, inputType: 'textarea' },
+          { id: 'tone', label: 'Tone', description: 'e.g. friendly, professional, apologetic', inputType: 'text' },
+        ],
+      },
+      {
+        label: 'Summarize something I paste',
+        prompt: "I'll paste some text, an email, or a message thread next. Summarize it for me: the key points, who needs what, and the single most useful next step.",
+      },
+      {
+        label: 'Set up a reminder or recurring check-in',
+        prompt: 'Set up a {{cadence}} task that {{task}} and messages me with the results. Confirm the schedule with me before creating it.',
+        placeholders: [
+          { id: 'task', label: 'What it should do', required: true, inputType: 'textarea' },
+          { id: 'cadence', label: 'How often', description: 'e.g. every morning, weekly on Monday', required: true, inputType: 'text' },
+        ],
+      },
+    ],
+  };
+
+  // Plain web deployment (no Tauri): no client-side device tools at all.
+  // Keep suggestions to what any agent can do server-side — research,
+  // drafting, analysis, planning, and scheduling with its abilities.
+  const DEFAULT_GUIDANCE_WEB = {
+    title: 'Get started with your agent',
+    examples: [
+      {
+        label: 'What can you help me with?',
+        prompt: 'Based on your currently enabled abilities and tools, give me a short, concrete list of the most useful things you can do for me right now, with an example request for each.',
+      },
+      {
+        label: 'Research a topic',
+        prompt: 'Research the following and give me a concise briefing with the answer, the key sources, and anything surprising: {{topic}}.',
+        placeholders: [
+          { id: 'topic', label: 'What to research', required: true, inputType: 'textarea' },
+        ],
+      },
+      {
+        label: 'Draft something for me',
+        prompt: 'Help me write {{what}}. Keep the tone {{tone}}, make it clear and concise, and show me the draft for review.',
+        placeholders: [
+          { id: 'what', label: 'What to write', description: 'e.g. a project proposal, a customer email', required: true, inputType: 'textarea' },
+          { id: 'tone', label: 'Tone', description: 'e.g. professional, friendly, persuasive', inputType: 'text' },
+        ],
+      },
+      {
+        label: 'Summarize text I paste',
+        prompt: "I'll paste a document, email, or thread next. Summarize it: the key points, decisions or asks, risks, and the most useful next step.",
+      },
+      {
+        label: 'Plan a project',
+        prompt: 'Help me plan this: {{goal}}. Break it into phases and concrete tasks, call out dependencies and risks, and propose a realistic order of operations.',
+        placeholders: [
+          { id: 'goal', label: 'What you want to accomplish', required: true, inputType: 'textarea' },
+        ],
+      },
+      {
+        label: 'Analyze data I provide',
+        prompt: "I'll provide some data (paste it or attach a file) next. Analyze it for the trends, outliers, and takeaways that matter most, and recommend what I should do about them.",
+      },
+      {
+        label: 'Set up a recurring report',
+        prompt: 'Set up a {{cadence}} task that {{task}} and messages me with the results. Confirm the schedule with me before creating it.',
+        placeholders: [
+          { id: 'task', label: 'What the report should cover', required: true, inputType: 'textarea' },
+          { id: 'cadence', label: 'How often', description: 'e.g. every Monday 9am, daily', required: true, inputType: 'text' },
+        ],
+      },
+    ],
+  };
+
+  const DEFAULTS_BY_TIER = {
+    desktop: DEFAULT_GUIDANCE_DESKTOP,
+    mobile: DEFAULT_GUIDANCE_MOBILE,
+    web: DEFAULT_GUIDANCE_WEB,
+  };
   const DEFAULT_KEY = '__default__';
+
+  // Synchronous best-guess: a Tauri build is the desktop client until
+  // client_platform tells us it's mobile; no Tauri means a web build.
+  let platformTier = (window.__TAURI__
+    && window.__TAURI__.core
+    && typeof window.__TAURI__.core.invoke === 'function')
+    ? 'desktop'
+    : 'web';
+
+  // Refine the guess once the native side answers. Only the desktop ->
+  // mobile correction matters in practice (web has no Tauri to ask).
+  function detectPlatformTier() {
+    const invoke = window.__TAURI__
+      && window.__TAURI__.core
+      && window.__TAURI__.core.invoke;
+    if (typeof invoke !== 'function') return;
+    Promise.resolve()
+      .then(() => invoke('client_platform'))
+      .then((info) => {
+        if (!info) return;
+        const next = info.mobile ? 'mobile' : 'desktop';
+        if (next === platformTier) return;
+        platformTier = next;
+        // Force the next render to rebuild even if the view is unchanged.
+        currentView = null;
+        if (containerEl) containerEl.removeAttribute('data-key');
+        render();
+      })
+      .catch(() => { /* keep the synchronous best-guess */ });
+  }
+
+  function defaultGuidance() {
+    return DEFAULTS_BY_TIER[platformTier] || DEFAULT_GUIDANCE_DESKTOP;
+  }
 
   const COLLAPSE_KEY = 'agixt.desktop.promptGuidance.collapsed.v1';
   let containerEl = null;
@@ -341,10 +497,10 @@
     const key = resourceKeyFor(viewId);
     let data = key ? DATA[key] : null;
     let resolvedKey = key;
-    // Fall back to the desktop computer-use defaults whenever the page
+    // Fall back to the platform-appropriate defaults whenever the page
     // has no specific guidance, so the bar is always useful.
     if (!data || !Array.isArray(data.examples) || !data.examples.length) {
-      data = DEFAULT_GUIDANCE;
+      data = defaultGuidance();
       resolvedKey = DEFAULT_KEY;
     }
     // Skip a rebuild when nothing relevant changed (the view-changed and
@@ -394,6 +550,7 @@
     containerEl = document.getElementById('prompt-guidance');
     if (!containerEl) return;
     render();
+    detectPlatformTier();
     window.addEventListener('agixt-view-changed', render);
     // A late extension manifest can add the currently-active extension
     // after the first render; its context-registration event lets the
