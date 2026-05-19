@@ -4210,6 +4210,7 @@ body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .chat-mo
 
 /* Composer. */
 .tc-composer {
+  position: relative; /* anchor for the absolutely-positioned GIF popover */
   flex: 0 0 auto;
   display: flex;
   align-items: flex-end;
