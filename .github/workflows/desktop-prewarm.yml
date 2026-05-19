@@ -297,10 +297,16 @@ jobs:
         env:
           AGIXT_DESKTOP_BUILD_ID: ${{ steps.build_id.outputs.version }}
           CARGO_BUILD_JOBS: "2"
+          KIND: ${{ matrix.kind }}
         run: |
           set -euo pipefail
-          npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" build \
-            --target "${{ matrix.tauri_target }}"
+          tauri_args=(build --target "${{ matrix.tauri_target }}")
+          if [ "${KIND}" = "linux" ]; then
+            package_version="$(python3 -c 'import os; from datetime import datetime; build_id = os.environ["AGIXT_DESKTOP_BUILD_ID"].split("_dirty", 1)[0]; dt = datetime.strptime(build_id, "%Y%m%d_%H%M%S"); print("{}.{}.{}".format(dt.year, int(dt.strftime("%m%d")), int(dt.strftime("%H%M%S"))))')"
+            tauri_config="$(PACKAGE_VERSION="${package_version}" python3 -c 'import json, os; print(json.dumps({"version": os.environ["PACKAGE_VERSION"]}))')"
+            tauri_args+=(--bundles deb --config "${tauri_config}" --ignore-version-mismatches)
+          fi
+          npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" "${tauri_args[@]}"
 
       - name: Build Windows desktop binary
         if: matrix.kind == 'windows'
