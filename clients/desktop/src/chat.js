@@ -333,6 +333,38 @@
       .replace(/\s+/g, ' ');
   }
 
+  function executionStartName(text) {
+    const value = String(text || '').trim();
+    const match = value.match(/^(?:Executing|Calling client tool)\s+`([^`]+)`/i);
+    return match ? match[1].trim() : '';
+  }
+
+  function subactivityFingerprint(body, tag) {
+    const wantedTag = tag || '';
+    const command = executionStartName(body);
+    if (command) return `${wantedTag}:start:${command.toLowerCase()}`;
+    return `${wantedTag}:text:${comparableText(body)}`;
+  }
+
+  function findMatchingSubactivityId(body, tag, opts) {
+    const incoming = subactivityFingerprint(body, tag);
+    if (!incoming || incoming.endsWith(':text:')) {
+      if (!comparableText(body)) return null;
+    }
+    const options = opts || {};
+    for (const id of order.slice().reverse()) {
+      const isLocal = id.startsWith('local-');
+      if (options.local === true && !isLocal) continue;
+      if (options.local === false && isLocal) continue;
+      const m = messages.get(id);
+      if (!m || !['subactivity', 'tool-group'].includes(m.kind)) continue;
+      if (options.parentId && m.parentId !== options.parentId) continue;
+      if ((m.tag || '') !== (tag || '')) continue;
+      if (subactivityFingerprint(m.text, m.tag) === incoming) return id;
+    }
+    return null;
+  }
+
   function findMatchingPlainId(role, body, opts) {
     const incoming = (body || '').trim();
     if (!incoming) return null;
@@ -373,20 +405,9 @@
     }
   }
 
-  function replaceMatchingLocalSubactivity(body, tag) {
-    const incoming = comparableText(body);
-    if (!incoming) return;
-    const wantedTag = tag || '';
-    for (const id of order.slice()) {
-      if (!id.startsWith('local-sub-')) continue;
-      const m = messages.get(id);
-      if (!m || !['subactivity', 'tool-group'].includes(m.kind)) continue;
-      if ((m.tag || '') !== wantedTag) continue;
-      if (comparableText(m.text) === incoming) {
-        removeMessage(id);
-        return;
-      }
-    }
+  function replaceMatchingLocalSubactivity(body, tag, parentId) {
+    const id = findMatchingSubactivityId(body, tag, { local: true, parentId });
+    if (id) removeMessage(id);
   }
 
   function transientActivityEntry() {
@@ -729,6 +750,263 @@
     return null;
   }
 
+  function parseJsonPayload(text) {
+    const value = String(text || '').trim();
+    if (!value) return null;
+    const fenced = value.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenced) {
+      try { return JSON.parse(fenced[1].trim()); } catch (_) { /* keep going */ }
+    }
+    try { return JSON.parse(value); } catch (_) { /* keep going */ }
+    return tryParseJson(value);
+  }
+
+  function firstFencedBody(text) {
+    const value = String(text || '').trim();
+    const fenced = value.match(/```[a-z0-9_-]*\s*([\s\S]*?)```/i);
+    return fenced ? fenced[1].trim() : '';
+  }
+
+  function codexDisplayBody(text) {
+    const data = parseJsonPayload(text);
+    if (data && typeof data === 'object' && typeof data.response === 'string') {
+      const response = data.response.trim();
+      if (/OpenAI Codex Response/i.test(response)) return response;
+    }
+    const fenced = firstFencedBody(text);
+    if (fenced && /OpenAI Codex Response/i.test(fenced)) return fenced;
+    return null;
+  }
+
+  function parseJsonLines(text) {
+    const out = [];
+    String(text || '').split(/\r?\n/).forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith('{')) return;
+      try { out.push(JSON.parse(trimmed)); } catch (_) { /* ignore non-JSON log lines */ }
+    });
+    return out;
+  }
+
+  function stripWorkspacePath(path) {
+    return String(path || '')
+      .replace(/^\/workspace\/?/, '')
+      .replace(/^workspace\/?/, '')
+      .trim();
+  }
+
+  function codexSourcesFromText(text) {
+    const value = String(text || '').trim();
+    const sources = [];
+    if (value) sources.push(value);
+    const fenced = firstFencedBody(value);
+    if (fenced && fenced !== value) sources.push(fenced);
+    const payload = parseJsonPayload(value);
+    if (payload && typeof payload === 'object') {
+      if (typeof payload.stdout === 'string') sources.push(payload.stdout);
+      if (typeof payload.stderr === 'string') sources.push(payload.stderr);
+      if (typeof payload.output === 'string') sources.push(payload.output);
+    }
+    return sources;
+  }
+
+  function codexRecordsFromJsonEvents(events) {
+    const records = [];
+    let pendingMessage = '';
+    const pendingCommands = [];
+    const flushMessage = () => {
+      if (pendingMessage) records.push({ kind: 'message', text: pendingMessage });
+      pendingMessage = '';
+    };
+    const flushPendingCommands = () => {
+      while (pendingCommands.length) {
+        records.push({ kind: 'command_start', command: pendingCommands.shift() });
+      }
+    };
+    events.forEach((evt) => {
+      const type = evt && evt.type;
+      const item = evt && evt.item;
+      if (type === 'item.started' && item && item.type === 'command_execution') {
+        flushMessage();
+        const command = String(item.command || '').trim();
+        if (command) pendingCommands.push(command);
+        return;
+      }
+      if (type === 'item.completed' && item) {
+        if (item.type === 'agent_message') {
+          flushPendingCommands();
+          flushMessage();
+          const text = String(item.text || '').trim();
+          if (text) pendingMessage = text;
+          return;
+        }
+        if (item.type === 'command_execution') {
+          flushMessage();
+          const command = String(item.command || '').trim();
+          const pendingIdx = pendingCommands.indexOf(command);
+          if (pendingIdx >= 0) pendingCommands.splice(pendingIdx, 1);
+          records.push({
+            kind: 'command',
+            command,
+            output: String(item.aggregated_output || '').trim(),
+            exitCode: item.exit_code == null ? null : Number(item.exit_code),
+            status: String(item.status || '').trim(),
+          });
+          return;
+        }
+        if (item.type === 'file_change') {
+          flushMessage();
+          const paths = Array.isArray(item.changes)
+            ? item.changes.map((c) => stripWorkspacePath(c && c.path)).filter(Boolean)
+            : [];
+          records.push({ kind: 'files', paths, status: String(item.status || '').trim() });
+          return;
+        }
+        if (item.type === 'error') {
+          flushMessage();
+          const text = String(item.message || item.text || '').trim();
+          if (text) records.push({ kind: 'error', text });
+        }
+        return;
+      }
+      if (type === 'turn.failed' || type === 'error') {
+        flushMessage();
+        flushPendingCommands();
+        const text = String(
+          (evt.error && evt.error.message) || evt.message || 'Codex turn failed'
+        ).trim();
+        records.push({ kind: 'error', text });
+        return;
+      }
+      if (type === 'turn.completed') {
+        flushPendingCommands();
+        if (pendingMessage) records.push({ kind: 'final', text: pendingMessage });
+        pendingMessage = '';
+      }
+    });
+    flushPendingCommands();
+    flushMessage();
+    return records;
+  }
+
+  function codexLegacyRecords(text) {
+    if (!/Codex Activity/i.test(String(text || ''))) return [];
+    const lines = String(text || '')
+      .replace(/\*\*Codex Activity:\*\*/i, '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    return lines.map((line) => {
+      const m = line.match(/^(Tool|Done|Error|Info):\s*([\s\S]*)$/i);
+      if (!m) return { kind: 'message', text: line };
+      const label = m[1].toLowerCase();
+      const value = m[2].trim();
+      if (label === 'tool') return { kind: 'command_start', command: value };
+      if (label === 'done') return { kind: 'command_done', command: value };
+      if (label === 'error') return { kind: 'error', text: value };
+      return { kind: 'message', text: value };
+    });
+  }
+
+  function codexRecordsFromText(text) {
+    const legacy = codexLegacyRecords(text);
+    if (legacy.length) return legacy;
+    for (const source of codexSourcesFromText(text)) {
+      const events = parseJsonLines(source);
+      const records = codexRecordsFromJsonEvents(events);
+      if (records.length) return records;
+    }
+    return [];
+  }
+
+  function appendCodexSummary(summary, text, code) {
+    summary.appendChild(document.createTextNode(text));
+    if (code) {
+      const chip = el('code', 'sub-tool-name');
+      chip.textContent = code;
+      summary.appendChild(chip);
+    }
+  }
+
+  function renderCodexRecord(record) {
+    const details = document.createElement('details');
+    details.className = 'sub-exec codex-step';
+    const summary = document.createElement('summary');
+    summary.className = 'sub-exec-summary';
+    const title = el('span', 'sub-exec-title');
+
+    if (record.kind === 'command_start') {
+      appendCodexSummary(title, 'Codex started ', record.command || 'command');
+    } else if (record.kind === 'command' || record.kind === 'command_done') {
+      appendCodexSummary(title, 'Codex ran ', record.command || 'command');
+      if (record.kind === 'command' && record.exitCode != null) {
+        const exit = el('span', `sub-remote-exit ${record.exitCode === 0 ? 'ok' : 'err'}`);
+        exit.textContent = `exit ${record.exitCode}`;
+        title.appendChild(exit);
+      }
+    } else if (record.kind === 'files') {
+      appendCodexSummary(
+        title,
+        record.paths && record.paths.length === 1 ? 'Codex edited ' : 'Codex edited files',
+        record.paths && record.paths.length === 1 ? record.paths[0] : ''
+      );
+    } else if (record.kind === 'error') {
+      appendCodexSummary(title, 'Codex error', '');
+    } else if (record.kind === 'final') {
+      appendCodexSummary(title, 'Codex response', '');
+    } else {
+      appendCodexSummary(title, 'Codex note', '');
+    }
+
+    summary.appendChild(title);
+    details.appendChild(summary);
+
+    const body = el('div', 'sub-exec-body md');
+    if (record.kind === 'command' && record.output) {
+      const pre = el('pre', 'sub-remote-out');
+      pre.textContent = record.output;
+      body.appendChild(pre);
+    } else if (record.kind === 'files' && record.paths && record.paths.length > 1) {
+      renderMdInto(body, record.paths.map((path) => `- \`${path}\``).join('\n'));
+    } else if (record.kind === 'error') {
+      renderMdInto(body, record.text || 'Codex reported an error.');
+    } else if (record.kind === 'message' || record.kind === 'final') {
+      renderMdInto(body, record.text || '');
+    } else if (record.kind === 'command_done' && record.command) {
+      renderMdInto(body, record.command);
+    }
+    if (body.childNodes.length) details.appendChild(body);
+    return details;
+  }
+
+  function renderCodexActivityBody(text) {
+    const response = codexDisplayBody(text);
+    const records = response
+      ? codexRecordsFromText(text).filter((record) => record.kind !== 'final')
+      : codexRecordsFromText(text);
+    if (!records.length && !response) return null;
+
+    const wrap = el('div', 'codex-events');
+    if (records.length) {
+      records.forEach((record) => wrap.appendChild(renderCodexRecord(record)));
+    }
+    if (response) {
+      const responseEl = el('div', 'codex-response md');
+      renderMdInto(responseEl, response);
+      wrap.appendChild(responseEl);
+    }
+    return wrap;
+  }
+
+  function renderMdOrCodexInto(target, text) {
+    const codex = renderCodexActivityBody(text);
+    if (codex) {
+      replaceChildren(target, codex);
+      return;
+    }
+    renderMdInto(target, text);
+  }
+
   // AGiXT emits CLIENT_TOOL subactivity bodies as
   //   Calling client tool `<name>`.
   //   ```json
@@ -815,7 +1093,9 @@
     sum.appendChild(sumMd);
     det.appendChild(sum);
     const bodyEl = el('div', 'sub-exec-body md');
-    renderMdInto(bodyEl, rest);
+    const codexBody = renderCodexActivityBody(rest);
+    if (codexBody) bodyEl.appendChild(codexBody);
+    else renderMdInto(bodyEl, rest);
     det.appendChild(bodyEl);
     return det;
   }
@@ -874,6 +1154,7 @@
     if (tag === 'CLIENT_TOOL') custom = renderClientToolBody(text);
     else if (tag === 'REMOTE') custom = renderRemoteBody(text);
     else if (tag === 'EXECUTION') custom = renderExecutionBody(text);
+    else custom = renderCodexActivityBody(text);
     if (custom) {
       content.appendChild(custom);
     } else {
@@ -1002,7 +1283,7 @@
       // latest server timestamp.
       touchActivityElapsed(parent, msg.timestamp);
       if (!String(msg.id).startsWith('local-')) {
-        replaceMatchingLocalSubactivity(parsed.body, parsed.tag);
+        replaceMatchingLocalSubactivity(parsed.body, parsed.tag, parent.id);
       }
       if (!String(msg.id).startsWith('local-')) {
         removeMatchingStreamSubactivity(parent, parsed.body, parsed.tag);
@@ -1050,7 +1331,7 @@
         if (!isInitial) dispatchClientToolFromText(parsed.body);
         messages.set(msg.id, {
           id: msg.id, role, text: parsed.body, ts: msg.timestamp,
-          kind: 'tool-group', el: det, tag: parsed.tag,
+          kind: 'tool-group', el: det, tag: parsed.tag, parentId: parent.id,
         });
         order.push(msg.id);
         scrollToBottom();
@@ -1064,7 +1345,7 @@
         parent.el.setAttribute('aria-expanded', 'true');
         messages.set(msg.id, {
           id: msg.id, role, text: parsed.body, ts: msg.timestamp,
-          kind: 'subactivity', el: sub, tag: parsed.tag,
+          kind: 'subactivity', el: sub, tag: parsed.tag, parentId: parent.id,
         });
         order.push(msg.id);
         scrollToBottom();
@@ -1074,7 +1355,10 @@
       const sub = renderSubactivity(parsed.body, parsed.tag);
       parent.body.appendChild(sub);
       parent.el.setAttribute('aria-expanded', 'true');
-      messages.set(msg.id, { id: msg.id, role, text: parsed.body, ts: msg.timestamp, kind: 'subactivity', el: sub, tag: parsed.tag });
+      messages.set(msg.id, {
+        id: msg.id, role, text: parsed.body, ts: msg.timestamp,
+        kind: 'subactivity', el: sub, tag: parsed.tag, parentId: parent.id,
+      });
       order.push(msg.id);
     } else {
       // AGiXT writes assistant messages with the agent's name as the
@@ -1167,7 +1451,7 @@
         }
       } else {
         const inner = existing.el.querySelector('.md');
-        if (inner) renderMdInto(inner, parsed.body);
+        if (inner) renderMdOrCodexInto(inner, parsed.body);
       }
     }
     scrollToBottom();
@@ -1589,6 +1873,10 @@
 
   function appendLiveSubactivity(parent, body, tag, streamId) {
     if (!parent || !parent.body || !body) return null;
+    // The Tauri completion stream and the conversation WebSocket can race:
+    // if the persisted server row arrives first, avoid adding the matching
+    // transient local row afterward.
+    if (findMatchingSubactivityId(body, tag, { parentId: parent.id })) return null;
     if (parent.el) {
       parent.el.setAttribute('data-running', 'true');
       refreshActivityElapsed(parent.el);
@@ -1624,7 +1912,7 @@
       currentToolGroup = { el: det, body: groupBody, parentId: parent.id, id: msgId };
       messages.set(msgId, {
         id: msgId, role: 'assistant', text: body, ts: new Date().toISOString(),
-        kind: 'tool-group', el: det, tag,
+        kind: 'tool-group', el: det, tag, parentId: parent.id,
       });
       order.push(msgId);
       return det;
@@ -1636,7 +1924,7 @@
       parent.el.setAttribute('aria-expanded', 'true');
       messages.set(msgId, {
         id: msgId, role: 'assistant', text: body, ts: new Date().toISOString(),
-        kind: 'subactivity', el: sub, tag,
+        kind: 'subactivity', el: sub, tag, parentId: parent.id,
       });
       order.push(msgId);
       return sub;
@@ -1647,7 +1935,7 @@
     parent.el.setAttribute('aria-expanded', 'true');
     messages.set(msgId, {
       id: msgId, role: 'assistant', text: body, ts: new Date().toISOString(),
-      kind: 'subactivity', el: sub, tag,
+      kind: 'subactivity', el: sub, tag, parentId: parent.id,
     });
     order.push(msgId);
     return sub;
@@ -1857,7 +2145,7 @@
                 // AGiXT emits thinking/reflection/execute activity.stream events
                 // as deltas, so concatenate each stream into one rolling subactivity.
                 streamingActivity.streamText += chunk;
-                renderMdInto(streamingActivity.subContent, streamingActivity.streamText);
+                renderMdOrCodexInto(streamingActivity.subContent, streamingActivity.streamText);
                 const activityEntry = messages.get(streamingActivity.id);
                 if (activityEntry) {
                   activityEntry.text = streamingActivity.streamText;

@@ -126,6 +126,22 @@ struct LocalCodexAuthStatus {
     error: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalClaudeCredentialsRequest {
+    #[serde(default)]
+    include_secret: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalClaudeCredentialsStatus {
+    available: bool,
+    path: Option<String>,
+    credentials_json: Option<String>,
+    error: Option<String>,
+}
+
 async fn authenticated_settings(state: &State<'_, AppState>) -> ToolResult<DesktopSettings> {
     let settings = state.settings.lock().await.clone();
     if settings.jwt.is_none() {
@@ -328,6 +344,93 @@ async fn local_codex_auth_json(
         path: None,
         auth_json: None,
         error: Some("Local Codex auth import is only available in the desktop app.".into()),
+    })
+}
+
+#[tauri::command]
+#[cfg(not(mobile))]
+async fn local_claude_code_credentials_json(
+    args: Option<LocalClaudeCredentialsRequest>,
+) -> ToolResult<LocalClaudeCredentialsStatus> {
+    let include_secret = args.map(|a| a.include_secret).unwrap_or(false);
+    let path = std::env::var("CLAUDE_CONFIG_DIR")
+        .ok()
+        .map(|dir| std::path::PathBuf::from(dir).join(".credentials.json"))
+        .or_else(|| dirs::home_dir().map(|home| home.join(".claude").join(".credentials.json")));
+    let path = match path {
+        Some(path) => path,
+        None => {
+            return Ok(LocalClaudeCredentialsStatus {
+                available: false,
+                path: None,
+                credentials_json: None,
+                error: Some("Could not resolve the local home directory.".into()),
+            });
+        }
+    };
+    let display_path = path.display().to_string();
+    if !path.is_file() {
+        return Ok(LocalClaudeCredentialsStatus {
+            available: false,
+            path: Some(display_path),
+            credentials_json: None,
+            error: None,
+        });
+    }
+
+    let credentials_json = match tokio::fs::read_to_string(&path).await {
+        Ok(value) => value,
+        Err(e) => {
+            return Ok(LocalClaudeCredentialsStatus {
+                available: false,
+                path: Some(display_path),
+                credentials_json: None,
+                error: Some(format!("Could not read local Claude Code credentials: {e}")),
+            });
+        }
+    };
+    let parsed = match serde_json::from_str::<serde_json::Value>(&credentials_json) {
+        Ok(value) if value.is_object() => value,
+        Ok(_) => {
+            return Ok(LocalClaudeCredentialsStatus {
+                available: false,
+                path: Some(display_path),
+                credentials_json: None,
+                error: Some("Local Claude Code credentials did not contain a JSON object.".into()),
+            });
+        }
+        Err(e) => {
+            return Ok(LocalClaudeCredentialsStatus {
+                available: false,
+                path: Some(display_path),
+                credentials_json: None,
+                error: Some(format!("Local Claude Code credentials are not valid JSON: {e}")),
+            });
+        }
+    };
+
+    Ok(LocalClaudeCredentialsStatus {
+        available: true,
+        path: Some(display_path),
+        credentials_json: if include_secret {
+            Some(serde_json::to_string(&parsed).map_err(anyhow::Error::from)?)
+        } else {
+            None
+        },
+        error: None,
+    })
+}
+
+#[tauri::command]
+#[cfg(mobile)]
+async fn local_claude_code_credentials_json(
+    _args: Option<LocalClaudeCredentialsRequest>,
+) -> ToolResult<LocalClaudeCredentialsStatus> {
+    Ok(LocalClaudeCredentialsStatus {
+        available: false,
+        path: None,
+        credentials_json: None,
+        error: Some("Local Claude Code credential import is only available in the desktop app.".into()),
     })
 }
 
@@ -4508,6 +4611,7 @@ pub fn run() {
             get_settings,
             save_settings,
             local_codex_auth_json,
+            local_claude_code_credentials_json,
             logout,
             desktop_update_check,
             desktop_update_install,
@@ -4806,6 +4910,7 @@ pub fn run() {
             get_settings,
             save_settings,
             local_codex_auth_json,
+            local_claude_code_credentials_json,
             logout,
             desktop_update_check,
             desktop_update_install,

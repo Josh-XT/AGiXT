@@ -869,6 +869,24 @@ details.sub-exec > summary.sub-exec-summary:hover {
   border-radius: 5px;
   overflow-x: auto;
 }
+.codex-events {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.codex-step .sub-exec-summary {
+  background: rgba(158, 224, 163, 0.04);
+}
+.codex-step .sub-exec-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.codex-response {
+  border-top: 1px dashed var(--border);
+  margin-top: 4px;
+  padding-top: 6px;
+}
 
 /* REMOTE / command result terminal block */
 .sub-remote {

@@ -568,7 +568,8 @@
   border-top: 1px solid var(--border);
   padding-top: 8px;
 }
-.ext-codex-local {
+.ext-codex-local,
+.ext-local-auth {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -577,14 +578,18 @@
   background: var(--panel-2);
   padding: 8px;
 }
-.ext-codex-local .btn { align-self: flex-start; }
-.ext-codex-local-status {
+.ext-codex-local .btn,
+.ext-local-auth .btn { align-self: flex-start; }
+.ext-codex-local-status,
+.ext-local-auth-status {
   color: var(--text-dim);
   font-size: 11px;
   line-height: 1.4;
 }
-.ext-codex-local-status.connected { color: #62c886; }
-.ext-codex-local-status.error { color: #ff8a8a; }
+.ext-codex-local-status.connected,
+.ext-local-auth-status.connected { color: #62c886; }
+.ext-codex-local-status.error,
+.ext-local-auth-status.error { color: #ff8a8a; }
 .ext-settings-row { display: flex; flex-direction: column; gap: 3px; }
 .ext-settings-label { font-size: 11px; color: var(--text-dim); }
 .ext-settings-actions { display: flex; gap: 8px; justify-content: flex-end; }

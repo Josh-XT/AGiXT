@@ -22,6 +22,11 @@
   const CODEX_REASONING_KEY = 'OPENAI_CODEX_REASONING_EFFORT';
   const CODEX_DEFAULT_MODEL = 'gpt-5.5';
   const CODEX_DEFAULT_REASONING = 'xhigh';
+  const CLAUDE_CREDENTIALS_KEY = 'CLAUDE_CODE_CREDENTIALS_JSON_SECRET';
+  const CLAUDE_MODEL_KEY = 'CLAUDE_CODE_MODEL';
+  const CLAUDE_EFFORT_KEY = 'CLAUDE_CODE_EFFORT';
+  const CLAUDE_DEFAULT_MODEL = 'claude-opus-4.5';
+  const CLAUDE_DEFAULT_EFFORT = 'xhigh';
 
   let agentId = null;
   let agentName = null;
@@ -161,6 +166,7 @@
     // AI Providers
     openai: 'openai',
     openai_codex: 'openai',
+    claude_code: 'anthropic',
     chatgpt: 'chatgpt',
     anthropic: 'anthropic',
     claude: 'anthropic',
@@ -767,7 +773,7 @@
   }
 
   function isSensitiveKey(key) {
-    return /(_api_key|_password|_secret|_token|private_key|auth_json)$/i.test(String(key || ''));
+    return /(_api_key|_password|_secret|_token|private_key|auth_json|credentials_json)$/i.test(String(key || ''));
   }
 
   function looksMaskedSecretValue(value) {
@@ -779,12 +785,23 @@
     return extensionRawName(ext) === 'openai_codex';
   }
 
-  function codexDefaultValue(ext, key, value) {
+  function isClaudeCodeExtension(ext) {
+    return extensionRawName(ext) === 'claude_code';
+  }
+
+  function extensionDefaultValue(ext, key, value) {
     const current = value == null ? '' : String(value);
-    if (!isOpenAiCodexExtension(ext) || current.trim()) return current;
     const upper = String(key || '').toUpperCase();
-    if (upper === CODEX_MODEL_KEY) return CODEX_DEFAULT_MODEL;
-    if (upper === CODEX_REASONING_KEY) return CODEX_DEFAULT_REASONING;
+    if (isOpenAiCodexExtension(ext)) {
+      if (current.trim()) return current;
+      if (upper === CODEX_MODEL_KEY) return CODEX_DEFAULT_MODEL;
+      if (upper === CODEX_REASONING_KEY) return CODEX_DEFAULT_REASONING;
+    }
+    if (isClaudeCodeExtension(ext)) {
+      if (current.trim()) return current;
+      if (upper === CLAUDE_MODEL_KEY) return CLAUDE_DEFAULT_MODEL;
+      if (upper === CLAUDE_EFFORT_KEY || upper === 'CLAUDE_CODE_REASONING_EFFORT') return CLAUDE_DEFAULT_EFFORT;
+    }
     return current;
   }
 
@@ -907,15 +924,20 @@
     const settings = ext.settings || [];
     if (settings.length === 0) return '';
     if (isOAuthExtension(ext)) return '';   // OAuth handles its own creds
-    const codexConnect = isOpenAiCodexExtension(ext) ? `
-      <div class="ext-codex-local" data-codex-local hidden>
+    const localCredentialsConnect = isOpenAiCodexExtension(ext) ? `
+      <div class="ext-codex-local ext-local-auth" data-codex-local hidden>
         <button class="btn btn-secondary ext-codex-local-connect" type="button" disabled>Checking local Codex login…</button>
-        <div class="ext-codex-local-status" data-codex-local-status>Looking for ~/.codex/auth.json…</div>
+        <div class="ext-codex-local-status ext-local-auth-status" data-codex-local-status>Looking for ~/.codex/auth.json…</div>
       </div>
-    ` : '';
+    ` : (isClaudeCodeExtension(ext) ? `
+      <div class="ext-codex-local ext-local-auth" data-claude-local hidden>
+        <button class="btn btn-secondary ext-claude-local-connect" type="button" disabled>Checking local Claude Code login…</button>
+        <div class="ext-codex-local-status ext-local-auth-status" data-claude-local-status>Looking for ~/.claude/.credentials.json…</div>
+      </div>
+    ` : '');
     const rows = settings.map((s, idx) => {
       const key = typeof s === 'string' ? s : s.setting_key;
-      const val = codexDefaultValue(
+      const val = extensionDefaultValue(
         ext,
         key,
         typeof s === 'string' ? '' : (s.setting_value == null ? '' : s.setting_value)
@@ -927,11 +949,11 @@
       const placeholder = sensitive && val ? 'Saved. Paste a new value to replace it.' : '';
       const numAttrs = meta.type === 'number' ? `step="${meta.step}" min="${meta.min || ''}" max="${meta.max || ''}"` : '';
       const domValue = isMasked ? '' : val;
-      if ((key || '').toUpperCase().includes('AUTH_JSON')) {
+      if ((key || '').toUpperCase().includes('AUTH_JSON') || (key || '').toUpperCase().includes('CREDENTIALS_JSON')) {
         return `
         <div class="ext-settings-row" data-setting-key="${escape(key)}">
           <label class="ext-settings-label" for="ext-set-${idx}-${escape(ext.extension_name)}">${escape(label)}</label>
-          <textarea id="ext-set-${idx}-${escape(ext.extension_name)}" class="as-input" rows="4" placeholder="${escape(placeholder || 'Paste raw auth.json or a base64-encoded copy.')}">${escape(domValue)}</textarea>
+          <textarea id="ext-set-${idx}-${escape(ext.extension_name)}" class="as-input" rows="4" placeholder="${escape(placeholder || 'Paste raw JSON credentials or a base64-encoded copy.')}">${escape(domValue)}</textarea>
         </div>
       `;
       }
@@ -944,7 +966,7 @@
     }).join('');
     return `
       <div class="ext-settings">
-        ${codexConnect}
+        ${localCredentialsConnect}
         ${rows}
         <div class="ext-settings-actions">
           <button class="btn btn-primary ext-settings-save" type="button">Save settings</button>
@@ -1345,6 +1367,81 @@
     });
   }
 
+  function setClaudeLocalStatus(bodyDr, text, kind) {
+    const status = bodyDr.querySelector('[data-claude-local-status]');
+    if (!status) return;
+    status.textContent = text || '';
+    status.classList.toggle('connected', kind === 'connected');
+    status.classList.toggle('error', kind === 'error');
+  }
+
+  async function initializeClaudeLocalConnect(bodyDr, ext) {
+    if (!isClaudeCodeExtension(ext)) return;
+    const box = bodyDr.querySelector('[data-claude-local]');
+    const btn = bodyDr.querySelector('.ext-claude-local-connect');
+    const invoke = tauriInvoke();
+    if (!box || !btn || !invoke) return;
+
+    box.hidden = false;
+    btn.disabled = true;
+    btn.textContent = 'Checking local Claude Code login…';
+    try {
+      const status = await invoke('local_claude_code_credentials_json', { args: { includeSecret: false } });
+      if (status && status.available) {
+        btn.disabled = false;
+        btn.textContent = 'Connect from local Claude Code login';
+        setClaudeLocalStatus(bodyDr, `Found ${status.path || '~/.claude/.credentials.json'}.`, 'connected');
+      } else {
+        if (status && /only available in the desktop app/i.test(status.error || '')) {
+          box.hidden = true;
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = 'Local Claude Code login not found';
+        const message = status && status.error
+          ? status.error
+          : `Run claude auth login, then reopen this settings panel.`;
+        setClaudeLocalStatus(bodyDr, message, 'error');
+      }
+    } catch (e) {
+      btn.disabled = true;
+      btn.textContent = 'Local Claude Code login unavailable';
+      setClaudeLocalStatus(bodyDr, e.message || String(e), 'error');
+    }
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Connecting…';
+      try {
+        const status = await invoke('local_claude_code_credentials_json', { args: { includeSecret: true } });
+        if (!status || !status.available || !status.credentialsJson) {
+          throw new Error((status && status.error) || 'No local Claude Code login was found.');
+        }
+
+        const modelInput = settingInput(bodyDr, CLAUDE_MODEL_KEY);
+        const effortInput = settingInput(bodyDr, CLAUDE_EFFORT_KEY);
+        const model = ((modelInput && modelInput.value) || CLAUDE_DEFAULT_MODEL).trim() || CLAUDE_DEFAULT_MODEL;
+        const effort = ((effortInput && effortInput.value) || CLAUDE_DEFAULT_EFFORT).trim() || CLAUDE_DEFAULT_EFFORT;
+        if (modelInput) modelInput.value = model;
+        if (effortInput) effortInput.value = effort;
+
+        await api.updateAgentSettings(agentId, {
+          [CLAUDE_CREDENTIALS_KEY]: status.credentialsJson,
+          [CLAUDE_MODEL_KEY]: model,
+          [CLAUDE_EFFORT_KEY]: effort,
+        });
+        window.AgentSettings.toast('Claude Code connected.', 'success');
+        await load();
+      } catch (e) {
+        window.AgentSettings.toast('Claude Code connect failed: ' + (e.message || e), 'error');
+        setClaudeLocalStatus(bodyDr, e.message || String(e), 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Connect from local Claude Code login';
+      }
+    });
+  }
+
   function bindDrawerBodyEvents() {
     const ext = drawerExt;
     if (!ext) return;
@@ -1352,6 +1449,7 @@
     if (!bodyDr) return;
 
     initializeCodexLocalConnect(bodyDr, ext);
+    initializeClaudeLocalConnect(bodyDr, ext);
 
     // Per-command toggles
     bodyDr.querySelectorAll('.ext-cmd input[type="checkbox"]').forEach((cb) => {
