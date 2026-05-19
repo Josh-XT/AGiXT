@@ -1838,12 +1838,14 @@
           }
           case 'activity': {
             const chunk = (ev.data && ev.data.content) || '';
+            const rawKind = String((ev.data && ev.data.kind) || '').toLowerCase();
             const tag = streamActivityTag(ev.data && ev.data.kind);
             const complete = !!(ev.data && ev.data.complete);
             if (!chunk && !complete) break;
             const streamingActivity = ensureStreamingActivity();
             if (chunk) {
-              if (tag === 'THOUGHT' || tag === 'REFLECTION') {
+              const isRollingStream = tag === 'THOUGHT' || tag === 'REFLECTION' || rawKind === 'execute';
+              if (isRollingStream) {
                 if (!streamingActivity.subContent || streamingActivity.subTag !== tag) {
                   currentToolGroup = null;
                   const sub = renderSubactivity('', tag);
@@ -1852,8 +1854,8 @@
                   streamingActivity.subTag = tag;
                   streamingActivity.streamText = '';
                 }
-                // AGiXT emits each thinking/reflection activity.stream event
-                // as a delta, so concatenate into one rolling subactivity.
+                // AGiXT emits thinking/reflection/execute activity.stream events
+                // as deltas, so concatenate each stream into one rolling subactivity.
                 streamingActivity.streamText += chunk;
                 renderMdInto(streamingActivity.subContent, streamingActivity.streamText);
                 const activityEntry = messages.get(streamingActivity.id);
@@ -1865,7 +1867,7 @@
                 appendLiveSubactivity(streamingActivity, chunk, tag, streamId);
               }
             }
-            if (complete && (tag === 'THOUGHT' || tag === 'REFLECTION')) {
+            if (complete && (tag === 'THOUGHT' || tag === 'REFLECTION' || rawKind === 'execute')) {
               streamingActivity.el.setAttribute('data-running', 'false');
             }
             scrollToBottom();
