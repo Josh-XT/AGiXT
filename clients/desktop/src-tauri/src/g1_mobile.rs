@@ -210,8 +210,10 @@ impl G1Manager {
         _app: AppHandle,
         settings: &DesktopSettings,
     ) -> Result<G1Status> {
-        self.mobile_status_command("scanAndConnect", SavedDevices::from_settings(settings))
-            .await
+        let status = self
+            .mobile_status_command("scanAndConnect", SavedDevices::from_settings(settings))
+            .await?;
+        self.sync_after_mobile_connect(status, settings).await
     }
 
     pub async fn reconnect_saved(
@@ -219,8 +221,10 @@ impl G1Manager {
         _app: AppHandle,
         settings: &DesktopSettings,
     ) -> Result<G1Status> {
-        self.mobile_status_command("reconnectSaved", SavedDevices::from_settings(settings))
-            .await
+        let status = self
+            .mobile_status_command("reconnectSaved", SavedDevices::from_settings(settings))
+            .await?;
+        self.sync_after_mobile_connect(status, settings).await
     }
 
     pub async fn disconnect(&self) -> Result<G1Status> {
@@ -474,6 +478,19 @@ impl G1Manager {
             .run_mobile_plugin_async(command, payload)
             .await
             .map_err(|err| anyhow!("{err}"))
+    }
+
+    async fn sync_after_mobile_connect(
+        &self,
+        status: G1Status,
+        settings: &DesktopSettings,
+    ) -> Result<G1Status> {
+        if !status.connected {
+            return Ok(status);
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        self.sync(settings).await
     }
 
     async fn write_packets(

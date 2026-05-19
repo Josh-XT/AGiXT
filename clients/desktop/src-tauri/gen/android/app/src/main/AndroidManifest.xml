@@ -82,6 +82,11 @@
             <!-- DEEP LINK PLUGIN. AUTO-GENERATED. DO NOT REMOVE. -->
         </activity>
 
+        <service
+            android:name=".G1KeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
         <provider
           android:name="androidx.core.content.FileProvider"
           android:authorities="${applicationId}.fileprovider"

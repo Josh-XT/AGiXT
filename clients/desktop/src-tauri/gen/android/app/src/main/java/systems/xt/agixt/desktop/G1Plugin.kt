@@ -3,6 +3,11 @@ package systems.xt.agixt.desktop
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
@@ -15,12 +20,17 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Handler
+import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Base64
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationCompat
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import app.tauri.annotation.Command
@@ -36,6 +46,14 @@ import java.util.Locale
 import java.util.TreeMap
 import java.util.TimeZone
 import java.util.UUID
+
+internal data class G1KeepAliveSnapshot(
+  val maintaining: Boolean,
+  val leftConnected: Boolean,
+  val rightConnected: Boolean,
+  val lastEvent: String?,
+  val lastError: String?,
+)
 
 @SuppressLint("MissingPermission")
 @TauriPlugin
@@ -171,11 +189,14 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
     .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
     .build()
   private val connections = EnumMapCompat<Side, GlassConnection>()
+  private val reconnectAttempts = EnumMapCompat<Side, Int>()
+  private val reconnectRunnables = EnumMapCompat<Side, Runnable>()
 
   private var scanCallback: ScanCallback? = null
   private var scanTimeout: Runnable? = null
   private var scanning = false
   private var connectingPair = false
+  private var shouldMaintainConnection = false
   private var pendingConnectInvoke: Invoke? = null
   private var heartbeatRunnable: Runnable? = null
   private var heartbeatSeq = 0
@@ -187,6 +208,10 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
   private val micChunks = TreeMap<Int, ByteArray>()
   private var lastEvent: String? = null
   private var lastError: String? = null
+
+  init {
+    activePlugin = this
+  }
 
   @Command
   fun status(invoke: Invoke) {
@@ -203,6 +228,7 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
       }
 
       disconnectInternal(clearMessage = false)
+      shouldMaintainConnection = true
       pendingConnectInvoke = invoke
       scanning = true
       connectingPair = false
@@ -265,6 +291,7 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
       }
 
       disconnectInternal(clearMessage = false)
+      shouldMaintainConnection = true
       pendingConnectInvoke = invoke
       scanning = false
       connectingPair = true
@@ -433,6 +460,9 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
 
   override fun onDestroy(activity: AppCompatActivity) {
     disconnectInternal(clearMessage = false)
+    if (activePlugin === this) {
+      activePlugin = null
+    }
     super.onDestroy(activity)
   }
 
@@ -452,6 +482,7 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
   }
 
   private fun connectDevice(side: Side, device: BluetoothDevice, displayName: String) {
+    cancelReconnect(side)
     val name = safeDeviceName(device) ?: displayName
     val connection = GlassConnection(side, name, safeDeviceAddress(device), device)
     connections[side]?.close()
@@ -485,6 +516,9 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
               lastError = "${side.wireName} G1 disconnected during connection (status $status)"
             }
             emitStatusEvent()
+            if (wasReady && shouldMaintainConnection) {
+              scheduleReconnect(side, connection.device, connection.name)
+            }
           }
         }
       }
@@ -610,6 +644,7 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
       stopScanOnly()
       lastEvent = "G1 glasses connected"
       lastError = null
+      startKeepAliveService()
       emitStatusEvent()
       resolvePendingConnect()
     }
@@ -631,15 +666,19 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
     }
 
     connection.connected = true
+    reconnectAttempts.remove(connection.side)
     lastEvent = "${connection.side.wireName} G1 ready"
     lastError = null
     scheduleBatteryRequests(connection)
+    sendHeartbeatNow()
     startHeartbeat()
+    startKeepAliveService()
     emitStatusEvent()
     checkConnectComplete()
   }
 
   private fun failConnection(connection: GlassConnection, message: String) {
+    val shouldRetry = shouldMaintainConnection && pendingConnectInvoke == null && !scanning
     connection.close()
     if (connections[connection.side] === connection) {
       connections.remove(connection.side)
@@ -649,6 +688,9 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
     if (pendingConnectInvoke != null && !scanning) {
       connectingPair = false
       resolvePendingConnect()
+    }
+    if (shouldRetry) {
+      scheduleReconnect(connection.side, connection.device, connection.name)
     }
   }
 
@@ -662,6 +704,10 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
     pendingConnectInvoke = null
     if (invoke != null) {
       invoke.reject(message)
+    }
+    if (connections.values.none { it.connected }) {
+      shouldMaintainConnection = false
+      stopKeepAliveService()
     }
   }
 
@@ -680,6 +726,9 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
   }
 
   private fun disconnectInternal(clearMessage: Boolean) {
+    shouldMaintainConnection = false
+    cancelReconnects()
+    stopKeepAliveService()
     stopHeartbeat()
     connections.values.toList().forEach { it.close() }
     connections.clear()
@@ -727,6 +776,101 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
   private fun stopHeartbeat() {
     heartbeatRunnable?.let { mainHandler.removeCallbacks(it) }
     heartbeatRunnable = null
+  }
+
+  private fun sendHeartbeatNow(): Boolean {
+    val packet = buildHeartbeat()
+    var sent = false
+    connections.values
+      .filter { it.connected }
+      .forEach { connection ->
+        sent = true
+        connection.enqueueWrite(packet) { ok, message ->
+          if (!ok && message != null) {
+            lastError = message
+            emitStatusEvent()
+          }
+        }
+      }
+    return sent
+  }
+
+  private fun scheduleReconnect(side: Side, device: BluetoothDevice, displayName: String) {
+    if (!shouldMaintainConnection || reconnectRunnables[side] != null) return
+    if (connections[side]?.connected == true) return
+
+    val nextAttempt = (reconnectAttempts[side] ?: 0) + 1
+    if (nextAttempt > MAX_RECONNECT_ATTEMPTS) {
+      lastError = "${side.wireName} G1 reconnect gave up after $MAX_RECONNECT_ATTEMPTS attempts"
+      emitStatusEvent()
+      return
+    }
+
+    reconnectAttempts[side] = nextAttempt
+    val delayMs = reconnectDelayMs(nextAttempt)
+    lastEvent = "${side.wireName} G1 reconnect attempt $nextAttempt scheduled"
+    lastError = null
+    emitStatusEvent()
+
+    val runnable = Runnable {
+      reconnectRunnables.remove(side)
+      if (!shouldMaintainConnection || connections[side]?.connected == true) return@Runnable
+      lastEvent = "Reconnecting ${side.wireName} G1"
+      lastError = null
+      emitStatusEvent()
+      connectDevice(side, device, displayName)
+    }
+    reconnectRunnables[side] = runnable
+    mainHandler.postDelayed(runnable, delayMs)
+  }
+
+  private fun reconnectDelayMs(attempt: Int): Long {
+    val seconds = when (attempt) {
+      1 -> 2
+      2 -> 4
+      3 -> 8
+      4 -> 16
+      else -> 30
+    }
+    return seconds * 1_000L
+  }
+
+  private fun cancelReconnect(side: Side) {
+    reconnectRunnables.remove(side)?.let { mainHandler.removeCallbacks(it) }
+  }
+
+  private fun cancelReconnects() {
+    reconnectRunnables.values.toList().forEach { mainHandler.removeCallbacks(it) }
+    reconnectRunnables.clear()
+    reconnectAttempts.clear()
+  }
+
+  private fun startKeepAliveService() {
+    try {
+      G1KeepAliveService.start(activity.applicationContext)
+    } catch (ex: Exception) {
+      lastError = "G1 keep-alive service could not start: ${ex.message ?: ex.javaClass.simpleName}"
+    }
+  }
+
+  private fun stopKeepAliveService() {
+    try {
+      G1KeepAliveService.stop(activity.applicationContext)
+    } catch (_: Exception) {
+    }
+  }
+
+  private fun serviceKeepAliveTick(): G1KeepAliveSnapshot {
+    if (shouldMaintainConnection) {
+      sendHeartbeatNow()
+    }
+    return G1KeepAliveSnapshot(
+      maintaining = shouldMaintainConnection,
+      leftConnected = connections[Side.LEFT]?.connected == true,
+      rightConnected = connections[Side.RIGHT]?.connected == true,
+      lastEvent = lastEvent,
+      lastError = lastError,
+    )
   }
 
   private fun buildHeartbeat(): ByteArray {
@@ -987,6 +1131,9 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
   }
 
   companion object {
+    @Volatile
+    private var activePlugin: G1Plugin? = null
+
     private val UART_SERVICE_UUID: UUID = UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
     private val UART_TX_CHAR_UUID: UUID = UUID.fromString("6E400002-B5A3-F393-E0A9-E50E24DCCA9E")
     private val UART_RX_CHAR_UUID: UUID = UUID.fromString("6E400003-B5A3-F393-E0A9-E50E24DCCA9E")
@@ -994,7 +1141,192 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
     private const val SCAN_TIMEOUT_MS = 30_000L
     private const val CONNECT_TIMEOUT_MS = 20_000L
     private const val HEARTBEAT_MS = 5_000L
+    private const val MAX_RECONNECT_ATTEMPTS = 50
     private const val G1_PERMISSION_REQUEST_CODE = 7438
     private const val GATT_API_SUCCESS = 0
+
+    internal fun keepAliveFromService(): G1KeepAliveSnapshot {
+      return activePlugin?.serviceKeepAliveTick() ?: G1KeepAliveSnapshot(
+        maintaining = false,
+        leftConnected = false,
+        rightConnected = false,
+        lastEvent = "G1 bridge is not active",
+        lastError = null,
+      )
+    }
+  }
+}
+
+class G1KeepAliveService : Service() {
+  private val handler = Handler(Looper.getMainLooper())
+  private var wakeLock: PowerManager.WakeLock? = null
+
+  private val tickRunnable = object : Runnable {
+    override fun run() {
+      val snapshot = G1Plugin.keepAliveFromService()
+      if (!snapshot.maintaining && !snapshot.leftConnected && !snapshot.rightConnected) {
+        stopSelf()
+        return
+      }
+
+      refreshWakeLock()
+      updateNotification(snapshot)
+      handler.postDelayed(this, TICK_MS)
+    }
+  }
+
+  override fun onCreate() {
+    super.onCreate()
+    createNotificationChannel()
+  }
+
+  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    if (intent?.action == ACTION_STOP) {
+      stopSelf()
+      return START_NOT_STICKY
+    }
+
+    val snapshot = G1Plugin.keepAliveFromService()
+    startForegroundCompat(buildNotification(snapshot))
+    refreshWakeLock()
+    handler.removeCallbacks(tickRunnable)
+    handler.postDelayed(tickRunnable, TICK_MS)
+    return START_STICKY
+  }
+
+  override fun onBind(intent: Intent?): IBinder? = null
+
+  override fun onDestroy() {
+    handler.removeCallbacks(tickRunnable)
+    releaseWakeLock()
+    super.onDestroy()
+  }
+
+  private fun startForegroundCompat(notification: Notification) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      startForeground(
+        NOTIFICATION_ID,
+        notification,
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+      )
+    } else {
+      startForeground(NOTIFICATION_ID, notification)
+    }
+  }
+
+  private fun updateNotification(snapshot: G1KeepAliveSnapshot) {
+    val manager = getSystemService(NotificationManager::class.java) ?: return
+    manager.notify(NOTIFICATION_ID, buildNotification(snapshot))
+  }
+
+  private fun buildNotification(snapshot: G1KeepAliveSnapshot): Notification {
+    val status = when {
+      snapshot.leftConnected && snapshot.rightConnected -> "Connected to glasses"
+      snapshot.leftConnected || snapshot.rightConnected -> {
+        val sides = listOfNotNull(
+          if (snapshot.leftConnected) "L" else null,
+          if (snapshot.rightConnected) "R" else null,
+        ).joinToString("")
+        "Partially connected ($sides)"
+      }
+      snapshot.maintaining -> "Disconnected - trying to reconnect..."
+      else -> snapshot.lastEvent ?: "Glasses connection idle"
+    }
+
+    val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+    val pendingIntent = launchIntent?.let {
+      PendingIntent.getActivity(
+        this,
+        0,
+        it,
+        PendingIntent.FLAG_UPDATE_CURRENT or immutableFlag(),
+      )
+    }
+
+    return NotificationCompat.Builder(this, CHANNEL_ID)
+      .setSmallIcon(R.mipmap.ic_launcher)
+      .setContentTitle("AGiXT Glasses Connection")
+      .setContentText(status)
+      .setOngoing(true)
+      .setOnlyAlertOnce(true)
+      .setShowWhen(true)
+      .setCategory(NotificationCompat.CATEGORY_SERVICE)
+      .setPriority(NotificationCompat.PRIORITY_MAX)
+      .setContentIntent(pendingIntent)
+      .build()
+  }
+
+  private fun createNotificationChannel() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    val manager = getSystemService(NotificationManager::class.java) ?: return
+    val channel = NotificationChannel(
+      CHANNEL_ID,
+      "AGiXT Glasses Connection",
+      NotificationManager.IMPORTANCE_HIGH,
+    ).apply {
+      description = "Maintains connection to your glasses in the background"
+      setSound(null, null)
+      enableVibration(false)
+      setShowBadge(false)
+    }
+    manager.createNotificationChannel(channel)
+  }
+
+  private fun refreshWakeLock() {
+    try {
+      val lock = wakeLock ?: run {
+        val powerManager = getSystemService(PowerManager::class.java) ?: return
+        powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:g1_keep_alive").apply {
+          setReferenceCounted(false)
+          wakeLock = this
+        }
+      }
+      lock.acquire(WAKELOCK_TIMEOUT_MS)
+    } catch (_: Exception) {
+    }
+  }
+
+  private fun releaseWakeLock() {
+    try {
+      wakeLock?.takeIf { it.isHeld }?.release()
+    } catch (_: Exception) {
+    } finally {
+      wakeLock = null
+    }
+  }
+
+  companion object {
+    private const val ACTION_START = "systems.xt.agixt.desktop.g1.START_KEEP_ALIVE"
+    private const val ACTION_STOP = "systems.xt.agixt.desktop.g1.STOP_KEEP_ALIVE"
+    private const val CHANNEL_ID = "agixt_g1_keep_alive"
+    private const val NOTIFICATION_ID = 7438
+    private const val TICK_MS = 15_000L
+    private const val WAKELOCK_TIMEOUT_MS = 45_000L
+
+    fun start(context: Context) {
+      val intent = Intent(context, G1KeepAliveService::class.java).setAction(ACTION_START)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        ContextCompat.startForegroundService(context, intent)
+      } else {
+        context.startService(intent)
+      }
+    }
+
+    fun stop(context: Context) {
+      val intent = Intent(context, G1KeepAliveService::class.java).setAction(ACTION_STOP)
+      try {
+        context.startService(intent)
+      } catch (_: Exception) {
+        context.stopService(Intent(context, G1KeepAliveService::class.java))
+      }
+    }
+
+    private fun immutableFlag(): Int {
+      return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        PendingIntent.FLAG_IMMUTABLE
+      } else {
+        0
+      }
+    }
   }
 }
