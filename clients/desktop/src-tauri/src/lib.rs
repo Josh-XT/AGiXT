@@ -142,6 +142,22 @@ struct LocalClaudeCredentialsStatus {
     error: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalKiroRefreshTokenRequest {
+    #[serde(default)]
+    include_secret: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalKiroRefreshTokenStatus {
+    available: bool,
+    path: Option<String>,
+    refresh_token: Option<String>,
+    error: Option<String>,
+}
+
 async fn authenticated_settings(state: &State<'_, AppState>) -> ToolResult<DesktopSettings> {
     let settings = state.settings.lock().await.clone();
     if settings.jwt.is_none() {
@@ -404,7 +420,9 @@ async fn local_claude_code_credentials_json(
                 available: false,
                 path: Some(display_path),
                 credentials_json: None,
-                error: Some(format!("Local Claude Code credentials are not valid JSON: {e}")),
+                error: Some(format!(
+                    "Local Claude Code credentials are not valid JSON: {e}"
+                )),
             });
         }
     };
@@ -430,7 +448,119 @@ async fn local_claude_code_credentials_json(
         available: false,
         path: None,
         credentials_json: None,
-        error: Some("Local Claude Code credential import is only available in the desktop app.".into()),
+        error: Some(
+            "Local Claude Code credential import is only available in the desktop app.".into(),
+        ),
+    })
+}
+
+fn extract_kiro_refresh_token(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("refreshToken")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|token| token.starts_with("aorAAAAAG"))
+        .map(str::to_string)
+}
+
+fn read_kiro_refresh_token_file(path: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let parsed = serde_json::from_str::<serde_json::Value>(&content).ok()?;
+    extract_kiro_refresh_token(&parsed)
+}
+
+fn find_kiro_refresh_token_in_cache(
+    cache_path: &std::path::Path,
+) -> Result<Option<(std::path::PathBuf, String)>, String> {
+    if !cache_path.is_dir() {
+        return Err("AWS SSO cache not found. Please login to Kiro IDE first.".into());
+    }
+
+    let preferred = cache_path.join("kiro-auth-token.json");
+    if preferred.is_file() {
+        if let Some(token) = read_kiro_refresh_token_file(&preferred) {
+            return Ok(Some((preferred, token)));
+        }
+    }
+
+    let mut files = std::fs::read_dir(cache_path)
+        .map_err(|e| format!("Could not read AWS SSO cache: {e}"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+        })
+        .collect::<Vec<_>>();
+    files.sort();
+
+    for path in files {
+        if path.file_name().and_then(|name| name.to_str()) == Some("kiro-auth-token.json") {
+            continue;
+        }
+        if let Some(token) = read_kiro_refresh_token_file(&path) {
+            return Ok(Some((path, token)));
+        }
+    }
+
+    Ok(None)
+}
+
+#[tauri::command]
+#[cfg(not(mobile))]
+async fn local_kiro_refresh_token(
+    args: Option<LocalKiroRefreshTokenRequest>,
+) -> ToolResult<LocalKiroRefreshTokenStatus> {
+    let include_secret = args.map(|a| a.include_secret).unwrap_or(false);
+    let cache_path = match dirs::home_dir() {
+        Some(home) => home.join(".aws").join("sso").join("cache"),
+        None => {
+            return Ok(LocalKiroRefreshTokenStatus {
+                available: false,
+                path: None,
+                refresh_token: None,
+                error: Some("Could not resolve the local home directory.".into()),
+            });
+        }
+    };
+    let display_cache_path = cache_path.display().to_string();
+    match find_kiro_refresh_token_in_cache(&cache_path) {
+        Ok(Some((path, token))) => Ok(LocalKiroRefreshTokenStatus {
+            available: true,
+            path: Some(path.display().to_string()),
+            refresh_token: include_secret.then_some(token),
+            error: None,
+        }),
+        Ok(None) => Ok(LocalKiroRefreshTokenStatus {
+            available: false,
+            path: Some(display_cache_path),
+            refresh_token: None,
+            error: Some(
+                "Kiro token not found in AWS SSO cache. Please login to Kiro IDE first.".into(),
+            ),
+        }),
+        Err(error) => Ok(LocalKiroRefreshTokenStatus {
+            available: false,
+            path: Some(display_cache_path),
+            refresh_token: None,
+            error: Some(error),
+        }),
+    }
+}
+
+#[tauri::command]
+#[cfg(mobile)]
+async fn local_kiro_refresh_token(
+    _args: Option<LocalKiroRefreshTokenRequest>,
+) -> ToolResult<LocalKiroRefreshTokenStatus> {
+    Ok(LocalKiroRefreshTokenStatus {
+        available: false,
+        path: None,
+        refresh_token: None,
+        error: Some("Local Kiro credential import is only available in the desktop app.".into()),
     })
 }
 
@@ -2396,7 +2526,7 @@ async fn device_open_settings(
 
 #[cfg(test)]
 mod auth_tests {
-    use super::extract_jwt;
+    use super::{extract_jwt, find_kiro_refresh_token_in_cache};
 
     const JWT: &str = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature";
 
@@ -2446,6 +2576,50 @@ mod auth_tests {
     fn ignores_non_jwt_tokens() {
         let url = "https://example.com/?token=plaintext-not-a-jwt";
         assert!(extract_jwt(url).is_none());
+    }
+
+    #[test]
+    fn finds_preferred_kiro_refresh_token_cache_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("other.json"),
+            r#"{"refreshToken":"aorAAAAAG_OTHER"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("kiro-auth-token.json"),
+            r#"{"refreshToken":"aorAAAAAG_PREFERRED"}"#,
+        )
+        .unwrap();
+
+        let (path, token) = find_kiro_refresh_token_in_cache(dir.path())
+            .unwrap()
+            .expect("Kiro token should be found");
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("kiro-auth-token.json")
+        );
+        assert_eq!(token, "aorAAAAAG_PREFERRED");
+    }
+
+    #[test]
+    fn scans_aws_sso_cache_for_kiro_refresh_token() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("invalid.json"),
+            r#"{"refreshToken":"wrong"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("cache-entry.json"),
+            r#"{"refreshToken":"aorAAAAAG_DISCOVERED"}"#,
+        )
+        .unwrap();
+
+        let (_path, token) = find_kiro_refresh_token_in_cache(dir.path())
+            .unwrap()
+            .expect("Kiro token should be found");
+        assert_eq!(token, "aorAAAAAG_DISCOVERED");
     }
 }
 
@@ -4612,6 +4786,7 @@ pub fn run() {
             save_settings,
             local_codex_auth_json,
             local_claude_code_credentials_json,
+            local_kiro_refresh_token,
             logout,
             desktop_update_check,
             desktop_update_install,
@@ -4911,6 +5086,7 @@ pub fn run() {
             save_settings,
             local_codex_auth_json,
             local_claude_code_credentials_json,
+            local_kiro_refresh_token,
             logout,
             desktop_update_check,
             desktop_update_install,

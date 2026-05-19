@@ -590,6 +590,46 @@
 .ext-local-auth-status.connected { color: #62c886; }
 .ext-codex-local-status.error,
 .ext-local-auth-status.error { color: #ff8a8a; }
+
+/* Codex / Claude Code: when a local CLI login is found the one-click
+   connect is the headline action — full-width primary button, accent
+   border, and the raw-JSON form tucked away below. */
+.ext-local-auth-primary {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  padding: 12px;
+  gap: 8px;
+}
+.ext-local-auth-primary .btn {
+  align-self: stretch;
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 13px;
+}
+.ext-local-manual {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.ext-local-manual-summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  user-select: none;
+}
+.ext-local-manual-summary::-webkit-details-marker { display: none; }
+.ext-local-manual-summary::marker { content: ''; }
+.ext-local-manual-summary::before { content: '▸ '; }
+.ext-local-manual[open] .ext-local-manual-summary::before { content: '▾ '; }
+.ext-local-manual-summary:hover { color: var(--text); }
+.ext-local-manual-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
 .ext-settings-row { display: flex; flex-direction: column; gap: 3px; }
 .ext-settings-label { font-size: 11px; color: var(--text-dim); }
 .ext-settings-actions { display: flex; gap: 8px; justify-content: flex-end; }

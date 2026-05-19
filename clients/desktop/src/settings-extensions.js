@@ -27,6 +27,11 @@
   const CLAUDE_EFFORT_KEY = 'CLAUDE_CODE_EFFORT';
   const CLAUDE_DEFAULT_MODEL = 'claude-opus-4.5';
   const CLAUDE_DEFAULT_EFFORT = 'xhigh';
+  const KIRO_API_KEY = 'KIRO_API_KEY';
+  const KIRO_REFRESH_TOKEN_KEY = 'KIRO_REFRESH_TOKEN_SECRET';
+  const KIRO_MODEL_KEY = 'KIRO_CODE_MODEL';
+  const KIRO_TRUST_ALL_TOOLS_KEY = 'KIRO_TRUST_ALL_TOOLS';
+  const KIRO_DEFAULT_MODEL = 'claude-opus-4.6';
 
   let agentId = null;
   let agentName = null;
@@ -167,6 +172,7 @@
     openai: 'openai',
     openai_codex: 'openai',
     claude_code: 'anthropic',
+    kiro_code: 'code',
     chatgpt: 'chatgpt',
     anthropic: 'anthropic',
     claude: 'anthropic',
@@ -789,6 +795,10 @@
     return extensionRawName(ext) === 'claude_code';
   }
 
+  function isKiroCodeExtension(ext) {
+    return extensionRawName(ext) === 'kiro_code';
+  }
+
   function extensionDefaultValue(ext, key, value) {
     const current = value == null ? '' : String(value);
     const upper = String(key || '').toUpperCase();
@@ -801,6 +811,11 @@
       if (current.trim()) return current;
       if (upper === CLAUDE_MODEL_KEY) return CLAUDE_DEFAULT_MODEL;
       if (upper === CLAUDE_EFFORT_KEY || upper === 'CLAUDE_CODE_REASONING_EFFORT') return CLAUDE_DEFAULT_EFFORT;
+    }
+    if (isKiroCodeExtension(ext)) {
+      if (current.trim()) return current;
+      if (upper === KIRO_MODEL_KEY || upper === 'KIRO_MODEL') return KIRO_DEFAULT_MODEL;
+      if (upper === KIRO_TRUST_ALL_TOOLS_KEY) return 'true';
     }
     return current;
   }
@@ -924,17 +939,27 @@
     const settings = ext.settings || [];
     if (settings.length === 0) return '';
     if (isOAuthExtension(ext)) return '';   // OAuth handles its own creds
-    const localCredentialsConnect = isOpenAiCodexExtension(ext) ? `
-      <div class="ext-codex-local ext-local-auth" data-codex-local hidden>
-        <button class="btn btn-secondary ext-codex-local-connect" type="button" disabled>Checking local Codex login…</button>
-        <div class="ext-codex-local-status ext-local-auth-status" data-codex-local-status>Looking for ~/.codex/auth.json…</div>
-      </div>
-    ` : (isClaudeCodeExtension(ext) ? `
-      <div class="ext-codex-local ext-local-auth" data-claude-local hidden>
-        <button class="btn btn-secondary ext-claude-local-connect" type="button" disabled>Checking local Claude Code login…</button>
-        <div class="ext-codex-local-status ext-local-auth-status" data-claude-local-status>Looking for ~/.claude/.credentials.json…</div>
-      </div>
-    ` : '');
+
+    // Codex / Claude Code authenticate from the local CLI's own login
+    // file. When that file is present the one-click "Connect" is the
+    // whole story — the raw JSON paste box plus the model/effort fields
+    // are just noise, so for these extensions they collapse behind an
+    // "Enter credentials manually" disclosure. The connect handler
+    // (initialize*LocalConnect) auto-opens it only when no local login
+    // is found, or we're in the browser where there is none. Kiro uses
+    // the same treatment for refresh tokens imported from Kiro IDE's
+    // AWS SSO cache, while still allowing a manual API key.
+    const localAuth = isOpenAiCodexExtension(ext)
+      ? { box: 'data-codex-local', btn: 'ext-codex-local-connect', status: 'data-codex-local-status',
+          checking: 'Checking local Codex login…', looking: 'Looking for ~/.codex/auth.json…' }
+      : isClaudeCodeExtension(ext)
+      ? { box: 'data-claude-local', btn: 'ext-claude-local-connect', status: 'data-claude-local-status',
+          checking: 'Checking local Claude Code login…', looking: 'Looking for ~/.claude/.credentials.json…' }
+      : isKiroCodeExtension(ext)
+      ? { box: 'data-kiro-local', btn: 'ext-kiro-local-connect', status: 'data-kiro-local-status',
+          checking: 'Checking local Kiro IDE login…', looking: 'Looking for a Kiro token in ~/.aws/sso/cache…' }
+      : null;
+
     const rows = settings.map((s, idx) => {
       const key = typeof s === 'string' ? s : s.setting_key;
       const val = extensionDefaultValue(
@@ -964,9 +989,29 @@
         </div>
       `;
     }).join('');
+
+    if (localAuth) {
+      return `
+      <div class="ext-settings">
+        <div class="ext-local-auth ext-local-auth-primary" ${localAuth.box} hidden>
+          <button class="btn btn-primary ${localAuth.btn}" type="button" disabled>${localAuth.checking}</button>
+          <div class="ext-local-auth-status" ${localAuth.status}>${localAuth.looking}</div>
+        </div>
+        <details class="ext-local-manual">
+          <summary class="ext-local-manual-summary">Enter credentials manually</summary>
+          <div class="ext-local-manual-body">
+            ${rows}
+            <div class="ext-settings-actions">
+              <button class="btn btn-secondary ext-settings-save" type="button">Save settings</button>
+            </div>
+          </div>
+        </details>
+      </div>
+    `;
+    }
+
     return `
       <div class="ext-settings">
-        ${localCredentialsConnect}
         ${rows}
         <div class="ext-settings-actions">
           <button class="btn btn-primary ext-settings-save" type="button">Save settings</button>
@@ -1292,6 +1337,16 @@
     return row ? row.querySelector('input, textarea') : null;
   }
 
+  // Codex/Claude keep the raw JSON paste form in a collapsed <details>.
+  // We only pop it open when one-click connect can't carry the user —
+  // no local login file present, or running in the browser. When a
+  // local login *is* found we leave it collapsed so the prominent
+  // "Connect" button is the only thing competing for attention.
+  function revealManualSettings(bodyDr) {
+    const details = bodyDr.querySelector('.ext-local-manual');
+    if (details && !details.open) details.open = true;
+  }
+
   function setCodexLocalStatus(bodyDr, text, kind) {
     const status = bodyDr.querySelector('[data-codex-local-status]');
     if (!status) return;
@@ -1305,7 +1360,9 @@
     const box = bodyDr.querySelector('[data-codex-local]');
     const btn = bodyDr.querySelector('.ext-codex-local-connect');
     const invoke = tauriInvoke();
-    if (!box || !btn || !invoke) return;
+    if (!box || !btn) return;
+    const connected = extensionConnected(ext);
+    if (!invoke) { if (!connected) revealManualSettings(bodyDr); return; }
 
     box.hidden = false;
     btn.disabled = true;
@@ -1314,11 +1371,24 @@
       const status = await invoke('local_codex_auth_json', { args: { includeSecret: false } });
       if (status && status.available) {
         btn.disabled = false;
-        btn.textContent = 'Connect from local Codex login';
-        setCodexLocalStatus(bodyDr, `Found ${status.path || '~/.codex/auth.json'}.`, 'connected');
+        if (connected) {
+          // Already wired up — the drawer header already says so. Keep
+          // only a quiet "Re-import" affordance for refreshing an
+          // expired token, not a loud "connect" prompt.
+          box.classList.remove('ext-local-auth-primary');
+          btn.classList.remove('btn-primary');
+          btn.classList.add('btn-secondary');
+          btn.textContent = 'Re-import credentials';
+          setCodexLocalStatus(bodyDr, `Connected from ${status.path || '~/.codex/auth.json'}.`, 'connected');
+        } else {
+          btn.textContent = 'Import Credentials';
+          setCodexLocalStatus(bodyDr, `Found ${status.path || '~/.codex/auth.json'}.`, 'connected');
+        }
       } else {
+        if (connected) { box.hidden = true; return; }
         if (status && /only available in the desktop app/i.test(status.error || '')) {
           box.hidden = true;
+          revealManualSettings(bodyDr);
           return;
         }
         btn.disabled = true;
@@ -1327,11 +1397,14 @@
           ? status.error
           : `Run codex login, then reopen this settings panel.`;
         setCodexLocalStatus(bodyDr, message, 'error');
+        revealManualSettings(bodyDr);
       }
     } catch (e) {
+      if (connected) { box.hidden = true; return; }
       btn.disabled = true;
       btn.textContent = 'Local Codex login unavailable';
       setCodexLocalStatus(bodyDr, e.message || String(e), 'error');
+      revealManualSettings(bodyDr);
     }
 
     btn.addEventListener('click', async () => {
@@ -1362,7 +1435,7 @@
         setCodexLocalStatus(bodyDr, e.message || String(e), 'error');
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Connect from local Codex login';
+        btn.textContent = connected ? 'Re-import credentials' : 'Import Credentials';
       }
     });
   }
@@ -1380,7 +1453,9 @@
     const box = bodyDr.querySelector('[data-claude-local]');
     const btn = bodyDr.querySelector('.ext-claude-local-connect');
     const invoke = tauriInvoke();
-    if (!box || !btn || !invoke) return;
+    if (!box || !btn) return;
+    const connected = extensionConnected(ext);
+    if (!invoke) { if (!connected) revealManualSettings(bodyDr); return; }
 
     box.hidden = false;
     btn.disabled = true;
@@ -1389,11 +1464,24 @@
       const status = await invoke('local_claude_code_credentials_json', { args: { includeSecret: false } });
       if (status && status.available) {
         btn.disabled = false;
-        btn.textContent = 'Connect from local Claude Code login';
-        setClaudeLocalStatus(bodyDr, `Found ${status.path || '~/.claude/.credentials.json'}.`, 'connected');
+        if (connected) {
+          // Already wired up — the drawer header already says so. Keep
+          // only a quiet "Re-import" affordance for refreshing an
+          // expired token, not a loud "connect" prompt.
+          box.classList.remove('ext-local-auth-primary');
+          btn.classList.remove('btn-primary');
+          btn.classList.add('btn-secondary');
+          btn.textContent = 'Re-import credentials';
+          setClaudeLocalStatus(bodyDr, `Connected from ${status.path || '~/.claude/.credentials.json'}.`, 'connected');
+        } else {
+          btn.textContent = 'Import Credentials';
+          setClaudeLocalStatus(bodyDr, `Found ${status.path || '~/.claude/.credentials.json'}.`, 'connected');
+        }
       } else {
+        if (connected) { box.hidden = true; return; }
         if (status && /only available in the desktop app/i.test(status.error || '')) {
           box.hidden = true;
+          revealManualSettings(bodyDr);
           return;
         }
         btn.disabled = true;
@@ -1402,11 +1490,14 @@
           ? status.error
           : `Run claude auth login, then reopen this settings panel.`;
         setClaudeLocalStatus(bodyDr, message, 'error');
+        revealManualSettings(bodyDr);
       }
     } catch (e) {
+      if (connected) { box.hidden = true; return; }
       btn.disabled = true;
       btn.textContent = 'Local Claude Code login unavailable';
       setClaudeLocalStatus(bodyDr, e.message || String(e), 'error');
+      revealManualSettings(bodyDr);
     }
 
     btn.addEventListener('click', async () => {
@@ -1437,7 +1528,100 @@
         setClaudeLocalStatus(bodyDr, e.message || String(e), 'error');
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Connect from local Claude Code login';
+        btn.textContent = connected ? 'Re-import credentials' : 'Import Credentials';
+      }
+    });
+  }
+
+  function setKiroLocalStatus(bodyDr, text, kind) {
+    const status = bodyDr.querySelector('[data-kiro-local-status]');
+    if (!status) return;
+    status.textContent = text || '';
+    status.classList.toggle('connected', kind === 'connected');
+    status.classList.toggle('error', kind === 'error');
+  }
+
+  async function initializeKiroLocalConnect(bodyDr, ext) {
+    if (!isKiroCodeExtension(ext)) return;
+    const box = bodyDr.querySelector('[data-kiro-local]');
+    const btn = bodyDr.querySelector('.ext-kiro-local-connect');
+    const invoke = tauriInvoke();
+    if (!box || !btn) return;
+    const connected = extensionConnected(ext);
+    if (!invoke) { if (!connected) revealManualSettings(bodyDr); return; }
+
+    box.hidden = false;
+    btn.disabled = true;
+    btn.textContent = 'Checking local Kiro IDE login…';
+    try {
+      const status = await invoke('local_kiro_refresh_token', { args: { includeSecret: false } });
+      if (status && status.available) {
+        btn.disabled = false;
+        if (connected) {
+          // Already wired up — the drawer header already says so. Keep
+          // only a quiet "Re-import" affordance for refreshing an
+          // expired token, not a loud "connect" prompt.
+          box.classList.remove('ext-local-auth-primary');
+          btn.classList.remove('btn-primary');
+          btn.classList.add('btn-secondary');
+          btn.textContent = 'Re-import credentials';
+          setKiroLocalStatus(bodyDr, `Connected from ${status.path || '~/.aws/sso/cache/kiro-auth-token.json'}.`, 'connected');
+        } else {
+          btn.textContent = 'Import Credentials';
+          setKiroLocalStatus(bodyDr, `Found ${status.path || '~/.aws/sso/cache/kiro-auth-token.json'}.`, 'connected');
+        }
+      } else {
+        if (connected) { box.hidden = true; return; }
+        if (status && /only available in the desktop app/i.test(status.error || '')) {
+          box.hidden = true;
+          revealManualSettings(bodyDr);
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = 'Local Kiro IDE login not found';
+        const message = status && status.error
+          ? status.error
+          : `Login to Kiro IDE, then reopen this settings panel.`;
+        setKiroLocalStatus(bodyDr, message, 'error');
+        revealManualSettings(bodyDr);
+      }
+    } catch (e) {
+      if (connected) { box.hidden = true; return; }
+      btn.disabled = true;
+      btn.textContent = 'Local Kiro IDE login unavailable';
+      setKiroLocalStatus(bodyDr, e.message || String(e), 'error');
+      revealManualSettings(bodyDr);
+    }
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Connecting…';
+      try {
+        const status = await invoke('local_kiro_refresh_token', { args: { includeSecret: true } });
+        if (!status || !status.available || !status.refreshToken) {
+          throw new Error((status && status.error) || 'No local Kiro IDE login was found.');
+        }
+
+        const modelInput = settingInput(bodyDr, KIRO_MODEL_KEY);
+        const trustAllInput = settingInput(bodyDr, KIRO_TRUST_ALL_TOOLS_KEY);
+        const model = ((modelInput && modelInput.value) || KIRO_DEFAULT_MODEL).trim() || KIRO_DEFAULT_MODEL;
+        const trustAllTools = ((trustAllInput && trustAllInput.value) || 'true').trim() || 'true';
+        if (modelInput) modelInput.value = model;
+        if (trustAllInput) trustAllInput.value = trustAllTools;
+
+        await api.updateAgentSettings(agentId, {
+          [KIRO_REFRESH_TOKEN_KEY]: status.refreshToken,
+          [KIRO_MODEL_KEY]: model,
+          [KIRO_TRUST_ALL_TOOLS_KEY]: trustAllTools,
+        });
+        window.AgentSettings.toast('Kiro Code connected from local Kiro IDE login.', 'success');
+        await load();
+      } catch (e) {
+        window.AgentSettings.toast('Kiro Code connect failed: ' + (e.message || e), 'error');
+        setKiroLocalStatus(bodyDr, e.message || String(e), 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = connected ? 'Re-import credentials' : 'Import Credentials';
       }
     });
   }
@@ -1450,6 +1634,7 @@
 
     initializeCodexLocalConnect(bodyDr, ext);
     initializeClaudeLocalConnect(bodyDr, ext);
+    initializeKiroLocalConnect(bodyDr, ext);
 
     // Per-command toggles
     bodyDr.querySelectorAll('.ext-cmd input[type="checkbox"]').forEach((cb) => {
