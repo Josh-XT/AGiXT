@@ -4285,16 +4285,42 @@ body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .chat-mo
   50% { opacity: 1; }
 }
 
-/* Member list (collapsible). */
+/* Member list (collapsible + resizable when open). Width is JS-driven
+   via --tc-member-width (persisted to localStorage); mirrors the
+   workspace Files sidebar / chat-pane resize idiom. */
 .tc-member-list {
-  flex: 0 0 220px;
+  flex: 0 0 var(--tc-member-width, 200px);
   display: flex;
   flex-direction: column;
   background: var(--panel);
   border-left: 1px solid var(--border);
   min-width: 0;
 }
-.tc-members-collapsed .tc-member-list { display: none; }
+/* Drag seam between the message surface and the member list. */
+.tc-member-resize {
+  flex: 0 0 5px;
+  cursor: col-resize;
+  background: var(--border);
+  position: relative;
+  z-index: 2;
+  user-select: none;
+}
+.tc-member-resize::before {
+  /* Invisible padded hit target so the thin seam is easy to grab. */
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
+}
+.tc-member-resize:hover,
+.tc-member-resize.is-dragging { background: var(--accent); }
+.tc-members-collapsed .tc-member-list,
+.tc-members-collapsed .tc-member-resize { display: none; }
+/* The seam is a desktop affordance only — on mobile the member list
+   is an absolute slide-over drawer (see mobile-portrait rules). */
+body.mobile-portrait .view-pane-team-chat .tc-member-resize { display: none; }
 .tc-member-header {
   flex: 0 0 auto;
   height: 40px;

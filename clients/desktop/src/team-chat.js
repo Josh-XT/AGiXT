@@ -47,6 +47,12 @@
   const STORAGE_LAST_CHANNEL_PREFIX = 'agixt-team-chat-last-channel:';
   const STORAGE_COLLAPSE_CHANNELS = 'agixt-team-chat-collapse-channels';
   const STORAGE_COLLAPSE_MEMBERS = 'agixt-team-chat-collapse-members';
+  // Member list is a right-docked, resizable column (mirrors the
+  // workspace Files sidebar / chat-pane resize idiom).
+  const STORAGE_MEMBER_WIDTH = 'agixt-team-chat-member-width';
+  const MEMBER_WIDTH_MIN = 160;
+  const MEMBER_WIDTH_MAX = 420;
+  const MEMBER_WIDTH_DEFAULT = 200;
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   // ----- State ----------------------------------------------------------
@@ -5281,9 +5287,56 @@
       : lsGet(STORAGE_COLLAPSE_CHANNELS) === '1';
   }
   function membersCollapsed() {
+    // Desktop default is collapsed so the conversation owns the width;
+    // only an explicit user-open (stored '0') keeps it visible.
     return isMobilePortrait()
       ? !mobileMembersOpen
-      : lsGet(STORAGE_COLLAPSE_MEMBERS) === '1';
+      : lsGet(STORAGE_COLLAPSE_MEMBERS) !== '0';
+  }
+
+  // ----- Member list width (resizable when open) ------------------------
+
+  function applyMemberWidth(w) {
+    const n = Math.max(MEMBER_WIDTH_MIN, Math.min(MEMBER_WIDTH_MAX,
+      Math.round(w || MEMBER_WIDTH_DEFAULT)));
+    document.documentElement.style.setProperty('--tc-member-width', n + 'px');
+    return n;
+  }
+  function restoreMemberWidth() {
+    const saved = parseInt(lsGet(STORAGE_MEMBER_WIDTH) || '', 10);
+    applyMemberWidth(Number.isFinite(saved) ? saved : MEMBER_WIDTH_DEFAULT);
+  }
+  function bindMemberResize() {
+    const seam = el('tc-member-resize');
+    const list = el('tc-member-list');
+    if (!seam || !list) return;
+    let dragging = false, startX = 0, startWidth = 0;
+    seam.addEventListener('pointerdown', (e) => {
+      dragging = true;
+      seam.classList.add('is-dragging');
+      startX = e.clientX;
+      startWidth = list.getBoundingClientRect().width;
+      try { seam.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault();
+    });
+    seam.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      // Panel is docked on the RIGHT — dragging left widens it.
+      const next = applyMemberWidth(startWidth - (e.clientX - startX));
+      lsSet(STORAGE_MEMBER_WIDTH, String(next));
+    });
+    const stop = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      seam.classList.remove('is-dragging');
+      try { seam.releasePointerCapture(e.pointerId); } catch (_) {}
+    };
+    seam.addEventListener('pointerup', stop);
+    seam.addEventListener('pointercancel', stop);
+    seam.addEventListener('dblclick', () => {
+      applyMemberWidth(MEMBER_WIDTH_DEFAULT);
+      lsSet(STORAGE_MEMBER_WIDTH, String(MEMBER_WIDTH_DEFAULT));
+    });
   }
 
   function applyCollapseState() {
@@ -5348,6 +5401,8 @@
     el('tc-member-toggle').addEventListener('click', () => {
       toggleMembers(!membersCollapsed());
     });
+    restoreMemberWidth();
+    bindMemberResize();
     const inviteBtn = el('tc-member-invite');
     if (inviteBtn) inviteBtn.addEventListener('click', openInviteDialog);
     const memberSearchInput = el('tc-member-search-input');

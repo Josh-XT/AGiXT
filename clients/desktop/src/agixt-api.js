@@ -1119,7 +1119,17 @@
 
   async function listIncomingWebhooks() {
     const data = await request('GET', '/api/webhooks/incoming');
-    return Array.isArray(data) ? data : (data && data.webhooks) || [];
+    const list = Array.isArray(data) ? data : (data && data.webhooks) || [];
+    // Backends (Python + Rust WorkConductor) serialize the identifier as
+    // `webhook_id` and the URL as `webhook_url`; normalize so downstream
+    // code that reads `.id` / `.url` keeps working (fixes delete/edit).
+    return list.map((w) => {
+      if (w && typeof w === 'object') {
+        if (w.id == null && w.webhook_id != null) w.id = w.webhook_id;
+        if (w.url == null && w.webhook_url != null) w.url = w.webhook_url;
+      }
+      return w;
+    });
   }
 
   async function createIncomingWebhook(payload) {
