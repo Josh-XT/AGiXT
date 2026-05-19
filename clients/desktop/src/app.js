@@ -2705,11 +2705,12 @@
         && typeof window.AgixtDesktopExtensions.start === 'function') {
       window.AgixtDesktopExtensions.start();
     }
-    // Default landing surface = team chat. The agent chat slides into
-    // the side pane via with-content-pane, mirroring the web's default
-    // `/chat` redirect (web/app/page.tsx:246).
+    // Default landing surface = the agent AI chat, alone, filling the
+    // whole content area (no with-content-pane split, no team chat
+    // shown first). The user reaches team chat / other sections via the
+    // sidenav when they want them.
     if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
-      window.AgixtSidenav.setActiveView('team-chat');
+      window.AgixtSidenav.setActiveView('chat');
     }
   }
 
@@ -2734,9 +2735,10 @@
       if (settings.conversation_id) {
         await window.AgixtChat.loadHistory(settings.conversation_id);
       }
-      // Default landing surface = team chat (matches web /chat redirect).
+      // Default landing surface = the agent AI chat, alone, filling the
+      // whole content area (no split, no team chat shown first).
       if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
-        setTimeout(() => window.AgixtSidenav.setActiveView('team-chat'), 0);
+        setTimeout(() => window.AgixtSidenav.setActiveView('chat'), 0);
       }
       startNotifications();
       scheduleDesktopAutoUpdateCheck();

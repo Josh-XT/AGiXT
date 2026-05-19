@@ -60,13 +60,6 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
       .put("timestamp", timestamp)
   }
 
-  private data class PairCandidate(
-    var left: ScanResult? = null,
-    var leftName: String? = null,
-    var right: ScanResult? = null,
-    var rightName: String? = null,
-  )
-
   private data class QueuedWrite(
     val data: ByteArray,
     val callback: (Boolean, String?) -> Unit,
@@ -177,7 +170,6 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
   private val scanSettings = ScanSettings.Builder()
     .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
     .build()
-  private val scanCandidates = LinkedHashMap<String, PairCandidate>()
   private val connections = EnumMapCompat<Side, GlassConnection>()
 
   private var scanCallback: ScanCallback? = null
@@ -211,7 +203,6 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
       }
 
       disconnectInternal(clearMessage = false)
-      scanCandidates.clear()
       pendingConnectInvoke = invoke
       scanning = true
       connectingPair = false
@@ -446,32 +437,18 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
   }
 
   private fun handleScanResult(result: ScanResult) {
-    if (connectingPair || pendingConnectInvoke == null) return
+    if (pendingConnectInvoke == null) return
     val name = scanResultName(result)
     if (name.isBlank()) return
     val parsed = parseG1Name(name) ?: return
-    val (channel, side) = parsed
-    val candidate = scanCandidates.getOrPut(channel) { PairCandidate() }
-    when (side) {
-      Side.LEFT -> {
-        candidate.left = result
-        candidate.leftName = name
-      }
-      Side.RIGHT -> {
-        candidate.right = result
-        candidate.rightName = name
-      }
+    val (_, side) = parsed
+    if (connections[side] != null) {
+      return
     }
-
-    val left = candidate.left
-    val right = candidate.right
-    if (left != null && right != null) {
-      connectingPair = true
-      stopScanOnly()
-      lastEvent = "Found G1 pair on channel $channel; connecting"
-      connectDevice(Side.LEFT, left.device, candidate.leftName ?: "Left G1")
-      connectDevice(Side.RIGHT, right.device, candidate.rightName ?: "Right G1")
-    }
+    lastEvent = "${side.wireName} G1 found: $name; connecting"
+    lastError = null
+    emitStatusEvent()
+    connectDevice(side, result.device, name)
   }
 
   private fun connectDevice(side: Side, device: BluetoothDevice, displayName: String) {
@@ -493,9 +470,20 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
           }
         } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
           mainHandler.post {
+            val wasReady = connection.connected
             connection.connected = false
             connection.close()
-            lastEvent = "${side.wireName} G1 disconnected"
+            if (connections[side] === connection) {
+              connections.remove(side)
+            }
+            lastEvent = if (wasReady) {
+              "${side.wireName} G1 disconnected"
+            } else {
+              "${side.wireName} G1 disconnected during connection"
+            }
+            if (!wasReady && pendingConnectInvoke != null) {
+              lastError = "${side.wireName} G1 disconnected during connection (status $status)"
+            }
             emitStatusEvent()
           }
         }
@@ -521,14 +509,18 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
           connection.name = safeDeviceName(device) ?: connection.name
 
           try {
-            gatt.setCharacteristicNotification(rx, true)
+            val notificationEnabled = gatt.setCharacteristicNotification(rx, true)
+            if (!notificationEnabled) {
+              failConnection(connection, "${side.wireName} G1 notifications could not be enabled")
+              return@post
+            }
             val descriptor = rx.getDescriptor(CCCD_UUID)
             if (descriptor != null) {
-              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+              val accepted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 gatt.writeDescriptor(
                   descriptor,
                   BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE,
-                )
+                ) == GATT_API_SUCCESS
               } else {
                 @Suppress("DEPRECATION")
                 run {
@@ -536,24 +528,31 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
                   gatt.writeDescriptor(descriptor)
                 }
               }
-            }
-            gatt.requestMtu(251)
-            gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-            if (device.bondState == BluetoothDevice.BOND_NONE) {
-              device.createBond()
+              if (!accepted) {
+                failConnection(connection, "${side.wireName} G1 notification descriptor write was rejected")
+                return@post
+              }
+            } else {
+              finishConnectionSetup(connection, gatt)
             }
           } catch (ex: Exception) {
-            lastError = "G1 setup warning: ${ex.message ?: ex.javaClass.simpleName}"
+            failConnection(connection, "${side.wireName} G1 notification setup failed: ${ex.message ?: ex.javaClass.simpleName}")
           }
+        }
+      }
 
-          connection.connected = true
-          lastEvent = "${side.wireName} G1 ready"
-          lastError = null
-          connection.enqueueWrite(byteArrayOf(0xF4.toByte(), 0x01)) { _, _ -> }
-          scheduleBatteryRequests(connection)
-          startHeartbeat()
-          emitStatusEvent()
-          checkConnectComplete()
+      override fun onDescriptorWrite(
+        gatt: BluetoothGatt,
+        descriptor: BluetoothGattDescriptor,
+        status: Int,
+      ) {
+        if (descriptor.uuid != CCCD_UUID) return
+        mainHandler.post {
+          if (status == BluetoothGatt.GATT_SUCCESS) {
+            finishConnectionSetup(connection, gatt)
+          } else {
+            failConnection(connection, "${side.wireName} G1 notification descriptor failed with status $status")
+          }
         }
       }
 
@@ -614,6 +613,30 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
       emitStatusEvent()
       resolvePendingConnect()
     }
+  }
+
+  private fun finishConnectionSetup(connection: GlassConnection, gatt: BluetoothGatt) {
+    if (connections[connection.side] !== connection || connection.connected) {
+      return
+    }
+
+    connection.timeout?.let { mainHandler.removeCallbacks(it) }
+    connection.timeout = null
+
+    try {
+      gatt.requestMtu(251)
+      gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+    } catch (ex: Exception) {
+      lastError = "G1 setup warning: ${ex.message ?: ex.javaClass.simpleName}"
+    }
+
+    connection.connected = true
+    lastEvent = "${connection.side.wireName} G1 ready"
+    lastError = null
+    scheduleBatteryRequests(connection)
+    startHeartbeat()
+    emitStatusEvent()
+    checkConnectComplete()
   }
 
   private fun failConnection(connection: GlassConnection, message: String) {
@@ -866,7 +889,7 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
     val missing = missingBluetoothPermissions()
     if (missing.isNotEmpty()) {
       ActivityCompat.requestPermissions(activity, missing, G1_PERMISSION_REQUEST_CODE)
-      invoke.reject("Bluetooth permission is required for G1 glasses. Grant the Android permission and tap Connect again.")
+      invoke.reject("Bluetooth and location permissions are required for G1 glasses. Grant the Android permissions and tap Connect again.")
       return false
     }
     if (!adapter.isEnabled) {
@@ -878,7 +901,11 @@ class G1Plugin(private val activity: Activity) : Plugin(activity) {
 
   private fun missingBluetoothPermissions(): Array<String> {
     val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-      arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+      arrayOf(
+        Manifest.permission.BLUETOOTH_SCAN,
+        Manifest.permission.BLUETOOTH_CONNECT,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+      )
     } else {
       arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
     }
