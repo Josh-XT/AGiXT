@@ -110,6 +110,22 @@ impl From<anyhow::Error> for ToolError {
 
 type ToolResult<T> = Result<T, ToolError>;
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalCodexAuthRequest {
+    #[serde(default)]
+    include_secret: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalCodexAuthStatus {
+    available: bool,
+    path: Option<String>,
+    auth_json: Option<String>,
+    error: Option<String>,
+}
+
 async fn authenticated_settings(state: &State<'_, AppState>) -> ToolResult<DesktopSettings> {
     let settings = state.settings.lock().await.clone();
     if settings.jwt.is_none() {
@@ -230,6 +246,89 @@ async fn save_settings(
     let mut current = state.settings.lock().await;
     *current = settings.clone();
     Ok(settings)
+}
+
+#[tauri::command]
+#[cfg(not(mobile))]
+async fn local_codex_auth_json(
+    args: Option<LocalCodexAuthRequest>,
+) -> ToolResult<LocalCodexAuthStatus> {
+    let include_secret = args.map(|a| a.include_secret).unwrap_or(false);
+    let path = match dirs::home_dir() {
+        Some(home) => home.join(".codex").join("auth.json"),
+        None => {
+            return Ok(LocalCodexAuthStatus {
+                available: false,
+                path: None,
+                auth_json: None,
+                error: Some("Could not resolve the local home directory.".into()),
+            });
+        }
+    };
+    let display_path = path.display().to_string();
+    if !path.is_file() {
+        return Ok(LocalCodexAuthStatus {
+            available: false,
+            path: Some(display_path),
+            auth_json: None,
+            error: None,
+        });
+    }
+
+    let auth_json = match tokio::fs::read_to_string(&path).await {
+        Ok(value) => value,
+        Err(e) => {
+            return Ok(LocalCodexAuthStatus {
+                available: false,
+                path: Some(display_path),
+                auth_json: None,
+                error: Some(format!("Could not read local Codex auth.json: {e}")),
+            });
+        }
+    };
+    let parsed = match serde_json::from_str::<serde_json::Value>(&auth_json) {
+        Ok(value) if value.is_object() => value,
+        Ok(_) => {
+            return Ok(LocalCodexAuthStatus {
+                available: false,
+                path: Some(display_path),
+                auth_json: None,
+                error: Some("Local Codex auth.json did not contain a JSON object.".into()),
+            });
+        }
+        Err(e) => {
+            return Ok(LocalCodexAuthStatus {
+                available: false,
+                path: Some(display_path),
+                auth_json: None,
+                error: Some(format!("Local Codex auth.json is not valid JSON: {e}")),
+            });
+        }
+    };
+
+    Ok(LocalCodexAuthStatus {
+        available: true,
+        path: Some(display_path),
+        auth_json: if include_secret {
+            Some(serde_json::to_string(&parsed).map_err(anyhow::Error::from)?)
+        } else {
+            None
+        },
+        error: None,
+    })
+}
+
+#[tauri::command]
+#[cfg(mobile)]
+async fn local_codex_auth_json(
+    _args: Option<LocalCodexAuthRequest>,
+) -> ToolResult<LocalCodexAuthStatus> {
+    Ok(LocalCodexAuthStatus {
+        available: false,
+        path: None,
+        auth_json: None,
+        error: Some("Local Codex auth import is only available in the desktop app.".into()),
+    })
 }
 
 #[tauri::command]
@@ -4408,6 +4507,7 @@ pub fn run() {
             frontend_log,
             get_settings,
             save_settings,
+            local_codex_auth_json,
             logout,
             desktop_update_check,
             desktop_update_install,
@@ -4705,6 +4805,7 @@ pub fn run() {
             frontend_log,
             get_settings,
             save_settings,
+            local_codex_auth_json,
             logout,
             desktop_update_check,
             desktop_update_install,

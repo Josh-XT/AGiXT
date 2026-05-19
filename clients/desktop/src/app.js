@@ -1541,6 +1541,25 @@
 
   if (shareBtn) shareBtn.addEventListener('click', openShareDialog);
 
+  const deleteConvoBtn = $('btn-delete-conversation');
+  async function deleteActiveConversation() {
+    const conversationId = activeConversationId();
+    if (!conversationId || conversationId === '-') {
+      notifyShare('No conversation to delete.', 'error');
+      return;
+    }
+    const cName = (settings && settings.conversation_name) || 'this conversation';
+    if (!window.confirm('Delete "' + cName + '"? This cannot be undone.')) return;
+    try {
+      await window.AgixtApi.deleteConversation(conversationId);
+      notifyShare('Conversation deleted.');
+      await startNewConversation();
+    } catch (err) {
+      notifyShare('Failed to delete conversation: ' + errText(err), 'error');
+    }
+  }
+  if (deleteConvoBtn) deleteConvoBtn.addEventListener('click', deleteActiveConversation);
+
   function collectWorkspaceFiles(value, into) {
     if (!value || typeof value !== 'object') return into;
     const candidates = [];

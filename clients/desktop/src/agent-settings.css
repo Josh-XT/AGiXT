@@ -568,6 +568,23 @@
   border-top: 1px solid var(--border);
   padding-top: 8px;
 }
+.ext-codex-local {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 8px;
+}
+.ext-codex-local .btn { align-self: flex-start; }
+.ext-codex-local-status {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.ext-codex-local-status.connected { color: #62c886; }
+.ext-codex-local-status.error { color: #ff8a8a; }
 .ext-settings-row { display: flex; flex-direction: column; gap: 3px; }
 .ext-settings-label { font-size: 11px; color: var(--text-dim); }
 .ext-settings-actions { display: flex; gap: 8px; justify-content: flex-end; }

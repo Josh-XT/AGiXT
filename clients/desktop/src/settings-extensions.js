@@ -17,6 +17,12 @@
     return;
   }
 
+  const CODEX_AUTH_KEY = 'OPENAI_CODEX_AUTH_JSON_SECRET';
+  const CODEX_MODEL_KEY = 'OPENAI_CODEX_MODEL';
+  const CODEX_REASONING_KEY = 'OPENAI_CODEX_REASONING_EFFORT';
+  const CODEX_DEFAULT_MODEL = 'gpt-5.5';
+  const CODEX_DEFAULT_REASONING = 'xhigh';
+
   let agentId = null;
   let agentName = null;
   let extensions = [];
@@ -497,6 +503,11 @@
     return null;
   }
 
+  function tauriInvoke() {
+    const t = window.__TAURI__;
+    return t && t.core && typeof t.core.invoke === 'function' ? t.core.invoke : null;
+  }
+
   /** POST/GET helper for the audible connect flow. We avoid api.* here
    *  because those helpers are scoped to extension/agent endpoints. */
   async function audibleFetch(path, init) {
@@ -755,6 +766,28 @@
     return /_(api_key|password|secret|token)$/i.test(String(s.setting_key || ''));
   }
 
+  function isSensitiveKey(key) {
+    return /(_api_key|_password|_secret|_token|private_key|auth_json)$/i.test(String(key || ''));
+  }
+
+  function looksMaskedSecretValue(value) {
+    const v = String(value || '').trim();
+    return v === '****' || v.startsWith('***');
+  }
+
+  function isOpenAiCodexExtension(ext) {
+    return extensionRawName(ext) === 'openai_codex';
+  }
+
+  function codexDefaultValue(ext, key, value) {
+    const current = value == null ? '' : String(value);
+    if (!isOpenAiCodexExtension(ext) || current.trim()) return current;
+    const upper = String(key || '').toUpperCase();
+    if (upper === CODEX_MODEL_KEY) return CODEX_DEFAULT_MODEL;
+    if (upper === CODEX_REASONING_KEY) return CODEX_DEFAULT_REASONING;
+    return current;
+  }
+
   function settingValue(s) {
     if (!s || typeof s === 'string') return '';
     return s.setting_value == null ? '' : String(s.setting_value);
@@ -874,22 +907,44 @@
     const settings = ext.settings || [];
     if (settings.length === 0) return '';
     if (isOAuthExtension(ext)) return '';   // OAuth handles its own creds
+    const codexConnect = isOpenAiCodexExtension(ext) ? `
+      <div class="ext-codex-local" data-codex-local hidden>
+        <button class="btn btn-secondary ext-codex-local-connect" type="button" disabled>Checking local Codex login…</button>
+        <div class="ext-codex-local-status" data-codex-local-status>Looking for ~/.codex/auth.json…</div>
+      </div>
+    ` : '';
     const rows = settings.map((s, idx) => {
       const key = typeof s === 'string' ? s : s.setting_key;
-      const val = typeof s === 'string' ? '' : (s.setting_value || '');
+      const val = codexDefaultValue(
+        ext,
+        key,
+        typeof s === 'string' ? '' : (s.setting_value == null ? '' : s.setting_value)
+      );
       const meta = classifySetting(key);
       const label = formatSettingLabel(key, ext.extension_name);
-      const placeholder = meta.type === 'password' && val ? '••••••••' : '';
+      const sensitive = isSensitiveSetting(s) || isSensitiveKey(key);
+      const isMasked = sensitive && looksMaskedSecretValue(val);
+      const placeholder = sensitive && val ? 'Saved. Paste a new value to replace it.' : '';
       const numAttrs = meta.type === 'number' ? `step="${meta.step}" min="${meta.min || ''}" max="${meta.max || ''}"` : '';
+      const domValue = isMasked ? '' : val;
+      if ((key || '').toUpperCase().includes('AUTH_JSON')) {
+        return `
+        <div class="ext-settings-row" data-setting-key="${escape(key)}">
+          <label class="ext-settings-label" for="ext-set-${idx}-${escape(ext.extension_name)}">${escape(label)}</label>
+          <textarea id="ext-set-${idx}-${escape(ext.extension_name)}" class="as-input" rows="4" placeholder="${escape(placeholder || 'Paste raw auth.json or a base64-encoded copy.')}">${escape(domValue)}</textarea>
+        </div>
+      `;
+      }
       return `
         <div class="ext-settings-row" data-setting-key="${escape(key)}">
           <label class="ext-settings-label" for="ext-set-${idx}-${escape(ext.extension_name)}">${escape(label)}</label>
-          <input id="ext-set-${idx}-${escape(ext.extension_name)}" class="as-input" type="${meta.type}" value="${escape(val)}" placeholder="${placeholder}" ${numAttrs} />
+          <input id="ext-set-${idx}-${escape(ext.extension_name)}" class="as-input" type="${meta.type}" value="${escape(domValue)}" placeholder="${escape(placeholder)}" ${numAttrs} />
         </div>
       `;
     }).join('');
     return `
       <div class="ext-settings">
+        ${codexConnect}
         ${rows}
         <div class="ext-settings-actions">
           <button class="btn btn-primary ext-settings-save" type="button">Save settings</button>
@@ -1209,11 +1264,94 @@
     bindDrawerBodyEvents();
   }
 
+  function settingInput(bodyDr, key) {
+    const rows = bodyDr.querySelectorAll('.ext-settings-row');
+    const row = Array.from(rows).find((entry) => entry.getAttribute('data-setting-key') === key);
+    return row ? row.querySelector('input, textarea') : null;
+  }
+
+  function setCodexLocalStatus(bodyDr, text, kind) {
+    const status = bodyDr.querySelector('[data-codex-local-status]');
+    if (!status) return;
+    status.textContent = text || '';
+    status.classList.toggle('connected', kind === 'connected');
+    status.classList.toggle('error', kind === 'error');
+  }
+
+  async function initializeCodexLocalConnect(bodyDr, ext) {
+    if (!isOpenAiCodexExtension(ext)) return;
+    const box = bodyDr.querySelector('[data-codex-local]');
+    const btn = bodyDr.querySelector('.ext-codex-local-connect');
+    const invoke = tauriInvoke();
+    if (!box || !btn || !invoke) return;
+
+    box.hidden = false;
+    btn.disabled = true;
+    btn.textContent = 'Checking local Codex login…';
+    try {
+      const status = await invoke('local_codex_auth_json', { args: { includeSecret: false } });
+      if (status && status.available) {
+        btn.disabled = false;
+        btn.textContent = 'Connect from local Codex login';
+        setCodexLocalStatus(bodyDr, `Found ${status.path || '~/.codex/auth.json'}.`, 'connected');
+      } else {
+        if (status && /only available in the desktop app/i.test(status.error || '')) {
+          box.hidden = true;
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = 'Local Codex login not found';
+        const message = status && status.error
+          ? status.error
+          : `Run codex login, then reopen this settings panel.`;
+        setCodexLocalStatus(bodyDr, message, 'error');
+      }
+    } catch (e) {
+      btn.disabled = true;
+      btn.textContent = 'Local Codex login unavailable';
+      setCodexLocalStatus(bodyDr, e.message || String(e), 'error');
+    }
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = 'Connecting…';
+      try {
+        const status = await invoke('local_codex_auth_json', { args: { includeSecret: true } });
+        if (!status || !status.available || !status.authJson) {
+          throw new Error((status && status.error) || 'No local Codex login was found.');
+        }
+
+        const modelInput = settingInput(bodyDr, CODEX_MODEL_KEY);
+        const reasoningInput = settingInput(bodyDr, CODEX_REASONING_KEY);
+        const model = ((modelInput && modelInput.value) || CODEX_DEFAULT_MODEL).trim() || CODEX_DEFAULT_MODEL;
+        const reasoning = ((reasoningInput && reasoningInput.value) || CODEX_DEFAULT_REASONING).trim() || CODEX_DEFAULT_REASONING;
+        if (modelInput) modelInput.value = model;
+        if (reasoningInput) reasoningInput.value = reasoning;
+
+        await api.updateAgentSettings(agentId, {
+          [CODEX_AUTH_KEY]: status.authJson,
+          [CODEX_MODEL_KEY]: model,
+          [CODEX_REASONING_KEY]: reasoning,
+        });
+        window.AgentSettings.toast('OpenAI Codex connected.', 'success');
+        await load();
+      } catch (e) {
+        window.AgentSettings.toast('Codex connect failed: ' + (e.message || e), 'error');
+        setCodexLocalStatus(bodyDr, e.message || String(e), 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Connect from local Codex login';
+      }
+    });
+  }
+
   function bindDrawerBodyEvents() {
     const ext = drawerExt;
     if (!ext) return;
     const bodyDr = document.getElementById('ext-drawer-body');
     if (!bodyDr) return;
+
+    initializeCodexLocalConnect(bodyDr, ext);
 
     // Per-command toggles
     bodyDr.querySelectorAll('.ext-cmd input[type="checkbox"]').forEach((cb) => {
@@ -1266,11 +1404,11 @@
         const map = {};
         inputs.forEach((row) => {
           const key = row.getAttribute('data-setting-key');
-          const input = row.querySelector('input');
+          const input = row.querySelector('input, textarea');
           if (!key || !input) return;
           // Skip empty password fields where the value is just the
           // placeholder dots — avoids overwriting saved secrets.
-          if (input.type === 'password' && input.value === '') return;
+          if (isSensitiveKey(key) && (input.value === '' || looksMaskedSecretValue(input.value))) return;
           map[key] = input.value;
         });
         saveBtn.disabled = true;
