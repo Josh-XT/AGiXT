@@ -248,6 +248,14 @@ async fn download_update_once(
         .map(sanitize_filename)
         .filter(|v| !v.is_empty())
         .or_else(|| {
+            resp.headers()
+                .get(reqwest::header::CONTENT_DISPOSITION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(filename_from_content_disposition)
+                .map(|v| sanitize_filename(&v))
+                .filter(|v| !v.is_empty())
+        })
+        .or_else(|| {
             status
                 .artifact_name
                 .as_deref()
@@ -310,6 +318,39 @@ fn sanitize_filename(name: &str) -> String {
     name.chars()
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
         .collect()
+}
+
+fn filename_from_content_disposition(value: &str) -> Option<String> {
+    for part in value.split(';').skip(1) {
+        let part = part.trim();
+        if let Some(raw) = part.strip_prefix("filename=") {
+            let filename = unquote_header_value(raw);
+            if !filename.trim().is_empty() {
+                return Some(filename);
+            }
+        }
+    }
+    None
+}
+
+fn unquote_header_value(value: &str) -> String {
+    let value = value.trim();
+    if value.len() < 2 || !value.starts_with('"') || !value.ends_with('"') {
+        return value.to_string();
+    }
+    let mut out = String::new();
+    let mut escaped = false;
+    for ch in value[1..value.len() - 1].chars() {
+        if escaped {
+            out.push(ch);
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 fn default_update_filename(status: &DesktopUpdateStatus) -> String {
@@ -685,5 +726,27 @@ mod tests {
 
         let found = find_extracted_desktop_binary(dir.path()).unwrap();
         assert_eq!(found, usr_bin.join("agixt"));
+    }
+
+    #[test]
+    fn content_disposition_filename_is_parsed_and_sanitized() {
+        let filename = filename_from_content_disposition(
+            "attachment; filename=\"agixt_20260518_204704_linux_amd64.deb\"",
+        )
+        .unwrap();
+
+        assert_eq!(
+            sanitize_filename(&filename),
+            "agixt_20260518_204704_linux_amd64.deb"
+        );
+    }
+
+    #[test]
+    fn content_disposition_filename_handles_escaped_quotes() {
+        let filename =
+            filename_from_content_disposition("attachment; filename=\"agixt\\\"desktop.deb\"")
+                .unwrap();
+
+        assert_eq!(sanitize_filename(&filename), "agixtdesktop.deb");
     }
 }
