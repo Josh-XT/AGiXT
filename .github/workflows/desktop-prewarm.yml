@@ -164,7 +164,7 @@ jobs:
         run: |
           set -euo pipefail
           sdkmanager \
-            "platforms;android-35" \
+            "platforms;android-36" \
             "build-tools;35.0.0" \
             "ndk;27.0.12077973"
           {
@@ -386,6 +386,10 @@ jobs:
         env:
           AGIXT_DESKTOP_BUILD_ID: ${{ steps.build_id.outputs.version }}
           CARGO_BUILD_JOBS: "2"
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           expected_package_dir="$(python - <<'PY'
@@ -396,10 +400,14 @@ jobs:
           print(Path("gen/android/app/src/main/java", *config["identifier"].split(".")))
           PY
           )"
-          if [ ! -f gen/android/settings.gradle ] || [ ! -d "${expected_package_dir}" ]; then
-            rm -rf gen/android
+          if [ ! -f gen/android/settings.gradle ]; then
             npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" android init --ci
           fi
+          if [ ! -d "${expected_package_dir}" ]; then
+            echo "Android package directory is missing after project generation: ${expected_package_dir}" >&2
+            exit 1
+          fi
+          python ../scripts/patch-android-build-gradle.py gen/android/app/build.gradle.kts
           npx -y "@tauri-apps/cli@${TAURI_CLI_VERSION}" android build \
             --apk \
             --target "${{ matrix.tauri_target }}" \
@@ -485,6 +493,37 @@ jobs:
           print(f"path={artifact.as_posix()}")
           print(f"name={artifact.name}")
           PY
+
+      - name: Verify Android preview artifact
+        if: matrix.kind == 'android'
+        shell: bash
+        env:
+          ARTIFACT_PATH: ${{ steps.artifact.outputs.path }}
+        run: |
+          set -euo pipefail
+          aapt="${ANDROID_HOME}/build-tools/35.0.0/aapt"
+          apksigner="${ANDROID_HOME}/build-tools/35.0.0/apksigner"
+
+          "${apksigner}" verify --verbose "${ARTIFACT_PATH}"
+
+          badging="$("${aapt}" dump badging "${ARTIFACT_PATH}")"
+          permissions="$("${aapt}" dump permissions "${ARTIFACT_PATH}")"
+          printf '%s\n' "${badging}"
+          printf '%s\n' "${permissions}"
+
+          grep -F "application-label:'AGiXT'" <<< "${badging}"
+          grep -F "native-code: 'arm64-v8a'" <<< "${badging}"
+          grep -F "uses-permission: name='android.permission.BLUETOOTH_SCAN'" <<< "${permissions}"
+          grep -F "uses-permission: name='android.permission.BLUETOOTH_CONNECT'" <<< "${permissions}"
+          grep -F "uses-permission: name='android.permission.RECORD_AUDIO'" <<< "${permissions}"
+          if grep -F "BIND_VOICE_INTERACTION" <<< "${permissions}"; then
+            echo "Unexpected system-only voice interaction permission in Android artifact" >&2
+            exit 1
+          fi
+
+          python3 clients/desktop/scripts/verify-android-icon.py \
+            "${ARTIFACT_PATH}" \
+            clients/desktop/src-tauri/gen/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
