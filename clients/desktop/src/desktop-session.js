@@ -91,6 +91,10 @@
     const url = /^https?:\/\//i.test(path) ? path : base + path;
     const headers = Object.assign({}, opts.headers || {});
     if (!headers.Authorization && authHeader()) headers.Authorization = authHeader();
+    const ctx = appContext();
+    if (ctx && ctx.companyId && !headers['X-Company-ID'] && !headers['x-company-id']) {
+      headers['X-Company-ID'] = ctx.companyId;
+    }
     const init = {
       method: opts.method || 'GET',
       headers,
