@@ -23,6 +23,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -1243,8 +1245,12 @@ class G1KeepAliveService : Service() {
       )
     }
 
+    val brandIcon = BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher)
+
     return NotificationCompat.Builder(this, CHANNEL_ID)
-      .setSmallIcon(R.mipmap.ic_launcher)
+      .setSmallIcon(R.drawable.ic_notification_agixt)
+      .setLargeIcon(brandIcon)
+      .setColor(Color.rgb(255, 204, 0))
       .setContentTitle("AGiXT Glasses Connection")
       .setContentText(status)
       .setOngoing(true)
