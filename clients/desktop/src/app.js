@@ -2257,6 +2257,10 @@
   document.querySelectorAll('.sidenav-btn[data-view]').forEach((btn) => {
     btn.addEventListener('click', () => setActiveView(btn.dataset.view));
   });
+  // Stamp the default active state on the Chat button so the rail shows
+  // the user where they are on first paint. activeView already defaults
+  // to 'chat' above; this just syncs the button visuals.
+  setActiveView(activeView);
   // Surface a tiny extension point so future modules can register their
   // own sections without touching this file directly.
   window.AgixtSidenav = { setActiveView, getActiveView: () => activeView };
