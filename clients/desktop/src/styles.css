@@ -526,6 +526,13 @@ body.window-mode:not(.auth-mode) .topbar {
   flex: 1;
   overflow-y: auto;
   padding: 14px 12px;
+  /* Flex column + `margin-top: auto` on `.messages` (below) anchors a
+     short conversation to the bottom of the scroller so the latest
+     activity sits just above the composer instead of floating at the
+     top of an empty pane. When content grows past the visible height
+     the auto-margin collapses and ordinary scrolling resumes. */
+  display: flex;
+  flex-direction: column;
   /* `scroll-behavior: smooth` was here but it animates *user* scroll
      wheel events too, which makes the scrollbar feel sluggish when
      the user is just trying to skim the conversation. Programmatic
@@ -547,7 +554,7 @@ body.window-mode:not(.auth-mode) .topbar {
 .empty-state-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
 .empty-state-body { font-size: 13px; line-height: 1.5; }
 
-.messages { display: flex; flex-direction: column; gap: 10px; }
+.messages { display: flex; flex-direction: column; gap: 10px; margin-top: auto; }
 
 /* Message bubble */
 
