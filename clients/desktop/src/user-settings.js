@@ -679,24 +679,70 @@
   }
 
   async function renderGlasses(panel) {
+    // Visual layout mirrors mobile/lib/screens/settings_screen.dart so users
+    // moving between the Flutter app and the desktop client see the same
+    // hierarchy: gradient hero with at-a-glance status chips, then an
+    // adaptive "Live connection" card whose action buttons change based on
+    // supported/scanning/connected/has-saved-device, then the behavior /
+    // dashboard / display-fit / test panels (which keep the dense layout
+    // since they're for power-user tuning).
     panel.innerHTML = '';
     let settings = await loadDesktopSettings(true);
     let status = null;
 
-    const statusText = el('span', {
-      class: 'us-status-line',
-      dataset: { usTest: 'g1-status' },
-    }, 'Checking...');
-    const deviceList = el('div', {
-      class: 'us-row-list',
-      dataset: { usTest: 'g1-devices' },
+    // ─── Hero ─────────────────────────────────────────────────────────
+    const heroChips = el('div', {
+      class: 'g1-hero-chips',
+      dataset: { usTest: 'g1-hero-chips' },
     });
+    const hero = el('div', { class: 'g1-hero' }, [
+      el('div', { class: 'g1-hero-row' }, [
+        el('div', { class: 'g1-hero-icon' }, '👓'),
+        el('div', { class: 'g1-hero-title-wrap' }, [
+          el('h2', { class: 'g1-hero-title' }, 'Even Realities G1'),
+          el('p', { class: 'g1-hero-sub' },
+            'Keep your G1 glasses connected and tuned to your day.'),
+        ]),
+      ]),
+      heroChips,
+    ]);
+    panel.appendChild(hero);
 
-    function batteryText(info) {
-      if (!info) return 'Battery unknown';
-      const charging = info.is_charging ? ' charging' : '';
-      return `${info.percentage}%${charging}`;
-    }
+    // ─── Live connection card ─────────────────────────────────────────
+    const statusBanner = el('div', {
+      class: 'g1-status-banner disconnected',
+      dataset: { usTest: 'g1-status-banner' },
+    });
+    const statusIcon = el('div', { class: 'g1-status-banner-icon' }, '•');
+    const statusTitle = el('p', {
+      class: 'g1-status-banner-title',
+      dataset: { usTest: 'g1-status-title' },
+    }, 'Checking…');
+    const statusBody = el('p', {
+      class: 'g1-status-banner-body',
+      dataset: { usTest: 'g1-status' },
+    }, '');
+    statusBanner.append(
+      statusIcon,
+      el('div', { class: 'g1-status-banner-text' }, [statusTitle, statusBody]),
+    );
+
+    const actionsRow = el('div', {
+      class: 'g1-actions',
+      dataset: { usTest: 'g1-actions' },
+    });
+    const batteryGrid = el('div', {
+      class: 'g1-batt-grid',
+      dataset: { usTest: 'g1-batteries' },
+    });
+    batteryGrid.hidden = true;
+
+    const liveSection = section('Live connection', null, [
+      statusBanner,
+      actionsRow,
+      batteryGrid,
+    ]);
+    panel.appendChild(liveSection);
 
     function glassesStatusMessage(fallback) {
       const message = fallback || '';
@@ -706,43 +752,248 @@
       return message;
     }
 
-    function renderStatus(next) {
-      status = next || status;
-      deviceList.innerHTML = '';
-      if (!status) {
-        statusText.textContent = 'Status unavailable.';
-        statusText.className = 'us-status-line error';
+    function batteryLevelClass(pct) {
+      if (pct >= 80) return 'level-excellent';
+      if (pct >= 60) return 'level-good';
+      if (pct >= 40) return 'level-fair';
+      if (pct >= 20) return 'level-low';
+      return 'level-critical';
+    }
+
+    function lowestBattery(s) {
+      const left = s && s.battery && s.battery.left ? s.battery.left.percentage : null;
+      const right = s && s.battery && s.battery.right ? s.battery.right.percentage : null;
+      if (left == null && right == null) return null;
+      if (left == null) return right;
+      if (right == null) return left;
+      return Math.min(left, right);
+    }
+
+    function anyCharging(s) {
+      return Boolean(
+        (s && s.battery && s.battery.left && s.battery.left.is_charging) ||
+        (s && s.battery && s.battery.right && s.battery.right.is_charging),
+      );
+    }
+
+    function relativeTime(ts) {
+      if (!ts) return null;
+      const then = Date.parse(ts);
+      if (Number.isNaN(then)) return null;
+      const diff = Math.max(0, Date.now() - then);
+      if (diff < 60_000) return 'just now';
+      if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+      if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+      return `${Math.floor(diff / 86_400_000)}d ago`;
+    }
+
+    function chip(label, kind, leading) {
+      return el('span', { class: 'g1-chip' + (kind ? ' ' + kind : '') }, [
+        leading || el('span', { class: 'g1-chip-dot' }),
+        document.createTextNode(label),
+      ]);
+    }
+
+    function renderHeroChips(s) {
+      heroChips.innerHTML = '';
+      if (!s) {
+        heroChips.appendChild(chip('Loading…', ''));
         return;
       }
-      if (!status.supported) {
-        statusText.textContent = glassesStatusMessage(status.last_error) || 'G1 is not supported on this platform.';
-        statusText.className = 'us-status-line error';
-      } else if (status.scanning) {
-        statusText.textContent = 'Scanning for glasses...';
-        statusText.className = 'us-status-line';
-      } else if (status.connected) {
-        statusText.textContent = status.last_event || 'Connected.';
-        statusText.className = 'us-status-line success';
+      if (!s.supported) {
+        heroChips.appendChild(chip('Not supported on this platform', 'disconnected'));
+        return;
+      }
+      if (s.scanning) {
+        heroChips.appendChild(chip('Scanning for glasses…', 'scanning',
+          el('span', { class: 'g1-spinner' })));
+      } else if (s.connected) {
+        heroChips.appendChild(chip('Connected', 'connected'));
       } else {
-        statusText.textContent = glassesStatusMessage(status.last_error || status.last_event) || 'Not connected.';
-        statusText.className = 'us-status-line';
+        heroChips.appendChild(chip('Disconnected', 'disconnected'));
       }
 
-      [
-        { label: 'Left', device: status.left, battery: status.battery && status.battery.left },
-        { label: 'Right', device: status.right, battery: status.battery && status.battery.right },
-      ].forEach((entry) => {
-        const connected = entry.device && entry.device.connected;
-        deviceList.appendChild(el('div', { class: 'us-list-item' }, [
-          el('div', { class: 'us-list-item-grow' }, [
-            el('p', { class: 'us-list-item-title' },
-              `${entry.label}: ${entry.device ? entry.device.name : 'Not paired'}`),
-            el('p', { class: 'us-list-item-meta' },
-              entry.device ? `${entry.device.id} - ${batteryText(entry.battery)}` : 'No saved device connected'),
+      const pct = lowestBattery(s);
+      if (pct != null) {
+        const charging = anyCharging(s);
+        heroChips.appendChild(chip(
+          `${pct}%${charging ? ' · Charging' : ''}`,
+          '',
+          el('span', { class: 'g1-chip-icon' }, charging ? '⚡' : '🔋'),
+        ));
+      } else if (s.connected) {
+        heroChips.appendChild(chip('Battery unavailable', '',
+          el('span', { class: 'g1-chip-icon' }, '🔋')));
+      }
+
+      const updated = relativeTime(s.battery && s.battery.last_updated);
+      if (updated) {
+        heroChips.appendChild(chip(`Updated ${updated}`, '',
+          el('span', { class: 'g1-chip-icon' }, '⟳')));
+      }
+    }
+
+    function renderBatteryGrid(s) {
+      batteryGrid.innerHTML = '';
+      if (!s || !s.connected) { batteryGrid.hidden = true; return; }
+      const entries = [
+        { label: 'Left', device: s.left, battery: s.battery && s.battery.left },
+        { label: 'Right', device: s.right, battery: s.battery && s.battery.right },
+      ];
+      // Show the grid only if we actually have a battery reading on either
+      // side — otherwise the empty placeholders look broken.
+      const anyData = entries.some((e) => e.battery || e.device);
+      if (!anyData) { batteryGrid.hidden = true; return; }
+      batteryGrid.hidden = false;
+      entries.forEach((entry) => {
+        const pct = entry.battery ? entry.battery.percentage : null;
+        const card = el('div', {
+          class: 'g1-batt' + (pct != null ? ' ' + batteryLevelClass(pct) : ''),
+          dataset: { usTest: `g1-battery-${entry.label.toLowerCase()}` },
+        }, [
+          el('div', { class: 'g1-batt-head' }, [
+            el('span', { class: 'g1-batt-label' }, `${entry.label} lens`),
+            el('span', { class: 'g1-batt-pct' }, pct != null ? `${pct}%` : '—'),
           ]),
-          badge(connected ? 'Connected' : 'Offline', connected ? 'success' : ''),
-        ]));
+          el('div', { class: 'g1-batt-bar' }, [
+            el('div', {
+              class: 'g1-batt-bar-fill',
+              style: `width: ${pct != null ? Math.max(2, pct) : 0}%`,
+            }),
+          ]),
+          el('p', { class: 'g1-batt-meta' },
+            entry.battery
+              ? (entry.battery.is_charging ? '⚡ Charging' : `Voltage ${entry.battery.voltage}`)
+              : (entry.device ? `Paired · ${entry.device.name}` : 'Not paired')),
+        ]);
+        batteryGrid.appendChild(card);
       });
+    }
+
+    function renderActions(s) {
+      actionsRow.innerHTML = '';
+      if (!s || !s.supported) return;
+
+      if (s.scanning) {
+        // Scanning has no actionable buttons — the connect call kicked off
+        // is what we're waiting on. Show a single muted disabled hint so
+        // the action area doesn't collapse and shift the layout.
+        const b = btn('Scanning…', { disabled: true });
+        b.dataset.usTest = 'g1-scanning';
+        actionsRow.appendChild(b);
+        return;
+      }
+
+      if (s.connected) {
+        const disconnectBtn = btn('Disconnect', {
+          onclick: () => runStatusCommand('Disconnect', () => (
+            window.AgixtG1 ? window.AgixtG1.disconnect() : invoke('g1_disconnect')
+          )),
+        });
+        disconnectBtn.dataset.usTest = 'g1-disconnect';
+        const syncBtn = btn('Sync now', {
+          kind: 'primary',
+          onclick: () => runStatusCommand('Sync now', () => (
+            window.AgixtG1 ? window.AgixtG1.sync() : invoke('g1_sync')
+          )),
+        });
+        syncBtn.dataset.usTest = 'g1-sync';
+        const batteryBtn = btn('Refresh battery', {
+          onclick: () => runStatusCommand('Battery', () => (
+            window.AgixtG1 ? window.AgixtG1.requestBattery() : invoke('g1_request_battery')
+          )),
+        });
+        batteryBtn.dataset.usTest = 'g1-battery';
+        actionsRow.append(syncBtn, batteryBtn, disconnectBtn);
+        return;
+      }
+
+      // Disconnected — promote "Reconnect saved" if we have a saved device
+      // on either side, fall back to "Connect" scan otherwise. This matches
+      // the mobile experience where the primary CTA is whatever the user
+      // most likely wants next.
+      const hasSaved = Boolean((s.left && s.left.id) || (s.right && s.right.id));
+      if (hasSaved) {
+        const reconnectBtn = btn('Reconnect saved glasses', {
+          kind: 'primary',
+          onclick: () => runStatusCommand('Reconnect saved', () => (
+            window.AgixtG1 ? window.AgixtG1.reconnectSaved() : invoke('g1_reconnect_saved')
+          )),
+        });
+        reconnectBtn.dataset.usTest = 'g1-reconnect';
+        reconnectBtn.classList.add('full');
+        const connectBtn = btn('Pair different glasses', {
+          onclick: () => runStatusCommand('Connect', () => (
+            window.AgixtG1 ? window.AgixtG1.scanAndConnect() : invoke('g1_scan_and_connect')
+          )),
+        });
+        connectBtn.dataset.usTest = 'g1-connect';
+        actionsRow.append(reconnectBtn, connectBtn);
+      } else {
+        const connectBtn = btn('Connect glasses', {
+          kind: 'primary',
+          onclick: () => runStatusCommand('Connect', () => (
+            window.AgixtG1 ? window.AgixtG1.scanAndConnect() : invoke('g1_scan_and_connect')
+          )),
+        });
+        connectBtn.dataset.usTest = 'g1-connect';
+        connectBtn.classList.add('full');
+        actionsRow.appendChild(connectBtn);
+      }
+    }
+
+    function renderStatus(next) {
+      status = next || status;
+      if (!status) {
+        statusBanner.className = 'g1-status-banner error';
+        statusIcon.textContent = '!';
+        statusTitle.textContent = 'Status unavailable';
+        statusBody.textContent = 'Could not reach the glasses controller.';
+        renderHeroChips(null);
+        renderActions(null);
+        renderBatteryGrid(null);
+        return;
+      }
+
+      if (!status.supported) {
+        statusBanner.className = 'g1-status-banner error';
+        statusIcon.textContent = '⚠';
+        statusTitle.textContent = 'Not supported on this platform';
+        statusBody.textContent = glassesStatusMessage(status.last_error)
+          || 'AGiXT can\'t talk to the G1 glasses from this OS build.';
+      } else if (status.scanning) {
+        statusBanner.className = 'g1-status-banner scanning';
+        statusIcon.innerHTML = '';
+        statusIcon.appendChild(el('span', { class: 'g1-spinner' }));
+        statusTitle.textContent = 'Scanning for your glasses…';
+        statusBody.textContent = 'Make sure the G1 case is open and the glasses are nearby.';
+      } else if (status.connected) {
+        statusBanner.className = 'g1-status-banner connected';
+        statusIcon.textContent = '✓';
+        const left = status.left ? status.left.name : null;
+        const right = status.right ? status.right.name : null;
+        const name = left && right && left.replace(/_L_?$/i, '') === right.replace(/_R_?$/i, '')
+          ? left.replace(/_L_?$/i, '')
+          : (left || right || 'Even Realities G1');
+        statusTitle.textContent = `Connected to ${name}`;
+        statusBody.textContent = status.last_event
+          || 'Your glasses are synced and receiving updates.';
+      } else {
+        const hasSaved = Boolean((status.left && status.left.id) || (status.right && status.right.id));
+        statusBanner.className = 'g1-status-banner disconnected';
+        statusIcon.textContent = '○';
+        statusTitle.textContent = hasSaved
+          ? 'Saved glasses are offline'
+          : 'No glasses paired yet';
+        statusBody.textContent = glassesStatusMessage(status.last_error || status.last_event)
+          || (hasSaved
+            ? 'Tap reconnect to wake your saved glasses and resume updates.'
+            : 'Tap connect to scan for your G1 and pair them with AGiXT.');
+      }
+
+      renderHeroChips(status);
+      renderActions(status);
+      renderBatteryGrid(status);
     }
 
     async function refresh() {
@@ -753,15 +1004,16 @@
         renderStatus(next);
         return next;
       } catch (err) {
-        statusText.textContent = errMsg(err);
-        statusText.className = 'us-status-line error';
+        statusBanner.className = 'g1-status-banner error';
+        statusIcon.textContent = '!';
+        statusTitle.textContent = 'Status unavailable';
+        statusBody.textContent = errMsg(err);
         return null;
       }
     }
 
     async function runStatusCommand(label, command) {
-      statusText.textContent = label + '...';
-      statusText.className = 'us-status-line';
+      statusTitle.textContent = `${label}…`;
       try {
         const next = await command();
         renderStatus(next);
@@ -769,55 +1021,64 @@
         toast(label + ' complete', 'success');
         return next;
       } catch (err) {
-        statusText.textContent = errMsg(err);
-        statusText.className = 'us-status-line error';
+        statusBanner.className = 'g1-status-banner error';
+        statusIcon.textContent = '!';
+        statusTitle.textContent = `${label} failed`;
+        statusBody.textContent = errMsg(err);
         toast(errMsg(err), 'error');
         return null;
       }
     }
 
-    const connectBtn = btn('Connect', {
-      kind: 'primary',
-      onclick: () => runStatusCommand('Connect', () => (
-        window.AgixtG1 ? window.AgixtG1.scanAndConnect() : invoke('g1_scan_and_connect')
-      )),
+    // ─── Focus & presence (silent mode toggle) ────────────────────────
+    // Mobile parity: silent mode is the inverse of g1_display_enabled.
+    // When silent mode is on, the display is paused — no timeline, no
+    // notifications, no assistant streaming — until the user flips it off.
+    const silentInput = el('input', { type: 'checkbox', dataset: { usTest: 'g1-silent' } });
+    silentInput.checked = settings.g1_display_enabled === false;
+    const silentSwitch = el('label', { class: 'g1-switch' }, [
+      silentInput,
+      el('span', { class: 'g1-switch-track' }),
+      el('span', { class: 'g1-switch-thumb' }),
+    ]);
+    silentInput.addEventListener('change', async () => {
+      // Persist immediately so toggling feels instant; if connected, push
+      // the new silent state to the glasses straight away.
+      const next = { ...settings, g1_display_enabled: !silentInput.checked };
+      try {
+        const saved = await invoke('save_settings', { settings: next });
+        settings = saved;
+        cache.desktopSettings = saved;
+        if (window.AgixtG1 && typeof window.AgixtG1.syncSettings === 'function') {
+          window.AgixtG1.syncSettings(saved);
+        }
+        if (status && status.connected) {
+          try { await invoke('g1_set_silent_mode', { enabled: silentInput.checked }); } catch (_) {}
+          if (silentInput.checked) {
+            try { await invoke('g1_clear_display'); } catch (_) {}
+          }
+        }
+        toast(silentInput.checked ? 'Silent mode on' : 'Silent mode off', 'success');
+      } catch (err) {
+        silentInput.checked = !silentInput.checked;
+        toast(errMsg(err), 'error');
+      }
     });
-    connectBtn.dataset.usTest = 'g1-connect';
-    const reconnectBtn = btn('Reconnect saved', {
-      onclick: () => runStatusCommand('Reconnect saved', () => (
-        window.AgixtG1 ? window.AgixtG1.reconnectSaved() : invoke('g1_reconnect_saved')
-      )),
-    });
-    reconnectBtn.dataset.usTest = 'g1-reconnect';
-    const disconnectBtn = btn('Disconnect', {
-      onclick: () => runStatusCommand('Disconnect', () => (
-        window.AgixtG1 ? window.AgixtG1.disconnect() : invoke('g1_disconnect')
-      )),
-    });
-    disconnectBtn.dataset.usTest = 'g1-disconnect';
-    const syncBtn = btn('Sync now', {
-      onclick: () => runStatusCommand('Sync now', () => (
-        window.AgixtG1 ? window.AgixtG1.sync() : invoke('g1_sync')
-      )),
-    });
-    syncBtn.dataset.usTest = 'g1-sync';
-    const batteryBtn = btn('Battery', {
-      onclick: () => runStatusCommand('Battery', () => (
-        window.AgixtG1 ? window.AgixtG1.requestBattery() : invoke('g1_request_battery')
-      )),
-    });
-    batteryBtn.dataset.usTest = 'g1-battery';
 
-    panel.appendChild(section('Even Realities G1', null, [
-      statusText,
-      deviceList,
-      el('div', { class: 'us-section-row' }, [connectBtn, reconnectBtn, disconnectBtn, syncBtn, batteryBtn]),
+    panel.appendChild(section('Focus & presence', null, [
+      el('div', { class: 'g1-toggle-row' }, [
+        el('div', { class: 'g1-toggle-text' }, [
+          el('p', { class: 'g1-toggle-title' }, 'Silent mode'),
+          el('p', { class: 'g1-toggle-sub' },
+            'Pause timeline updates and notifications on your glasses until you turn this back off.'),
+        ]),
+        silentSwitch,
+      ]),
     ]));
 
+    // ─── Behavior ─────────────────────────────────────────────────────
     const enabled = el('input', { type: 'checkbox', dataset: { usTest: 'g1-enabled' } });
     enabled.checked = !!settings.g1_enabled;
-    const displayEnabled = el('input', { type: 'checkbox', dataset: { usTest: 'g1-display-enabled' } });
-    displayEnabled.checked = settings.g1_display_enabled !== false;
     const showAi = el('input', { type: 'checkbox', dataset: { usTest: 'g1-show-ai' } });
     showAi.checked = settings.g1_show_ai_responses !== false;
     const forwardNotifications = el('input', { type: 'checkbox', dataset: { usTest: 'g1-forward-notifications' } });
@@ -827,7 +1088,6 @@
 
     panel.appendChild(section('Behavior', null, [
       el('label', { class: 'us-check' }, [enabled, el('span', null, 'Enable G1 glasses integration')]),
-      el('label', { class: 'us-check' }, [displayEnabled, el('span', null, 'Show content on the glasses display')]),
       el('label', { class: 'us-check' }, [showAi, el('span', null, 'Stream assistant responses to the glasses')]),
       el('label', { class: 'us-check' }, [forwardNotifications, el('span', null, 'Forward AGiXT notifications')]),
       el('label', { class: 'us-check' }, [autoConnect, el('span', null, 'Reconnect to saved glasses on launch')]),
@@ -948,7 +1208,9 @@
       return {
         ...settings,
         g1_enabled: enabled.checked,
-        g1_display_enabled: displayEnabled.checked,
+        // Silent mode is the user-facing inverse of g1_display_enabled —
+        // see Focus & presence toggle above.
+        g1_display_enabled: !silentInput.checked,
         g1_show_ai_responses: showAi.checked,
         g1_notification_forwarding: forwardNotifications.checked,
         g1_auto_connect: autoConnect.checked,
@@ -1014,7 +1276,7 @@
             await invoke('g1_set_display_position', {
               input: { height: Number(displayHeight.value), depth: Number(displayDepth.value) },
             });
-            await invoke('g1_set_silent_mode', { enabled: !displayEnabled.checked });
+            await invoke('g1_set_silent_mode', { enabled: silentInput.checked });
           }
           await refresh();
           toast('Display settings applied', 'success');

@@ -6303,3 +6303,353 @@ textarea.pg-input { resize: vertical; min-height: 56px; }
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ─── Even Realities G1 glasses settings ─────────────────────────────────
+   Visual language ported from the Flutter mobile app's GlassesSettingsPage:
+   a gradient hero card with status chips, an adaptive "Live connection"
+   card whose action set changes based on supported/scanning/connected/
+   has-saved state, and per-glass battery rows with color-graded fills.
+
+   Anything reused across the user-settings panel keeps its `.us-*` prefix;
+   anything specific to the glasses pane uses the `.g1-*` prefix so the
+   selectors don't leak into other tabs.
+*/
+.g1-hero {
+  position: relative;
+  border-radius: 18px;
+  padding: 20px 22px 22px;
+  color: #fff;
+  overflow: hidden;
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--accent) 92%, #1a1f3a) 0%,
+      color-mix(in srgb, var(--accent-2, #9a6cff) 88%, #1a1f3a) 100%);
+  box-shadow: 0 8px 24px rgba(20, 22, 50, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.g1-hero::after {
+  /* subtle radial highlight, top-right */
+  content: "";
+  position: absolute;
+  inset: -40% -20% auto auto;
+  width: 70%;
+  aspect-ratio: 1;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.18), transparent 70%);
+  pointer-events: none;
+}
+.g1-hero-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  position: relative;
+  z-index: 1;
+}
+.g1-hero-icon {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.16);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+}
+.g1-hero-title-wrap { flex: 1; min-width: 0; }
+.g1-hero-title {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  letter-spacing: 0.1px;
+}
+.g1-hero-sub {
+  font-size: 12.5px;
+  line-height: 1.45;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.85);
+}
+.g1-hero-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+  position: relative;
+  z-index: 1;
+}
+.g1-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.g1-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+}
+.g1-chip.connected {
+  background: rgba(94, 210, 143, 0.32);
+  border-color: rgba(94, 210, 143, 0.55);
+  color: #d6f4e2;
+}
+.g1-chip.disconnected {
+  background: rgba(255, 138, 150, 0.28);
+  border-color: rgba(255, 138, 150, 0.5);
+  color: #ffd9de;
+}
+.g1-chip.scanning {
+  background: rgba(229, 184, 106, 0.3);
+  border-color: rgba(229, 184, 106, 0.5);
+  color: #ffe8c2;
+}
+.g1-chip-icon { font-size: 13px; line-height: 1; }
+
+/* Status banner inside the "Live connection" card. Colored to match the
+   current state so glance-readers can tell at a stride whether the glasses
+   are paired without scanning the body copy. */
+.g1-status-banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.g1-status-banner-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex: 0 0 auto;
+}
+.g1-status-banner-text { flex: 1; min-width: 0; }
+.g1-status-banner-title {
+  font-size: 13px;
+  font-weight: 650;
+  margin: 0;
+  line-height: 1.3;
+}
+.g1-status-banner-body {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin: 3px 0 0;
+  line-height: 1.45;
+  word-break: break-word;
+}
+.g1-status-banner.connected {
+  border-color: rgba(94, 210, 143, 0.45);
+  background: rgba(94, 210, 143, 0.10);
+}
+.g1-status-banner.connected .g1-status-banner-icon {
+  background: rgba(94, 210, 143, 0.22);
+  color: #5dd28f;
+}
+.g1-status-banner.connected .g1-status-banner-title { color: #5dd28f; }
+.g1-status-banner.disconnected .g1-status-banner-icon {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim);
+}
+.g1-status-banner.scanning {
+  border-color: rgba(229, 184, 106, 0.4);
+  background: rgba(229, 184, 106, 0.08);
+}
+.g1-status-banner.scanning .g1-status-banner-icon {
+  background: rgba(229, 184, 106, 0.2);
+  color: #e5b86a;
+}
+.g1-status-banner.scanning .g1-status-banner-title { color: #e5b86a; }
+.g1-status-banner.error {
+  border-color: rgba(255, 138, 150, 0.45);
+  background: rgba(255, 138, 150, 0.08);
+}
+.g1-status-banner.error .g1-status-banner-icon {
+  background: rgba(255, 138, 150, 0.22);
+  color: #ff8a96;
+}
+.g1-status-banner.error .g1-status-banner-title { color: #ff8a96; }
+
+.g1-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: g1-spin 0.85s linear infinite;
+  display: inline-block;
+}
+@keyframes g1-spin { to { transform: rotate(360deg); } }
+
+/* Action row under the status banner. The set of buttons rendered is state-
+   dependent — see `renderGlassesActions()` in user-settings.js. */
+.g1-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.g1-actions.center { justify-content: center; }
+.g1-actions .btn { flex: 0 0 auto; }
+.g1-actions .btn.full { flex: 1 1 100%; }
+
+/* Per-glass battery row, shown only when connected. The bar's fill width
+   is set inline; its color tier comes from .level-* classes mirroring
+   the mobile app's _getBatteryColor() thresholds. */
+.g1-batt-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 520px) {
+  .g1-batt-grid { grid-template-columns: 1fr; }
+}
+.g1-batt {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.g1-batt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.g1-batt-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.g1-batt-pct {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+.g1-batt-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+  min-height: 14px;
+}
+.g1-batt-bar {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.g1-batt-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+.g1-batt.level-excellent .g1-batt-pct,
+.g1-batt.level-excellent .g1-batt-bar-fill { color: #5dd28f; background-color: #5dd28f; }
+.g1-batt.level-good .g1-batt-pct,
+.g1-batt.level-good .g1-batt-bar-fill { color: #66bb6a; background-color: #66bb6a; }
+.g1-batt.level-fair .g1-batt-pct,
+.g1-batt.level-fair .g1-batt-bar-fill { color: #6b9eff; background-color: #6b9eff; }
+.g1-batt.level-low .g1-batt-pct,
+.g1-batt.level-low .g1-batt-bar-fill { color: #ffb774; background-color: #ffb774; }
+.g1-batt.level-critical .g1-batt-pct,
+.g1-batt.level-critical .g1-batt-bar-fill { color: #ff8a96; background-color: #ff8a96; }
+/* The fill width comes from inline style; color is set via .level-* above
+   on the parent so both percentage text and bar share the tier color. */
+
+/* Focus & presence toggle row. Uses a custom switch since the desktop
+   side has no shared toggle component — the existing .us-check is a
+   plain checkbox, which doesn't read as a presence affordance. */
+.g1-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  justify-content: space-between;
+}
+.g1-toggle-text { flex: 1; min-width: 0; }
+.g1-toggle-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 3px;
+}
+.g1-toggle-sub {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin: 0;
+  line-height: 1.45;
+}
+.g1-switch {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  flex: 0 0 auto;
+  cursor: pointer;
+  display: inline-block;
+}
+.g1-switch input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+}
+.g1-switch-track {
+  position: absolute;
+  inset: 0;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+.g1-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: var(--text);
+  border-radius: 50%;
+  transition: transform 0.18s ease, background 0.18s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.g1-switch input:checked ~ .g1-switch-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.g1-switch input:checked ~ .g1-switch-thumb {
+  transform: translateX(18px);
+  background: #fff;
+}
+.g1-switch input:focus-visible ~ .g1-switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Inline callout note used inside cards (e.g. silent-mode explainer). */
+.g1-note {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
