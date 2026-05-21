@@ -329,6 +329,72 @@ fn desktop_tools() -> Vec<Value> {
             }),
         ),
         function(
+            "desktop_move",
+            "Move the mouse cursor to a screen coordinate without clicking. \
+             Use this for hover-only UI interactions such as revealing tooltips, \
+             menus, hidden controls, or hover states. When given coordinates \
+             from a screenshot, pass coordinate_space:\"screenshot\" and the \
+             same image/screen dimension fields used by desktop_click.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "x": {"type": "integer", "description": "Screen pixel coordinate, screenshot image pixel coordinate, or normalized coordinate."},
+                    "y": {"type": "integer", "description": "Screen pixel coordinate, screenshot image pixel coordinate, or normalized coordinate."},
+                    "coordinate_space": {"type": "string", "enum": ["screen", "screenshot", "normalized"]},
+                    "image_coordinates": {"type": "boolean", "description": "Alias for coordinate_space=screenshot."},
+                    "normalized": {"type": "boolean", "description": "If true, x/y are in 0..1000 normalized space."},
+                    "target_width": {"type": "integer"},
+                    "target_height": {"type": "integer"},
+                    "screen_width": {"type": "integer"},
+                    "screen_height": {"type": "integer"},
+                    "monitor_offset_x": {"type": "integer"},
+                    "monitor_offset_y": {"type": "integer"}
+                },
+                "required": ["x", "y"]
+            }),
+        ),
+        function(
+            "desktop_drag",
+            "Click and drag from one coordinate to another. Use this for \
+             sliders, selections, drag-and-drop, moving windows, resizing panes, \
+             or dragging files/items. Coordinates support the same screenshot \
+             and normalized 0..1000 modes as desktop_click.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "from_x": {"type": "integer", "description": "Start X coordinate."},
+                    "from_y": {"type": "integer", "description": "Start Y coordinate."},
+                    "to_x": {"type": "integer", "description": "End X coordinate."},
+                    "to_y": {"type": "integer", "description": "End Y coordinate."},
+                    "button": {"type": "string", "enum": ["left", "right", "middle"], "default": "left"},
+                    "coordinate_space": {"type": "string", "enum": ["screen", "screenshot", "normalized"]},
+                    "image_coordinates": {"type": "boolean", "description": "Alias for coordinate_space=screenshot."},
+                    "normalized": {"type": "boolean", "description": "If true, coordinates are in 0..1000 normalized space."},
+                    "target_width": {"type": "integer"},
+                    "target_height": {"type": "integer"},
+                    "screen_width": {"type": "integer"},
+                    "screen_height": {"type": "integer"},
+                    "monitor_offset_x": {"type": "integer"},
+                    "monitor_offset_y": {"type": "integer"}
+                },
+                "required": ["from_x", "from_y", "to_x", "to_y"]
+            }),
+        ),
+        function(
+            "desktop_scroll",
+            "Scroll the user's desktop at the current pointer location. \
+             Positive vertical amounts scroll up; negative vertical amounts \
+             scroll down. Use horizontal axis for side-to-side scrolling.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "amount": {"type": "integer", "description": "Scroll amount; positive up/left, negative down/right depending on axis."},
+                    "axis": {"type": "string", "enum": ["vertical", "horizontal", "x", "y"], "default": "vertical"}
+                },
+                "required": ["amount"]
+            }),
+        ),
+        function(
             "desktop_type",
             "Type literal text or a key combination on the user's machine. \
              Useful for opening apps through the desktop launcher: on Linux \
@@ -599,6 +665,9 @@ mod tests {
         assert!(names.contains(&"desktop_vision_control"));
         assert!(names.contains(&"desktop_screenshot"));
         assert!(names.contains(&"desktop_click"));
+        assert!(names.contains(&"desktop_move"));
+        assert!(names.contains(&"desktop_drag"));
+        assert!(names.contains(&"desktop_scroll"));
         assert!(names.contains(&"desktop_type"));
         assert!(names.contains(&"fs_read"));
         assert!(names.contains(&"fs_write"));

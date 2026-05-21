@@ -898,6 +898,8 @@ ${rows || '<p>No steps recorded yet.</p>'}
     const jsonAction = parseJsonVisionAction(raw);
     if (jsonAction) return jsonAction;
     const patterns = [
+      ['drag', /(?:Action\s*:\s*)?(?:drag|mouse_drag|click_and_drag|drag_and_drop)\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/i],
+      ['hover', /(?:Action\s*:\s*)?(?:hover|move|mouse_move)\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/i],
       ['double_click', /(?:Action\s*:\s*)?double_click\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/i],
       ['right_click', /(?:Action\s*:\s*)?right_click\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/i],
       ['click', /(?:Action\s*:\s*)?click\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)/i],
@@ -905,6 +907,16 @@ ${rows || '<p>No steps recorded yet.</p>'}
     for (const [name, regex] of patterns) {
       const match = raw.match(regex);
       if (match) {
+        if (name === 'drag') {
+          return {
+            name,
+            from_x: intOr(match[1], 0),
+            from_y: intOr(match[2], 0),
+            to_x: intOr(match[3], 0),
+            to_y: intOr(match[4], 0),
+            raw: match[0].trim(),
+          };
+        }
         return {
           name,
           x: intOr(match[1], 0),
@@ -954,6 +966,42 @@ ${rows || '<p>No steps recorded yet.</p>'}
       ? obj.point_2d
       : (Array.isArray(obj.point) ? obj.point : (Array.isArray(obj.coordinate) ? obj.coordinate : null));
     const bbox = Array.isArray(obj.bbox_2d) ? obj.bbox_2d : (Array.isArray(obj.box) ? obj.box : null);
+    const firstPoint = (...values) => values.find((value) => Array.isArray(value) && value.length >= 2) || null;
+    if (['drag', 'mouse_drag', 'click_and_drag', 'drag_and_drop'].includes(action)) {
+      const from = firstPoint(obj.from_point_2d, obj.from_point, obj.start_point_2d, obj.start_point, obj.start, obj.source);
+      const to = firstPoint(obj.to_point_2d, obj.to_point, obj.end_point_2d, obj.end_point, obj.end, obj.target, obj.destination);
+      const fromX = from ? from[0] : (obj.from_x ?? obj.start_x ?? obj.x1 ?? obj.x);
+      const fromY = from ? from[1] : (obj.from_y ?? obj.start_y ?? obj.y1 ?? obj.y);
+      const toX = to ? to[0] : (obj.to_x ?? obj.end_x ?? obj.x2);
+      const toY = to ? to[1] : (obj.to_y ?? obj.end_y ?? obj.y2);
+      return {
+        name: 'drag',
+        from_x: coordinateOr(fromX, true, 0),
+        from_y: coordinateOr(fromY, true, 0),
+        to_x: coordinateOr(toX, true, 0),
+        to_y: coordinateOr(toY, true, 0),
+        coordinate_mode: 'normalized',
+        raw: JSON.stringify(obj),
+      };
+    }
+    if (['hover', 'move', 'mouse_move'].includes(action) && (point || bbox || obj.x != null || obj.y != null)) {
+      let x = obj.x;
+      let y = obj.y;
+      if (point && point.length >= 2) {
+        x = point[0];
+        y = point[1];
+      } else if (bbox && bbox.length >= 4) {
+        x = (numberOr(bbox[0], 0) + numberOr(bbox[2], 0)) / 2;
+        y = (numberOr(bbox[1], 0) + numberOr(bbox[3], 0)) / 2;
+      }
+      return {
+        name: 'hover',
+        x: coordinateOr(x, true, 0),
+        y: coordinateOr(y, true, 0),
+        coordinate_mode: 'normalized',
+        raw: JSON.stringify(obj),
+      };
+    }
     if (['click', 'double_click', 'right_click'].includes(action) || point || bbox) {
       let x = obj.x;
       let y = obj.y;
@@ -1030,6 +1078,8 @@ Available actions:
 click(x, y)
 double_click(x, y)
 right_click(x, y)
+hover(x, y)
+drag(from_x, from_y, to_x, to_y)
 type("text")
 hotkey("key1+key2")
 scroll(direction, amount)
@@ -1064,6 +1114,8 @@ Return exactly one JSON object. Prefer this Qwen grounding shape:
 Other valid actions:
 {"action":"double_click","point_2d":[x,y],"observation":"...","thought":"..."}
 {"action":"right_click","point_2d":[x,y],"observation":"...","thought":"..."}
+{"action":"hover","point_2d":[x,y],"observation":"...","thought":"..."}
+{"action":"drag","from_point_2d":[x1,y1],"to_point_2d":[x2,y2],"observation":"...","thought":"..."}
 {"action":"type","text":"literal text"}
 {"action":"hotkey","keys":["super"]}
 {"action":"scroll","direction":"down","amount":5}
@@ -1109,6 +1161,41 @@ Other valid actions:
         return {
           action: `${action.name}(${action.x}, ${action.y})`,
           coordinate: { x: action.x, y: action.y },
+          result,
+        };
+      }
+      case 'hover': {
+        assertNotCancelled(token);
+        const result = await inv('desktop_move', {
+          args: {
+            x: action.x,
+            y: action.y,
+            ...vision,
+          },
+        });
+        assertNotCancelled(token);
+        return {
+          action: `hover(${action.x}, ${action.y})`,
+          coordinate: { x: action.x, y: action.y },
+          result,
+        };
+      }
+      case 'drag': {
+        assertNotCancelled(token);
+        const result = await inv('desktop_drag', {
+          args: {
+            from_x: action.from_x,
+            from_y: action.from_y,
+            to_x: action.to_x,
+            to_y: action.to_y,
+            button: 'left',
+            ...vision,
+          },
+        });
+        assertNotCancelled(token);
+        return {
+          action: `drag(${action.from_x}, ${action.from_y}, ${action.to_x}, ${action.to_y})`,
+          coordinate: { x: action.to_x, y: action.to_y },
           result,
         };
       }
@@ -1367,6 +1454,8 @@ Other valid actions:
       'click',
       'mouse_click',
       'desktop_move',
+      'desktop_hover',
+      'hover',
       'mouse_move',
       'desktop_drag',
       'mouse_drag',
@@ -1556,6 +1645,8 @@ Other valid actions:
           }
 
         case 'desktop_move':
+        case 'desktop_hover':
+        case 'hover':
         case 'mouse_move':
           {
             const { coords, vision } = coordinateArgs(a, ['x', 'y']);

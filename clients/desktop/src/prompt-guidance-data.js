@@ -335,7 +335,7 @@ window.AgixtPromptGuidanceData = {
   "machines": {
     title: "Machine Control Tips",
     description: "Manage machine registrations, execute remote commands, transfer files, capture screenshots, and automate workflows using the AGiXT Machines API. Use the + button in the toolbar to add a new machine.",
-    requiredAbilities: ["Get Machines", "Get Machine Details", "Get Machines by Status", "Create Machine Note", "Get Machine Note", "Update Machine Note", "Delete Machine Note", "Delete Machine", "List Machine Notes", "Search Machine Notes", "Open Remote Terminal", "Execute in Terminal", "Close Remote Terminal", "Send Mouse Click", "Send Keyboard Input", "Capture Screenshot", "Upload File to Machine", "Download File from Machine", "Get Agent Installers"],
+    requiredAbilities: ["Get Machines", "Get Machine Details", "Get Machines by Status", "Create Machine Note", "Get Machine Note", "Update Machine Note", "Delete Machine Note", "Delete Machine", "List Machine Notes", "Search Machine Notes", "Open Remote Terminal", "Execute in Terminal", "Close Remote Terminal", "Send Mouse Click", "Move Mouse", "Drag Mouse", "Send Keyboard Input", "Capture Screenshot", "Upload File to Machine", "Download File from Machine", "Get Agent Installers"],
     extensionName: "machines",
     enableInstructions: "Enable the Machines extension inside AGiXT > Settings > Extensions to unlock full machine control: approvals, remote commands, file operations, screenshots, and automation.",
     examples: [
