@@ -56,6 +56,16 @@ def strip_control_chars(text: str) -> str:
     return text
 
 
+def normalize_conversation_id(conversation_id):
+    """Return a canonical UUID string for valid conversation IDs, otherwise None."""
+    if not conversation_id or conversation_id == "-":
+        return None
+    try:
+        return str(uuid.UUID(str(conversation_id)))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 # Module-level timezone constants to avoid repeated pytz.timezone() calls
 _GMT = pytz.timezone("GMT")
 _tz_cache = {}
@@ -757,11 +767,8 @@ def get_conversation_id_by_name(conversation_name, user_id, create_if_missing=Tr
 def get_conversation_name_by_id(conversation_id, user_id):
     if not conversation_id or conversation_id == "-":
         return None
-    try:
-        import uuid as _uuid
-
-        _uuid.UUID(str(conversation_id))
-    except (ValueError, AttributeError):
+    conversation_id = normalize_conversation_id(conversation_id)
+    if not conversation_id:
         return None
 
     # Check cache first (avoids 2-4 DB queries per call)
@@ -2258,6 +2265,10 @@ class Conversations:
 
         # Prefer conversation_id lookup to avoid duplicate name issues
         if self.conversation_id:
+            self.conversation_id = normalize_conversation_id(self.conversation_id)
+            if not self.conversation_id:
+                session.close()
+                return None
             # Single query with OR to check ownership, company membership, or participant status
             company_ids = _get_user_company_ids(user_id)
 
@@ -4373,6 +4384,10 @@ class Conversations:
         """
         session = get_session()
         user_id = self._user_id
+        conversation_id = normalize_conversation_id(conversation_id)
+        if not conversation_id:
+            session.close()
+            return False
         conversation = (
             session.query(Conversation)
             .filter(

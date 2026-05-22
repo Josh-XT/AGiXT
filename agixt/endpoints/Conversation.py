@@ -752,6 +752,21 @@ def make_json_serializable(obj):
         return obj
 
 
+def _resolve_v1_conversation_id(conversation_id: str, user_id: str) -> str:
+    """Normalize v1 conversation route IDs before they touch UUID columns."""
+    if conversation_id == "-":
+        resolved_id = get_conversation_id_by_name(
+            conversation_name="-", user_id=user_id
+        )
+        if not resolved_id:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return str(resolved_id)
+    try:
+        return str(uuid.UUID(str(conversation_id)))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+
 def _resolve_conversation_workspace(
     conversation_identifier: str,
     user: str,
@@ -1055,10 +1070,9 @@ async def get_conversation_history(
     format: str = "flat",
 ):
     auth = MagicalAuth(token=authorization)
-    if conversation_id == "-":
-        conversation_id = get_conversation_id_by_name(
-            conversation_name="-", user_id=auth.user_id
-        )
+    conversation_id = _resolve_v1_conversation_id(
+        conversation_id=conversation_id, user_id=auth.user_id
+    )
     # Skip redundant get_conversation_name_by_id() — get_conversation() already
     # resolves the conversation via conversation_id with its own fallback logic.
     conversation_history = Conversations(
