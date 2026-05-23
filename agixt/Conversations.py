@@ -3711,6 +3711,27 @@ class Conversations:
         ) or Conversations._user_owns_message(user_id, conversation, message)
 
     @staticmethod
+    def _can_update_agent_message(
+        session, user_id, conversation, message, allow_update
+    ):
+        if not allow_update or (message.role or "").upper() == "USER":
+            return False
+
+        if Conversations._is_admin_user(session, user_id):
+            return True
+
+        if conversation.user_id and str(conversation.user_id) == str(user_id):
+            return True
+
+        if Conversations._is_collaborative_conversation(conversation):
+            return (
+                Conversations._participant_role(session, conversation.id, user_id)
+                is not None
+            )
+
+        return False
+
+    @staticmethod
     def _can_delete_message(session, user_id, conversation, message):
         if Conversations._can_edit_message(session, user_id, conversation, message):
             return True
@@ -4061,7 +4082,9 @@ class Conversations:
         finally:
             session.close()
 
-    def update_message_by_id(self, message_id, new_message):
+    def update_message_by_id(
+        self, message_id, new_message, allow_agent_message_update=False
+    ):
         session = get_session()
         user_id = self._user_id
         conversation = None
@@ -4145,7 +4168,20 @@ class Conversations:
             session.close()
             return
 
-        if not self._can_edit_message(session, user_id, conversation, message):
+        # Streaming agent activities are system-owned rows. Collaborative
+        # conversation users should not be able to edit them through public
+        # endpoints, but internal stream persistence needs to update them.
+        can_update_agent_message = Conversations._can_update_agent_message(
+            session,
+            user_id,
+            conversation,
+            message,
+            allow_agent_message_update,
+        )
+        if (
+            not self._can_edit_message(session, user_id, conversation, message)
+            and not can_update_agent_message
+        ):
             session.close()
             raise HTTPException(
                 status_code=403,

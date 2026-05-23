@@ -3481,6 +3481,7 @@ Rules:
                     c.update_message_by_id(
                         message_id=thinking_id,
                         new_message=f"[ACTIVITY] Completed activities.",
+                        allow_agent_message_update=True,
                     )
                 self.conversation.log_interaction(
                     role=self.agent_name,

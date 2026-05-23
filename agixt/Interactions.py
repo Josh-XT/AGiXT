@@ -4368,7 +4368,9 @@ Example: If user says "list my files", use:
                                 # Update placeholder if we created one, otherwise create new
                                 if tag_name == "thinking" and _thinking_placeholder_id:
                                     c.update_message_by_id(
-                                        _thinking_placeholder_id, log_msg
+                                        _thinking_placeholder_id,
+                                        log_msg,
+                                        allow_agent_message_update=True,
                                     )
                                     _thinking_placeholder_id = (
                                         None  # Reset for next block
@@ -4378,7 +4380,9 @@ Example: If user says "list my files", use:
                                     and _reflection_placeholder_id
                                 ):
                                     c.update_message_by_id(
-                                        _reflection_placeholder_id, log_msg
+                                        _reflection_placeholder_id,
+                                        log_msg,
+                                        allow_agent_message_update=True,
                                     )
                                     _reflection_placeholder_id = None
                                 else:
@@ -4453,7 +4457,11 @@ Example: If user says "list my files", use:
                             )
                         else:
                             # Update existing message
-                            c.update_message_by_id(standalone_steps_message_id, log_msg)
+                            c.update_message_by_id(
+                                standalone_steps_message_id,
+                                log_msg,
+                                allow_agent_message_update=True,
+                            )
 
                         # Update tracking set
                         standalone_steps_logged_ids = new_step_ids.copy()
@@ -5989,6 +5997,7 @@ Use the available context and outputs above to repair the trajectory. If the use
                                             c.update_message_by_id(
                                                 continuation_current_tag_message_id,
                                                 log_msg,
+                                                allow_agent_message_update=True,
                                             )
                                         else:
                                             c.log_interaction(
@@ -6063,6 +6072,7 @@ Use the available context and outputs above to repair the trajectory. If the use
                                         c.update_message_by_id(
                                             continuation_current_tag_message_id,
                                             final_msg,
+                                            allow_agent_message_update=True,
                                         )
                                     else:
                                         c.log_interaction(
@@ -6181,6 +6191,7 @@ Use the available context and outputs above to repair the trajectory. If the use
                                     c.update_message_by_id(
                                         continuation_current_tag_message_id,
                                         updated_msg,
+                                        allow_agent_message_update=True,
                                     )
 
                                 # Yield for streaming API
