@@ -2496,11 +2496,11 @@ Example: memories, persona, files"""
         # key facts while dramatically reducing token count.
         if reduced_tokens > target_tokens:
             for section_name in [
+                "file_contents",
                 "memories",
                 "activities",
                 "conversation",
                 "conversation_history",
-                "file_contents",
             ]:
                 if section_name not in reduced_context:
                     continue
@@ -2624,14 +2624,15 @@ Respond with ONLY the condensed summary, no preamble."""
         # its context window, which would otherwise produce a hard failure
         # like "request (X tokens) exceeds the available context size".
         if reduced_tokens > target_tokens:
-            # Order: drop file_contents first, then conversation/activities,
-            # then memories. Persona is preserved.
+            # Order: trim conversational context first. File contents are last
+            # because upstream upload handling already compacts them into a
+            # deliberate context product instead of treating them as disposable.
             truncation_order = [
-                "file_contents",
                 "activities",
                 "conversation",
                 "conversation_history",
                 "memories",
+                "file_contents",
             ]
             for section_name in truncation_order:
                 if reduced_tokens <= target_tokens:

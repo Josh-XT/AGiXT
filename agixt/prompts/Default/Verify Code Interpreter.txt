@@ -16,6 +16,8 @@ User's input: {user_input}
 - If the code uses `df['SomeName']` where 'SomeName' is a row value (NOT a column header), fix it to: `df[df['ColumnName'].str.strip() == 'SomeName']`.
 - Verify `.str.strip()` is used on string column comparisons to handle trailing whitespace.
 - Verify the code prints `df.columns.tolist()` early to confirm what columns actually exist.
+- Verify the code reads the real workspace CSV file instead of relying on the preview text.
+- If `data_analysis_notes.md` is available, verify the code appends concise findings to it.
 
 **Ensure the code does not modify the file system outside of the working directory at /workspace , if it does, remove the portion of the code that does.**
 

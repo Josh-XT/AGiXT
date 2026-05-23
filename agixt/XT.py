@@ -1512,7 +1512,7 @@ Rules:
             info += f"- **Use this file:** `{actual_path}` (CSV format - use this for all commands)\n"
             info += f"- **Size:** {file_size_kb} KB ({file_tokens} tokens)\n"
             info += f"- **URL:** [{file_name}]({file_url})\n"
-            info += "\n**IMPORTANT:** The Excel file has been converted to CSV. Always use the CSV file (`{actual_path}`) for Read File and pandas operations.\n"
+            info += f"\n**IMPORTANT:** The Excel file has been converted to CSV. Always use the CSV file (`{actual_path}`) for Read File and pandas operations.\n"
         else:
             info = f"## Uploaded File: `{file_name}`\n"
             info += f"- **Size:** {file_size_kb} KB ({file_tokens} tokens)\n"
@@ -1560,6 +1560,300 @@ Rules:
 
         return info
 
+    def _workspace_relative_path(self, file_path: str) -> str:
+        """Return a command-safe path relative to the conversation workspace."""
+        abs_path = os.path.abspath(os.path.normpath(file_path))
+        abs_conversation = os.path.abspath(
+            os.path.normpath(self.conversation_workspace)
+        )
+        abs_agent = os.path.abspath(os.path.normpath(self.agent_workspace))
+        if (
+            abs_path.startswith(abs_conversation + os.sep)
+            or abs_path == abs_conversation
+        ):
+            return os.path.relpath(abs_path, abs_conversation)
+        if abs_path.startswith(abs_agent + os.sep) or abs_path == abs_agent:
+            return os.path.relpath(abs_path, abs_agent)
+        return os.path.basename(file_path)
+
+    def _read_csv_dataframe(self, file_path: str):
+        """Read a CSV with common encoding fallbacks."""
+        last_error = None
+        for encoding in [None, "utf-8-sig", "latin-1", "cp1252"]:
+            try:
+                if encoding is None:
+                    return pd.read_csv(file_path)
+                return pd.read_csv(file_path, encoding=encoding)
+            except Exception as e:
+                last_error = e
+        raise last_error
+
+    def _convert_excel_to_csvs(self, file_path: str) -> list:
+        """Convert each Excel sheet into a CSV file in the same workspace folder."""
+        file_ext = os.path.splitext(file_path)[1].lower()
+        if file_ext not in [".xlsx", ".xls"]:
+            return []
+        converted = []
+        xl = pd.ExcelFile(file_path)
+        base_path = os.path.splitext(file_path)[0]
+        for index, sheet_name in enumerate(xl.sheet_names, 1):
+            df = xl.parse(sheet_name)
+            suffix = "" if len(xl.sheet_names) == 1 else f"_{index}"
+            csv_path = f"{base_path}{suffix}.csv"
+            df.to_csv(csv_path, index=False)
+            converted.append(
+                {
+                    "path": csv_path,
+                    "source": file_path,
+                    "sheet": sheet_name,
+                    "rows": int(df.shape[0]),
+                    "columns": int(df.shape[1]),
+                }
+            )
+        return converted
+
+    def _get_workspace_data_files(self) -> list:
+        """Return CSV files available to data analysis, converting Excel sheets first."""
+        data_files = []
+        seen = set()
+        for file_path in self.get_agent_workspace_list():
+            ext = os.path.splitext(str(file_path))[1].lower()
+            try:
+                if ext == ".csv":
+                    abs_path = os.path.abspath(os.path.normpath(file_path))
+                    if abs_path not in seen:
+                        seen.add(abs_path)
+                        data_files.append({"path": abs_path, "source": abs_path})
+                elif ext in [".xlsx", ".xls"]:
+                    for converted in self._convert_excel_to_csvs(file_path):
+                        abs_path = os.path.abspath(os.path.normpath(converted["path"]))
+                        if abs_path not in seen:
+                            converted["path"] = abs_path
+                            seen.add(abs_path)
+                            data_files.append(converted)
+            except Exception as e:
+                logging.warning(f"Unable to prepare spreadsheet {file_path}: {e}")
+        data_files.sort(key=lambda item: item["path"])
+        return data_files
+
+    def _csv_file_context(self, data_file: dict, max_preview_rows: int = 25) -> str:
+        """Build compact, structured context for one CSV."""
+        file_path = data_file["path"]
+        relative_path = self._workspace_relative_path(file_path)
+        lines = [f"### `{relative_path}`"]
+        source = data_file.get("source")
+        if source and os.path.abspath(source) != os.path.abspath(file_path):
+            lines.append(
+                f"- Converted from `{self._workspace_relative_path(source)}`"
+                + (
+                    f" sheet `{data_file.get('sheet')}`"
+                    if data_file.get("sheet")
+                    else ""
+                )
+            )
+        try:
+            df = self._read_csv_dataframe(file_path)
+        except Exception as e:
+            lines.append(f"- Unable to read with pandas: {e}")
+            return "\n".join(lines)
+
+        lines.append(f"- Shape: {df.shape[0]} rows x {df.shape[1]} columns")
+        lines.append("- Columns:")
+        for col in df.columns:
+            lines.append(f"  - `{col}` ({df[col].dtype})")
+
+        object_columns = list(df.select_dtypes(include=["object"]).columns)
+        for col in object_columns[:20]:
+            samples = []
+            try:
+                for value in df[col].dropna().astype(str).str.strip().head(1000):
+                    if value and value not in samples:
+                        samples.append(value)
+                    if len(samples) >= 20:
+                        break
+            except Exception:
+                samples = []
+            if samples:
+                lines.append(f"- Sample `{col}` values: {samples}")
+
+        try:
+            preview = df.head(max_preview_rows).to_csv(index=False)
+            lines.append(f"- First {min(max_preview_rows, len(df))} rows:")
+            lines.append("```csv")
+            lines.append(preview.strip())
+            lines.append("```")
+        except Exception as e:
+            lines.append(f"- Unable to create CSV preview: {e}")
+        return "\n".join(lines)
+
+    def _truncate_to_token_budget(self, text: str, target_tokens: int) -> str:
+        if not text:
+            return ""
+        text_tokens = get_tokens(text)
+        if text_tokens <= target_tokens:
+            return text
+        ratio = len(text) / max(text_tokens, 1)
+        keep_chars = max(int(target_tokens * ratio), 2000)
+        return (
+            text[:keep_chars].rstrip()
+            + "\n\n[... context compacted to stay within token budget ...]"
+        )
+
+    def _chunk_text_by_token_estimate(
+        self, text: str, text_tokens: int, chunk_token_budget: int
+    ) -> list:
+        if not text:
+            return []
+        ratio = len(text) / max(text_tokens, 1)
+        chunk_chars = max(int(chunk_token_budget * ratio), 8000)
+        return [text[i : i + chunk_chars] for i in range(0, len(text), chunk_chars)]
+
+    async def _compact_context_with_llm(
+        self,
+        label: str,
+        content: str,
+        user_input: str,
+        target_tokens: int,
+        chunk_token_budget: int = 40000,
+    ) -> str:
+        """Use chunked model passes to keep relevant uploaded context instead of dropping it."""
+        content_tokens = get_tokens(content)
+        if content_tokens <= target_tokens:
+            return content
+        chunks = self._chunk_text_by_token_estimate(
+            content, content_tokens, chunk_token_budget
+        )
+        if not chunks:
+            return ""
+        ability_selection_server = getenv("ABILITY_SELECTION_SERVER")
+        ability_selection_model = getenv(
+            "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-4B-GGUF"
+        )
+        summaries = []
+        for index, chunk in enumerate(chunks, 1):
+            prompt = f"""You are compacting uploaded context for a later assistant response.
+
+Current user request:
+{user_input[:4000]}
+
+Context source: {label}
+Chunk {index} of {len(chunks)}
+
+Extract only the information likely to matter for answering the current request.
+Preserve exact filenames, paths, column names, identifiers, dates, numeric values, units, formulas, and user-provided wording.
+If this chunk is mostly data, preserve schema, row/column meaning, important outliers, and how to access the real file rather than copying every row.
+Do not invent facts. If nothing is relevant, say "No relevant details in this chunk."
+
+Chunk:
+{chunk}
+"""
+            try:
+                if ability_selection_server:
+                    summary = await _ability_selection_inference(
+                        server_url=ability_selection_server,
+                        model=ability_selection_model,
+                        prompt=prompt,
+                    )
+                else:
+                    summary = await stream_inference_to_string(
+                        self.agent, prompt=prompt, use_smartest=False
+                    )
+            except Exception as e:
+                logging.warning(f"Chunked context compaction failed: {e}")
+                summary = ""
+            if summary:
+                summaries.append(f"### {label} chunk {index}\n{summary.strip()}")
+        compacted = "\n\n".join(summaries)
+        if not compacted:
+            return self._truncate_to_token_budget(content, target_tokens)
+        if get_tokens(compacted) > target_tokens:
+            prompt = f"""Compact these chunk summaries into a final context note for the assistant.
+
+Current user request:
+{user_input[:4000]}
+
+Keep only the pieces necessary to answer, preserving exact paths, filenames, column names, numeric values, and constraints.
+Stay concise.
+
+Chunk summaries:
+{compacted}
+"""
+            try:
+                if ability_selection_server:
+                    final_summary = await _ability_selection_inference(
+                        server_url=ability_selection_server,
+                        model=ability_selection_model,
+                        prompt=prompt,
+                    )
+                else:
+                    final_summary = await stream_inference_to_string(
+                        self.agent, prompt=prompt, use_smartest=False
+                    )
+            except Exception as e:
+                logging.warning(f"Final context compaction failed: {e}")
+                final_summary = ""
+            if final_summary:
+                compacted = final_summary
+        return self._truncate_to_token_budget(compacted, target_tokens)
+
+    async def _build_workspace_data_context(
+        self,
+        user_input: str,
+        target_tokens: int = None,
+        max_preview_rows: int = 25,
+        notes_path: str = "",
+    ) -> str:
+        """Build a compact data catalog for all CSVs in the conversation workspace."""
+        data_files = self._get_workspace_data_files()
+        if not data_files:
+            return ""
+        if target_tokens is None:
+            target_tokens = min(
+                60000, max(2000, int(self.agent.max_input_tokens * 0.35))
+            )
+        parts = [
+            "**DATA ACCESS RULES:**",
+            "- The complete data files are in the workspace; previews are samples, not full datasets.",
+            "- Use pandas against the listed file paths for complete answers.",
+            "- For Excel uploads, each sheet is converted to a separate CSV and listed below.",
+            "- Column headers are in the first row. Text values inside columns are row values, not column names.",
+            "- Always print or write final results so they are visible to the user.",
+        ]
+        if notes_path:
+            parts.append(
+                f"- Durable analysis notes are stored at `{self._workspace_relative_path(notes_path)}`."
+            )
+        parts.append("\n## Workspace Data Files")
+        for data_file in data_files:
+            parts.append(self._csv_file_context(data_file, max_preview_rows))
+        context = "\n\n".join(parts)
+        if get_tokens(context) > target_tokens:
+            context = await self._compact_context_with_llm(
+                label="workspace data catalog",
+                content=context,
+                user_input=user_input,
+                target_tokens=target_tokens,
+            )
+        return context
+
+    def _write_data_analysis_notes(self, user_input: str, data_files: list) -> tuple:
+        """Create a durable markdown notes file describing the available datasets."""
+        notes_path = os.path.join(self.conversation_workspace, "data_analysis_notes.md")
+        lines = [
+            "# Data Analysis Notes",
+            "",
+            f"User request: {user_input}",
+            "",
+            "These notes summarize the workspace data files. Generated analysis code should read the real CSV files for complete results and append important findings here.",
+            "",
+        ]
+        for data_file in data_files:
+            lines.append(self._csv_file_context(data_file, max_preview_rows=20))
+            lines.append("")
+        with open(notes_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines).rstrip() + "\n")
+        return notes_path, "\n".join(lines)
+
     async def learn_spreadsheet(
         self, user_input, file_path, thinking_id, save_to_memory: bool = False
     ):
@@ -1570,7 +1864,7 @@ Rules:
         action_location = "to memory" if save_to_memory else "to workspace"
         try:
             if file_type.lower() == "csv":
-                df = pd.read_csv(file_path)
+                df = self._read_csv_dataframe(file_path)
                 csv = df.to_csv(index=False)
                 string_file_content += f"Content from file uploaded named `{file_name}`:\n```csv\n{csv}```\n"
                 return (
@@ -1579,39 +1873,38 @@ Rules:
                 )
             else:  # Excel file
                 try:
-                    xl = pd.ExcelFile(file_path)
-                    if len(xl.sheet_names) > 1:
-                        sheet_count = len(xl.sheet_names)
-                        for i, sheet_name in enumerate(xl.sheet_names, 1):
-                            df = xl.parse(sheet_name)
-                            csv_file_path = file_path.replace(
-                                f".{file_type}", f"_{i}.csv"
-                            )
-                            csv_file_name = os.path.basename(csv_file_path)
-                            df.to_csv(csv_file_path, index=False)
+                    converted = self._convert_excel_to_csvs(file_path)
+                    if len(converted) > 1:
+                        for item in converted:
                             message, file_content = await self.learn_spreadsheet(
                                 user_input=user_input,
-                                file_path=csv_file_path,
+                                file_path=item["path"],
                                 thinking_id=thinking_id,
                                 save_to_memory=save_to_memory,
                             )
                             string_file_content += file_content
+                        csv_names = [
+                            os.path.basename(item["path"]) for item in converted
+                        ]
                         return (
-                            f"Processed all sheets in [{file_name}]({file_path}).",
+                            f"Processed all sheets in [{file_name}]({file_path}). Converted sheets to: {', '.join(csv_names)}.",
                             string_file_content,
                         )
-                    else:
-                        # Single sheet - also save as CSV for easier access
-                        df = pd.read_excel(file_path)
-                        csv = df.to_csv(index=False)
-                        csv_file_path = file_path.replace(f".{file_type}", ".csv")
+                    elif converted:
+                        item = converted[0]
+                        csv_file_path = item["path"]
                         csv_file_name = os.path.basename(csv_file_path)
-                        df.to_csv(csv_file_path, index=False)
+                        df = self._read_csv_dataframe(csv_file_path)
+                        csv = df.to_csv(index=False)
                         string_file_content += f"Content from uploaded Excel file `{file_name}` (converted and saved as `{csv_file_name}` - use this CSV file for all Read File and pandas operations):\n```csv\n{csv}```\n"
                         return (
                             f"Converted [{file_name}]({file_path}) to CSV format at [{csv_file_name}]({csv_file_path}). Use `{csv_file_name}` for file operations.",
                             string_file_content,
                         )
+                    return (
+                        f"Failed to read [{file_name}]({file_path}). Error: no sheets found",
+                        "",
+                    )
                 except Exception as e:
                     self.conversation.log_interaction(
                         role=self.agent_name,
@@ -3306,61 +3599,10 @@ Rules:
         data_analysis = ""
         if analyze_user_input:
             data_analysis = await self.analyze_data(user_input=new_prompt)
-        elif not file_content:
-            # Lightweight context: read CSV files directly instead of analyze_data
-            try:
-                workspace_files = self.get_agent_workspace_list()
-                csv_files = [f for f in workspace_files if str(f).endswith(".csv")]
-                if csv_files:
-                    import pandas as pd
-
-                    context_parts = []
-                    for csv_path in csv_files:
-                        try:
-                            fp = (
-                                csv_path
-                                if self.conversation_workspace in str(csv_path)
-                                else os.path.join(self.conversation_workspace, csv_path)
-                            )
-                            raw = open(fp, "r").read()
-                            lines = raw.split("\n")
-                            preview = (
-                                "\n".join(lines[:100]) if len(lines) > 100 else raw
-                            )
-                            part = f"**File: `{fp}`**\n```csv\n{preview}\n```"
-                            try:
-                                df_meta = pd.read_csv(fp)
-                                part += f"\n- Shape: {df_meta.shape[0]} rows × {df_meta.shape[1]} columns"
-                                part += "\n- Columns: " + ", ".join(
-                                    [
-                                        f"`{c}` ({df_meta[c].dtype})"
-                                        for c in df_meta.columns
-                                    ]
-                                )
-                                for col in df_meta.select_dtypes(
-                                    include=["object"]
-                                ).columns:
-                                    uvals = df_meta[col].unique()
-                                    if len(uvals) <= 50:
-                                        part += f"\n- `{col}` row values: [{', '.join(str(v) for v in uvals)}]"
-                            except Exception:
-                                pass
-                            context_parts.append(part)
-                        except Exception:
-                            pass
-                    if context_parts:
-                        rules = (
-                            "**DATA ACCESS RULES:**\n"
-                            "- Column headers are in the first row. All other rows are data.\n"
-                            "- If a column contains text/label values, those are ROW identifiers, NOT column names.\n"
-                            "- To find a specific row: `df[df['ColumnName'].str.strip() == 'value']`\n"
-                            "- NEVER use `df['some_value']` unless you confirmed it is an actual column name in `df.columns`.\n"
-                            "- Always use `.str.strip()` when comparing string columns — values may have trailing whitespace.\n"
-                            "- Always `print()` results so they appear in the output.\n\n"
-                        )
-                        data_analysis = rules + "\n\n".join(context_parts)
-            except Exception:
-                pass
+        else:
+            data_analysis = await self._build_workspace_data_context(
+                user_input=new_prompt
+            )
         if mode == "command" and command_name and command_variable:
             try:
                 command_args = (
@@ -3395,9 +3637,24 @@ Rules:
                 voice_response=tts,
             )
         elif mode == "prompt":
-            if current_input_tokens < self.agent.max_input_tokens:
-                if file_content:
-                    prompt_args["uploaded_file_data"] = file_content
+            if file_content:
+                uploaded_file_data = file_content
+                if current_input_tokens >= self.agent.max_input_tokens:
+                    target_tokens = min(
+                        60000, max(2000, int(self.agent.max_input_tokens * 0.35))
+                    )
+                    uploaded_file_data = await self._compact_context_with_llm(
+                        label="uploaded file context",
+                        content=file_content,
+                        user_input=new_prompt,
+                        target_tokens=target_tokens,
+                    )
+                    logging.info(
+                        "Compacted uploaded file context from %s to %s tokens",
+                        file_tokens if file_contents else 0,
+                        get_tokens(uploaded_file_data),
+                    )
+                prompt_args["uploaded_file_data"] = uploaded_file_data
             if len(language) > 2:
                 language = language[:2]
             if "context" in prompt_args:
@@ -4207,82 +4464,20 @@ Rules:
                         break
 
             # ─── Build workspace data context for follow-up questions ──────
-            # Instead of running analyze_data (which does 2 LLM inferences +
-            # code execution and takes 10+ minutes), read CSV files directly
-            # from workspace and pass as context to run_stream. The main
-            # inference can handle data analysis through its own commands.
+            # Keep a compact data catalog even when raw upload contents are too
+            # large for direct prompt injection. The main inference can use this
+            # to choose commands and load the real files from the workspace.
             data_analysis = ""
-            if not file_content:
-                try:
-                    workspace_files = self.get_agent_workspace_list()
-                    csv_files = [f for f in workspace_files if str(f).endswith(".csv")]
-                    if csv_files:
-                        logging.info(
-                            f"[stream] Found {len(csv_files)} CSV files in workspace, building context"
-                        )
-                        import pandas as pd
-
-                        context_parts = []
-                        for csv_path in csv_files:
-                            try:
-                                fp = (
-                                    csv_path
-                                    if self.conversation_workspace in str(csv_path)
-                                    else os.path.join(
-                                        self.conversation_workspace, csv_path
-                                    )
-                                )
-                                raw = open(fp, "r").read()
-                                lines = raw.split("\n")
-                                preview = (
-                                    "\n".join(lines[:100]) if len(lines) > 100 else raw
-                                )
-                                part = f"**File: `{fp}`**\n```csv\n{preview}\n```"
-                                # Add structured metadata
-                                try:
-                                    df_meta = pd.read_csv(fp)
-                                    part += f"\n- Shape: {df_meta.shape[0]} rows × {df_meta.shape[1]} columns"
-                                    part += "\n- Columns: " + ", ".join(
-                                        [
-                                            f"`{c}` ({df_meta[c].dtype})"
-                                            for c in df_meta.columns
-                                        ]
-                                    )
-                                    for col in df_meta.select_dtypes(
-                                        include=["object"]
-                                    ).columns:
-                                        uvals = df_meta[col].unique()
-                                        if len(uvals) <= 50:
-                                            part += f"\n- `{col}` row values: [{', '.join(str(v) for v in uvals)}]"
-                                except Exception:
-                                    pass
-                                context_parts.append(part)
-                            except Exception as e:
-                                logging.info(f"[stream] Error reading {csv_path}: {e}")
-                        if context_parts:
-                            rules = (
-                                "**DATA ACCESS RULES:**\n"
-                                "- Column headers are in the first row. All other rows are data.\n"
-                                "- If a column contains text/label values, those are ROW identifiers, NOT column names.\n"
-                                "- To find a specific row: `df[df['ColumnName'].str.strip() == 'value']`\n"
-                                "- NEVER use `df['some_value']` unless you confirmed it is an actual column name in `df.columns`.\n"
-                                "- Always use `.str.strip()` when comparing string columns — values may have trailing whitespace.\n"
-                                "- Always `print()` results so they appear in the output.\n\n"
-                            )
-                            data_analysis = rules + "\n\n".join(context_parts)
-                            logging.info(
-                                f"[stream] Built workspace data context: {len(data_analysis)} chars"
-                            )
-                    else:
-                        logging.info(
-                            f"[stream] No CSV files in workspace ({len(workspace_files)} files total)"
-                        )
-                except Exception as e:
-                    logging.info(f"[stream] Exception building workspace context: {e}")
-            else:
-                logging.info(
-                    f"[stream] file_content present ({len(file_content)} chars), skipping workspace context"
+            try:
+                data_analysis = await self._build_workspace_data_context(
+                    user_input=new_prompt
                 )
+                if data_analysis:
+                    logging.info(
+                        f"[stream] Built workspace data context: {len(data_analysis)} chars"
+                    )
+            except Exception as e:
+                logging.info(f"[stream] Exception building workspace context: {e}")
 
             logging.info(f"[stream] Starting run_stream inference pipeline...")
 
@@ -4294,21 +4489,35 @@ Rules:
             if running_command:
                 prompt_args["running_command"] = running_command
 
-            # Inject file content into prompt args if within token limits
-            if current_input_tokens < self.agent.max_input_tokens:
-                if file_content:
-                    # Prepend data access rules to file content so the model
-                    # knows how to properly access rows vs columns in CSV data
-                    data_rules = (
-                        "**DATA ACCESS RULES:**\n"
-                        "- Column headers are in the first row. All other rows are data.\n"
-                        "- If a column contains text/label values, those are ROW identifiers, NOT column names.\n"
-                        "- To find a specific row: `df[df['ColumnName'].str.strip() == 'value']`\n"
-                        "- NEVER use `df['some_value']` unless you confirmed it is an actual column name in `df.columns`.\n"
-                        "- Always use `.str.strip()` when comparing string columns — values may have trailing whitespace.\n"
-                        "- Always `print()` results so they appear in the output.\n\n"
+            # Inject uploaded file content directly when it fits; otherwise keep
+            # a model-compacted context product instead of dropping it.
+            if file_content:
+                data_rules = (
+                    "**DATA ACCESS RULES:**\n"
+                    "- Column headers are in the first row. All other rows are data.\n"
+                    "- If a column contains text/label values, those are ROW identifiers, NOT column names.\n"
+                    "- To find a specific row: `df[df['ColumnName'].str.strip() == 'value']`\n"
+                    "- NEVER use `df['some_value']` unless you confirmed it is an actual column name in `df.columns`.\n"
+                    "- Always use `.str.strip()` when comparing string columns — values may have trailing whitespace.\n"
+                    "- Always `print()` results so they appear in the output.\n\n"
+                )
+                uploaded_file_data = data_rules + file_content
+                if current_input_tokens >= self.agent.max_input_tokens:
+                    target_tokens = min(
+                        60000, max(2000, int(self.agent.max_input_tokens * 0.35))
                     )
-                    prompt_args["uploaded_file_data"] = data_rules + file_content
+                    uploaded_file_data = await self._compact_context_with_llm(
+                        label="uploaded file context",
+                        content=uploaded_file_data,
+                        user_input=new_prompt,
+                        target_tokens=target_tokens,
+                    )
+                    logging.info(
+                        "[stream] Compacted uploaded file context from %s to %s tokens",
+                        file_tokens if file_contents else 0,
+                        get_tokens(uploaded_file_data),
+                    )
+                prompt_args["uploaded_file_data"] = uploaded_file_data
 
             # Add additional context if provided
             if additional_context:
@@ -5617,6 +5826,7 @@ Rules:
             websearch_depth=0,
             voice_response=False,
         )
+        code_execution = ""
         try:
             code_execution = await self.execute_command(
                 command_name="Execute Python Code",
@@ -5624,7 +5834,7 @@ Rules:
             )
         except Exception:
             code_failed = True
-        if code_execution.startswith("Error"):
+        if not code_execution or code_execution.startswith("Error"):
             code_failed = True
         if code_failed:
             failures += 1
@@ -5637,9 +5847,11 @@ Rules:
                 file_content=file_content,
                 file_preview=file_preview,
                 import_file=import_file,
+                multifile=multifile,
                 failures=failures,
                 max_failures=max_failures,
             )
+        return code_execution
 
     async def analyze_data(
         self,
@@ -5648,7 +5860,6 @@ Rules:
         file_name="",
         max_failures: int = 5,
     ):
-        file_names = []
         import_files = ""
         file_preview = ""
         file_path = self.conversation_workspace
@@ -5661,108 +5872,34 @@ Rules:
             )
             file_content = user_input.split("```csv")[1].split("```")[0]
             file_path = os.path.join(self.conversation_workspace, file_name)
-            with open(file_path, "w") as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.write(file_content)
-            file_names.append(file_name)
-        files = self.get_agent_workspace_list()
-        if len(files) != 0:
-            csv_files = []
-            for file in files:
-                if str(file).endswith(".csv"):
-                    csv_files.append(file)
-            if len(csv_files) != 0:
-                for file in csv_files:
-                    file_names.append(file)
-        if len(file_names) == 0:
+        data_files = self._get_workspace_data_files()
+        if len(data_files) == 0:
             return await self.analyze_user_input(user_input=user_input)
-        # Iterate over files and use regex to see if the file name is in the response
-        if len(file_names) == 1:
-            file_name = file_names[0]
-            if self.conversation_workspace not in file_name:
-                file_path = os.path.join(self.conversation_workspace, file_name)
-            else:
-                file_path = file_name
-            file_content = open(file_path, "r").read()
-            lines = file_content.split("\n")
-            if len(lines) < 100:
-                file_preview = f"`{file_path}`\n```csv\n{file_content}\n```"
-            else:
-                limited_content = "\n".join(lines[0:100])
-                file_preview = f"`{file_path}`\n```csv\n{limited_content}\n```"
-            # Generate structured metadata to help LLM understand data structure
-            try:
-                import pandas as pd
-
-                df_meta = pd.read_csv(file_path)
-                metadata = "\n\n**DATA STRUCTURE:**\n"
-                metadata += (
-                    f"- Shape: {df_meta.shape[0]} rows × {df_meta.shape[1]} columns\n"
-                )
-                metadata += "- Columns:\n"
-                for col in df_meta.columns:
-                    dtype = df_meta[col].dtype
-                    metadata += f"  - `{col}` ({dtype})\n"
-                for col in df_meta.select_dtypes(include=["object"]).columns:
-                    unique_vals = df_meta[col].unique()
-                    if len(unique_vals) <= 50:
-                        vals_str = ", ".join([str(v) for v in unique_vals])
-                        metadata += f"- The `{col}` column contains these row identifiers: [{vals_str}]\n"
-                metadata += "\n**IMPORTANT:** Values listed above as row identifiers are found IN the data rows, NOT as column headers. To access a specific row, filter: `df[df['ColumnName'] == 'value']`. Use `.str.strip()` on string columns to handle trailing whitespace.\n"
-                file_preview += metadata
-            except Exception:
-                pass
-        if len(file_names) > 1:
-            # Found multiple files, do things a little differently.
-            previews = []
-            for file in file_names:
-                if self.conversation_workspace not in file:
-                    file_path = os.path.join(self.conversation_workspace, file)
-                else:
-                    file_path = file
-                if import_files == "":
-                    import_files = f"`{file_path}`"
-                else:
-                    import_files += f", `{file_path}`"
-                file_content = open(file_path, "r").read()
-                lines = file_content.split("\n")
-                if len(lines) < 100:
-                    previews.append(f"`{file_path}`\n```csv\n{file_content}\n```")
-                else:
-                    limited_content = "\n".join(lines[0:100])
-                    previews.append(f"`{file_path}`\n```csv\n{limited_content}\n```")
-            file_preview = "\n".join(previews)
-            # Generate structured metadata for each file
-            try:
-                import pandas as pd
-
-                metadata_sections = []
-                for file in file_names:
-                    fp = (
-                        os.path.join(self.conversation_workspace, file)
-                        if self.conversation_workspace not in file
-                        else file
-                    )
-                    try:
-                        df_meta = pd.read_csv(fp)
-                        metadata = f"\n**DATA STRUCTURE for `{fp}`:**\n"
-                        metadata += f"- Shape: {df_meta.shape[0]} rows × {df_meta.shape[1]} columns\n"
-                        metadata += "- Columns:\n"
-                        for col in df_meta.columns:
-                            dtype = df_meta[col].dtype
-                            metadata += f"  - `{col}` ({dtype})\n"
-                        for col in df_meta.select_dtypes(include=["object"]).columns:
-                            unique_vals = df_meta[col].unique()
-                            if len(unique_vals) <= 50:
-                                vals_str = ", ".join([str(v) for v in unique_vals])
-                                metadata += f"- The `{col}` column contains these row identifiers: [{vals_str}]\n"
-                        metadata_sections.append(metadata)
-                    except Exception:
-                        pass
-                if metadata_sections:
-                    file_preview += "\n".join(metadata_sections)
-                    file_preview += "\n**IMPORTANT:** Values listed above as row identifiers are found IN the data rows, NOT as column headers. To access a specific row, filter: `df[df['ColumnName'] == 'value']`. Use `.str.strip()` on string columns to handle trailing whitespace.\n"
-            except Exception:
-                pass
+        notes_path, notes_content = self._write_data_analysis_notes(
+            user_input=user_input, data_files=data_files
+        )
+        target_context_tokens = min(
+            80000, max(4000, int(self.agent.max_input_tokens * 0.45))
+        )
+        file_preview = await self._build_workspace_data_context(
+            user_input=user_input,
+            target_tokens=target_context_tokens,
+            max_preview_rows=50,
+            notes_path=notes_path,
+        )
+        if not file_preview:
+            file_preview = self._truncate_to_token_budget(
+                notes_content, target_context_tokens
+            )
+        relative_paths = [
+            self._workspace_relative_path(item["path"]) for item in data_files
+        ]
+        import_files = ", ".join(f"`{path}`" for path in relative_paths)
+        file_path = data_files[0]["path"]
+        import_file = import_files if len(data_files) > 1 else relative_paths[0]
+        notes_relative_path = self._workspace_relative_path(notes_path)
         # Generic data access rules to help the model understand CSV structure.
         data_access_rules = (
             "\n\n**DATA ACCESS RULES:**\n"
@@ -5774,6 +5911,8 @@ Rules:
             "5. Use `.str.strip()` on string columns before comparing — values may have trailing whitespace.\n"
             "6. Never assume a value is a column name unless you verified it exists in `df.columns`.\n"
             "7. Always `print()` results so they appear in the output.\n"
+            f"8. Read the real workspace CSV files ({import_files}) for complete results; the preview is only a compact catalog.\n"
+            f"9. Append concise findings to `{notes_relative_path}` as markdown before printing the final answer.\n"
         )
         verification_rules = (
             "\n\n**DATA ACCESS VERIFICATION:**\n"
@@ -5781,6 +5920,8 @@ Rules:
             "- If `df['SomeName']` is used where 'SomeName' is a row value (not a column header), "
             "fix it to: `df[df['ColumnName'].str.strip() == 'SomeName']`.\n"
             "- Verify `.str.strip()` is used on string column comparisons.\n"
+            f"- Verify code reads the real file(s): {import_files}.\n"
+            f"- Verify concise findings are appended to `{notes_relative_path}`.\n"
         )
         file_preview_with_rules = file_preview + data_access_rules
         file_preview_for_verify = file_preview + verification_rules
@@ -5789,10 +5930,10 @@ Rules:
             prompt_category="Default",
             prompt_name=(
                 "Code Interpreter Multifile"
-                if len(file_names) > 1
+                if len(data_files) > 1
                 else "Code Interpreter"
             ),
-            import_file=import_files if len(file_names) > 1 else file_path,
+            import_file=import_file,
             file_preview=file_preview_with_rules,
             log_user_input=False,
             log_output=False,
@@ -5806,13 +5947,12 @@ Rules:
         if "```python" in code_interpreter:
             code_interpreter = code_interpreter.split("```python")[1].split("```")[0]
         # Step 5 - Verify the code is good before executing it.
-        import_file = import_files if len(file_names) > 1 else file_path
         code_verification = await self.inference(
             user_input=user_input,
             prompt_category="Default",
             prompt_name=(
                 "Verify Code Interpreter Multifile"
-                if len(file_names) > 1
+                if len(data_files) > 1
                 else "Verify Code Interpreter"
             ),
             import_file=import_file,
@@ -5832,10 +5972,11 @@ Rules:
             code_verification = code_verification.split("```python")[1].split("```")[0]
         # Step 6 - Execute the code
         code_failed = False
+        code_execution = ""
         try:
             code_execution = await self.execute_command(
                 command_name="Execute Python Code",
-                command_args={"code": code_verification, "text": file_content},
+                command_args={"code": code_verification, "text": ""},
             )
         except Exception as e:
             code_failed = True
@@ -5850,15 +5991,23 @@ Rules:
                 user_input=user_input,
                 code=code_verification,
                 code_error=str(code_execution),
-                file_content=file_content,
+                file_content="",
                 file_preview=file_preview,
                 import_file=import_file,
+                multifile=len(data_files) > 1,
                 max_failures=max_failures,
             )
-        if code_execution.startswith("Error"):
+        if not code_execution or str(code_execution).startswith("Error"):
             self.conversation.log_interaction(
                 role=self.agent_name,
                 message=f"[SUBACTIVITY][{thinking_id}][ERROR] Unable to complete data analysis.",
             )
             return f"Data analysis failed after {max_failures} attempts. Advise the user that there may be an issue with the data and to try again in a new conversation."
-        return f"**REFERENCE ALL OF THE FOLLOWING OUTPUT FROM DATA ANALYSIS RESULTS ON {import_files if len(file_names) > 1 else file_path} INCLUDING ALL VISUALIZATIONS IN MARKDOWN FORMAT TO THE USER. REFERENCE EXACT LINKS TO IMAGES OR FILES IF PRESENT HERE! Do not rename files!**\n\n{code_execution}"
+        try:
+            with open(notes_path, "a", encoding="utf-8") as f:
+                f.write("\n\n## Executed Analysis Output\n\n")
+                f.write(str(code_execution).strip())
+                f.write("\n")
+        except Exception as e:
+            logging.warning(f"Unable to append executed analysis output: {e}")
+        return f"**REFERENCE ALL OF THE FOLLOWING OUTPUT FROM DATA ANALYSIS RESULTS ON {import_file} INCLUDING ALL VISUALIZATIONS IN MARKDOWN FORMAT TO THE USER. REFERENCE EXACT LINKS TO IMAGES OR FILES IF PRESENT HERE! Do not rename files! The durable analysis notes are in `{notes_relative_path}`.**\n\n{code_execution}"

@@ -1632,7 +1632,8 @@ print(output)
 
         Args:
         code (str): The Python code to execute
-        text (str): Optional CSV data that will be automatically saved as 'data.csv' in workspace
+        text (str): Optional CSV/text data that will be saved exactly as 'data.csv' in workspace.
+                    Existing workspace CSVs are also available and should be read directly by filename.
 
         Returns:
         str: The result of the Python code execution
@@ -1771,14 +1772,9 @@ print(output)
         `Can't` is for humans, not for you.
         """
         if text:
-            csv_content_header = text.split("\\n")[0]
-            # Remove any trailing spaces from any headers
-            csv_headers = [header.strip() for header in csv_content_header.split(",")]
-            # Replace the first line with the comma separated headers
-            text = ",".join(csv_headers) + "\\n" + "\\n".join(text.split("\\n")[1:])
             filename = "data.csv"
             filepath = os.path.join(self.WORKING_DIRECTORY, filename)
-            with open(filepath, "w") as f:
+            with open(filepath, "w", encoding="utf-8", newline="") as f:
                 f.write(text)
 
         execution_response = execute_python_code(
