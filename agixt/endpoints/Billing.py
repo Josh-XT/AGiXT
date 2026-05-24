@@ -2322,6 +2322,130 @@ async def admin_reset_user_password(
         session.close()
 
 
+class AdminChangeEmailRequest(BaseModel):
+    email: str
+
+
+@app.patch(
+    "/v1/admin/users/{user_id}/email",
+    tags=["Admin"],
+    summary="Change a user's email address (super admin only)",
+    description="Replaces a user's email address. Requires super admin permissions.",
+)
+async def admin_change_user_email(
+    user_id: str,
+    request: AdminChangeEmailRequest,
+    authorization: str = Header(None),
+):
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    new_email = (request.email or "").strip().lower()
+    if not new_email or "@" not in new_email:
+        raise HTTPException(status_code=400, detail="A valid email address is required")
+
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        collision = (
+            session.query(User)
+            .filter(User.email.ilike(new_email))
+            .filter(User.id != user_id)
+            .first()
+        )
+        if collision:
+            raise HTTPException(
+                status_code=409,
+                detail="That email is already in use by another account",
+            )
+
+        user.email = new_email
+        session.commit()
+        logging.warning(
+            f"Admin {auth.user_id} changed email for user {user_id} to {new_email}"
+        )
+        return {"success": True, "user_id": user_id, "email": new_email}
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error changing user email: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to change user email")
+    finally:
+        session.close()
+
+
+@app.post(
+    "/v1/admin/users/{user_id}/mfa/reset",
+    tags=["Admin"],
+    summary="Reset a user's MFA secret (super admin only)",
+    description=(
+        "Generates a new TOTP secret for the user, disables MFA-verified status, "
+        "and returns the new secret + otpauth URI so the admin can hand it over "
+        "out-of-band. Requires super admin permissions."
+    ),
+)
+async def admin_reset_user_mfa(
+    user_id: str,
+    authorization: str = Header(None),
+):
+    import pyotp
+    from Globals import getenv
+
+    auth = MagicalAuth(token=authorization)
+    if not auth.is_super_admin():
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized. Super admin permissions required.",
+        )
+
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        new_secret = pyotp.random_base32()
+        user.mfa_token = new_secret
+        # Force re-verification on next sign-in.
+        if hasattr(user, "mfa_count"):
+            user.mfa_count = 0
+        session.commit()
+        logging.warning(
+            f"Admin {auth.user_id} reset MFA for user {user_id} ({user.email})"
+        )
+
+        app_name = getenv("APP_NAME") or "AGiXT"
+        otp_uri = pyotp.TOTP(new_secret).provisioning_uri(
+            name=user.email, issuer_name=app_name
+        )
+        return {
+            "success": True,
+            "detail": "MFA has been reset.",
+            "user_id": user_id,
+            "email": user.email,
+            "mfa_token": new_secret,
+            "otp_uri": otp_uri,
+        }
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logging.error(f"Error resetting user MFA: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to reset user MFA")
+    finally:
+        session.close()
+
+
 @app.delete(
     "/v1/admin/companies/{company_id}/users/{user_id}",
     tags=["Admin"],
