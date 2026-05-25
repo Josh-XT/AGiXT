@@ -1,0 +1,26 @@
+name: Build UI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "ui/**"
+      - ".github/workflows/ui-build.yml"
+      - ".github/workflows/docker.yml"
+      - "!ui/**/*.md"
+  workflow_dispatch:
+
+jobs:
+  build-ui:
+    uses: ./.github/workflows/docker.yml
+    name: Build AGiXT UI
+    with:
+      dockerfile: ui/Dockerfile
+      registry-dockerhub-enable: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      registry-repo-name: agixt-ui
+      registry-readme: ./ui/README.md
+      build-args: |
+        UI_ASSET_VERSION=${{ github.sha }}
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

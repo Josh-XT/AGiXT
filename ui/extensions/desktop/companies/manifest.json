@@ -1,0 +1,10 @@
+{
+  "id": "companies",
+  "label": "Companies & Teams",
+  "icon": "companies",
+  "layout": "framed",
+  "version": "0.2.3",
+  "entry": "main.js",
+  "slot": "admin",
+  "requires": {}
+}

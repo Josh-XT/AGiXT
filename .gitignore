@@ -43,8 +43,8 @@ streamlit/
 # 3rd party
 package.json
 package-lock.json
-!clients/desktop/package.json
-!clients/desktop/package-lock.json
+!ui/package.json
+!ui/package-lock.json
 *cookies.json
 data/
 agents/
@@ -73,7 +73,9 @@ tests/test_*
 .extensions_cache.json
 # Build artifacts
 */src-tauri/target/
-*/src-tauri/gen/
+*/src-tauri/gen/*
+!*/src-tauri/gen/android/
+!*/src-tauri/gen/android/**
 */src-tauri/Cargo.lock.bak
 */target/
 

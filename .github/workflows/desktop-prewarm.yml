@@ -5,9 +5,9 @@ on:
     branches:
       - main
     paths:
-      - "clients/desktop/**"
+      - "ui/**"
       - ".github/workflows/desktop-prewarm.yml"
-      - "!clients/desktop/**/*.md"
+      - "!ui/**/*.md"
   workflow_dispatch:
     inputs:
       targets:
@@ -140,7 +140,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: clients/desktop/package-lock.json
+          cache-dependency-path: ui/package-lock.json
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -232,8 +232,8 @@ jobs:
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
-            clients/desktop/src-tauri/target
-          key: desktop-rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.rust_target }}-${{ hashFiles('clients/desktop/src-tauri/Cargo.lock', 'clients/desktop/src-tauri/Cargo.toml', 'clients/desktop/src-tauri/tauri.conf.json', 'clients/desktop/package-lock.json') }}
+            ui/src-tauri/target
+          key: desktop-rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.rust_target }}-${{ hashFiles('ui/src-tauri/Cargo.lock', 'ui/src-tauri/Cargo.toml', 'ui/src-tauri/tauri.conf.json', 'ui/package-lock.json') }}
           restore-keys: |
             desktop-rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.rust_target }}-
 
@@ -244,12 +244,12 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: desktop-gradle-v2-${{ runner.os }}-${{ matrix.tauri_target }}-${{ hashFiles('clients/desktop/src-tauri/Cargo.lock', 'clients/desktop/src-tauri/tauri.conf.json', 'clients/desktop/package-lock.json') }}
+          key: desktop-gradle-v2-${{ runner.os }}-${{ matrix.tauri_target }}-${{ hashFiles('ui/src-tauri/Cargo.lock', 'ui/src-tauri/tauri.conf.json', 'ui/package-lock.json') }}
           restore-keys: |
             desktop-gradle-v2-${{ runner.os }}-${{ matrix.tauri_target }}-
 
       - name: Install desktop npm dependencies
-        working-directory: clients/desktop
+        working-directory: ui
         shell: bash
         run: npm ci
 
@@ -259,10 +259,10 @@ jobs:
         run: |
           set -euo pipefail
           commit_time="$(git log -1 --format=%ct -- \
-            clients/desktop/src \
-            clients/desktop/src-tauri \
-            clients/desktop/package.json \
-            clients/desktop/package-lock.json)"
+            ui/src \
+            ui/src-tauri \
+            ui/package.json \
+            ui/package-lock.json)"
           if [ -z "${commit_time}" ]; then
             commit_time="$(git log -1 --format=%ct)"
           fi
@@ -292,7 +292,7 @@ jobs:
 
       - name: Build desktop artifact
         if: matrix.kind != 'android' && matrix.kind != 'windows'
-        working-directory: clients/desktop/src-tauri
+        working-directory: ui/src-tauri
         shell: bash
         env:
           AGIXT_DESKTOP_BUILD_ID: ${{ steps.build_id.outputs.version }}
@@ -310,7 +310,7 @@ jobs:
 
       - name: Build Windows desktop binary
         if: matrix.kind == 'windows'
-        working-directory: clients/desktop/src-tauri
+        working-directory: ui/src-tauri
         shell: bash
         env:
           AGIXT_DESKTOP_BUILD_ID: ${{ steps.build_id.outputs.version }}
@@ -344,12 +344,12 @@ jobs:
           WINDOWS_CERTIFICATE_STORE_LOCATION: ${{ vars.WINDOWS_CERTIFICATE_STORE_LOCATION }}
         run: |
           $required = "${env:AGIXT_WINDOWS_SIGNING_REQUIRED}" -notmatch '^(0|false|no|off)$'
-          $binary = Join-Path "${{ github.workspace }}" "clients\desktop\src-tauri\target\${env:TAURI_TARGET}\release\agixt-desktop.exe"
-          & "${{ github.workspace }}\clients\desktop\scripts\sign-windows.ps1" -Path $binary -Required:$required
+          $binary = Join-Path "${{ github.workspace }}" "ui\src-tauri\target\${env:TAURI_TARGET}\release\agixt-desktop.exe"
+          & "${{ github.workspace }}\ui\scripts\sign-windows.ps1" -Path $binary -Required:$required
 
       - name: Bundle Windows desktop artifact
         if: matrix.kind == 'windows'
-        working-directory: clients/desktop/src-tauri
+        working-directory: ui/src-tauri
         shell: bash
         env:
           AGIXT_DESKTOP_BUILD_ID: ${{ steps.build_id.outputs.version }}
@@ -382,12 +382,12 @@ jobs:
           WINDOWS_CERTIFICATE_STORE_LOCATION: ${{ vars.WINDOWS_CERTIFICATE_STORE_LOCATION }}
         run: |
           $required = "${env:AGIXT_WINDOWS_SIGNING_REQUIRED}" -notmatch '^(0|false|no|off)$'
-          $bundleDir = Join-Path "${{ github.workspace }}" "clients\desktop\src-tauri\target\${env:TAURI_TARGET}\release\bundle"
-          & "${{ github.workspace }}\clients\desktop\scripts\sign-windows.ps1" -Path $bundleDir -Required:$required
+          $bundleDir = Join-Path "${{ github.workspace }}" "ui\src-tauri\target\${env:TAURI_TARGET}\release\bundle"
+          & "${{ github.workspace }}\ui\scripts\sign-windows.ps1" -Path $bundleDir -Required:$required
 
       - name: Build Android preview artifact
         if: matrix.kind == 'android'
-        working-directory: clients/desktop/src-tauri
+        working-directory: ui/src-tauri
         shell: bash
         env:
           AGIXT_DESKTOP_BUILD_ID: ${{ steps.build_id.outputs.version }}
@@ -456,9 +456,9 @@ jobs:
           }[os_type]
 
           if os_type == "android":
-              roots = [Path("clients/desktop/src-tauri/gen/android")]
+              roots = [Path("ui/src-tauri/gen/android")]
           else:
-              release = Path("clients/desktop/src-tauri/target") / target / "release"
+              release = Path("ui/src-tauri/target") / target / "release"
               roots = [release / "bundle", release]
 
           candidates = []
@@ -527,9 +527,9 @@ jobs:
             exit 1
           fi
 
-          python3 clients/desktop/scripts/verify-android-icon.py \
+          python3 ui/scripts/verify-android-icon.py \
             "${ARTIFACT_PATH}" \
-            clients/desktop/src-tauri/gen/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+            ui/src-tauri/gen/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4

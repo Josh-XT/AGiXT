@@ -1,0 +1,9 @@
+{
+  "id": "tasks",
+  "label": "Scheduled Tasks",
+  "icon": "tasks",
+  "layout": "framed",
+  "version": "0.2.3",
+  "entry": "main.js",
+  "requires": {}
+}

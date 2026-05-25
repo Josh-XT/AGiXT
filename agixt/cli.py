@@ -39,18 +39,17 @@ from dotenv import load_dotenv
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-XTSYS_ROOT = REPO_ROOT.parent  # Parent of AGiXT folder
 LOCAL_SCRIPT = Path(__file__).resolve().parent / "run-local.py"
 DOCKER_COMPOSE_FILE_STABLE = REPO_ROOT / "docker-compose.yml"
 ENV_FILE = REPO_ROOT / ".env"
-WEB_DIR = XTSYS_ROOT / "web"
+WEB_DIR = REPO_ROOT / "ui"
 STATE_DIR = Path.home() / ".agixt"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 LOCAL_PID_FILE = STATE_DIR / "agixt-local.pid"
 LOCAL_LOG_FILE = STATE_DIR / f"agixt-local-{int(time.time())}.log"
 WEB_PID_FILE = STATE_DIR / "agixt-web.pid"
 CREDENTIALS_FILE = STATE_DIR / "credentials.json"
-DESKTOP_CLIENT_DIR = REPO_ROOT / "clients" / "desktop"
+DESKTOP_CLIENT_DIR = REPO_ROOT / "ui"
 DESKTOP_TAURI_DIR = DESKTOP_CLIENT_DIR / "src-tauri"
 DESKTOP_INSTALL_STATE_FILE = STATE_DIR / "desktop-install.json"
 DESKTOP_DOWNLOAD_TIMEOUT_SECONDS = 60
@@ -3497,68 +3496,86 @@ def stop_redis() -> None:
 
 
 def _create_web_env() -> None:
-    """Create .env file for web interface with values from backend .env or defaults."""
+    """Create .env file for the bundled UI with values from backend .env."""
     web_env_path = WEB_DIR / ".env"
 
     # Load backend .env to get values
     load_dotenv(ENV_FILE)
 
-    # Define web env variables with backend inheritance or defaults
+    # Define UI env variables with backend inheritance or defaults
     web_env_vars = {
-        "AGIXT_SERVER": os.getenv("AGIXT_SERVER", "http://localhost:7437"),
+        "AGIXT_SERVER": os.getenv(
+            "AGIXT_SERVER", os.getenv("AGIXT_URI", "http://localhost:7437")
+        ),
         "APP_URI": os.getenv("APP_URI", "http://localhost:3437"),
         "APP_NAME": os.getenv("APP_NAME", "AGiXT"),
-        "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY": os.getenv("STRIPE_PUBLISHABLE_KEY", ""),
-        "STRIPE_PRICING_TABLE_ID": os.getenv("STRIPE_PRICING_TABLE_ID", ""),
-        "AGIXT_AGENT": os.getenv("AGIXT_AGENT", "XT"),
-        "ALLOW_EMAIL_SIGN_IN": os.getenv("ALLOW_EMAIL_SIGN_IN", "true"),
     }
 
-    # Write to web .env file
-    print(f"Creating web .env file at {web_env_path}...")
+    # Write to UI .env file for local Docker compose/build tooling.
+    print(f"Creating UI .env file at {web_env_path}...")
     with web_env_path.open("w", encoding="utf-8") as f:
         for key, value in web_env_vars.items():
             f.write(f"{key}={value}\n")
-    print("Web .env file created successfully.")
+    print("UI .env file created successfully.")
+
+
+def _prepare_web_static_runtime() -> Path:
+    """Prepare a static web runtime from the bundled Tauri UI."""
+    load_dotenv(ENV_FILE)
+    if not (WEB_DIR / "src" / "index.html").exists():
+        raise CLIError(f"Bundled UI source not found at {WEB_DIR / 'src'}")
+
+    runtime_dir = STATE_DIR / "ui-web"
+    if runtime_dir.exists():
+        shutil.rmtree(runtime_dir)
+    shutil.copytree(WEB_DIR / "src", runtime_dir)
+    if (WEB_DIR / "public").exists():
+        shutil.copytree(WEB_DIR / "public", runtime_dir / "public")
+    for name in ("web-runtime.js", "oauth-close.html"):
+        source = WEB_DIR / name
+        if source.exists():
+            shutil.copy2(source, runtime_dir / name)
+
+    config = {
+        "serverUrl": os.getenv(
+            "AGIXT_SERVER", os.getenv("AGIXT_URI", "http://localhost:7437")
+        ),
+        "webUrl": os.getenv("APP_URI", "http://localhost:3437"),
+        "appName": os.getenv("APP_NAME", "AGiXT"),
+    }
+    (runtime_dir / "web-config.js").write_text(
+        "window.AGIXT_WEB_CONFIG = " + json.dumps(config) + ";\n",
+        encoding="utf-8",
+    )
+
+    index_path = runtime_dir / "index.html"
+    index = index_path.read_text(encoding="utf-8")
+    if "web-runtime.js" not in index:
+        index = index.replace(
+            '    <script src="frontend-log.js"></script>',
+            '    <script src="web-config.js"></script>\n'
+            '    <script src="web-runtime.js"></script>\n'
+            '    <script src="frontend-log.js"></script>',
+        )
+    elif "web-config.js" not in index:
+        index = index.replace(
+            '    <script src="web-runtime.js"></script>',
+            '    <script src="web-config.js"></script>\n'
+            '    <script src="web-runtime.js"></script>',
+        )
+    index_path.write_text(index, encoding="utf-8")
+    return runtime_dir
 
 
 def _start_web_local() -> None:
-    """Start web interface locally (npm run dev)."""
-    web_path = WEB_DIR
+    """Start the bundled web UI locally as a static site."""
 
     # Check if already running
     existing_pid = _read_pid(WEB_PID_FILE)
     if existing_pid and _is_process_running(existing_pid):
         raise CLIError(f"Web interface already running with PID {existing_pid}.")
 
-    # Clone or update web repo
-    if not web_path.exists():
-        print(f"Cloning web repo to {web_path}...")
-        subprocess.run(
-            [
-                "git",
-                "clone",
-                "https://github.com/AGiXT/web",
-                str(XTSYS_ROOT / "AGiXT-web-temp"),
-            ],
-            check=True,
-        )
-        # Move only the web folder
-        import shutil
-
-        shutil.move(str(XTSYS_ROOT / "AGiXT-web-temp" / "web"), str(web_path))
-        shutil.rmtree(str(XTSYS_ROOT / "AGiXT-web-temp"))
-    else:
-        print(f"Updating web repo at {web_path}...")
-        subprocess.run(["git", "pull"], cwd=web_path, check=True)
-
-    # Create web .env file with backend values
-    _create_web_env()
-
-    # Install dependencies if needed
-    if not (web_path / "node_modules").exists():
-        print("Installing web dependencies...")
-        subprocess.run(["npm", "install"], cwd=web_path, check=True)
+    runtime_dir = _prepare_web_static_runtime()
 
     # Kill anything on port 3437
     pids_on_port = _find_processes_on_port(3437)
@@ -3569,14 +3586,23 @@ def _start_web_local() -> None:
         except (ProcessLookupError, PermissionError):
             pass
 
-    print("Starting web interface...")
+    print("Starting bundled web UI...")
     log_file = STATE_DIR / f"agixt-web-{int(time.time())}.log"
     log_file.touch()
 
     with log_file.open("a", encoding="utf-8") as lf:
         process = subprocess.Popen(
-            ["npm", "run", "dev"],
-            cwd=web_path,
+            [
+                sys.executable,
+                "-m",
+                "http.server",
+                "3437",
+                "--bind",
+                "0.0.0.0",
+                "--directory",
+                str(runtime_dir),
+            ],
+            cwd=WEB_DIR,
             stdout=lf,
             stderr=lf,
             stdin=subprocess.DEVNULL,
@@ -3637,7 +3663,7 @@ def _start_web_docker() -> None:
     print("Starting web interface (interactive service)...")
     try:
         subprocess.run(
-            ["docker", "compose", "-f", str(compose_file), "up", "-d", "interactive"],
+            ["docker", "compose", "-f", str(compose_file), "up", "-d", "agixtinteractive"],
             cwd=REPO_ROOT,
             check=True,
         )
@@ -3652,7 +3678,7 @@ def _stop_web_docker() -> None:
     print("Stopping web interface (interactive service)...")
     try:
         subprocess.run(
-            ["docker", "compose", "-f", str(compose_file), "stop", "interactive"],
+            ["docker", "compose", "-f", str(compose_file), "stop", "agixtinteractive"],
             cwd=REPO_ROOT,
             check=True,
         )
@@ -4193,23 +4219,21 @@ def _logs_ezlocalai(follow: bool = False) -> None:
 
 
 def _logs_web_local(follow: bool = False) -> None:
-    """Display web local logs (npm run dev output)."""
+    """Display web local logs."""
     if not WEB_PID_FILE.exists():
         print("Web interface is not running locally.")
         print("No log file available for local web (logs go to stdout when running).")
         return
 
-    print(
-        "Web interface running locally - logs are in the terminal where it was started."
-    )
-    print("To see live logs, the web interface must be running in a visible terminal.")
-    print("Tip: Run 'agixt start --web --local' in a dedicated terminal to see logs.")
+    print("Web interface is running locally.")
+    print(f"PID file: {WEB_PID_FILE}")
+    print("Use the matching ~/.agixt/agixt-web-*.log file for server output.")
 
 
 def _logs_web_docker(follow: bool = False) -> None:
     """Display web Docker logs."""
     compose_file = _determine_compose_file()
-    args = ["logs", "agixt-interactive"]
+    args = ["logs", "agixtinteractive"]
     if follow:
         args.append("-f")
 

@@ -61,15 +61,20 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       - minio
-      - postgres
       - redis
   agixtinteractive:
-    image: joshxt/agixt-interactive:main
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+      args:
+        UI_ASSET_VERSION: ${AGIXT_UI_ASSET_VERSION:-dev}
+    image: joshxt/agixt-ui:local
     environment:
       NEXT_TELEMETRY_DISABLED: 1
       APP_NAME: ${APP_NAME:-AGiXT}
-      AGIXT_SERVER: ${AGIXT_URI:-http://agixt:7437}
+      AGIXT_SERVER: ${AGIXT_URI:-http://localhost:7437}
       INTERNAL_AGIXT_SERVER: ${INTERNAL_AGIXT_SERVER:-http://agixt:7437}
+      AGIXT_API_UPSTREAM: ${INTERNAL_AGIXT_SERVER:-http://agixt:7437}
       APP_URI: ${APP_URI:-http://localhost:3437}
     ports:
-      - "${AGIXT_WEB_PORT:-3051}:3437"
+      - "${AGIXT_WEB_PORT:-3051}:80"

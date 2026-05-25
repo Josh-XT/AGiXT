@@ -1,0 +1,11 @@
+{
+  "id": "admin-notifications",
+  "label": "System Notifications",
+  "icon": "webhooks",
+  "layout": "framed",
+  "version": "0.1.0",
+  "entry": "main.js",
+  "requires": {
+    "server_admin": true
+  }
+}

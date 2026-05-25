@@ -1,0 +1,12 @@
+{
+  "id": "billing-analytics",
+  "label": "Billing Analytics",
+  "icon": "dashboard",
+  "icon_svg": "<path d=\"M3 3v18h18\"/><rect x=\"7\" y=\"10\" width=\"3\" height=\"8\"/><rect x=\"12\" y=\"6\" width=\"3\" height=\"12\"/><rect x=\"17\" y=\"13\" width=\"3\" height=\"5\"/>",
+  "layout": "framed",
+  "version": "0.1.1",
+  "entry": "main.js",
+  "requires": {
+    "server_admin": true
+  }
+}

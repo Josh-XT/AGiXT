@@ -9,7 +9,7 @@ on:
       - "book.json"
       - "SECURITY.md"
       - "CODE_OF_CONDUCT.md"
-      - "clients/**"
+      - "ui/**"
   release:
     types: [published]
 jobs:
