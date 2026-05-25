@@ -21,6 +21,11 @@ This router serves two endpoints:
       Caller passes optional `?company_id=...&agent_id=...`. When
       missing, the user's primary company / default agent is used.
 
+      Extension hubs may ship UI pages in either the current
+      `ui/<id>/manifest.json` layout or the legacy
+      `desktop/<id>/manifest.json` layout. The endpoint accepts both so
+      AGiXT Python can serve the same hubs as AGiXT v2 / WorkConductor.
+
   GET /v1/desktop/extensions/{id}/main.js
       Returns the raw JS bytes for the page's entry module. The same
       `requires` block is re-checked here so a client can't fetch a
@@ -59,21 +64,37 @@ def _list_extension_dirs() -> List[Tuple[str, Path]]:
     user's local hub can shadow a public one."""
     seen: Dict[str, Path] = {}
     for hub_root in ExtensionsHub().get_extension_search_paths():
-        desktop_root = Path(hub_root) / "desktop"
-        if not desktop_root.is_dir():
-            continue
-        for entry in sorted(desktop_root.iterdir()):
-            if not entry.is_dir():
+        for desktop_root in _desktop_manifest_roots(Path(hub_root)):
+            if not desktop_root.is_dir():
                 continue
-            ext_id = entry.name
-            if not _ID_RE.match(ext_id):
-                continue
-            if ext_id in seen:
-                continue
-            if not (entry / "manifest.json").is_file():
-                continue
-            seen[ext_id] = entry
+            for entry in sorted(desktop_root.iterdir()):
+                if not entry.is_dir():
+                    continue
+                ext_id = entry.name
+                if not _ID_RE.match(ext_id):
+                    continue
+                if ext_id in seen:
+                    continue
+                if not (entry / "manifest.json").is_file():
+                    continue
+                seen[ext_id] = entry
     return list(seen.items())
+
+
+def _desktop_manifest_roots(hub_root: Path) -> List[Path]:
+    """Return candidate directories containing desktop UI page folders.
+
+    New extension hubs use `ui/<id>/...` so the same repo can carry
+    backend extension code at the root and browser/Tauri UI under `ui`.
+    AGiXT Python historically used `desktop/<id>/...`, and the bundled
+    AGiXT app assets may also appear under `ui/extensions/desktop`.
+    """
+    return [
+        hub_root / "ui",
+        hub_root / "ui" / "extensions" / "desktop",
+        hub_root / "desktop",
+        hub_root / "extensions" / "desktop",
+    ]
 
 
 def _load_manifest(manifest_dir: Path) -> Optional[Dict[str, Any]]:

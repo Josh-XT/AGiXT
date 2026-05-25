@@ -2821,7 +2821,7 @@ Chunk summaries:
             raise
         finally:
             # Always unregister when done
-            worker_registry.unregister_conversation(conversation_id)
+            worker_registry.unregister_conversation(conversation_id, task=task)
 
     async def _execute_chat_completions(self, prompt: ChatCompletions):
         """
@@ -3923,7 +3923,7 @@ Chunk summaries:
             raise
         finally:
             # Always unregister when done
-            worker_registry.unregister_conversation(conversation_id)
+            worker_registry.unregister_conversation(conversation_id, task=task)
 
     async def _execute_chat_completions_stream(self, prompt: ChatCompletions):
         """
@@ -5189,10 +5189,11 @@ Chunk summaries:
 
         except asyncio.CancelledError:
             # Check if user explicitly stopped this conversation
-            if worker_registry.is_stopped(conversation_id):
+            current_task = asyncio.current_task()
+            if worker_registry.is_task_cancel_requested(conversation_id, current_task):
                 logging.info(
                     f"[_execute_chat_completions_stream] Conversation {conversation_id} "
-                    f"stopped by user — aborting stream."
+                    f"stopped or superseded — aborting stream."
                 )
                 # Close the stream iterator without draining
                 if stream_iter is not None:
@@ -5238,19 +5239,28 @@ Chunk summaries:
                             f"[_drain_stream_background] Background drain error "
                             f"for conversation {conv_id}: {e}"
                         )
+                    finally:
+                        worker_registry.unregister_conversation(
+                            conv_id, task=asyncio.current_task()
+                        )
 
-                asyncio.create_task(
+                background_task = asyncio.create_task(
                     _drain_stream_background(
                         stream_iter, _pending_task, conversation_id, _STREAM_END
                     )
                 )
+                if not worker_registry.replace_conversation_task(
+                    conversation_id, current_task, background_task
+                ):
+                    background_task.cancel()
             raise
         except GeneratorExit:
             # Check if user explicitly stopped this conversation
-            if worker_registry.is_stopped(conversation_id):
+            current_task = asyncio.current_task()
+            if worker_registry.is_task_cancel_requested(conversation_id, current_task):
                 logging.info(
                     f"[_execute_chat_completions_stream] GeneratorExit: conversation {conversation_id} "
-                    f"stopped by user — aborting stream."
+                    f"stopped or superseded — aborting stream."
                 )
                 if stream_iter is not None:
                     try:
@@ -5290,12 +5300,20 @@ Chunk summaries:
                             f"[_drain_stream_on_exit] Background drain error "
                             f"for conversation {conv_id}: {e}"
                         )
+                    finally:
+                        worker_registry.unregister_conversation(
+                            conv_id, task=asyncio.current_task()
+                        )
 
-                asyncio.create_task(
+                background_task = asyncio.create_task(
                     _drain_stream_on_exit(
                         stream_iter, _pending_task, conversation_id, _STREAM_END
                     )
                 )
+                if not worker_registry.replace_conversation_task(
+                    conversation_id, current_task, background_task
+                ):
+                    background_task.cancel()
             raise
         except Exception as e:
             logging.error(f"Streaming error: {str(e)}")

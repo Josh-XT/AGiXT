@@ -4,6 +4,7 @@ import time
 from typing import Callable, Dict, List, Set, Optional
 from datetime import datetime
 import threading
+import uuid
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ class WorkerRegistry:
             {}
         )  # conversation_id -> task
         self._stopped_conversations: Set[str] = set()  # explicitly stopped by user
+        self._cancel_requested_task_ids: Set[int] = set()
         self._lock = threading.Lock()
         # Listeners notified whenever a conversation transitions between
         # working and idle. Each listener receives ``(event, info_dict)`` where
@@ -56,6 +58,7 @@ class WorkerRegistry:
         user_id: str,
         agent_name: str,
         task: Optional[asyncio.Task] = None,
+        supersede_existing: bool = True,
     ) -> str:
         """
         Register an active conversation with its worker details
@@ -66,12 +69,43 @@ class WorkerRegistry:
             agent_name: The agent name
             task: The asyncio task (optional)
 
+            supersede_existing: Cancel any existing run for the same conversation.
+
         Returns:
-            str: The conversation ID for tracking
+            str: Run ID for tracking this specific worker instance.
         """
+        superseded_info: Optional[Dict] = None
+        superseded_task: Optional[asyncio.Task] = None
         with self._lock:
+            if supersede_existing:
+                existing_task = self._conversation_tasks.get(conversation_id)
+                if (
+                    existing_task
+                    and existing_task is not task
+                    and not existing_task.done()
+                ):
+                    self._cancel_requested_task_ids.add(id(existing_task))
+                    superseded_task = existing_task
+                    logger.info(
+                        "Superseding active conversation %s with a newer run",
+                        conversation_id,
+                    )
+
+                existing_info = self._active_conversations.get(conversation_id)
+                if existing_info:
+                    superseded_info = existing_info.copy()
+                    superseded_info.pop("task", None)
+                    started_at = superseded_info.get("started_at")
+                    if isinstance(started_at, datetime):
+                        superseded_info["started_at"] = started_at.isoformat()
+
+                # A new user turn should not inherit an old explicit Stop state.
+                self._stopped_conversations.discard(conversation_id)
+
+            run_id = str(uuid.uuid4())
             worker_info = {
                 "conversation_id": conversation_id,
+                "run_id": run_id,
                 "user_id": user_id,
                 "agent_name": agent_name,
                 "started_at": datetime.utcnow(),
@@ -82,25 +116,67 @@ class WorkerRegistry:
             if task:
                 self._conversation_tasks[conversation_id] = task
 
+        if superseded_task and not superseded_task.done():
+            superseded_task.cancel()
+
+        if superseded_info is not None:
+            self._emit_state("ended", superseded_info)
+
         # Emit AFTER releasing the lock so listener callbacks can do whatever
         # they need (including reading registry state) without deadlocking.
         self._emit_state(
             "started",
             {
                 "conversation_id": conversation_id,
+                "run_id": run_id,
                 "user_id": user_id,
                 "agent_name": agent_name,
                 "started_at": worker_info["started_at"].isoformat(),
             },
         )
-        return conversation_id
+        return run_id
 
-    def unregister_conversation(self, conversation_id: str) -> bool:
+    def replace_conversation_task(
+        self,
+        conversation_id: str,
+        old_task: Optional[asyncio.Task],
+        new_task: asyncio.Task,
+    ) -> bool:
+        """
+        Replace the active task for a conversation, used when a streaming
+        request detaches into a background drain after a harmless client
+        disconnect. If a newer user message has already superseded the old task,
+        the replacement is rejected so the background worker can be cancelled.
+        """
+        with self._lock:
+            current = self._conversation_tasks.get(conversation_id)
+            if old_task is not None and current is not old_task:
+                self._cancel_requested_task_ids.add(id(new_task))
+                return False
+            if conversation_id in self._stopped_conversations:
+                self._cancel_requested_task_ids.add(id(new_task))
+                return False
+            info = self._active_conversations.get(conversation_id)
+            if info is None:
+                self._cancel_requested_task_ids.add(id(new_task))
+                return False
+            info["task"] = new_task
+            self._conversation_tasks[conversation_id] = new_task
+            return True
+
+    def unregister_conversation(
+        self,
+        conversation_id: str,
+        task: Optional[asyncio.Task] = None,
+        run_id: Optional[str] = None,
+    ) -> bool:
         """
         Unregister a conversation when it completes
 
         Args:
             conversation_id: The conversation ID to unregister
+            task: Optional task expected to still own the conversation
+            run_id: Optional run ID expected to still own the conversation
 
         Returns:
             bool: True if conversation was found and removed
@@ -108,6 +184,16 @@ class WorkerRegistry:
         info_snapshot: Optional[Dict] = None
         with self._lock:
             removed = False
+            if task is not None:
+                current_task = self._conversation_tasks.get(conversation_id)
+                if current_task is not task:
+                    self._cancel_requested_task_ids.discard(id(task))
+                    return False
+            if run_id is not None:
+                current_info = self._active_conversations.get(conversation_id)
+                if not current_info or current_info.get("run_id") != run_id:
+                    return False
+
             if conversation_id in self._active_conversations:
                 info_snapshot = self._active_conversations[conversation_id].copy()
                 # Drop the unserializable task before notifying listeners.
@@ -118,8 +204,11 @@ class WorkerRegistry:
                 del self._active_conversations[conversation_id]
                 removed = True
 
-            if conversation_id in self._conversation_tasks:
-                del self._conversation_tasks[conversation_id]
+            current_task = self._conversation_tasks.pop(conversation_id, None)
+            if current_task is not None:
+                self._cancel_requested_task_ids.discard(id(current_task))
+            if task is not None:
+                self._cancel_requested_task_ids.discard(id(task))
 
             self._stopped_conversations.discard(conversation_id)
 
@@ -130,6 +219,22 @@ class WorkerRegistry:
     def is_stopped(self, conversation_id: str) -> bool:
         """Check if a conversation was explicitly stopped by the user."""
         with self._lock:
+            return conversation_id in self._stopped_conversations
+
+    def is_task_cancel_requested(
+        self, conversation_id: str, task: Optional[asyncio.Task] = None
+    ) -> bool:
+        """
+        Check whether the current task was explicitly stopped or superseded.
+
+        This is intentionally task-aware: a newer run for the same conversation
+        must not inherit the stopped state from an older cancelled run.
+        """
+        if task is None:
+            task = asyncio.current_task()
+        with self._lock:
+            if task is not None and id(task) in self._cancel_requested_task_ids:
+                return True
             return conversation_id in self._stopped_conversations
 
     def get_conversation_info(self, conversation_id: str) -> Optional[Dict]:
@@ -207,6 +312,9 @@ class WorkerRegistry:
 
             # Get the task if it exists
             task = self._conversation_tasks.get(conversation_id)
+            if task:
+                self._cancel_requested_task_ids.add(id(task))
+            run_id = conversation_info.get("run_id")
 
         # Cancel the task outside the lock to avoid deadlock
         if task and not task.done():
@@ -231,8 +339,9 @@ class WorkerRegistry:
                     f"Error cancelling task for conversation {conversation_id}: {e}"
                 )
 
-        # Remove from registry
-        self.unregister_conversation(conversation_id)
+        # Remove only the task that was actually stopped. A newer user message
+        # may have already superseded this run while cancellation was settling.
+        self.unregister_conversation(conversation_id, task=task, run_id=run_id)
         logger.info(f"Stopped conversation {conversation_id}")
         return True
 
@@ -268,11 +377,11 @@ class WorkerRegistry:
         with self._lock:
             for conversation_id, task in self._conversation_tasks.items():
                 if task.done():
-                    finished_conversations.append(conversation_id)
+                    finished_conversations.append((conversation_id, task))
 
         # Clean up outside the lock
-        for conversation_id in finished_conversations:
-            if self.unregister_conversation(conversation_id):
+        for conversation_id, task in finished_conversations:
+            if self.unregister_conversation(conversation_id, task=task):
                 cleaned_up += 1
 
         if cleaned_up > 0:
