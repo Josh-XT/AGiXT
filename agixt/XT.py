@@ -634,9 +634,7 @@ Rules:
             # the inference slot for other concurrent requests.
             # Use dedicated ability selection server if configured (fast small model).
             ability_selection_server = getenv("ABILITY_SELECTION_SERVER")
-            ability_selection_model = getenv(
-                "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-4B-GGUF"
-            )
+            ability_selection_model = getenv("ABILITY_SELECTION_MODEL")
             if ability_selection_server:
                 new_convo = await _ability_selection_inference(
                     server_url=ability_selection_server,
@@ -1726,9 +1724,7 @@ Rules:
         if not chunks:
             return ""
         ability_selection_server = getenv("ABILITY_SELECTION_SERVER")
-        ability_selection_model = getenv(
-            "ABILITY_SELECTION_MODEL", "unsloth/Qwen3.5-4B-GGUF"
-        )
+        ability_selection_model = getenv("ABILITY_SELECTION_MODEL")
         summaries = []
         for index, chunk in enumerate(chunks, 1):
             prompt = f"""You are compacting uploaded context for a later assistant response.
