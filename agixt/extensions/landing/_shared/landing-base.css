@@ -297,6 +297,74 @@ button {
 .section-lg { padding-block: 5rem; }
 
 /* ============================================================ */
+/*  Accessibility & interaction polish                           */
+/*  Keyboard focus, anchored-scroll offset, brand selection,     */
+/*  comfortable tap targets, and a skip-link — applied to every  */
+/*  landing page through this shared base.                        */
+/* ============================================================ */
+
+/* Smooth in-page anchor scrolling (the reduced-motion block below
+   forces this back to `auto` for users who opt out). */
+html { scroll-behavior: smooth; }
+
+/* Keep anchored sections clear of the sticky header when jumped to. */
+:target,
+[id] { scroll-margin-top: 5rem; }
+
+/* Visible keyboard focus for every interactive element. Mouse users
+   don't see it (:focus-visible), keyboard/AT users always do — WCAG 2.4.7.
+   The outline follows each element's own border-radius in modern browsers. */
+:focus-visible {
+  outline: 2px solid var(--c-ring);
+  outline-offset: 2px;
+}
+/* Don't double-paint the browser default ring on mouse focus. */
+:focus:not(:focus-visible) { outline: none; }
+/* Programmatic focus targets (e.g. the skip-link landing on <main>)
+   shouldn't draw a full-width box around the page content. */
+[tabindex="-1"]:focus { outline: none; }
+
+/* Form controls inherit the page font and expose a clear focus ring. */
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--c-ring);
+  outline-offset: 1px;
+}
+
+/* Text selection picks up the brand color for a polished feel. */
+::selection {
+  background: hsl(var(--primary) / 0.30);
+  color: var(--c-foreground);
+}
+
+/* Comfortable touch targets on coarse pointers (phones/tablets). */
+@media (pointer: coarse) {
+  .btn { min-height: 44px; }
+}
+
+/* Skip-to-content link — visually hidden until focused, then pinned
+   to the top-left so keyboard users can jump past the header nav. */
+.skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: -4rem;
+  z-index: 100;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  background: var(--c-primary);
+  color: var(--c-primary-foreground);
+  font-weight: 600;
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow-md);
+  transition: top 150ms ease;
+}
+.skip-link:focus { top: 0.75rem; text-decoration: none; }
+
+/* ============================================================ */
 /*  Reduced-motion friendliness — keep transitions, drop heavy   */
 /*  parallax/animation if a user opts out.                        */
 /* ============================================================ */
