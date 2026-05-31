@@ -38,6 +38,7 @@ window.AgixtRegisterExtension('repos', {
 });
 
 const STYLE_ID = 'agixt-repos-style';
+const REPOS_REQUEST_TIMEOUT_MS = 90000;
 const STYLE_CSS = `
   .repos-root { padding: 16px 20px 24px; color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
   .repos-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
@@ -394,14 +395,28 @@ class ReposView {
   // Data loading
   // ------------------------------------------------------------------
 
+  withRequestTimeout(promise, message) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), REPOS_REQUEST_TIMEOUT_MS);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  }
+
   async loadData(forceRefresh) {
     this.setLoading(true);
     try {
       let data;
       if (forceRefresh) {
-        await this.apiPost('/v1/github/repos/refresh');
+        await this.withRequestTimeout(
+          this.apiPost('/v1/github/repos/refresh'),
+          'Refreshing GitHub repos timed out. GitHub may be slow or the account may have many repositories.',
+        );
       }
-      data = await this.apiGet('/v1/github/repos');
+      data = await this.withRequestTimeout(
+        this.apiGet('/v1/github/repos'),
+        'Loading GitHub repos timed out. GitHub may be slow or the account may have many repositories.',
+      );
       this.allRepos = (data && data.repos) || [];
       this.lastUpdated = data && data.last_updated;
       this.renderBody();
