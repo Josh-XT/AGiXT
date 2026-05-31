@@ -30,13 +30,12 @@ fn build_lc3_decoder() {
 }
 
 fn emit_build_metadata() {
-    let repo_root = git_output(None, &["rev-parse", "--show-toplevel"])
-        .map(PathBuf::from)
-        .or_else(|| {
-            env::current_dir()
-                .ok()
-                .and_then(|p| p.parent().and_then(|p| p.parent()).map(PathBuf::from))
-        });
+    let repo_root = env::current_dir().ok().and_then(|p| {
+        p.parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+            .map(PathBuf::from)
+    });
     let build_id = env::var("AGIXT_DESKTOP_BUILD_ID")
         .ok()
         .filter(|v| !v.trim().is_empty())

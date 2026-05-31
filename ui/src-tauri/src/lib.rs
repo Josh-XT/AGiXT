@@ -259,21 +259,33 @@ fn frontend_log(level: String, message: String) {
     }
 }
 
+fn enforce_compile_time_brand_settings(settings: &mut config::DesktopSettings) {
+    let default_brand = config::default_brand();
+    if default_brand == "xtschool" {
+        settings.service_brand = default_brand.to_string();
+        if let Some(theme) = config::forced_theme_for_brand(default_brand) {
+            settings.theme = theme.to_string();
+        }
+    }
+}
+
 // --------------------------------------------------------------------------
 // Settings IPC
 // --------------------------------------------------------------------------
 
 #[tauri::command]
 async fn get_settings(state: State<'_, AppState>) -> ToolResult<DesktopSettings> {
-    let s = state.settings.lock().await.clone();
+    let mut s = state.settings.lock().await.clone();
+    enforce_compile_time_brand_settings(&mut s);
     Ok(s)
 }
 
 #[tauri::command]
 async fn save_settings(
     state: State<'_, AppState>,
-    settings: DesktopSettings,
+    mut settings: DesktopSettings,
 ) -> ToolResult<DesktopSettings> {
+    enforce_compile_time_brand_settings(&mut settings);
     state.store.save(&settings).await.map_err(ToolError::from)?;
     let mut current = state.settings.lock().await;
     *current = settings.clone();
@@ -1881,7 +1893,16 @@ async fn chat_send(
     })?;
     let agent_name = s.agent_name.clone().unwrap_or_else(|| "XT".to_string());
     let server_url = s.server_url.clone();
-    let voice = s.voice_enabled;
+    // Child profiles (XT School / kids tablets) always read replies aloud
+    // like the kids app does, regardless of the voice toggle. Adults opt in
+    // via the voice setting.
+    let voice = s.voice_enabled || s.service_brand == "xtschool";
+    // Child profiles use the kids app's narrator voice.
+    let voice_name: Option<&str> = if s.service_brand == "xtschool" {
+        Some("DukeNukem")
+    } else {
+        None
+    };
     let conversation_name = s
         .conversation_id
         .clone()
@@ -1923,6 +1944,7 @@ async fn chat_send(
             &args.messages,
             &tools,
             voice,
+            voice_name,
             move |ev| {
                 let _ = app2.emit(
                     &format!("chat-stream:{}", sid),

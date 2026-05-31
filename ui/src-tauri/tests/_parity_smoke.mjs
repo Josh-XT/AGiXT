@@ -3,7 +3,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { JSDOM } from 'jsdom';
 
-const SRC = '/home/josh/repos/xtsys/AGiXT/ui/src';
+const SRC = '/home/josh/repos/xtsys/WorkConductor/ui/src';
 const dom = new JSDOM(fs.readFileSync(path.join(SRC, 'index.html'), 'utf8'), {
   runScripts: 'outside-only', url: 'http://localhost/',
 });

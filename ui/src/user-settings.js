@@ -514,7 +514,12 @@
   }
 
   function renderPlanLimitWarnings(warnings, opts) {
-    warnings = Array.isArray(warnings) ? warnings.filter(Boolean) : [];
+    warnings = Array.isArray(warnings)
+      ? warnings.filter((warning) => {
+          const type = String((warning && warning.type) || '');
+          return warning && !type.includes('user_limit');
+        })
+      : [];
     if (!warnings.length) return null;
     opts = opts || {};
     const hasError = warnings.some((warning) => warning.severity === 'error' || String(warning.type || '').includes('reached'));
@@ -588,9 +593,36 @@
   }
 
   function userIsSuperAdmin(user) {
-    if (!user || !Array.isArray(user.companies)) return false;
+    if (!user) return false;
+    if (user.is_super_admin === true || user.super_admin === true || user.admin === true) return true;
+    if (Number(user.role_id) === 0 || user.role === 'super_admin') return true;
+    if (!Array.isArray(user.companies)) return false;
     return user.companies.some((company) =>
-      company.role_id === 0 || company.role === 'super_admin');
+      Number(company.role_id) === 0 || company.role === 'super_admin');
+  }
+
+  async function canAccessSuperAdmin(user) {
+    if (userIsSuperAdmin(user)) return true;
+
+    // During Python -> Rust cutovers, /v1/user may be served from a stale
+    // auth payload while /v1/companies already has the correct restored
+    // membership row. Trust the same company role source the Companies page
+    // uses before falling back to a direct admin endpoint probe.
+    try {
+      const companies = await api.listCompanies();
+      if (Array.isArray(companies) && companies.some((company) =>
+        Number(company.role_id) === 0 || company.role === 'super_admin')) {
+        if (user) user.companies = companies;
+        return true;
+      }
+    } catch (_) {}
+
+    try {
+      await api.adminGetServerStats();
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   function activeCompanyIdForUser(user, settings) {
@@ -734,36 +766,40 @@
     }
     panel.appendChild(section('Account', null, identityRows));
 
-    // Theme.
-    const themeSelect = el('select', { class: 'us-select' }, [
-      el('option', { value: 'system' }, 'Match system'),
-      el('option', { value: 'light' }, 'Light'),
-      el('option', { value: 'gray' }, 'Dark'),
-      el('option', { value: 'dark' }, 'Dark Blue'),
-    ]);
-    themeSelect.value = settings.theme || 'system';
-    themeSelect.addEventListener('change', async () => {
-      const value = themeSelect.value;
-      try {
-        await invoke('save_settings', { settings: { ...settings, theme: value } });
-        cache.desktopSettings = { ...settings, theme: value };
-        // Apply live so the user sees the change immediately. The bootstrap
-        // script in index.html mirrors this on next launch via localStorage.
-        const resolved = value === 'system'
-          ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'gray' : 'light')
-          : value;
-        document.documentElement.setAttribute('data-theme', resolved);
-        try { window.localStorage.setItem('agixt.theme', value); } catch (_) {}
-        window.dispatchEvent(new CustomEvent('agixt-theme-changed', {
-          detail: { theme: value, resolved },
-        }));
-        toast('Theme saved', 'success');
-      } catch (err) {
-        toast('Failed to save theme: ' + errMsg(err), 'error');
-      }
-    });
-    panel.appendChild(section('Theme', '"Match system" follows your OS and updates live when you switch.',
-      [themeSelect]));
+    // Theme. Hidden on XT School (kids tablets): that brand is a
+    // locked-down kiosk with the theme forced dark, so the picker would
+    // be a no-op (loadSettings re-forces dark on every boot).
+    if (settings.service_brand !== 'xtschool') {
+      const themeSelect = el('select', { class: 'us-select' }, [
+        el('option', { value: 'system' }, 'Match system'),
+        el('option', { value: 'light' }, 'Light'),
+        el('option', { value: 'gray' }, 'Dark'),
+        el('option', { value: 'dark' }, 'Dark Blue'),
+      ]);
+      themeSelect.value = settings.theme || 'system';
+      themeSelect.addEventListener('change', async () => {
+        const value = themeSelect.value;
+        try {
+          await invoke('save_settings', { settings: { ...settings, theme: value } });
+          cache.desktopSettings = { ...settings, theme: value };
+          // Apply live so the user sees the change immediately. The bootstrap
+          // script in index.html mirrors this on next launch via localStorage.
+          const resolved = value === 'system'
+            ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'gray' : 'light')
+            : value;
+          document.documentElement.setAttribute('data-theme', resolved);
+          try { window.localStorage.setItem('agixt.theme', value); } catch (_) {}
+          window.dispatchEvent(new CustomEvent('agixt-theme-changed', {
+            detail: { theme: value, resolved },
+          }));
+          toast('Theme saved', 'success');
+        } catch (err) {
+          toast('Failed to save theme: ' + errMsg(err), 'error');
+        }
+      });
+      panel.appendChild(section('Theme', '"Match system" follows your OS and updates live when you switch.',
+        [themeSelect]));
+    }
 
     // Behavior toggles. Voice replies works in both runtimes, but the
     // "Allow this agent to control my desktop" and the AGiXT Desktop
@@ -2959,8 +2995,8 @@
   async function ensureSuperAdminTabVisible() {
     const tab = document.querySelector('.us-tab[data-us-tab="superadmin"]');
     if (!tab) return false;
-    const user = await loadUser().catch(() => null);
-    const allow = userIsSuperAdmin(user);
+    const user = await loadUser(true).catch(() => null);
+    const allow = await canAccessSuperAdmin(user);
     tab.hidden = !allow;
     return allow;
   }
@@ -4082,28 +4118,6 @@
   const SUPER_ADMIN_PAGE_SIZES = [20, 50, 100, 200];
   const SUPER_ADMIN_PROTECTED_COMPANIES = ['DevXT', "Josh's Team"];
   const SUPER_ADMIN_PROTECTED_EMAILS = ['josh@devxt.com'];
-  const SUPER_ADMIN_BILLING_CONFIG_KEYS = [
-    'BILLING_PAUSED',
-    'TOKEN_PRICE_PER_MILLION_USD',
-    'MIN_TOKEN_TOPUP_USD',
-    'LOW_BALANCE_WARNING_THRESHOLD',
-    'STRIPE_API_KEY',
-    'STRIPE_PUBLISHABLE_KEY',
-    'STRIPE_WEBHOOK_SECRET',
-    'PAYMENT_WALLET_ADDRESS',
-    'PAYMENT_SOLANA_RPC_URL',
-  ];
-  const SUPER_ADMIN_BILLING_CONFIG_LABELS = {
-    BILLING_PAUSED: 'Billing paused (true/false)',
-    TOKEN_PRICE_PER_MILLION_USD: 'Token price per million (USD)',
-    MIN_TOKEN_TOPUP_USD: 'Minimum top-up amount (USD)',
-    LOW_BALANCE_WARNING_THRESHOLD: 'Low-balance warning threshold (USD)',
-    STRIPE_API_KEY: 'Stripe secret key (sk_…)',
-    STRIPE_PUBLISHABLE_KEY: 'Stripe publishable key (pk_…)',
-    STRIPE_WEBHOOK_SECRET: 'Stripe webhook signing secret',
-    PAYMENT_WALLET_ADDRESS: 'Crypto wallet address (Solana)',
-    PAYMENT_SOLANA_RPC_URL: 'Solana RPC URL',
-  };
 
   const superAdminState = {
     search: '',
@@ -4182,15 +4196,22 @@
     panel.appendChild(listHost);
     await renderSuperAdminCompanies(listHost, panel);
 
-    // Billing config card (BILLING_PAUSED, token price, Stripe keys).
-    const billingHost = el('div');
-    panel.appendChild(billingHost);
+    // Server configuration cards — full server-wide configuration that
+    // mirrors the web app's /settings?level=server page: App Settings,
+    // Email Providers (with test), Storage Providers, Billing, and every
+    // other config category. Fetched with include_sensitive so admins can
+    // edit secrets in place.
+    const configHost = el('div');
+    panel.appendChild(configHost);
+    configHost.appendChild(section('Server configuration', null, [
+      el('p', { class: 'us-hint' }, 'Loading server configuration…'),
+    ]));
     api.getAllServerConfig(undefined, true).then((data) => {
       const configs = (data && data.configs) || [];
-      renderSuperAdminBillingConfig(billingHost, configs);
+      renderSuperAdminServerConfig(configHost, configs);
     }).catch((err) => {
-      billingHost.innerHTML = '';
-      billingHost.appendChild(section('Billing configuration', null, [
+      configHost.innerHTML = '';
+      configHost.appendChild(section('Server configuration', null, [
         el('p', { class: 'us-hint error' }, errMsg(err)),
       ]));
     });
@@ -5182,51 +5203,168 @@
     }
   }
 
-  function renderSuperAdminBillingConfig(host, configs) {
-    host.innerHTML = '';
-    const byName = {};
-    configs.forEach((c) => { byName[c.name] = c; });
-    const present = SUPER_ADMIN_BILLING_CONFIG_KEYS.filter((k) => byName[k]);
-    if (!present.length) {
-      host.appendChild(section('Billing configuration', null, [
-        emptyState('No billing settings exposed by this server.'),
-      ]));
-      return;
-    }
-    const inputs = {};
-    const rows = present.map((key) => {
-      const cfg = byName[key];
-      const isSecret = !!cfg.is_sensitive;
-      const value = cfg.value == null ? '' : cfg.value;
-      const input = el('input', {
-        class: 'us-input',
-        type: isSecret ? 'password' : 'text',
-        value,
-        placeholder: cfg.default_value || '',
-      });
-      inputs[key] = { input, isSecret };
-      const labelText = SUPER_ADMIN_BILLING_CONFIG_LABELS[key] || key;
-      const wrap = el('label', { class: 'us-label' }, [
-        el('span', { class: 'us-label-text' }, labelText),
+  // ─── Super admin: server configuration ───────────────────────────────
+  //
+  // Full server-wide configuration management mirroring the web app's
+  // /settings?level=server page. The backend tags every config key with a
+  // `category` (app_settings, uris, email, storage, storage_aws,
+  // storage_azure, storage_b2, billing, oauth, ai_providers, features, …).
+  // We render provider-aware cards for Email and Storage, and generic
+  // grouped cards for every other category. Secrets are masked with a
+  // reveal toggle. Each card saves independently via bulkUpdateServerConfig.
+
+  // Human-friendly names + ordering for config categories. Categories not
+  // listed here still render (alphabetically, after the known ones) so new
+  // backend categories never silently disappear.
+  const SERVER_CONFIG_CATEGORY_META = {
+    app_settings: { name: 'App Settings', blurb: 'Application name, branding, URIs, and general settings.' },
+    uris: { name: 'Server URIs', blurb: 'API and application endpoint URLs.' },
+    email: { name: 'Email Providers', blurb: 'Email delivery for magic links, verification, and invitations.' },
+    storage: { name: 'Agent Workspace Storage', blurb: 'Where agent workspace files are stored.' },
+    billing: { name: 'Billing', blurb: 'Token pricing, Stripe credentials, and payment settings.' },
+    oauth: { name: 'OAuth Providers', blurb: 'OAuth client credentials for SSO sign-in.' },
+    ai_providers: { name: 'AI Providers', blurb: 'API keys and models for AI services.' },
+    notifications: { name: 'Notifications', blurb: 'Webhook and notification settings.' },
+    agent_defaults: { name: 'Agent Defaults', blurb: 'Default settings applied to new agents.' },
+    extensions: { name: 'Extensions Hub', blurb: 'Extension repository configuration.' },
+    features: { name: 'Features', blurb: 'Optional platform feature toggles.' },
+    general: { name: 'General', blurb: 'Miscellaneous server settings.' },
+  };
+  const SERVER_CONFIG_CATEGORY_ORDER = [
+    'app_settings', 'uris', 'email', 'storage', 'billing', 'oauth',
+    'ai_providers', 'notifications', 'agent_defaults', 'extensions', 'features',
+  ];
+
+  // Storage backends keyed by the value written to STORAGE_BACKEND. Each
+  // backend's credential fields live in a dedicated `storage_*` category.
+  const SERVER_STORAGE_PROVIDERS = [
+    { id: 'local', label: 'Local File System', backendValue: 'local',
+      blurb: 'Store files locally on the server.', categories: [], indicators: [] },
+    { id: 's3', label: 'AWS S3 / MinIO', backendValue: 's3',
+      blurb: 'Amazon S3 or S3-compatible storage like MinIO.',
+      categories: ['storage_aws'], indicators: ['AWS_ACCESS_KEY_ID', 'S3_BUCKET'] },
+    { id: 'azure', label: 'Azure Blob Storage', backendValue: 'azure',
+      blurb: 'Microsoft Azure Blob storage.',
+      categories: ['storage_azure'], indicators: ['AZURE_STORAGE_ACCOUNT_NAME'] },
+    { id: 'b2', label: 'Backblaze B2', backendValue: 'b2',
+      blurb: 'Backblaze B2 cloud storage.',
+      categories: ['storage_b2'], indicators: ['B2_KEY_ID'] },
+  ];
+
+  // Email providers keyed by the value written to EMAIL_PROVIDER. `required`
+  // lists every key needed for the provider to be considered configured;
+  // `fields` lists the keys we surface as editable inputs (OAuth-backed
+  // providers configure client id/secret in the OAuth section instead).
+  const SERVER_EMAIL_PROVIDERS = [
+    { id: 'sendgrid', label: 'SendGrid', blurb: 'Twilio SendGrid email service.',
+      required: ['SENDGRID_API_KEY', 'SENDGRID_FROM_EMAIL'],
+      fields: ['SENDGRID_API_KEY', 'SENDGRID_FROM_EMAIL'] },
+    { id: 'mailgun', label: 'Mailgun', blurb: 'Mailgun email service.',
+      required: ['MAILGUN_API_KEY', 'MAILGUN_DOMAIN', 'MAILGUN_FROM_EMAIL'],
+      fields: ['MAILGUN_API_KEY', 'MAILGUN_DOMAIN', 'MAILGUN_FROM_EMAIL'] },
+    { id: 'microsoft', label: 'Microsoft 365', blurb: 'Uses OAuth credentials from the OAuth section.',
+      required: ['MICROSOFT_CLIENT_ID', 'MICROSOFT_CLIENT_SECRET', 'MICROSOFT_EMAIL_ADDRESS'],
+      fields: ['MICROSOFT_EMAIL_ADDRESS', 'MICROSOFT_TENANT_ID'] },
+    { id: 'google', label: 'Google Gmail', blurb: 'Uses OAuth credentials from the OAuth section.',
+      required: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_EMAIL_ADDRESS'],
+      fields: ['GOOGLE_EMAIL_ADDRESS'] },
+  ];
+
+  function formatConfigName(name) {
+    return String(name || '')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+      .replace(/Agixt/gi, 'AGiXT')
+      .replace(/Oauth/gi, 'OAuth')
+      .replace(/\bApi\b/g, 'API')
+      .replace(/\bUri\b/g, 'URI')
+      .replace(/\bUrl\b/g, 'URL')
+      .replace(/\bId\b/g, 'ID');
+  }
+
+  function isMaskedSecret(value) {
+    return typeof value === 'string' && value.length > 0 && /^[•*]+$/.test(value);
+  }
+
+  /** Build an editable input for a single server-config item, registering it
+   *  in `inputs` so the card's Save handler can diff it. Returns the wrapping
+   *  label DOM. Booleans render as a checkbox, secrets as a password input
+   *  with a reveal toggle, everything else as text. */
+  function buildServerConfigInput(cfg, inputs, opts) {
+    opts = opts || {};
+    const original = cfg.value == null ? '' : String(cfg.value);
+    const masked = isMaskedSecret(original);
+    const isBool = cfg.value_type === 'boolean';
+    const isSecret = !!cfg.is_sensitive;
+    const labelText = opts.label || formatConfigName(cfg.name);
+
+    if (isBool) {
+      const input = el('input', { type: 'checkbox' });
+      input.checked = original.toLowerCase() === 'true';
+      inputs[cfg.name] = {
+        original,
+        read: () => (input.checked ? 'true' : 'false'),
+      };
+      const row = el('label', { class: 'us-check us-config-bool' }, [
         input,
-        cfg.description ? el('span', { class: 'us-hint' }, cfg.description) : null,
+        el('div', null, [
+          el('span', { class: 'us-label-text' }, labelText),
+          cfg.description ? el('span', { class: 'us-hint' }, cfg.description) : null,
+        ].filter(Boolean)),
       ]);
-      if (isSecret) {
-        const toggle = btn('Show', { onclick: () => {
-          input.type = input.type === 'password' ? 'text' : 'password';
-          toggle.textContent = input.type === 'password' ? 'Show' : 'Hide';
-        } });
-        wrap.appendChild(el('div', { class: 'us-section-row end' }, [toggle]));
-      }
-      return wrap;
+      return row;
+    }
+
+    const input = el('input', {
+      class: 'us-input',
+      type: isSecret ? 'password' : (cfg.value_type === 'integer' || cfg.value_type === 'float' ? 'number' : 'text'),
+      value: masked ? '' : original,
+      placeholder: masked ? 'Configured (enter to change)'
+        : (cfg.default_value ? 'Default: ' + cfg.default_value : 'Not set'),
     });
-    const status = el('p', { class: 'us-status-line' }, '');
-    const saveBtn = btn('Save billing settings', { kind: 'primary', onclick: async () => {
-      const updates = [];
-      Object.entries(inputs).forEach(([key, { input }]) => {
-        const original = byName[key].value == null ? '' : byName[key].value;
-        if (input.value !== original) updates.push({ name: key, value: input.value });
-      });
+    inputs[cfg.name] = {
+      original,
+      masked,
+      // A blank masked-secret field means "leave unchanged".
+      read: () => input.value,
+      isMasked: () => isMaskedSecret(original) && input.value === '',
+    };
+
+    const labelRow = el('div', { class: 'us-section-row between' }, [
+      el('span', { class: 'us-label-text' }, labelText),
+      isSecret ? btn('Show', { kind: 'ghost', onclick: (e) => {
+        if (e && e.preventDefault) e.preventDefault();
+        const toggle = e && e.currentTarget;
+        input.type = input.type === 'password' ? 'text' : 'password';
+        if (toggle) toggle.textContent = input.type === 'password' ? 'Show' : 'Hide';
+      } }) : null,
+    ].filter(Boolean));
+
+    return el('label', { class: 'us-label' }, [
+      labelRow,
+      input,
+      cfg.description ? el('span', { class: 'us-hint' }, cfg.description) : null,
+    ].filter(Boolean));
+  }
+
+  /** Collect changed config values from an `inputs` map (built by
+   *  buildServerConfigInput). Masked secrets left blank are skipped. */
+  function collectServerConfigUpdates(inputs) {
+    const updates = [];
+    Object.entries(inputs).forEach(([name, entry]) => {
+      if (entry.isMasked && entry.isMasked()) return; // unchanged secret
+      const next = entry.read();
+      if (next !== entry.original) updates.push({ name, value: next });
+    });
+    return updates;
+  }
+
+  /** Wire a Save button to a card's inputs. Re-renders the whole server-
+   *  config host on success so freshly-masked secrets and provider state
+   *  reflect the new values. */
+  function makeServerConfigSaver(host, inputs, status, saveBtn, label) {
+    return async () => {
+      const updates = collectServerConfigUpdates(inputs);
       if (!updates.length) {
         status.textContent = 'No changes to save.';
         status.className = 'us-status-line';
@@ -5237,23 +5375,268 @@
         await api.bulkUpdateServerConfig(updates);
         status.textContent = 'Saved ' + updates.length + ' setting(s).';
         status.className = 'us-status-line success';
-        toast('Billing settings saved', 'success');
+        toast((label || 'Settings') + ' saved', 'success');
+        const data = await api.getAllServerConfig(undefined, true).catch(() => null);
+        if (data && Array.isArray(data.configs)) {
+          renderSuperAdminServerConfig(host, data.configs);
+        }
       } catch (err) {
         status.textContent = errMsg(err);
         status.className = 'us-status-line error';
-      } finally {
         saveBtn.disabled = false;
       }
-    } });
-    host.appendChild(section(
-      'Billing configuration',
-      'Server-wide billing flags and Stripe credentials. Changes apply immediately.',
-      [
-        el('div', { class: 'us-grid-2' }, rows),
-        status,
-        el('div', { class: 'us-section-row end' }, [saveBtn]),
-      ],
-    ));
+    };
+  }
+
+  function renderServerConfigEmailCard(host, byName) {
+    const configKeys = SERVER_EMAIL_PROVIDERS.reduce((acc, p) => acc.concat(p.fields), [])
+      .concat(['EMAIL_PROVIDER', 'EMAIL_VERIFICATION_ENABLED']);
+    const present = configKeys.some((k) => byName[k]);
+    if (!present) return null;
+
+    const inputs = {};
+    const status = el('p', { class: 'us-status-line' }, '');
+    const currentProvider = (byName.EMAIL_PROVIDER && byName.EMAIL_PROVIDER.value) || 'auto';
+    let selectedProvider = currentProvider;
+
+    const body = [];
+
+    if (byName.EMAIL_VERIFICATION_ENABLED) {
+      body.push(buildServerConfigInput(byName.EMAIL_VERIFICATION_ENABLED, inputs,
+        { label: 'Require email verification' }));
+    }
+
+    const providerList = el('div', { class: 'us-provider-list' });
+
+    const configuredValue = (key) => {
+      const cfg = byName[key];
+      const v = cfg && cfg.value != null ? String(cfg.value) : '';
+      return v && !isMaskedSecret(v) ? v : (isMaskedSecret(v) ? v : '');
+    };
+    const isProviderConfigured = (p) => p.required.every((k) => {
+      const v = configuredValue(k);
+      return v && v.length > 0;
+    });
+
+    const makeProviderRow = (id, label, blurb, opts) => {
+      opts = opts || {};
+      const selected = selectedProvider === id;
+      const row = el('div', { class: 'us-provider-row' + (selected ? ' is-active' : '') });
+      const head = el('div', { class: 'us-provider-head' });
+      const radio = el('span', { class: 'us-provider-radio' + (selected ? ' is-on' : '') });
+      head.appendChild(radio);
+      head.appendChild(el('div', { class: 'us-provider-grow' }, [
+        el('div', { class: 'us-provider-title' }, label),
+        el('div', { class: 'us-provider-blurb' }, blurb),
+      ]));
+      if (selected) head.appendChild(badge('Active', 'success'));
+      if (opts.configured) head.appendChild(badge('Configured', 'success'));
+      else if (opts.configurable) head.appendChild(badge('Not configured', 'muted'));
+      head.addEventListener('click', () => {
+        selectedProvider = id;
+        inputs.EMAIL_PROVIDER = { original: currentProvider, read: () => id };
+        renderRows();
+      });
+      if (opts.canTest) {
+        const testBtn = btn('Test', { onclick: async (e) => {
+          if (e && e.stopPropagation) e.stopPropagation();
+          const target = e && e.currentTarget;
+          if (target) target.disabled = true;
+          try {
+            const res = await api.testEmailProvider(id);
+            if (res && res.success) toast(res.message || 'Test email sent', 'success');
+            else toast((res && (res.error || res.message)) || 'Test failed', 'error');
+          } catch (err) { toast(errMsg(err), 'error'); }
+          finally { if (target) target.disabled = false; }
+        } });
+        testBtn.classList.add('us-provider-test');
+        head.appendChild(testBtn);
+      }
+      row.appendChild(head);
+      if (opts.fields && opts.fields.length) {
+        const grid = el('div', { class: 'us-provider-fields' });
+        opts.fields.forEach((cfg) => grid.appendChild(buildServerConfigInput(cfg, inputs)));
+        if (opts.note) grid.insertBefore(el('p', { class: 'us-hint' }, opts.note), grid.firstChild);
+        row.appendChild(grid);
+      }
+      return row;
+    };
+
+    const renderRows = () => {
+      providerList.innerHTML = '';
+      // Auto-detect row.
+      providerList.appendChild(makeProviderRow('auto', 'Auto-detect',
+        'Automatically use the first configured provider.'));
+      SERVER_EMAIL_PROVIDERS.forEach((p) => {
+        const fields = p.fields.map((k) => byName[k]).filter(Boolean);
+        const configured = isProviderConfigured(p);
+        providerList.appendChild(makeProviderRow(p.id, p.label, p.blurb, {
+          configured,
+          configurable: true,
+          canTest: configured,
+          fields,
+          note: (p.id === 'microsoft' || p.id === 'google')
+            ? 'Client ID and secret are configured in the OAuth Providers section.' : null,
+        }));
+      });
+    };
+    renderRows();
+    body.push(providerList);
+
+    const saveBtn = btn('Save email settings', { kind: 'primary' });
+    saveBtn.addEventListener('click', makeServerConfigSaver(host, inputs, status, saveBtn, 'Email settings'));
+    body.push(status);
+    body.push(el('div', { class: 'us-section-row end' }, [saveBtn]));
+
+    return section(SERVER_CONFIG_CATEGORY_META.email.name,
+      SERVER_CONFIG_CATEGORY_META.email.blurb, body);
+  }
+
+  function renderServerConfigStorageCard(host, byName) {
+    const hasStorage = ['STORAGE_BACKEND', 'STORAGE_CONTAINER', 'WORKSPACE_RETENTION_DAYS']
+      .some((k) => byName[k])
+      || SERVER_STORAGE_PROVIDERS.some((p) => p.categories.length
+        && p.categories.some((cat) => Object.values(byName).some((c) => c.category === cat)));
+    if (!hasStorage) return null;
+
+    const inputs = {};
+    const status = el('p', { class: 'us-status-line' }, '');
+    const body = [];
+
+    if (byName.WORKSPACE_RETENTION_DAYS) {
+      body.push(buildServerConfigInput(byName.WORKSPACE_RETENTION_DAYS, inputs,
+        { label: 'Workspace retention (days)' }));
+    }
+    if (byName.STORAGE_CONTAINER) {
+      body.push(buildServerConfigInput(byName.STORAGE_CONTAINER, inputs,
+        { label: 'Container / bucket name' }));
+    }
+
+    const currentBackend = (byName.STORAGE_BACKEND && byName.STORAGE_BACKEND.value) || 'local';
+    let selectedBackend = currentBackend;
+    const providerList = el('div', { class: 'us-provider-list' });
+
+    const isConfigured = (p) => {
+      if (p.id === 'local') return true;
+      return p.indicators.some((k) => {
+        const cfg = byName[k];
+        const v = cfg && cfg.value != null ? String(cfg.value) : '';
+        return v && v.length > 0;
+      });
+    };
+    const providerFields = (p) => Object.values(byName)
+      .filter((c) => p.categories.includes(c.category));
+
+    const renderRows = () => {
+      providerList.innerHTML = '';
+      SERVER_STORAGE_PROVIDERS.forEach((p) => {
+        const selected = selectedBackend === p.backendValue;
+        const fields = providerFields(p);
+        const row = el('div', { class: 'us-provider-row' + (selected ? ' is-active' : '') });
+        const head = el('div', { class: 'us-provider-head' });
+        head.appendChild(el('span', { class: 'us-provider-radio' + (selected ? ' is-on' : '') }));
+        head.appendChild(el('div', { class: 'us-provider-grow' }, [
+          el('div', { class: 'us-provider-title' }, p.label),
+          el('div', { class: 'us-provider-blurb' }, p.blurb),
+        ]));
+        if (selected) head.appendChild(badge('Active', 'success'));
+        else if (p.id !== 'local' && isConfigured(p)) head.appendChild(badge('Configured', 'success'));
+        else if (p.id !== 'local') head.appendChild(badge('Not configured', 'muted'));
+        head.addEventListener('click', () => {
+          selectedBackend = p.backendValue;
+          inputs.STORAGE_BACKEND = { original: currentBackend, read: () => p.backendValue };
+          renderRows();
+        });
+        row.appendChild(head);
+        if (fields.length) {
+          const grid = el('div', { class: 'us-provider-fields' });
+          fields.forEach((cfg) => grid.appendChild(buildServerConfigInput(cfg, inputs)));
+          row.appendChild(grid);
+        }
+        providerList.appendChild(row);
+      });
+    };
+    renderRows();
+    body.push(providerList);
+
+    const saveBtn = btn('Save storage settings', { kind: 'primary' });
+    saveBtn.addEventListener('click', makeServerConfigSaver(host, inputs, status, saveBtn, 'Storage settings'));
+    body.push(status);
+    body.push(el('div', { class: 'us-section-row end' }, [saveBtn]));
+
+    return section(SERVER_CONFIG_CATEGORY_META.storage.name,
+      SERVER_CONFIG_CATEGORY_META.storage.blurb, body);
+  }
+
+  /** Generic grouped card for a single config category (everything that
+   *  isn't email/storage, which get bespoke provider cards). */
+  function renderServerConfigGenericCard(host, category, configs) {
+    if (!configs.length) return null;
+    const meta = SERVER_CONFIG_CATEGORY_META[category]
+      || { name: formatConfigName(category), blurb: null };
+    const inputs = {};
+    const status = el('p', { class: 'us-status-line' }, '');
+    const grid = el('div', { class: 'us-grid-2' },
+      configs.map((cfg) => buildServerConfigInput(cfg, inputs)));
+    const saveBtn = btn('Save ' + meta.name.toLowerCase(), { kind: 'primary' });
+    saveBtn.addEventListener('click', makeServerConfigSaver(host, inputs, status, saveBtn, meta.name));
+    return section(meta.name, meta.blurb, [
+      grid,
+      status,
+      el('div', { class: 'us-section-row end' }, [saveBtn]),
+    ]);
+  }
+
+  function renderSuperAdminServerConfig(host, configs) {
+    host.innerHTML = '';
+    if (!Array.isArray(configs) || !configs.length) {
+      host.appendChild(section('Server configuration', null, [
+        emptyState('No server configuration is exposed by this server.'),
+      ]));
+      return;
+    }
+    const byName = {};
+    configs.forEach((c) => { if (c && c.name) byName[c.name] = c; });
+
+    // Group by category. Storage sub-categories (storage_aws/azure/b2) and
+    // the email keys are folded into their bespoke cards rather than shown
+    // as standalone generic groups.
+    const storageSubCategories = new Set(['storage', 'storage_aws', 'storage_azure', 'storage_b2']);
+    const grouped = {};
+    configs.forEach((c) => {
+      if (!c || !c.name) return;
+      const cat = c.category || 'general';
+      if (cat === 'email' || storageSubCategories.has(cat)) return; // handled by provider cards
+      (grouped[cat] = grouped[cat] || []).push(c);
+    });
+
+    // Bespoke provider cards first, in their natural slots.
+    const emailCard = renderServerConfigEmailCard(host, byName);
+    const storageCard = renderServerConfigStorageCard(host, byName);
+
+    // Determine render order: known categories first, then any unknown
+    // categories alphabetically, interleaving email/storage in place.
+    const knownOrder = SERVER_CONFIG_CATEGORY_ORDER.slice();
+    const remaining = Object.keys(grouped).filter((c) => !knownOrder.includes(c)).sort();
+    const order = knownOrder.concat(remaining);
+
+    order.forEach((cat) => {
+      if (cat === 'email') {
+        if (emailCard) host.appendChild(emailCard);
+        return;
+      }
+      if (cat === 'storage') {
+        if (storageCard) host.appendChild(storageCard);
+        return;
+      }
+      const card = renderServerConfigGenericCard(host, cat, grouped[cat] || []);
+      if (card) host.appendChild(card);
+    });
+
+    // Safety net: if email/storage cards exist but their slot wasn't in the
+    // order list, append them so they're never dropped.
+    if (emailCard && !host.contains(emailCard)) host.appendChild(emailCard);
+    if (storageCard && !host.contains(storageCard)) host.appendChild(storageCard);
   }
 
   // ─── Mount ───────────────────────────────────────────────────────────
@@ -5262,8 +5645,11 @@
     if (opts && opts.billingReturn) handleBillingReturn(opts.billingReturn);
     if (mounted) {
       // Re-mounts (eg. tab change) just refresh the requested tab.
+      await ensureBillingTabVisible();
+      const canSuperAdmin = await ensureSuperAdminTabVisible();
       const tab = opts && opts.tab;
-      if (tab && TAB_RENDERERS[tab]) setActiveTab(tab);
+      if (tab === 'superadmin' && !canSuperAdmin) setActiveTab('app');
+      else if (tab && TAB_RENDERERS[tab]) setActiveTab(tab);
       else activatePanel(activeTab);
       return;
     }

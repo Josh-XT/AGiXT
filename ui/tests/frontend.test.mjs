@@ -121,7 +121,7 @@ function loadWebRuntime(url = 'http://localhost/') {
   return { window };
 }
 
-function loadFullApp({ ipc, url = 'http://localhost/', webRuntime = false, fetch: fetchImpl } = {}) {
+function loadFullApp({ ipc, url = 'http://localhost/', webRuntime = false, fetch: fetchImpl, userAgent } = {}) {
   const dom = new JSDOM(
     fs.readFileSync(path.join(SRC, 'index.html'), 'utf8'),
     { runScripts: 'outside-only', url },
@@ -130,6 +130,12 @@ function loadFullApp({ ipc, url = 'http://localhost/', webRuntime = false, fetch
   trackDom(dom);
   if (webRuntime) window.__AGIXT_WEB_RUNTIME = true;
   if (fetchImpl) window.fetch = fetchImpl;
+  if (userAgent) {
+    Object.defineProperty(window.navigator, 'userAgent', {
+      value: userAgent,
+      configurable: true,
+    });
+  }
   window.requestAnimationFrame = window.requestAnimationFrame || ((cb) => setTimeout(() => cb(Date.now()), 0));
   window.cancelAnimationFrame = window.cancelAnimationFrame || ((id) => clearTimeout(id));
   const calls = [];
@@ -776,6 +782,34 @@ test('web runtime: localStorage settings persist web auth and omit unrelated tok
   const afterLogout = JSON.parse(window.localStorage.getItem('agixt.web.settings.v1'));
   assert.equal(afterLogout.jwt, null);
   assert.equal(afterLogout.user_email, null);
+});
+
+test('web runtime: hosted brand origin owns title, favicon, and service selection', async () => {
+  const { window } = loadWebRuntime('https://boltremote.com/user');
+
+  const brands = await window.__TAURI__.core.invoke('list_service_brands');
+  assert.equal(brands.length, 1);
+  assert.equal(brands[0].slug, 'boltremote');
+  assert.equal(brands[0].locked, true);
+  assert.equal(brands[0].default_url, 'https://boltremote.com');
+  assert.equal(brands[0].default_web_url, 'https://boltremote.com');
+  assert.equal(window.document.title, 'BoltRemote');
+  assert.ok(window.document.getElementById('app-favicon').href.endsWith('/assets/brands/boltremote-favicon.svg'));
+
+  const settings = await window.__TAURI__.core.invoke('save_settings', {
+    settings: {
+      server_url: 'https://api.agixt.com',
+      web_url: 'https://agixt.com',
+      service_brand: 'agixt',
+      jwt: 'jwt',
+    },
+  });
+  assert.equal(settings.service_brand, 'boltremote');
+  assert.equal(settings.server_url, 'https://boltremote.com');
+  assert.equal(settings.web_url, 'https://boltremote.com');
+
+  const stored = JSON.parse(window.localStorage.getItem('agixt.web.settings.v1'));
+  assert.equal(stored.service_brand, 'boltremote');
 });
 
 test('web runtime: OAuth flow storage keeps only callback state', async () => {
@@ -2932,6 +2966,115 @@ test('app: signed-out startup shows auth and blocks agent settings', async () =>
   await new Promise((resolve) => setTimeout(resolve, 5));
   assert.equal(window.document.getElementById('auth-screen').hidden, false);
   assert.equal(calls.some((c) => c.cmd === 'show_chat'), false);
+  window.AgixtChat.disconnect();
+});
+
+test('app: Android XT School auth uses in-app keyboard for typing', async () => {
+  let oauthProviderCalls = 0;
+  const signedOutSettings = {
+    jwt: null,
+    conversation_id: null,
+    conversation_name: null,
+    server_url: 'https://api.xt.school',
+    web_url: 'https://app.xt.school',
+    service_brand: 'xtschool',
+    agent_id: null,
+    agent_name: 'XT',
+    company_id: null,
+    company_name: null,
+    allow_client_commands: true,
+    voice_enabled: false,
+    desktop_auto_update: false,
+    user_email: null,
+  };
+  const { window } = loadFullApp({
+    userAgent: 'Mozilla/5.0 (Linux; Android 11; KFRAPWI) AppleWebKit/537.36',
+    ipc: {
+      get_settings: async () => signedOutSettings,
+      list_service_brands: async () => [
+        {
+          slug: 'xtschool',
+          label: 'XT.School',
+          default_url: 'https://api.xt.school',
+          default_web_url: 'https://app.xt.school',
+          locked: true,
+        },
+      ],
+      list_oauth_providers: async () => {
+        oauthProviderCalls += 1;
+        return [{ name: 'google' }];
+      },
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  const email = window.document.getElementById('login-email');
+  const keyboard = window.document.getElementById('auth-touch-keyboard');
+  assert.equal(window.document.body.classList.contains('auth-touch-keyboard-enabled'), true);
+  assert.equal(email.readOnly, true);
+  assert.equal(email.getAttribute('inputmode'), 'none');
+  assert.equal(window.document.getElementById('oauth-row').hidden, true);
+  assert.equal(oauthProviderCalls, 0);
+
+  email.dispatchEvent(new window.Event('pointerdown', { bubbles: true, cancelable: true }));
+  assert.equal(keyboard.hidden, false);
+  assert.equal(window.document.body.classList.contains('auth-touch-keyboard-open'), true);
+
+  const qKey = Array.from(keyboard.querySelectorAll('button'))
+    .find((button) => button.textContent === 'q');
+  assert.ok(qKey);
+  qKey.dispatchEvent(new window.Event('pointerdown', { bubbles: true, cancelable: true }));
+  assert.equal(email.value, 'q');
+
+  const nextKey = Array.from(keyboard.querySelectorAll('button'))
+    .find((button) => button.textContent === 'Next');
+  assert.ok(nextKey);
+  nextKey.dispatchEvent(new window.Event('pointerdown', { bubbles: true, cancelable: true }));
+  assert.equal(window.document.activeElement, window.document.getElementById('login-password'));
+  window.AgixtChat.disconnect();
+});
+
+test('app: hosted web brand hides service picker and applies brand chrome', async () => {
+  const signedOutSettings = {
+    jwt: null,
+    conversation_id: null,
+    conversation_name: null,
+    server_url: 'https://boltremote.com',
+    web_url: 'https://boltremote.com',
+    service_brand: 'boltremote',
+    agent_id: null,
+    agent_name: 'XT',
+    company_id: null,
+    company_name: null,
+    allow_client_commands: true,
+    voice_enabled: false,
+    desktop_auto_update: false,
+    user_email: null,
+  };
+  const { window } = loadFullApp({
+    url: 'https://boltremote.com/user',
+    webRuntime: true,
+    ipc: {
+      get_settings: async () => signedOutSettings,
+      list_service_brands: async () => [
+        {
+          slug: 'boltremote',
+          label: 'BoltRemote',
+          default_url: 'https://boltremote.com',
+          default_web_url: 'https://boltremote.com',
+          locked: true,
+        },
+      ],
+      list_oauth_providers: async () => [],
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  assert.equal(window.document.getElementById('auth-screen').hidden, false);
+  assert.equal(window.document.getElementById('service-brand-field').hidden, true);
+  assert.equal(window.document.title, 'BoltRemote');
+  assert.ok(window.document.getElementById('app-favicon').href.endsWith('/assets/brands/boltremote-favicon.svg'));
+  assert.ok(window.document.getElementById('brand-mark-img').src.endsWith('/assets/brands/boltremote.svg'));
   window.AgixtChat.disconnect();
 });
 

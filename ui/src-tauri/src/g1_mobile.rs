@@ -41,8 +41,18 @@ pub fn init() -> TauriPlugin<Wry> {
         .setup(|_app, api| {
             #[cfg(target_os = "android")]
             {
-                let handle = api.register_android_plugin("systems.xt.agixt.desktop", "G1Plugin")?;
-                let _ = ANDROID_G1_BRIDGE.set(handle);
+                // The G1 (Even Realities glasses) Android bridge is optional —
+                // builds that don't ship the `G1Plugin` Kotlin class (e.g. the
+                // kiosk/tablet builds) must not abort startup over it. Register
+                // best-effort and carry on if the class isn't present.
+                match api.register_android_plugin("systems.xt.agixt.desktop", "G1Plugin") {
+                    Ok(handle) => {
+                        let _ = ANDROID_G1_BRIDGE.set(handle);
+                    }
+                    Err(e) => {
+                        eprintln!("G1 Android plugin unavailable, glasses disabled: {e}");
+                    }
+                }
             }
             #[cfg(not(target_os = "android"))]
             {

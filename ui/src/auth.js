@@ -19,6 +19,14 @@
   const opener = tauri.opener || (tauri.core && tauri.core.invoke ? null : null);
 
   const $ = (id) => document.getElementById(id);
+  const OAUTH_PROVIDER_TIMEOUT_MS = 6000;
+
+  function brandAssetHref(path) {
+    const value = String(path || '').trim();
+    if (!value) return '';
+    if (/^(https?:|data:|blob:|\/)/i.test(value)) return value;
+    return window.__AGIXT_WEB_RUNTIME ? `/${value.replace(/^\/+/, '')}` : value;
+  }
 
   let brands = [];
   let currentBrand = null; // {slug, label, default_url}
@@ -27,7 +35,33 @@
   let oauthRefreshSeq = 0;
   let invitationUnlisten = null;
   let pendingInvitation = null;
+  let authFocusGuardBound = false;
+  let lastAuthInput = null;
+  let lastAuthPointerDownAt = 0;
+  let authTouchKeyboardBound = false;
+  let authTouchKeyboardEnabled = false;
+  let authTouchKeyboardTarget = null;
+  let authTouchKeyboardMode = 'abc';
+  let authTouchKeyboardShift = false;
   const INVITATION_STORAGE_KEY = 'agixt.desktop.pendingInvitation.v1';
+  const AUTH_TYPING_INPUT_IDS = new Set([
+    'login-email',
+    'login-password',
+    'login-mfa',
+    'reg-first',
+    'reg-last',
+    'reg-email',
+    'reg-password',
+  ]);
+  const AUTH_TOUCH_KEYBOARD_NEXT = {
+    'login-email': 'login-password',
+    'login-password': null,
+    'login-mfa': null,
+    'reg-first': 'reg-last',
+    'reg-last': 'reg-email',
+    'reg-email': 'reg-password',
+    'reg-password': null,
+  };
 
   function setStatus(text, cls) {
     const el = $('auth-status');
@@ -46,6 +80,393 @@
     const v = $('web-url').value.trim();
     if (v) return v.replace(/\/+$/, '');
     return (currentBrand && currentBrand.default_web_url) || 'http://localhost:3437';
+  }
+
+  function withTimeout(promise, ms, label) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(label || 'Request timed out')), ms);
+      Promise.resolve(promise).then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  }
+
+  function isAndroidRuntime() {
+    return /Android/i.test((window.navigator && window.navigator.userAgent) || '');
+  }
+
+  function shouldDiscoverOAuthProviders() {
+    // Fire OS WebView can churn the IME input connection while the login page
+    // is typing. XT School tablet builds do not use provider login, so keep
+    // discovery off that hot path entirely.
+    return !isAndroidRuntime() && (!currentBrand || currentBrand.slug !== 'xtschool');
+  }
+
+  function shouldUseAuthTouchKeyboard() {
+    return isAndroidRuntime() && currentBrand && currentBrand.slug === 'xtschool';
+  }
+
+  function isAuthTypingInput(el) {
+    return !!(el && AUTH_TYPING_INPUT_IDS.has(el.id));
+  }
+
+  function isAuthScreenVisible() {
+    const screen = $('auth-screen');
+    return !!(screen && !screen.hidden);
+  }
+
+  function bindAuthFocusGuard() {
+    if (authFocusGuardBound) return;
+    authFocusGuardBound = true;
+
+    document.addEventListener('pointerdown', (e) => {
+      if (!isAuthScreenVisible()) return;
+      if (e.target && e.target.closest && e.target.closest('input, select, button, textarea, a')) {
+        lastAuthPointerDownAt = Date.now();
+      }
+    }, true);
+
+    document.addEventListener('focusin', (e) => {
+      if (isAuthTypingInput(e.target)) lastAuthInput = e.target;
+    }, true);
+
+    document.addEventListener('focusout', (e) => {
+      if (!isAuthTypingInput(e.target)) return;
+      const blurred = e.target;
+      setTimeout(() => {
+        if (!isAuthScreenVisible()) return;
+        if (lastAuthInput !== blurred) return;
+        if (Date.now() - lastAuthPointerDownAt < 350) return;
+        const active = document.activeElement;
+        if (active && active !== document.body && active !== document.documentElement) return;
+        if (blurred.hidden || blurred.disabled || blurred.readOnly || !document.body.contains(blurred)) return;
+        try {
+          blurred.focus({ preventScroll: true });
+        } catch (_) {
+          try { blurred.focus(); } catch (_) {}
+        }
+      }, 80);
+    }, true);
+  }
+
+  function bindAuthTouchKeyboard() {
+    if (authTouchKeyboardBound) return;
+    authTouchKeyboardBound = true;
+
+    AUTH_TYPING_INPUT_IDS.forEach((id) => {
+      const input = $(id);
+      if (!input) return;
+      input.addEventListener('pointerdown', (e) => {
+        if (!authTouchKeyboardEnabled) return;
+        e.preventDefault();
+        e.stopPropagation();
+        showAuthTouchKeyboard(input);
+      }, true);
+      input.addEventListener('focusin', () => {
+        if (authTouchKeyboardEnabled) showAuthTouchKeyboard(input);
+      }, true);
+    });
+
+    document.addEventListener('pointerdown', (e) => {
+      if (!authTouchKeyboardEnabled) return;
+      const target = e.target;
+      const keyboard = $('auth-touch-keyboard');
+      if (keyboard && target && keyboard.contains(target)) return;
+      if (isAuthTypingInput(target)) return;
+      hideAuthTouchKeyboard();
+    }, true);
+  }
+
+  function syncAuthTouchKeyboardAvailability() {
+    const enabled = Boolean(shouldUseAuthTouchKeyboard());
+    authTouchKeyboardEnabled = enabled;
+    if (document.body) {
+      document.body.classList.toggle('auth-touch-keyboard-enabled', enabled);
+    }
+    AUTH_TYPING_INPUT_IDS.forEach((id) => {
+      const input = $(id);
+      if (!input) return;
+      if (enabled) {
+        if (!input.dataset.authTouchOriginalReadonly) {
+          input.dataset.authTouchOriginalReadonly = input.readOnly ? '1' : '0';
+          input.dataset.authTouchOriginalInputmode = input.getAttribute('inputmode') || '';
+        }
+        input.readOnly = true;
+        input.setAttribute('inputmode', 'none');
+        input.setAttribute('data-auth-touch-keyboard', 'true');
+      } else if (input.hasAttribute('data-auth-touch-keyboard')) {
+        input.readOnly = input.dataset.authTouchOriginalReadonly === '1';
+        if (input.dataset.authTouchOriginalInputmode) {
+          input.setAttribute('inputmode', input.dataset.authTouchOriginalInputmode);
+        } else {
+          input.removeAttribute('inputmode');
+        }
+        input.removeAttribute('data-auth-touch-keyboard');
+        delete input.dataset.authTouchOriginalReadonly;
+        delete input.dataset.authTouchOriginalInputmode;
+      }
+    });
+    if (!enabled) {
+      hideAuthTouchKeyboard();
+      return;
+    }
+    if (isAuthTypingInput(document.activeElement)) {
+      showAuthTouchKeyboard(document.activeElement);
+    }
+  }
+
+  function defaultAuthTouchKeyboardMode(input) {
+    return input && input.id === 'login-mfa' ? 'numbers' : 'abc';
+  }
+
+  function showAuthTouchKeyboard(input) {
+    if (!authTouchKeyboardEnabled || !isAuthScreenVisible() || !isAuthTypingInput(input)) return;
+    if (authTouchKeyboardTarget !== input) {
+      authTouchKeyboardMode = defaultAuthTouchKeyboardMode(input);
+      authTouchKeyboardShift = false;
+    }
+    authTouchKeyboardTarget = input;
+    const keyboard = $('auth-touch-keyboard');
+    if (!keyboard) return;
+    keyboard.hidden = false;
+    if (document.body) document.body.classList.add('auth-touch-keyboard-open');
+    try {
+      input.focus({ preventScroll: true });
+    } catch (_) {
+      try { input.focus(); } catch (_) {}
+    }
+    try {
+      const pos = input.value.length;
+      input.setSelectionRange(pos, pos);
+    } catch (_) {}
+    renderAuthTouchKeyboard();
+  }
+
+  function hideAuthTouchKeyboard() {
+    const keyboard = $('auth-touch-keyboard');
+    if (keyboard) keyboard.hidden = true;
+    if (document.body) document.body.classList.remove('auth-touch-keyboard-open');
+  }
+
+  function authTouchKey(label, action, value, className) {
+    return { label, action, value, className: className || '' };
+  }
+
+  function authTouchCharKey(char) {
+    const display = authTouchKeyboardShift && /^[a-z]$/.test(char) ? char.toUpperCase() : char;
+    return authTouchKey(display, 'insert', char);
+  }
+
+  function authTouchKeyboardRows(input) {
+    const nextId = input ? AUTH_TOUCH_KEYBOARD_NEXT[input.id] : null;
+    const doneKey = authTouchKey(nextId ? 'Next' : 'Done', nextId ? 'next' : 'done', null, 'wide primary');
+    if (input && input.id === 'login-mfa') {
+      return [
+        ['1', '2', '3'].map(authTouchCharKey),
+        ['4', '5', '6'].map(authTouchCharKey),
+        ['7', '8', '9'].map(authTouchCharKey),
+        [
+          authTouchKey('Back', 'backspace', null, 'wide action'),
+          authTouchCharKey('0'),
+          doneKey,
+        ],
+      ];
+    }
+    if (authTouchKeyboardMode === 'symbols') {
+      const bottom = [authTouchKey('ABC', 'mode', 'abc', 'wide action')];
+      if (input && (input.id === 'login-email' || input.id === 'reg-email')) {
+        bottom.push(authTouchKey('@', 'insert', '@'));
+        bottom.push(authTouchKey('.', 'insert', '.'));
+        bottom.push(authTouchKey('-', 'insert', '-'));
+        bottom.push(authTouchKey('_', 'insert', '_'));
+        bottom.push(authTouchKey('.com', 'insert', '.com', 'wide'));
+      } else {
+        bottom.push(authTouchKey('Space', 'insert', ' ', 'xwide'));
+      }
+      bottom.push(doneKey);
+      return [
+        ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map(authTouchCharKey),
+        ['@', '#', '$', '%', '&', '*', '-', '_', '+', '='].map((c) => authTouchKey(c, 'insert', c)),
+        [
+          authTouchKey('.', 'insert', '.'),
+          authTouchKey('/', 'insert', '/'),
+          authTouchKey('?', 'insert', '?'),
+          authTouchKey('!', 'insert', '!'),
+          authTouchKey('"', 'insert', '"'),
+          authTouchKey("'", 'insert', "'"),
+          authTouchKey(':', 'insert', ':'),
+          authTouchKey(';', 'insert', ';'),
+          authTouchKey('Back', 'backspace', null, 'wide action'),
+        ],
+        bottom,
+      ];
+    }
+    const isEmail = input && (input.id === 'login-email' || input.id === 'reg-email');
+    const isName = input && (input.id === 'reg-first' || input.id === 'reg-last');
+    const bottom = [authTouchKey('123', 'mode', 'symbols', 'wide action')];
+    if (isEmail) {
+      bottom.push(authTouchKey('@', 'insert', '@'));
+      bottom.push(authTouchKey('.', 'insert', '.'));
+      bottom.push(authTouchKey('-', 'insert', '-'));
+      bottom.push(authTouchKey('_', 'insert', '_'));
+      bottom.push(authTouchKey('.com', 'insert', '.com', 'wide'));
+    } else if (isName) {
+      bottom.push(authTouchKey('-', 'insert', '-'));
+      bottom.push(authTouchKey("'", 'insert', "'"));
+      bottom.push(authTouchKey('Space', 'insert', ' ', 'xwide'));
+    } else {
+      bottom.push(authTouchKey('@', 'insert', '@'));
+      bottom.push(authTouchKey('.', 'insert', '.'));
+      bottom.push(authTouchKey('-', 'insert', '-'));
+      bottom.push(authTouchKey('_', 'insert', '_'));
+      bottom.push(authTouchKey('Space', 'insert', ' ', 'xwide'));
+    }
+    bottom.push(doneKey);
+    return [
+      'qwertyuiop'.split('').map(authTouchCharKey),
+      'asdfghjkl'.split('').map(authTouchCharKey),
+      [
+        authTouchKey('Shift', 'shift', null, `wide action${authTouchKeyboardShift ? ' is-active' : ''}`),
+        ...'zxcvbnm'.split('').map(authTouchCharKey),
+        authTouchKey('Back', 'backspace', null, 'wide action'),
+      ],
+      bottom,
+    ];
+  }
+
+  function renderAuthTouchKeyboard() {
+    const keyboard = $('auth-touch-keyboard');
+    if (!keyboard || !authTouchKeyboardTarget) return;
+    keyboard.innerHTML = '';
+    authTouchKeyboardRows(authTouchKeyboardTarget).forEach((row) => {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'auth-touch-keyboard-row';
+      row.forEach((key) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.tabIndex = -1;
+        btn.className = `auth-touch-key ${key.className || ''}`.trim();
+        btn.textContent = key.label;
+        btn.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          lastAuthPointerDownAt = Date.now();
+          handleAuthTouchKey(key);
+        });
+        rowEl.appendChild(btn);
+      });
+      keyboard.appendChild(rowEl);
+    });
+  }
+
+  function authTouchSelection(input) {
+    const value = input.value || '';
+    let start = value.length;
+    let end = value.length;
+    try {
+      if (typeof input.selectionStart === 'number') start = input.selectionStart;
+      if (typeof input.selectionEnd === 'number') end = input.selectionEnd;
+    } catch (_) {}
+    return { value, start, end };
+  }
+
+  function commitAuthTouchValue(input, value, caret) {
+    input.value = value;
+    try {
+      input.focus({ preventScroll: true });
+    } catch (_) {
+      try { input.focus(); } catch (_) {}
+    }
+    try {
+      input.setSelectionRange(caret, caret);
+    } catch (_) {}
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function insertAuthTouchText(text) {
+    const input = authTouchKeyboardTarget;
+    if (!input) return;
+    const selection = authTouchSelection(input);
+    const before = selection.value.slice(0, selection.start);
+    const after = selection.value.slice(selection.end);
+    let insert = String(text || '');
+    if (input.maxLength > -1) {
+      const available = Math.max(0, input.maxLength - before.length - after.length);
+      insert = insert.slice(0, available);
+    }
+    if (!insert) return;
+    const nextValue = `${before}${insert}${after}`;
+    commitAuthTouchValue(input, nextValue, before.length + insert.length);
+  }
+
+  function backspaceAuthTouchText() {
+    const input = authTouchKeyboardTarget;
+    if (!input) return;
+    const selection = authTouchSelection(input);
+    if (selection.start === 0 && selection.end === 0) return;
+    const deleteStart = selection.start === selection.end
+      ? Math.max(0, selection.start - 1)
+      : selection.start;
+    const nextValue = selection.value.slice(0, deleteStart) + selection.value.slice(selection.end);
+    commitAuthTouchValue(input, nextValue, deleteStart);
+  }
+
+  function focusNextAuthTouchInput() {
+    const nextId = authTouchKeyboardTarget ? AUTH_TOUCH_KEYBOARD_NEXT[authTouchKeyboardTarget.id] : null;
+    const nextInput = nextId ? $(nextId) : null;
+    if (nextInput && !nextInput.hidden && !nextInput.disabled) {
+      showAuthTouchKeyboard(nextInput);
+    } else {
+      hideAuthTouchKeyboard();
+      if (authTouchKeyboardTarget) {
+        try { authTouchKeyboardTarget.blur(); } catch (_) {}
+      }
+    }
+  }
+
+  function handleAuthTouchKey(key) {
+    const input = authTouchKeyboardTarget;
+    if (!input) return;
+    if (key.action === 'insert') {
+      let value = key.value;
+      if (authTouchKeyboardMode === 'abc' && authTouchKeyboardShift && /^[a-z]$/.test(value)) {
+        value = value.toUpperCase();
+        authTouchKeyboardShift = false;
+      }
+      insertAuthTouchText(value);
+      if (!authTouchKeyboardShift) renderAuthTouchKeyboard();
+      return;
+    }
+    if (key.action === 'backspace') {
+      backspaceAuthTouchText();
+      return;
+    }
+    if (key.action === 'shift') {
+      authTouchKeyboardShift = !authTouchKeyboardShift;
+      renderAuthTouchKeyboard();
+      return;
+    }
+    if (key.action === 'mode') {
+      authTouchKeyboardMode = key.value || 'abc';
+      authTouchKeyboardShift = false;
+      renderAuthTouchKeyboard();
+      return;
+    }
+    if (key.action === 'next') {
+      focusNextAuthTouchInput();
+      return;
+    }
+    if (key.action === 'done') {
+      hideAuthTouchKeyboard();
+      try { input.blur(); } catch (_) {}
+    }
   }
 
   function normalizeInvitation(input) {
@@ -317,6 +738,10 @@
     $('service-brand').value = currentBrand.slug;
     $('server-url').value = currentBrand.default_url;
     $('web-url').value = currentBrand.default_web_url || '';
+    const serviceField = $('service-brand-field') || ($('service-brand') && $('service-brand').closest('.field'));
+    if (serviceField) {
+      serviceField.hidden = Boolean(window.__AGIXT_WEB_RUNTIME && currentBrand.locked);
+    }
     // URL fields are only shown/editable in "custom" mode. Every other
     // brand has a known server+web pair, so exposing the fields would
     // just be noise — and "local" pins to localhost:7437 anyway.
@@ -335,6 +760,7 @@
     } else {
       stopLocalStatusPoll();
     }
+    syncAuthTouchKeyboardAvailability();
   }
 
   // Map brand slug to its top-bar mark + display title. We intentionally
@@ -343,12 +769,13 @@
   // consistent regardless of which AGiXT-derived service the user is
   // signed in to.
   const BRAND_IDENTITY = {
-    agixt:      { logo: 'assets/brands/agixt.svg',      title: 'AGiXT' },
-    nursext:    { logo: 'assets/brands/nursext.svg',    title: 'NurseXT' },
-    xtsystems:  { logo: 'assets/brands/xtsystems.svg',  title: 'XT Systems' },
-    boltremote: { logo: 'assets/brands/boltremote.svg', title: 'BoltRemote' },
-    local:      { logo: 'assets/brands/agixt.svg',      title: 'AGiXT' },
-    custom:     { logo: 'assets/brands/agixt.svg',      title: 'AGiXT' },
+    web:        { logo: 'assets/brands/agixt.svg',      favicon: 'assets/brands/agixt-favicon.png',       title: 'AGiXT' },
+    agixt:      { logo: 'assets/brands/agixt.svg',      favicon: 'assets/brands/agixt-favicon.png',       title: 'AGiXT' },
+    nursext:    { logo: 'assets/brands/nursext.svg',    favicon: 'assets/brands/nursext-favicon.png',     title: 'NurseXT' },
+    xtsystems:  { logo: 'assets/brands/xtsystems.svg',  favicon: 'assets/brands/xtsystems-favicon.png',   title: 'XT Systems' },
+    boltremote: { logo: 'assets/brands/boltremote.svg', favicon: 'assets/brands/boltremote-favicon.svg',  title: 'BoltRemote' },
+    local:      { logo: 'assets/brands/agixt.svg',      favicon: 'assets/brands/agixt-favicon.png',       title: 'AGiXT' },
+    custom:     { logo: 'assets/brands/agixt.svg',      favicon: 'assets/brands/agixt-favicon.png',       title: 'AGiXT' },
   };
 
   function applyBrandIdentity(slug) {
@@ -356,15 +783,29 @@
     const img = $('brand-mark-img');
     const title = $('brand-title');
     const mark = $('brand-mark');
-    if (img) img.src = id.logo;
+    const logo = brandAssetHref(id.logo);
+    if (img) img.src = logo;
     if (title) title.textContent = id.title;
+    if (id.title) document.title = id.title;
+    const faviconPath = id.favicon || id.logo;
+    if (faviconPath && document.head) {
+      let favicon = $('app-favicon') || document.querySelector('link[rel~="icon"]');
+      if (!favicon) {
+        favicon = document.createElement('link');
+        favicon.id = 'app-favicon';
+        favicon.rel = 'icon';
+        document.head.appendChild(favicon);
+      }
+      favicon.href = brandAssetHref(faviconPath);
+      favicon.type = String(faviconPath).toLowerCase().endsWith('.png') ? 'image/png' : 'image/svg+xml';
+    }
     if (mark) mark.classList.remove('fallback');
     // Also paint the sidenav brand slot — it's the first item users see
     // in the activity bar after sign-in, so it has to track the active
     // service brand the same way the auth-screen mark does.
     const sideImg = $('sidenav-brand-mark-img');
     const sideMark = $('sidenav-brand-mark');
-    if (sideImg) sideImg.src = id.logo;
+    if (sideImg) sideImg.src = logo;
     if (sideMark) {
       sideMark.classList.remove('fallback');
       const slot = sideMark.closest('.sidenav-brand');
@@ -387,6 +828,7 @@
     $('tab-register').setAttribute('aria-selected', String(!isLogin));
     setStatus('');
     applyPendingInvitationToUi();
+    if (authTouchKeyboardEnabled) hideAuthTouchKeyboard();
   }
 
   $('tab-login').addEventListener('click', () => showPane('login'));
@@ -407,15 +849,22 @@
     // Default to whatever's saved, else "local" (the dedicated
     // localhost:7437 entry replaces the old "custom"-as-default).
     const settings = await invoke('get_settings');
-    const initial = window.__AGIXT_WEB_RUNTIME && settings.service_brand !== 'custom'
-      ? 'web'
-      : (settings.service_brand || 'local');
+    const lockedBrand = brands.find((b) => b.locked);
+    let initial = settings.service_brand || 'local';
+    if (lockedBrand) {
+      initial = lockedBrand.slug;
+    } else if (window.__AGIXT_WEB_RUNTIME && settings.service_brand !== 'custom') {
+      initial = 'web';
+    }
     setActiveBrand(initial);
     if (initial === 'custom') {
       if (settings.server_url) $('server-url').value = settings.server_url;
       if (settings.web_url) $('web-url').value = settings.web_url;
     }
-    if (settings.user_email) $('login-email').value = settings.user_email;
+    const loginEmail = $('login-email');
+    if (settings.user_email && loginEmail && !loginEmail.value && document.activeElement !== loginEmail) {
+      loginEmail.value = settings.user_email;
+    }
   }
 
   // ----- OAuth providers --------------------------------------------------
@@ -425,9 +874,17 @@
     const row = $('oauth-row');
     const wrap = $('oauth-buttons');
     wrap.innerHTML = '';
+    if (!shouldDiscoverOAuthProviders()) {
+      row.hidden = true;
+      return;
+    }
     let providers = [];
     try {
-      providers = await invoke('list_oauth_providers', { serverUrl: activeServerUrl() });
+      providers = await withTimeout(
+        invoke('list_oauth_providers', { serverUrl: activeServerUrl() }),
+        OAUTH_PROVIDER_TIMEOUT_MS,
+        'OAuth provider discovery timed out',
+      );
     } catch (e) {
       // Servers without /v1/oauth simply have no SSO buttons.
       console.debug('no oauth providers for', activeServerUrl(), e);
@@ -548,13 +1005,17 @@
   }
 
   $('service-brand').addEventListener('change', async () => {
+    if (currentBrand && currentBrand.locked) {
+      $('service-brand').value = currentBrand.slug;
+      return;
+    }
     setActiveBrand($('service-brand').value);
     try { await persistBrand(); } catch (e) { console.warn('persistBrand failed', e); }
-    await refreshOAuthProviders();
+    if (shouldDiscoverOAuthProviders()) await refreshOAuthProviders();
   });
   $('server-url').addEventListener('change', async () => {
     try { await persistBrand(); } catch (e) { console.warn('persistBrand failed', e); }
-    await refreshOAuthProviders();
+    if (shouldDiscoverOAuthProviders()) await refreshOAuthProviders();
   });
   $('web-url').addEventListener('change', async () => {
     try { await persistBrand(); } catch (e) { console.warn('persistBrand failed', e); }
@@ -679,6 +1140,7 @@
   }
 
   function finish(context) {
+    hideAuthTouchKeyboard();
     if (typeof onAuthenticatedCb === 'function') onAuthenticatedCb(context || null);
   }
 
@@ -945,21 +1407,26 @@
 
   async function boot({ onAuthenticated } = {}) {
     onAuthenticatedCb = onAuthenticated;
+    bindAuthFocusGuard();
+    bindAuthTouchKeyboard();
     bindLocalControls();
     bindInvitationControls();
     bindInvitationListener();
     await loadBrands();
+    syncAuthTouchKeyboardAvailability();
     loadPendingInvitation();
     if (typeof window !== 'undefined' && window.location) {
       if (setPendingInvitation(window.location.href)) consumeInvitationUrl('/user/register');
     }
     applyPendingInvitationToUi();
-    await refreshOAuthProviders();
     if (loadPendingInvitation()) {
       clickAcceptInvitation();
     } else {
       showPane('login');
     }
+    refreshOAuthProviders().catch((e) => {
+      console.debug('oauth provider refresh failed after auth boot', e);
+    });
   }
 
   window.AgixtAuth = {

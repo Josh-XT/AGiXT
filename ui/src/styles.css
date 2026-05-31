@@ -321,6 +321,45 @@ body.auth-mode .topbar-stack {
   display: none;
 }
 
+/* Boot splash — covers the whole window until the async boot in app.js
+   has resolved a real screen (landing / auth / chat). Prevents the
+   topbar's agent + conversation chips from painting against an empty
+   body for a frame, which looked like a half-loaded chat UI. */
+.app-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg, var(--panel, #0c0910));
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.25s ease, visibility 0s linear 0s;
+  pointer-events: none;
+}
+.app-splash-spinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid var(--border, rgba(127, 127, 127, 0.35));
+  border-top-color: var(--accent, #6b7bff);
+  animation: app-splash-spin 0.8s linear infinite;
+}
+@keyframes app-splash-spin {
+  to { transform: rotate(360deg); }
+}
+/* Hidden whenever we're not in the booting state. */
+body:not(.app-booting) .app-splash {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.25s ease, visibility 0s linear 0.25s;
+}
+/* While booting, suppress the topbar so its chips never flash first. */
+body.app-booting .topbar {
+  display: none;
+}
+
 /* When the landing iframe is showing, give it the full panel — the
    landing has its own header + branding, so the desktop topbar would
    just be redundant chrome above it. The Tauri drag region is still
@@ -601,6 +640,39 @@ body.window-mode:not(.auth-mode) .topbar {
   background: var(--assistant-bubble);
   border: 1px solid var(--border);
   border-bottom-left-radius: 4px;
+  position: relative;
+}
+
+/* Per-message voice control — pinned to the bottom-right corner of the
+   assistant bubble, like the old kids app's per-reply pause/replay button.
+   audio.js toggles [hidden] and swaps the pause/play icons. */
+.msg-voice-btn {
+  position: absolute;
+  bottom: -10px;
+  right: -10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  z-index: 2;
+}
+.msg-voice-btn:hover { background: var(--accent-2); }
+.msg-voice-btn[hidden] { display: none; }
+.msg-voice-btn svg { display: block; }
+.msg-voice-btn svg[hidden] { display: none; }
+body.child-mode .msg-voice-btn {
+  width: 38px;
+  height: 38px;
+  bottom: -14px;
+  right: -14px;
 }
 
 .message-meta {
@@ -1085,6 +1157,31 @@ details.sub-exec > summary.sub-exec-summary:hover {
 .composer-status:empty { display: none; }
 .composer-status.error { color: #ff8a96; }
 
+/* Voice playback pause/play — shown only while the assistant reads a
+   reply aloud (child profiles auto-play). Sits inline with the status. */
+.voice-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.voice-toggle-btn:hover { background: var(--accent-2); }
+.voice-toggle-btn[hidden] { display: none; }
+.voice-toggle-btn svg { display: block; }
+.voice-toggle-btn svg[hidden] { display: none; }
+body.child-mode .voice-toggle-btn {
+  width: 44px;
+  height: 44px;
+}
+
 /* Attachments tray sits above the composer row. Chips show the file's
    basename with the full path on hover, and an × to drop it before
    sending. The selected files are local-only — they get cleared after
@@ -1238,6 +1335,9 @@ body.child-mode .composer-status {
   min-height: 0;
 }
 .auth-screen[hidden] { display: none; }
+body.auth-touch-keyboard-open .auth-screen {
+  padding-bottom: 248px;
+}
 
 /* Landing screen — pre-auth marketing page hosted in an iframe so the
    brand's CSS stays isolated from the desktop client's tokens. The
@@ -2075,6 +2175,7 @@ body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .chat-mo
   position: relative;
   transition: color 0.14s ease, background 0.14s ease;
 }
+.sidenav-btn[hidden] { display: none !important; }
 .sidenav-btn:hover {
   color: var(--sidenav-icon-active);
   background: var(--sidenav-hover-bg);
@@ -2387,6 +2488,10 @@ body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .chat-mo
 .field input:read-only {
   opacity: 0.7;
   cursor: default;
+}
+body.auth-touch-keyboard-enabled .auth-pane .field input[data-auth-touch-keyboard="true"] {
+  opacity: 1;
+  cursor: text;
 }
 
 .auth-pane { display: flex; flex-direction: column; gap: 10px; }
@@ -2835,6 +2940,69 @@ body.mobile-portrait.window-mode.with-content-pane:not(.chat-collapsed) .chat-mo
   color: #8bc7ff;
   background: color-mix(in srgb, #8bc7ff 12%, transparent);
   border: 1px solid color-mix(in srgb, #8bc7ff 28%, transparent);
+}
+
+.auth-touch-keyboard {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding:
+    8px max(10px, env(safe-area-inset-right))
+    calc(8px + env(safe-area-inset-bottom))
+    max(10px, env(safe-area-inset-left));
+  background: color-mix(in srgb, var(--panel) 96%, #000);
+  border-top: 1px solid var(--border-strong);
+  box-shadow: 0 -16px 36px rgba(0, 0, 0, 0.42);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.auth-touch-keyboard[hidden] { display: none !important; }
+.auth-touch-keyboard-row {
+  display: flex;
+  gap: 5px;
+}
+.auth-touch-key {
+  appearance: none;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.auth-touch-key:active,
+.auth-touch-key.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.auth-touch-key.wide { flex-grow: 1.45; }
+.auth-touch-key.xwide { flex-grow: 3.2; }
+.auth-touch-key.action {
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel-2));
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+}
+.auth-touch-key.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 
 .settings-user {
@@ -7160,4 +7328,93 @@ textarea.pg-input { resize: vertical; min-height: 56px; }
 }
 .us-list-item-wrap:last-child {
   border-bottom: 0;
+}
+
+/* ─── Super Admin: server configuration provider cards ───────────────── */
+
+/* Boolean config row laid out like a checkbox + label + hint stack. */
+.us-config-bool {
+  align-items: flex-start;
+  gap: 10px;
+}
+.us-config-bool > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Provider list (email + storage selectors). Each row is a selectable card
+   that expands to reveal credential fields. */
+.us-provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.us-provider-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--panel-2);
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.us-provider-row.is-active {
+  border-color: var(--accent, var(--border-strong));
+  box-shadow: 0 0 0 1px var(--accent, var(--border-strong));
+}
+.us-provider-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.us-provider-head:hover {
+  background: var(--panel-3, rgba(127, 127, 127, 0.08));
+}
+.us-provider-radio {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.us-provider-radio.is-on {
+  border-color: var(--accent, var(--text));
+}
+.us-provider-radio.is-on::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent, var(--text));
+}
+.us-provider-grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.us-provider-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.us-provider-blurb {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.us-provider-test {
+  flex: 0 0 auto;
+}
+.us-provider-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.us-provider-fields .us-hint {
+  grid-column: 1 / -1;
 }

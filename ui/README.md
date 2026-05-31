@@ -72,7 +72,7 @@ The browser image serves the same `src/` frontend with Nginx and injects
 `window.__TAURI__` surface the frontend expects, backed by browser storage and
 AGiXT REST/SSE/WebSocket endpoints.
 
-Build from the AGiXT repository root:
+Build from the WorkConductor repository root:
 
 ```bash
 docker build -f ui/Dockerfile -t agixt-client-web .

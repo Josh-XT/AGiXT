@@ -1089,6 +1089,12 @@
     return request('PUT', '/v1/server/config', { body: { configs } });
   }
 
+  /** POST /v1/server/email/test — send a test email through a given provider
+   *  ('sendgrid', 'mailgun', 'microsoft', 'google') to verify its config. */
+  async function testEmailProvider(provider) {
+    return request('POST', '/v1/server/email/test', { body: { provider } });
+  }
+
   // ----- Group chat / channels --------------------------------------------
   // Mirrors the web's group-chat SDK methods (see web/lib/sdk.ts §
   // "Group Chat / Channel Methods"). The desktop's team-chat pane uses
@@ -2064,6 +2070,7 @@
     adminMergeCompanies,
     getAllServerConfig,
     bulkUpdateServerConfig,
+    testEmailProvider,
     // Chains
     listChains,
     getChain,

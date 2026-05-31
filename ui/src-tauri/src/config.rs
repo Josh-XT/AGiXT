@@ -4,17 +4,31 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 use std::path::PathBuf;
 
+// Mobile defaults can be overridden at compile time so a single shared
+// codebase can produce purpose-built APKs (e.g. the xt.school tablet build)
+// without changing the defaults baked into the generic AGiXT mobile app.
+// Set AGIXT_DEFAULT_SERVER_URL / AGIXT_DEFAULT_WEB_URL / AGIXT_DEFAULT_BRAND
+// in the build environment to point a build at a specific backend.
 #[cfg(mobile)]
-const DEFAULT_SERVER_URL: &str = "https://api.agixt.com";
+const DEFAULT_SERVER_URL: &str = match option_env!("AGIXT_DEFAULT_SERVER_URL") {
+    Some(v) => v,
+    None => "https://api.agixt.com",
+};
 #[cfg(not(mobile))]
 const DEFAULT_SERVER_URL: &str = "http://localhost:7437";
 #[cfg(mobile)]
-const DEFAULT_WEB_URL: &str = "https://agixt.com";
+const DEFAULT_WEB_URL: &str = match option_env!("AGIXT_DEFAULT_WEB_URL") {
+    Some(v) => v,
+    None => "https://agixt.com",
+};
 #[cfg(not(mobile))]
 const DEFAULT_WEB_URL: &str = "http://localhost:3437";
 const DEFAULT_AGENT_NAME: &str = "XT";
 #[cfg(mobile)]
-const DEFAULT_BRAND: &str = "agixt";
+const DEFAULT_BRAND: &str = match option_env!("AGIXT_DEFAULT_BRAND") {
+    Some(v) => v,
+    None => "agixt",
+};
 #[cfg(not(mobile))]
 const DEFAULT_BRAND: &str = "local";
 
@@ -62,6 +76,12 @@ pub const SERVICE_BRANDS: &[(&str, &str, &str, &str)] = &[
         "https://api.boltremote.com",
         "https://boltremote.com",
     ),
+    (
+        "xtschool",
+        "XT.School",
+        "https://api.xt.school",
+        "https://app.xt.school",
+    ),
     // Local: dedicated entry for `http://localhost:7437` so the login
     // screen can probe the port and offer a one-click installer when
     // nothing is listening. URLs are non-editable in this mode — if the
@@ -89,6 +109,17 @@ pub fn brand_default_web_url(slug: &str) -> &'static str {
         }
     }
     DEFAULT_WEB_URL
+}
+
+pub fn default_brand() -> &'static str {
+    DEFAULT_BRAND
+}
+
+pub fn forced_theme_for_brand(slug: &str) -> Option<&'static str> {
+    match slug {
+        "xtschool" => Some("gray"),
+        _ => None,
+    }
 }
 
 fn default_true() -> bool {
@@ -222,7 +253,9 @@ impl DesktopSettings {
             desktop_auto_update: true,
             sidebar_open: false,
             allow_client_commands: true,
-            theme: "system".to_string(),
+            theme: forced_theme_for_brand(DEFAULT_BRAND)
+                .unwrap_or("system")
+                .to_string(),
             dock_pos_x: None,
             dock_pos_y: None,
             g1_enabled: false,

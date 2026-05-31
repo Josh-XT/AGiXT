@@ -22,6 +22,8 @@
   let conversationName = null;
   let childMode = false;
   let childControl = null;
+  let teamChatAvailable = false;
+  let teamChatAvailabilityRequest = 0;
   const rememberedAgentConversations = new Map();
 
   // ----- DOM -----
@@ -163,6 +165,17 @@
 
   // ----- Screen switching --------------------------------------------------
 
+  // Remove the boot splash once a real screen is on-screen. Idempotent —
+  // the first terminal boot state (chat / auth / landing) clears it and
+  // any later call is a no-op. The 250ms timeout matches the CSS fade so
+  // the splash element can be left in the DOM without trapping clicks.
+  let _bootFinished = false;
+  function finishBoot() {
+    if (_bootFinished) return;
+    _bootFinished = true;
+    try { document.body.classList.remove('app-booting'); } catch (_) {}
+  }
+
   function showScreen(which) {
     const auth = which === 'auth';
     const landing = which === 'landing';
@@ -196,6 +209,13 @@
     if (!chat) {
       removeTrialBanner();
       clearTrialLifecycleChecks();
+    }
+    // Auth and chat are terminal boot states — clear the splash now. The
+    // landing screen is special-cased in showLanding(): it keeps the
+    // splash up until the iframe finishes loading so the user never sees
+    // a blank frame.
+    if (!landing) {
+      finishBoot();
     }
   }
 
@@ -233,11 +253,30 @@
     const frame = $('landing-frame');
     if (!frame || !landing || !landing.id) return false;
     const desiredUrl = `${landingServerBase()}${landing.index_url || landing.entry_url}`;
-    if (_activeLandingSiteId !== landing.id || frame.src !== desiredUrl) {
+    const alreadyLoaded = _activeLandingSiteId === landing.id && frame.src === desiredUrl;
+    if (!alreadyLoaded) {
       frame.src = desiredUrl;
       _activeLandingSiteId = landing.id;
     }
     showScreen('landing');
+    // Hold the boot splash over the (still-blank) iframe until it has
+    // painted, then fade it out. A timeout guarantees we never strand the
+    // user behind the splash if the load event is missed (cache hits,
+    // cross-origin quirks, etc.). If the frame was already loaded from a
+    // prior showLanding() call, clear immediately.
+    if (alreadyLoaded) {
+      finishBoot();
+    } else if (!_bootFinished) {
+      let cleared = false;
+      const clearOnce = () => {
+        if (cleared) return;
+        cleared = true;
+        frame.removeEventListener('load', clearOnce);
+        finishBoot();
+      };
+      frame.addEventListener('load', clearOnce);
+      setTimeout(clearOnce, 4000);
+    }
     if (!_landingMessageHandler) {
       _landingMessageHandler = (event) => {
         const data = event && event.data;
@@ -268,7 +307,16 @@
     // the Tauri DB, reconcile: backfill localStorage so the bootstrap
     // is correct on the next launch, and reapply if the persisted
     // pref disagrees with what we resolved at boot.
-    const themePref = (settings.theme || 'system');
+    //
+    // XT School (kids tablets) is a locked-down kiosk: the content UI is
+    // designed dark and the Fire tablets report a light OS preference, so
+    // "system" would resolve to light and look wrong. Force dark ("gray")
+    // for that brand regardless of the saved/OS preference. Persisting it
+    // also fixes the index.html bootstrap on the next launch (it reads the
+    // cached pref), so there's no light flash after the first run.
+    const themePref = isKidsBrand(settings.service_brand)
+      ? 'gray'
+      : (settings.theme || 'system');
     applyTheme(themePref, { persist: true });
     if (settingsUser) {
       settingsUser.textContent = settings.user_email
@@ -281,6 +329,12 @@
     if (window.AgixtBranding && settings.service_brand) {
       window.AgixtBranding.apply(settings.service_brand);
     }
+  }
+
+  // The XT School brand runs on locked-down kids tablets where the theme
+  // is forced dark (see loadSettings) and the theme picker is hidden.
+  function isKidsBrand(brand) {
+    return brand === 'xtschool';
   }
 
   // Stamp the resolved theme on <html data-theme> so the CSS variables
@@ -501,6 +555,7 @@
       if (window.AgixtNotifications) window.AgixtNotifications.stop();
       companies = [];
       agents = [];
+      setTeamChatAvailable(false);
       renderSelectors();
       setSettingsStatus('Logged out.', 'success');
       showScreen('auth');
@@ -528,6 +583,7 @@
       try { if (window.AgixtNotifications) window.AgixtNotifications.stop(); } catch (_) {}
       companies = [];
       agents = [];
+      setTeamChatAvailable(false);
       renderSelectors();
       showScreen('auth');
       await loadSettings().catch(() => {});
@@ -677,6 +733,7 @@
         window.AgixtSidenav.setActiveView('chat');
       }
     }
+    applyTeamChatNavVisibility();
     if (window.AgixtChat && typeof window.AgixtChat.setComposerStatus === 'function') {
       window.AgixtChat.setComposerStatus(lockedReason ? childLockMessage(lockedReason) : '');
     }
@@ -1003,15 +1060,18 @@
 
   function highestPriorityBillingWarning(warnings) {
     if (!Array.isArray(warnings) || !warnings.length) return null;
+    warnings = warnings.filter((warning) => {
+      const type = String((warning && warning.type) || '');
+      return !type.includes('user_limit');
+    });
+    if (!warnings.length) return null;
     const priority = {
       token_limit_reached: 0,
-      user_limit_reached: 1,
-      device_limit_reached: 2,
-      storage_limit_reached: 3,
-      token_limit_approaching: 4,
-      user_limit_approaching: 5,
-      device_limit_approaching: 6,
-      storage_limit_approaching: 7,
+      device_limit_reached: 1,
+      storage_limit_reached: 2,
+      token_limit_approaching: 3,
+      device_limit_approaching: 4,
+      storage_limit_approaching: 5,
     };
     return warnings.slice().sort((a, b) => {
       const aType = a && a.type;
@@ -1023,7 +1083,12 @@
   }
 
   function limitWarningNotice(company, limits) {
-    const warnings = Array.isArray(limits && limits.warnings) ? limits.warnings : [];
+    const warnings = Array.isArray(limits && limits.warnings)
+      ? limits.warnings.filter((warning) => {
+          const type = String((warning && warning.type) || '');
+          return !type.includes('user_limit');
+        })
+      : [];
     const warning = highestPriorityBillingWarning(warnings);
     if (!warning) return null;
     const type = String(warning.type || 'limit');
@@ -1330,6 +1395,7 @@
     if (!settings.jwt) {
       companies = [];
       agents = [];
+      setTeamChatAvailable(false);
       renderSelectors();
       return;
     }
@@ -1408,6 +1474,7 @@
     }
     renderSelectors();
     await refreshChildMode();
+    await refreshTeamChatAvailability();
     if (contextChanged
         && window.AgixtDesktopExtensions
         && typeof window.AgixtDesktopExtensions.refresh === 'function') {
@@ -2749,8 +2816,90 @@
   // we map back to the underlying pane id when toggling visibility.
   const PANE_ALIASES = { extensions: 'agent-settings', training: 'agent-settings' };
   function paneIdFor(viewId) { return PANE_ALIASES[viewId] || viewId; }
+
+  function teamChatButton() {
+    return document.querySelector('.sidenav-btn[data-view="team-chat"]');
+  }
+
+  function applyTeamChatNavVisibility() {
+    const available = !!teamChatAvailable;
+    const btn = teamChatButton();
+    if (btn) {
+      btn.hidden = !available;
+      btn.disabled = !available || (childMode && !childAllowedView('team-chat'));
+      btn.setAttribute('aria-hidden', available ? 'false' : 'true');
+    }
+    if (!available) {
+      const pane = document.querySelector('.view-pane-team-chat');
+      if (pane) pane.hidden = true;
+      if (activeView === 'team-chat') {
+        setActiveView('chat');
+      }
+    }
+    if (window.AgixtDesktopExtensions
+        && typeof window.AgixtDesktopExtensions.reflowSidenav === 'function') {
+      try { window.AgixtDesktopExtensions.reflowSidenav(); } catch (_) {}
+    }
+  }
+
+  function setTeamChatAvailable(available) {
+    teamChatAvailable = !!available;
+    applyTeamChatNavVisibility();
+  }
+
+  function companyShapeHasTeammates(company) {
+    if (!company) return false;
+    if (Array.isArray(company.users)) return company.users.length > 1;
+    const count = Number(
+      company.user_count
+      ?? company.users_count
+      ?? company.member_count
+      ?? company.members_count
+      ?? 0,
+    );
+    return Number.isFinite(count) && count > 1;
+  }
+
+  function companyShapeHasKnownMemberCount(company) {
+    if (!company) return true;
+    if (Array.isArray(company.users)) return company.users.length > 0;
+    return company.user_count != null
+      || company.users_count != null
+      || company.member_count != null
+      || company.members_count != null;
+  }
+
+  async function refreshTeamChatAvailability() {
+    const requestId = ++teamChatAvailabilityRequest;
+    if (!settings || !settings.jwt || !Array.isArray(companies) || !companies.length) {
+      setTeamChatAvailable(false);
+      return false;
+    }
+    if (companies.some(companyShapeHasTeammates)) {
+      setTeamChatAvailable(true);
+      return true;
+    }
+    const unknownCompanies = companies.filter((company) => !companyShapeHasKnownMemberCount(company));
+    if (!unknownCompanies.length) {
+      setTeamChatAvailable(false);
+      return false;
+    }
+    let available = false;
+    if (window.AgixtApi && typeof window.AgixtApi.getCompanyMembers === 'function') {
+      const results = await Promise.all(unknownCompanies.map((company) =>
+        window.AgixtApi.getCompanyMembers(company.id)
+          .then((members) => Array.isArray(members) && members.length > 1)
+          .catch(() => false)));
+      available = results.some(Boolean);
+    }
+    if (requestId !== teamChatAvailabilityRequest) return teamChatAvailable;
+    setTeamChatAvailable(available);
+    return available;
+  }
+
   function setActiveView(viewId) {
     if (!viewId) return;
+    if (viewId === 'team-chat' && !teamChatAvailable) viewId = 'chat';
     if (childMode && !childAllowedView(viewId)) viewId = 'chat';
     // Picking any section leaves the chat's full-window focus mode and
     // restores the side-by-side split with that page.
@@ -3378,10 +3527,6 @@
     return parts[0] === 'user' && parts[1] !== 'close';
   }
 
-  function isLandingRoute() {
-    return isHostedWebRuntime() && routeParts().length === 0;
-  }
-
   function hasInvitationRoute() {
     if (!isHostedWebRuntime()) return false;
     try {
@@ -3480,7 +3625,10 @@
   }
 
   function applyRoutedView() {
-    const viewId = routedViewId();
+    const requestedViewId = routedViewId();
+    const viewId = requestedViewId === 'team-chat' && !teamChatAvailable
+      ? 'chat'
+      : requestedViewId;
     if (!viewId || !window.AgixtSidenav || typeof window.AgixtSidenav.setActiveView !== 'function') {
       return;
     }
@@ -3489,6 +3637,9 @@
       window.AgixtSidenav.setActiveView(viewId);
     } finally {
       applyingHostedRoute = false;
+    }
+    if (viewId !== requestedViewId) {
+      updateHostedRouteForView(viewId);
     }
     if (viewId === 'user-settings') {
       const tab = routedUserSettingsTab();
@@ -3641,16 +3792,17 @@
     } else {
       // No JWT. In web mode (no Tauri shell), show the configured
       // landing page first so first-time visitors see marketing instead
-      // of a bare auth form. In native desktop mode, skip landing and
-      // jump straight to the auth screen — the desktop user already
-      // chose to install the app and needs the server picker, not a
-      // sales pitch. The browser shim provides a Tauri-compatible
-      // surface, so use its explicit web marker to distinguish hosted web
-      // from the real native shell.
-      const isNativeDesktop = !!tauri && !isHostedWebRuntime();
+      // of a bare auth form. This is the default for *any* web route that
+      // isn't an explicit auth route (/user...) or an invitation link —
+      // the landing's own sign-in CTA flips us to the auth screen. In
+      // native desktop/mobile mode, skip landing and jump straight to the
+      // auth screen — the desktop user already chose to install the app
+      // and needs the server picker, not a sales pitch. The browser shim
+      // provides a Tauri-compatible surface, so use its explicit web
+      // marker to distinguish hosted web from the real native shell.
       const invitationRoute = hasInvitationRoute();
       let landingShown = false;
-      if (!invitationRoute && !isNativeDesktop && isLandingRoute() && !isAuthRoute()) {
+      if (!invitationRoute && isHostedWebRuntime() && !isAuthRoute()) {
         try {
           const landing = await fetchLandingManifest();
           if (landing) landingShown = showLanding(landing);

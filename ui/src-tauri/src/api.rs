@@ -31,6 +31,16 @@ pub struct CompanyInfo {
     pub primary: bool,
     #[serde(default)]
     pub agents: Vec<AgentInfo>,
+    #[serde(default)]
+    pub users: Option<Vec<Value>>,
+    #[serde(default)]
+    pub user_count: Option<i64>,
+    #[serde(default)]
+    pub users_count: Option<i64>,
+    #[serde(default)]
+    pub member_count: Option<i64>,
+    #[serde(default)]
+    pub members_count: Option<i64>,
 }
 
 pub fn build_client() -> Result<reqwest::Client> {
@@ -1113,10 +1123,7 @@ pub fn redirect_slug_for(provider_name: &str) -> String {
         "facebook" | "meta" | "meta_ads" => "facebook".to_string(),
         "x" | "x_twitter" | "twitter" => "x".to_string(),
         "stripe" | "stripe_payments" => "stripe".to_string(),
-        known => known
-            .replace('_', "-")
-            .replace('.', "-")
-            .replace(' ', "-"),
+        known => known.replace('_', "-").replace('.', "-").replace(' ', "-"),
     }
 }
 

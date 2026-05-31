@@ -22,7 +22,7 @@
   // Bumped whenever the activity rendering pipeline changes, so the
   // backend log immediately tells us whether the running webview picked
   // up the latest code or is showing a cached/older bundle.
-  const CHAT_JS_VERSION = 'activities-count-v32';
+  const CHAT_JS_VERSION = 'activities-count-v34';
   if (window.AgixtFrontendLog) {
     window.AgixtFrontendLog('info', `chat.js loaded (${CHAT_JS_VERSION})`);
   }
@@ -250,6 +250,7 @@
   let lastActivityId = null;
   let lastThinkingActivityId = null;
   const activityIdAlias = new Map(); // alias id -> effective parent id
+  const syntheticActivityByParentRef = new Map(); // missing parent id -> synthetic parent id
   let activeStreamingActivity = null; // one live activity block across tool-result recursion
   // Each tool call produces a CLIENT_TOOL subactivity followed by a string
   // of REMOTE / untagged subactivities ("Requesting remote execution…",
@@ -300,6 +301,7 @@
     currentToolGroup = null;
     activeStreamingActivity = null;
     activityIdAlias.clear();
+    syntheticActivityByParentRef.clear();
   }
 
   function removeMessage(id) {
@@ -315,6 +317,9 @@
     if (currentToolGroup && currentToolGroup.id === id) currentToolGroup = null;
     if (activeStreamingActivity && activeStreamingActivity.id === id) activeStreamingActivity = null;
     activityIdAlias.delete(id);
+    for (const [parentRef, syntheticId] of syntheticActivityByParentRef.entries()) {
+      if (syntheticId === id) syntheticActivityByParentRef.delete(parentRef);
+    }
   }
 
   function comparableRole(role) {
@@ -371,21 +376,35 @@
     const incomingRole = comparableRole(role);
     const options = opts || {};
     const startIndex = Number.isFinite(options.startIndex) ? options.startIndex : 0;
+    const incomingCmp = comparableText(incoming);
     for (const id of order.slice(startIndex)) {
       const isLocal = id.startsWith('local-');
       if (options.local === true && !isLocal) continue;
       if (options.local === false && isLocal) continue;
       const m = messages.get(id);
       if (!m || m.kind !== 'plain' || comparableRole(m.role) !== incomingRole) continue;
-      if (comparableText(m.text) === comparableText(incoming)) {
-        return id;
+      const existingCmp = comparableText(m.text);
+      if (existingCmp === incomingCmp) return id;
+      // Fuzzy reconcile: the streamed (local) answer and the persisted
+      // (server) answer for the SAME turn can differ by a still-completing
+      // tail or trailing punctuation. When one is a substantial prefix of
+      // the other, treat them as the same message so we don't leave a
+      // duplicate answer bubble in the chat. Scoped to assistant plains and
+      // opt-in (fuzzy) so user echoes are never merged.
+      if (options.fuzzy && incomingRole === 'assistant' && existingCmp && incomingCmp) {
+        const short = existingCmp.length <= incomingCmp.length ? existingCmp : incomingCmp;
+        const long = existingCmp.length <= incomingCmp.length ? incomingCmp : existingCmp;
+        if (short.length >= 8 && long.startsWith(short)) return id;
       }
     }
     return null;
   }
 
   function replaceMatchingLocalPlain(role, body) {
-    const id = findMatchingPlainId(role, body, { local: true });
+    const id = findMatchingPlainId(role, body, {
+      local: true,
+      fuzzy: comparableRole(role) === 'assistant',
+    });
     if (id) {
       removeMessage(id);
     }
@@ -442,6 +461,12 @@
     if (lastThinkingActivityId === localId) lastThinkingActivityId = serverId;
     if (activeStreamingActivity && activeStreamingActivity.id === localId) {
       activeStreamingActivity.id = serverId;
+    }
+    if (currentToolGroup && currentToolGroup.parentId === localId) {
+      currentToolGroup.parentId = serverId;
+    }
+    for (const child of messages.values()) {
+      if (child && child.parentId === localId) child.parentId = serverId;
     }
     const titleEl = entry.el && entry.el.querySelector('.activity-title');
     const finalized = entry.el && entry.el.getAttribute('data-finalized') === 'true';
@@ -509,7 +534,7 @@
     return 'execution';
   }
 
-  const KNOWN_SUB_TAGS = new Set(['THOUGHT', 'REFLECTION', 'INFO', 'ERROR', 'WARNING', 'CLIENT_TOOL', 'REMOTE', 'DIAGRAM', 'EXECUTION']);
+  const KNOWN_SUB_TAGS = new Set(['THOUGHT', 'REFLECTION', 'INFO', 'ERROR', 'WARNING', 'CLIENT_TOOL', 'REMOTE', 'DIAGRAM', 'EXECUTION', 'SPOKEN']);
 
   // Returns { kind, label, body, tag, parentRef }
   function parseMessageEnvelope(raw) {
@@ -553,6 +578,22 @@
       return out;
     }
     return { kind: 'plain', body: text };
+  }
+
+  function messageTimestampMs(msg) {
+    if (!msg) return 0;
+    const raw = msg.timestamp_utc || msg.timestamp || msg.updated_at_utc || msg.updated_at;
+    if (!raw) return 0;
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function chronologicalMessages(batch) {
+    if (!Array.isArray(batch)) return [];
+    return batch
+      .map((msg, index) => ({ msg, index, timestampMs: messageTimestampMs(msg) }))
+      .sort((a, b) => (a.timestampMs - b.timestampMs) || (a.index - b.index))
+      .map((item) => item.msg);
   }
 
   // ----- DOM rendering -----
@@ -698,6 +739,25 @@
     return { el: wrap, content };
   }
 
+  // Build the per-message voice control that sits in the bottom corner of the
+  // assistant bubble (mirrors the old kids app's per-reply pause/replay
+  // button). audio.js drives its visibility and pause/play/replay icon.
+  function buildMsgVoiceBtn() {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'msg-voice-btn';
+    b.hidden = true;
+    b.setAttribute('aria-label', 'Pause voice');
+    b.setAttribute('title', 'Pause voice');
+    b.innerHTML =
+      '<svg class="voice-icon-pause" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">'
+      + '<rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/>'
+      + '<rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>'
+      + '<svg class="voice-icon-play" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" hidden>'
+      + '<path d="M8 5v14l11-7z" fill="currentColor"/></svg>';
+    return b;
+  }
+
   // Count of envelopes folded into one activity block — mirrors web's
   // countActivityActions: one for the activity itself (plus any later
   // [ACTIVITY] Thinking that got merged via activityIdAlias), and one for
@@ -758,6 +818,7 @@
     REMOTE:      { icon: '⌘', label: 'Command' },
     DIAGRAM:     { icon: '✎', label: 'Diagram' },
     EXECUTION:   { icon: '⚙', label: 'Execution' },
+    SPOKEN:      { icon: '🔊', label: 'Spoken' },
   };
 
   function tryParseJson(text) {
@@ -1284,6 +1345,13 @@
         } else {
           const aliased = activityIdAlias.get(parsed.parentRef);
           if (aliased) parent = messages.get(aliased);
+          if (!parent) {
+            const syntheticId = syntheticActivityByParentRef.get(parsed.parentRef);
+            const syntheticParent = syntheticId ? messages.get(syntheticId) : null;
+            if (syntheticParent && syntheticParent.kind === 'activity') {
+              parent = syntheticParent;
+            }
+          }
         }
       }
       // 2) Tag form ([SUBACTIVITY][THOUGHT|...]) — attach to last activity.
@@ -1292,9 +1360,14 @@
         if (candidate && candidate.kind === 'activity') parent = candidate;
       }
       // 3) Orphan subactivity arriving before any activity — synthesize a
-      // "Thinking" parent so it doesn't render as a stranded line.
+      // "Thinking" parent so it doesn't render as a stranded line. If the
+      // orphan references a parent activity that is outside the loaded history
+      // page, reuse one synthetic parent per missing parent id so migrated
+      // activity chunks stay together across plain-message boundaries.
       if (!parent) {
-        const synthId = `synthetic-act-${msg.id}`;
+        const synthId = parsed.parentRef
+          ? `synthetic-act-${parsed.parentRef}`
+          : `synthetic-act-${msg.id}`;
         const r = renderActivity('Thinking', 'thought');
         initActivityElapsed(r.el, msg.timestamp, isInitial);
         ensureElapsedTicker();
@@ -1305,6 +1378,7 @@
         };
         messages.set(synthId, parent);
         order.push(synthId);
+        if (parsed.parentRef) syntheticActivityByParentRef.set(parsed.parentRef, synthId);
         lastActivityId = synthId;
         lastThinkingActivityId = synthId;
       }
@@ -1653,7 +1727,7 @@
         return;
       case 'initial_data':
         if (Array.isArray(env.data)) {
-          env.data.forEach((msg) => ingest(msg, true));
+          chronologicalMessages(env.data).forEach((msg) => ingest(msg, true));
         }
         return;
       case 'initial_message':
@@ -1819,6 +1893,8 @@
   async function stop() {
     const turn = activeTurn;
     turnStopped = true;
+    // Cut off any in-progress spoken reply immediately.
+    try { if (audio && typeof audio.stopPcm === 'function') audio.stopPcm(); } catch (_) {}
     try {
       if (clientActions && typeof clientActions.stopActiveAction === 'function') {
         clientActions.stopActiveAction('Stopped by user.');
@@ -1895,6 +1971,8 @@
       case 'execute':
       case 'activity':
         return 'EXECUTION';
+      case 'speak':
+        return 'SPOKEN';
       default:
         return 'THOUGHT';
     }
@@ -2028,6 +2106,9 @@
   async function runStreamingTurn(inv, event, conversationName, turnMessages, originalTask) {
     const asstId = `local-asst-${Date.now()}`;
     const turnBoundaryIndex = order.length;
+    // A fresh turn supersedes any prior reply's voice control — hide it so a
+    // stale pause/replay button doesn't linger on the previous message.
+    try { if (audio && typeof audio.resetVoiceControl === 'function') audio.resetVoiceControl(); } catch (_) {}
     // Lazy placeholder: pure tool-call rounds (the model produces no
     // text, only `remote_command.request` events) used to leave behind
     // an empty grey bubble in the chat. We now defer creating the
@@ -2048,6 +2129,16 @@
       messages.set(asstId, asstEntry);
       order.push(asstId);
       placeholder.content.classList.add('cursor-blink');
+      // Anchor the voice pause/replay control to this reply's bubble so it
+      // sits in the message's bottom corner instead of the global composer.
+      try {
+        const bubbleEl = placeholder.el.querySelector('.bubble');
+        if (bubbleEl && audio && typeof audio.setActiveVoiceTarget === 'function') {
+          const vb = buildMsgVoiceBtn();
+          bubbleEl.appendChild(vb);
+          audio.setActiveVoiceTarget(vb);
+        }
+      } catch (_) { /* non-fatal */ }
       return placeholder;
     }
 
@@ -2173,7 +2264,7 @@
                 }
                 // AGiXT emits thinking/reflection/execute activity.stream events
                 // as deltas, so concatenate each stream into one rolling subactivity.
-                streamingActivity.streamText += chunk;
+                streamingActivity.streamText = mergeStreamText(streamingActivity.streamText, chunk);
                 renderMdOrCodexInto(streamingActivity.subContent, streamingActivity.streamText);
                 const activityEntry = messages.get(streamingActivity.id);
                 if (activityEntry) {
@@ -2182,12 +2273,44 @@
                 }
               } else {
                 appendLiveSubactivity(streamingActivity, chunk, tag, streamId);
+                // A one-shot subactivity (e.g. "All N abilities available.")
+                // was just appended after any in-progress rolling subactivity.
+                // Clear the rolling pointers so the next THOUGHT/REFLECTION/
+                // execute stream starts a fresh subactivity appended BELOW this
+                // entry instead of continuing to write into the earlier element
+                // above it (which made one-shot entries appear stuck at bottom).
+                streamingActivity.subContent = null;
+                streamingActivity.subTag = null;
+                streamingActivity.streamText = '';
               }
             }
             if (complete && (tag === 'THOUGHT' || tag === 'REFLECTION' || rawKind === 'execute')) {
               streamingActivity.el.setAttribute('data-running', 'false');
             }
             scrollToBottom();
+            break;
+          }
+          case 'audio_header': {
+            if (audio && typeof audio.startPcmSegment === 'function') {
+              audio.startPcmSegment({
+                audio: ev.data && ev.data.audio,
+                sampleRate: (ev.data && ev.data.sample_rate) || 22050,
+                bitsPerSample: (ev.data && ev.data.bits_per_sample) || 16,
+                channels: (ev.data && ev.data.channels) || 1,
+              });
+            }
+            break;
+          }
+          case 'audio_chunk': {
+            if (audio && typeof audio.pushPcmChunk === 'function') {
+              audio.pushPcmChunk(ev.data && ev.data.audio);
+            }
+            break;
+          }
+          case 'audio_end': {
+            if (audio && typeof audio.endPcmSegment === 'function') {
+              audio.endPcmSegment();
+            }
             break;
           }
           case 'done': {
@@ -2207,6 +2330,7 @@
               const matchingServerId = findMatchingPlainId('assistant', finalText, {
                 local: false,
                 startIndex: turnBoundaryIndex,
+                fuzzy: true,
               });
               if (matchingServerId) {
                 if (placeholder) {
@@ -2277,7 +2401,7 @@
 
     const finishReason = await finished;
     if (typeof unlisten === 'function') unlisten();
-    setComposerStatus('');
+    if (finishReason !== 'error') setComposerStatus('');
 
     // Stop button pressed (or upstream error): drop everything we
     // collected this round and don't recurse. Without this guard the
@@ -2493,7 +2617,7 @@
     // AGiXT keeps the conversation log on the server. We only need to
     // re-render past turns for the user; we don't have to rebuild any
     // local history array because chat_send only sends the new turn.
-    for (const m of entries) ingest(m, true);
+    for (const m of chronologicalMessages(entries)) ingest(m, true);
     scrollToBottom();
   }
 

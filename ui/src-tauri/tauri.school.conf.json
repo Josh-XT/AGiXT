@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "XT School",
+  "identifier": "school.xt.app",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "XT School"
+      }
+    ]
+  }
+}

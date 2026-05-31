@@ -411,7 +411,7 @@
   function reflowSidenavOverflow() {
     const top = document.querySelector('.sidenav-top');
     if (!top) return;
-    const all = Array.from(top.querySelectorAll('.sidenav-btn[data-view]'));
+    const all = Array.from(top.querySelectorAll('.sidenav-btn[data-view]:not([hidden])'));
     // Reset state.
     all.forEach((b) => b.classList.remove('is-overflow-hidden'));
     let moreBtn = top.querySelector('.sidenav-more-btn');

@@ -436,20 +436,106 @@
         continue;
       }
       const li = document.createElement('li');
-      // Collect continuation lines (more-indented non-list-marker lines) into the item.
+      // Collect continuation lines belonging to this item. Continuation
+      // content is anything indented past `baseIndent` (the marker
+      // column). We dedent each line by the item's continuation indent
+      // (the indent of its first continuation line) so nested block
+      // constructs — fenced code blocks, sub-lists, blockquotes — see
+      // the indentation they expect when rendered recursively.
+      //
+      // Fenced code blocks are a special case: they can contain blank
+      // lines and arbitrary (even un-indented) body lines, so once we
+      // open a fence we keep consuming until its closing ``` regardless
+      // of indentation.
       const itemLines = [info.content];
+      let sawBlock = /```/.test(info.content);
       i++;
+      // Dedent removes up to `cols` columns of leading whitespace,
+      // expanding tabs to 4 spaces so indent math matches listItemInfo.
+      const dedentBy = (s, cols) => {
+        let stripped = 0;
+        let idx = 0;
+        while (idx < s.length && stripped < cols) {
+          const ch = s[idx];
+          if (ch === ' ') { stripped += 1; idx += 1; }
+          else if (ch === '\t') { stripped += 4; idx += 1; }
+          else break;
+        }
+        return s.slice(idx);
+      };
+      // The indentation continuation content is dedented by. Captured
+      // from the first continuation line so e.g. a `  ```bash` block
+      // under a top-level bullet (baseIndent 0) is normalised to a
+      // column-0 fence the block parser recognises.
+      let contIndent = null;
       while (i < lines.length) {
-        if (/^\s*$/.test(lines[i])) break;
-        const nextInfo = listItemInfo(lines[i]);
-        if (nextInfo) break;
-        const leadMatch = lines[i].match(/^(\s*)/);
+        const cur = lines[i];
+        const blank = /^\s*$/.test(cur);
+        const leadMatch = cur.match(/^(\s*)/);
         const lead = leadMatch ? leadMatch[1].replace(/\t/g, '    ').length : 0;
+        const nextInfo = listItemInfo(cur);
+
+        // An indented list marker belongs to a nested list — let the
+        // recursive call below handle it.
+        if (nextInfo && nextInfo.indent > baseIndent) break;
+        // A list marker at or below our indent ends this item.
+        if (nextInfo && nextInfo.indent <= baseIndent) break;
+
+        if (blank) {
+          // Peek past the blank run: continuation only continues if the
+          // next non-blank line is still indented past baseIndent.
+          let k = i + 1;
+          while (k < lines.length && /^\s*$/.test(lines[k])) k++;
+          if (k >= lines.length) break;
+          const peekInfo = listItemInfo(lines[k]);
+          if (peekInfo && peekInfo.indent <= baseIndent) break;
+          const peekLead = (lines[k].match(/^(\s*)/)[1] || '').replace(/\t/g, '    ').length;
+          if (!peekInfo && peekLead <= baseIndent) break;
+          itemLines.push('');
+          i++;
+          continue;
+        }
+
         if (lead <= baseIndent) break;
-        itemLines.push(lines[i].replace(/^\s+/, ''));
+        if (contIndent === null) contIndent = lead;
+
+        const dedented = dedentBy(cur, contIndent);
+        // Opening a fenced code block: consume through the closing fence
+        // so blank lines / un-indented body inside the block don't end
+        // the item prematurely.
+        const fenceOpen = dedented.match(/^```/);
+        if (fenceOpen) {
+          sawBlock = true;
+          itemLines.push(dedented);
+          i++;
+          while (i < lines.length) {
+            const fbody = dedentBy(lines[i], contIndent);
+            itemLines.push(fbody);
+            i++;
+            if (/^```\s*$/.test(fbody)) break;
+          }
+          continue;
+        }
+        itemLines.push(dedented);
         i++;
       }
-      appendInline(li, itemLines.join('  \n'));
+
+      const body = itemLines.join('\n');
+      // If the item body contains block-level markdown (fenced code,
+      // headings, blockquotes, tables, or its own sub-list), render it
+      // recursively so those constructs work. A simple single-paragraph
+      // item still goes through appendInline (joined with hard breaks)
+      // to avoid wrapping short items in a <p>.
+      const hasBlock = sawBlock
+        || /^\s*```/m.test(body)
+        || /^\s*>/m.test(body)
+        || /^\s*#{1,6}\s/m.test(body)
+        || itemLines.some((l) => listItemInfo(l));
+      if (hasBlock) {
+        appendBlocks(li, body);
+      } else {
+        appendInline(li, itemLines.join('  \n'));
+      }
       list.appendChild(li);
       // Look ahead past blank lines for nested list children.
       let j = i;

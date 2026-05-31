@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; img-src 'self' data: blob: https: http:; media-src 'self' data: blob: https: http:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http: https: ws: wss:; font-src 'self' data:; frame-src 'self' http: https:;" />
     <title>AGiXT</title>
+    <link rel="icon" id="app-favicon" type="image/png" href="assets/brands/agixt-favicon.png" />
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="workspace.css" />
     <link rel="stylesheet" href="agent-settings.css" />
@@ -20,7 +21,19 @@
     <script>
       (function () {
         try {
-          var pref = localStorage.getItem('agixt.theme') || 'system';
+          var config = window.AGIXT_WEB_CONFIG || {};
+          var configBrand = String(config.serviceBrand || config.service_brand || '').toLowerCase();
+          var configApp = String(config.appName || config.app_name || '').toLowerCase();
+          var host = String((window.location && window.location.hostname) || '').toLowerCase();
+          var forceTheme = '';
+          if (configBrand === 'xtschool'
+              || configApp === 'xtschool'
+              || configApp === 'xt school'
+              || host === 'app.xt.school'
+              || host.endsWith('.xt.school')) {
+            forceTheme = 'gray';
+          }
+          var pref = forceTheme || config.theme || localStorage.getItem('agixt.theme') || 'system';
           var prefersDark = window.matchMedia
             ? window.matchMedia('(prefers-color-scheme: dark)')
             : null;
@@ -30,10 +43,11 @@
             return prefersDark && prefersDark.matches ? 'gray' : 'light';
           };
           document.documentElement.setAttribute('data-theme', resolve(pref));
+          if (forceTheme) localStorage.setItem('agixt.theme', forceTheme);
           if (prefersDark && typeof prefersDark.addEventListener === 'function') {
             prefersDark.addEventListener('change', function () {
               var current = localStorage.getItem('agixt.theme') || 'system';
-              if (current === 'system') {
+              if (!forceTheme && current === 'system') {
                 document.documentElement.setAttribute('data-theme', resolve('system'));
                 window.dispatchEvent(new CustomEvent('agixt-theme-changed', {
                   detail: { theme: 'system', resolved: resolve('system') },
@@ -44,8 +58,28 @@
         } catch (e) { /* ignore — leave default dark theme */ }
       })();
     </script>
+    <!-- Hard fallback: if app.js fails to boot for any reason, never leave
+         the splash covering the UI indefinitely. The normal path clears
+         `app-booting` as soon as a real screen renders (see app.js
+         finishBoot); this is just a safety net. -->
+    <script>
+      (function () {
+        setTimeout(function () {
+          try { document.body && document.body.classList.remove('app-booting'); } catch (e) {}
+        }, 8000);
+      })();
+    </script>
   </head>
-  <body class="dock dock-popover">
+  <body class="dock dock-popover app-booting">
+    <!-- BOOT SPLASH — shown before the async boot decides which screen
+         to render (landing / auth / chat). Without it the topbar's
+         agent + conversation chips paint first against an empty body,
+         which reads as a half-loaded chat UI. app.js removes the
+         `app-booting` body class once a real screen is on-screen (and,
+         for the landing page, once its iframe has finished loading). -->
+    <div class="app-splash" id="app-splash" aria-hidden="true">
+      <div class="app-splash-spinner" role="status" aria-label="Loading"></div>
+    </div>
     <!-- The window is hidden by default and only shown when the user
          clicks the tray icon or hits the global shortcut. The body is
          the entire popover. -->
@@ -142,7 +176,7 @@
             <button class="auth-tab" id="tab-register" role="tab" aria-selected="false">Create account</button>
           </div>
 
-          <label class="field">
+          <label class="field" id="service-brand-field">
             <span class="field-label">Service</span>
             <select id="service-brand"></select>
           </label>
@@ -262,11 +296,15 @@
           <div class="auth-pane" id="pane-login">
             <label class="field">
               <span class="field-label">Email</span>
-              <input id="login-email" type="email" autocomplete="username" placeholder="you@example.com" />
+              <input id="login-email" type="text" inputmode="email" autocomplete="username"
+                     autocapitalize="none" autocorrect="off" spellcheck="false"
+                     enterkeyhint="next" placeholder="you@example.com" />
             </label>
             <label class="field">
               <span class="field-label">Password</span>
-              <input id="login-password" type="password" autocomplete="current-password" placeholder="••••••••" />
+              <input id="login-password" type="password" autocomplete="current-password"
+                     autocapitalize="none" autocorrect="off" spellcheck="false"
+                     enterkeyhint="done" placeholder="••••••••" />
             </label>
             <label class="field" id="mfa-field" hidden>
               <span class="field-label">Authenticator code</span>
@@ -295,11 +333,15 @@
             </div>
             <label class="field">
               <span class="field-label">Email</span>
-              <input id="reg-email" type="email" autocomplete="email" placeholder="you@example.com" />
+              <input id="reg-email" type="text" inputmode="email" autocomplete="email"
+                     autocapitalize="none" autocorrect="off" spellcheck="false"
+                     enterkeyhint="next" placeholder="you@example.com" />
             </label>
             <label class="field">
               <span class="field-label">Password</span>
-              <input id="reg-password" type="password" autocomplete="new-password" placeholder="At least one uppercase, lowercase, number, symbol" />
+              <input id="reg-password" type="password" autocomplete="new-password"
+                     autocapitalize="none" autocorrect="off" spellcheck="false"
+                     enterkeyhint="done" placeholder="At least one uppercase, lowercase, number, symbol" />
               <span class="field-hint">Must contain upper + lower + digit + symbol.</span>
             </label>
             <button class="btn btn-primary auth-cta" id="btn-register">Create account</button>
@@ -307,6 +349,7 @@
 
           <div class="auth-status" id="auth-status"></div>
         </div>
+        <div class="auth-touch-keyboard" id="auth-touch-keyboard" aria-label="Keyboard" hidden></div>
       </section>
 
       <!-- CHAT SCREEN — shown after auth. Agent + conversation switchers
@@ -343,7 +386,7 @@
                       d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>
               </svg>
             </button>
-            <button class="sidenav-btn" data-view="team-chat" type="button"
+            <button class="sidenav-btn" data-view="team-chat" type="button" hidden
                     role="tab" aria-selected="false" title="Group Chat"
                     aria-label="Group Chat" data-tooltip="Group Chat"
                     data-pinned-first="true">
@@ -482,6 +525,19 @@
             </button>
           </div>
           <div class="composer-status" id="composer-status"></div>
+          <!-- Voice playback control — shown only while the assistant is
+               reading a reply aloud (child profiles auto-play). Lets the
+               kid pause/resume the spoken answer. -->
+          <button class="voice-toggle-btn" id="btn-voice-toggle" type="button"
+                  aria-label="Pause voice" title="Pause voice" hidden>
+            <svg class="voice-icon-pause" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/>
+              <rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/>
+            </svg>
+            <svg class="voice-icon-play" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" hidden>
+              <path d="M8 5v14l11-7z" fill="currentColor"/>
+            </svg>
+          </button>
         </footer>
           </div>
           <!-- Drag handle — visible only when something else is on the

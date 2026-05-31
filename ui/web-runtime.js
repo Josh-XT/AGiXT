@@ -22,6 +22,58 @@
 
   const config = window.AGIXT_WEB_CONFIG || {};
   const origin = window.location.origin;
+  const KNOWN_SERVICE_BRANDS = [
+    {
+      slug: 'agixt',
+      label: 'AGiXT.com',
+      title: 'AGiXT',
+      default_url: 'https://api.agixt.com',
+      default_web_url: 'https://agixt.com',
+      logo: 'assets/brands/agixt.svg',
+      favicon: 'assets/brands/agixt-favicon.png',
+      hosts: ['agixt.com', 'www.agixt.com'],
+    },
+    {
+      slug: 'nursext',
+      label: 'NurseXT.com',
+      title: 'NurseXT',
+      default_url: 'https://api.nursext.com',
+      default_web_url: 'https://nursext.com',
+      logo: 'assets/brands/nursext.svg',
+      favicon: 'assets/brands/nursext-favicon.png',
+      hosts: ['nursext.com', 'www.nursext.com'],
+    },
+    {
+      slug: 'xtsystems',
+      label: 'XT.Systems',
+      title: 'XT Systems',
+      default_url: 'https://api.xt.systems',
+      default_web_url: 'https://xt.systems',
+      logo: 'assets/brands/xtsystems.svg',
+      favicon: 'assets/brands/xtsystems-favicon.png',
+      hosts: ['xt.systems', 'www.xt.systems'],
+    },
+    {
+      slug: 'boltremote',
+      label: 'BoltRemote.com',
+      title: 'BoltRemote',
+      default_url: 'https://api.boltremote.com',
+      default_web_url: 'https://boltremote.com',
+      logo: 'assets/brands/boltremote.svg',
+      favicon: 'assets/brands/boltremote-favicon.svg',
+      hosts: ['boltremote.com', 'www.boltremote.com'],
+    },
+    {
+      slug: 'xtschool',
+      label: 'XT School',
+      title: 'XTSchool',
+      default_url: 'https://api.xt.school',
+      default_web_url: 'https://app.xt.school',
+      logo: 'assets/brands/agixt.svg',
+      favicon: 'assets/brands/agixt-favicon.png',
+      hosts: ['xt.school', 'app.xt.school'],
+    },
+  ];
 
   function trimSlash(value) {
     return String(value || '').replace(/\/+$/, '');
@@ -66,6 +118,70 @@
     return String(config.appName || 'AGiXT').trim() || 'AGiXT';
   }
 
+  function assetHref(path) {
+    const value = String(path || '').trim();
+    if (!value) return '';
+    if (/^(https?:|data:|blob:|\/)/i.test(value)) return value;
+    return `/${value.replace(/^\/+/, '')}`;
+  }
+
+  function normalizeHostname(value) {
+    return String(value || '').trim().toLowerCase().replace(/^www\./, '');
+  }
+
+  function matchesBrandHost(candidate, expected) {
+    const hostname = normalizeHostname(candidate);
+    const base = normalizeHostname(expected);
+    return hostname === base || hostname.endsWith(`.${base}`);
+  }
+
+  function hostedServiceBrand() {
+    const hostname = normalizeHostname(window.location && window.location.hostname);
+    if (!hostname || isLoopbackHost(hostname)) return null;
+    return KNOWN_SERVICE_BRANDS.find((brand) => {
+      return (brand.hosts || []).some((host) => matchesBrandHost(hostname, host));
+    }) || null;
+  }
+
+  function configuredServiceBrandSlug() {
+    return String(config.serviceBrand || config.service_brand || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80);
+  }
+
+  function defaultServiceBrandSlug() {
+    const configured = configuredServiceBrandSlug();
+    if (configured) return configured;
+    const hosted = hostedServiceBrand();
+    return hosted ? hosted.slug : 'web';
+  }
+
+  function defaultTheme() {
+    const configured = String(config.theme || '').toLowerCase();
+    if (configured === 'light' || configured === 'dark' || configured === 'gray') return configured;
+    return defaultServiceBrandSlug() === 'xtschool' ? 'gray' : 'system';
+  }
+
+  function setDocumentBrand(brand) {
+    const title = (brand && brand.title) || appName();
+    if (title) document.title = title;
+    const favicon = (brand && (brand.favicon || brand.logo)) || 'assets/brands/agixt-favicon.png';
+    if (!favicon || !document.head) return;
+    let link = document.getElementById('app-favicon') || document.querySelector('link[rel~="icon"]');
+    if (!link) {
+      link = document.createElement('link');
+      link.id = 'app-favicon';
+      link.rel = 'icon';
+      document.head.appendChild(link);
+    }
+    link.href = assetHref(favicon);
+    link.type = String(favicon).toLowerCase().endsWith('.png') ? 'image/png' : 'image/svg+xml';
+  }
+
+  setDocumentBrand(hostedServiceBrand() || { title: appName(), favicon: 'assets/brands/agixt-favicon.png' });
+
   function storageGet(key) {
     try { return window.localStorage.getItem(key); } catch (_) { return null; }
   }
@@ -82,10 +198,14 @@
 
   function persistableSettings(settings) {
     const source = settings || {};
+    const hosted = hostedServiceBrand();
+    const serviceBrand = hosted ? hosted.slug : (source.service_brand || defaultServiceBrandSlug());
+    const theme = serviceBrand === 'xtschool' ? 'gray' : (source.theme || defaultTheme());
     return {
-      server_url: serverUrlOrCurrent(source.server_url),
-      web_url: trimSlash(source.web_url || currentWebUrl()),
-      service_brand: safeSlug(source.service_brand || 'web', 'web'),
+      server_url: hosted ? currentServerUrl() : serverUrlOrCurrent(source.server_url),
+      web_url: hosted ? currentWebUrl() : trimSlash(source.web_url || currentWebUrl()),
+      service_brand: safeSlug(serviceBrand, defaultServiceBrandSlug()),
+      theme,
       jwt: tokenText(source.jwt || runtimeAuth.jwt),
       user_email: nullableText(source.user_email || runtimeAuth.user_email),
       agent_id: nullableText(source.agent_id),
@@ -155,10 +275,13 @@
   }
 
   function defaults() {
+    const hosted = hostedServiceBrand();
+    const serviceBrand = hosted ? hosted.slug : defaultServiceBrandSlug();
     return {
       server_url: currentServerUrl(),
       web_url: currentWebUrl(),
-      service_brand: 'web',
+      service_brand: serviceBrand,
+      theme: serviceBrand === 'xtschool' ? 'gray' : defaultTheme(),
       jwt: null,
       user_email: null,
       agent_id: null,
@@ -182,8 +305,17 @@
     try {
       const parsed = JSON.parse(raw);
       const next = { ...defaults(), ...parsed };
+      const hosted = hostedServiceBrand();
+      const configured = configuredServiceBrandSlug();
       next.server_url = serverUrlOrCurrent(next.server_url);
       next.web_url = trimSlash(next.web_url || currentWebUrl());
+      if (hosted || configured) {
+        next.service_brand = hosted ? hosted.slug : configured;
+        next.server_url = currentServerUrl();
+        next.web_url = currentWebUrl();
+      }
+      if (next.service_brand === 'xtschool') next.theme = 'gray';
+      else if (!next.theme) next.theme = defaultTheme();
       return attachRuntimeAuth(next);
     } catch (_) {
       return attachRuntimeAuth(defaults());
@@ -401,18 +533,31 @@
   function serviceBrands() {
     const webUrl = currentWebUrl();
     const serverUrl = currentServerUrl();
+    const hosted = hostedServiceBrand();
+    if (hosted) {
+      return [{
+        ...hosted,
+        label: hosted.title || hosted.label,
+        default_url: serverUrl,
+        default_web_url: webUrl,
+        locked: true,
+      }];
+    }
     const label = `${appName()} Web`;
     return [
       { slug: 'web', label, default_url: serverUrl, default_web_url: webUrl },
-      { slug: 'agixt', label: 'AGiXT.com', default_url: 'https://api.agixt.com', default_web_url: 'https://agixt.com' },
-      { slug: 'nursext', label: 'NurseXT.com', default_url: 'https://api.nursext.com', default_web_url: 'https://nursext.com' },
-      { slug: 'xtsystems', label: 'XT.Systems', default_url: 'https://api.xt.systems', default_web_url: 'https://xt.systems' },
-      { slug: 'boltremote', label: 'BoltRemote.com', default_url: 'https://api.boltremote.com', default_web_url: 'https://boltremote.com' },
+      ...KNOWN_SERVICE_BRANDS.map((brand) => ({
+        ...brand,
+        default_url: brand.default_url,
+        default_web_url: brand.default_web_url,
+      })),
       { slug: 'custom', label: 'Custom', default_url: serverUrl, default_web_url: webUrl },
     ];
   }
 
   function serviceBrandForUrls(serverUrl, webUrl) {
+    const hosted = hostedServiceBrand();
+    if (hosted) return hosted.slug;
     const server = trimSlash(serverUrl);
     const web = trimSlash(webUrl);
     const brands = serviceBrands();
@@ -872,6 +1017,13 @@
     }
     let parsed;
     try { parsed = JSON.parse(payload); } catch (_) { return false; }
+    if (parsed.error) {
+      emitStream(state.streamId, {
+        kind: 'error',
+        data: { message: detailToString(parsed.error) || 'stream error' },
+      });
+      return true;
+    }
     const objectType = parsed.object || '';
     if (objectType === 'remote_command.request') {
       emitStream(state.streamId, {
@@ -886,6 +1038,27 @@
       return false;
     }
     if (objectType === 'remote_command.pending') return false;
+    if (objectType === 'audio.header') {
+      emitStream(state.streamId, {
+        kind: 'audio_header',
+        data: {
+          audio: parsed.audio || '',
+          sample_rate: parsed.sample_rate || 22050,
+          bits_per_sample: parsed.bits_per_sample || 16,
+          channels: parsed.channels || 1,
+        },
+      });
+      return false;
+    }
+    if (objectType === 'audio.chunk') {
+      const audio = parsed.audio || parsed.data || '';
+      if (audio) emitStream(state.streamId, { kind: 'audio_chunk', data: { audio } });
+      return false;
+    }
+    if (objectType === 'audio.end') {
+      emitStream(state.streamId, { kind: 'audio_end', data: {} });
+      return false;
+    }
     if (objectType === 'activity.stream') {
       emitStream(state.streamId, {
         kind: 'activity',
@@ -931,7 +1104,24 @@
       finishReason: '',
       pendingTools: new Map(),
     };
+    // Child profiles (xtschool) always read replies aloud, just like the kids
+    // app does, regardless of the voice toggle. Other brands follow the toggle.
+    const isKids = settings.service_brand === 'xtschool';
+    const voice = !!settings.voice_enabled || isKids;
     try {
+      const body = {
+        model: settings.agent_name || 'XT',
+        user: settings.conversation_id || conversationName || '-',
+        messages: messages || [],
+        tools: [],
+        stream: true,
+        temperature: 0.7,
+      };
+      if (voice) {
+        body.tts_mode = 'interleaved';
+        // Match the kids app's narrator voice for child profiles.
+        if (isKids) body.tts_voice = 'DukeNukem';
+      }
       const resp = await fetch(apiUrl(settings, '/v1/chat/completions'), {
         method: 'POST',
         signal: controller.signal,
@@ -940,14 +1130,7 @@
           Accept: 'text/event-stream',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          model: settings.agent_name || 'XT',
-          user: settings.conversation_id || conversationName || '-',
-          messages: messages || [],
-          tools: [],
-          stream: true,
-          temperature: 0.7,
-        }),
+        body: JSON.stringify(body),
       });
       if (!resp.ok) {
         emitStream(streamId, { kind: 'error', data: { message: await readError(resp) } });

@@ -83,6 +83,15 @@ struct ChatRequest<'a> {
     temperature: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+    /// When `voice` is on (child profiles / voice-enabled adults), AGiXT
+    /// streams the spoken reply as interleaved `audio.*` SSE events
+    /// alongside the text. "off" disables TTS entirely.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tts_mode: Option<&'static str>,
+    /// Optional TTS voice override (e.g. "DukeNukem" for child profiles so the
+    /// voice matches the kids app). Omitted to use the agent/provider default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tts_voice: Option<&'a str>,
 }
 
 fn slice_is_empty<T>(s: &&[T]) -> bool {
@@ -120,6 +129,22 @@ pub enum StreamEvent {
     /// wants to dedupe against accumulated deltas.
     #[serde(rename = "done")]
     Done { text: String, finish_reason: String },
+    /// First event of a spoken segment: carries the raw PCM WAV-ish header
+    /// (base64) plus the format so the renderer can build a Web Audio
+    /// context. Mirrors AGiXT's `audio.header` SSE object.
+    #[serde(rename = "audio_header")]
+    AudioHeader {
+        audio: String,
+        sample_rate: u32,
+        bits_per_sample: u16,
+        channels: u16,
+    },
+    /// A chunk of base64 PCM audio for the current spoken segment.
+    #[serde(rename = "audio_chunk")]
+    AudioChunk { audio: String },
+    /// End of the current spoken segment.
+    #[serde(rename = "audio_end")]
+    AudioEnd,
     /// Fatal error.
     #[serde(rename = "error")]
     Error { message: String },
@@ -136,12 +161,12 @@ pub async fn stream_chat<F>(
     messages: &[ChatMessage],
     tools: &[Value],
     voice: bool,
+    voice_name: Option<&str>,
     mut on_event: F,
 ) -> Result<()>
 where
     F: FnMut(StreamEvent),
 {
-    let _ = voice; // reserved for tts pipeline
     let client = api::build_streaming_client()?;
     let url = format!("{}/v1/chat/completions", server_url.trim_end_matches('/'));
     let body = ChatRequest {
@@ -153,6 +178,11 @@ where
         stream: true,
         temperature: 0.7,
         max_tokens: None,
+        // Interleaved keeps the streamed text visible while AGiXT also
+        // streams spoken audio segments back, so child profiles hear the
+        // reply read aloud automatically (with pause/play in the UI).
+        tts_mode: if voice { Some("interleaved") } else { None },
+        tts_voice: if voice { voice_name } else { None },
     };
 
     tracing::info!(
@@ -296,6 +326,14 @@ fn handle_sse_event<F: FnMut(StreamEvent)>(
     pending_tools: &mut HashMap<usize, AccumulatingToolCall>,
     on_event: &mut F,
 ) {
+    if let Some(error) = parsed.get("error") {
+        on_event(StreamEvent::Error {
+            message: sse_error_message(error),
+        });
+        *finish_reason = "error".to_string();
+        return;
+    }
+
     let object_type = parsed.get("object").and_then(|v| v.as_str()).unwrap_or("");
 
     match object_type {
@@ -345,6 +383,45 @@ fn handle_sse_event<F: FnMut(StreamEvent)>(
             });
             return;
         }
+        "audio.header" => {
+            let audio = parsed
+                .get("audio")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let sample_rate = parsed
+                .get("sample_rate")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(22050) as u32;
+            let bits_per_sample = parsed
+                .get("bits_per_sample")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(16) as u16;
+            let channels = parsed.get("channels").and_then(|v| v.as_u64()).unwrap_or(1) as u16;
+            on_event(StreamEvent::AudioHeader {
+                audio,
+                sample_rate,
+                bits_per_sample,
+                channels,
+            });
+            return;
+        }
+        "audio.chunk" => {
+            let audio = parsed
+                .get("audio")
+                .or_else(|| parsed.get("data"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !audio.is_empty() {
+                on_event(StreamEvent::AudioChunk { audio });
+            }
+            return;
+        }
+        "audio.end" => {
+            on_event(StreamEvent::AudioEnd);
+            return;
+        }
         _ => {} // fall through to OpenAI-shaped handling below
     }
 
@@ -390,6 +467,19 @@ fn handle_sse_event<F: FnMut(StreamEvent)>(
             }
         }
     }
+}
+
+fn sse_error_message(error: &Value) -> String {
+    if let Some(message) = error.get("message").and_then(|v| v.as_str()) {
+        return message.to_string();
+    }
+    if let Some(detail) = error.get("detail").and_then(|v| v.as_str()) {
+        return detail.to_string();
+    }
+    if let Some(text) = error.as_str() {
+        return text.to_string();
+    }
+    error.to_string()
 }
 
 fn normalize_full_text_delta(full_text: &mut String, chunk: &str) -> Option<String> {
@@ -554,6 +644,18 @@ mod tests {
     }
 
     #[test]
+    fn parses_top_level_sse_error() {
+        let evs = parse_events(&[r#"{"error":{"message":"Inference provider failed: no model"}}"#]);
+        assert_eq!(evs.len(), 1);
+        match &evs[0] {
+            StreamEvent::Error { message } => {
+                assert_eq!(message, "Inference provider failed: no model")
+            }
+            other => panic!("expected error, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn normalizes_cumulative_text_snapshots() {
         let evs = parse_events(&[
             r#"{"choices":[{"delta":{"content":"hello"}}]}"#,
@@ -662,9 +764,97 @@ mod tests {
             stream: true,
             temperature: 0.7,
             max_tokens: None,
+            tts_mode: None,
+            tts_voice: None,
         };
         let value = serde_json::to_value(req).unwrap();
         assert_eq!(value["tools_choice"].as_str(), Some("auto"));
         assert!(value.get("tool_choice").is_none());
+    }
+
+    #[test]
+    fn audio_events_parse_from_sse() {
+        let mut full_text = String::new();
+        let mut finish_reason = String::new();
+        let mut pending = HashMap::new();
+        let mut evs = Vec::new();
+        let mut sink = |e: StreamEvent| evs.push(e);
+
+        let header: Value = serde_json::from_str(
+            r#"{"object":"audio.header","audio":"AAAA","sample_rate":22050,"bits_per_sample":16,"channels":1}"#,
+        )
+        .unwrap();
+        handle_sse_event(
+            &header,
+            &mut full_text,
+            &mut finish_reason,
+            &mut pending,
+            &mut sink,
+        );
+        let chunk: Value =
+            serde_json::from_str(r#"{"object":"audio.chunk","audio":"AQID"}"#).unwrap();
+        handle_sse_event(
+            &chunk,
+            &mut full_text,
+            &mut finish_reason,
+            &mut pending,
+            &mut sink,
+        );
+        let end: Value = serde_json::from_str(r#"{"object":"audio.end"}"#).unwrap();
+        handle_sse_event(
+            &end,
+            &mut full_text,
+            &mut finish_reason,
+            &mut pending,
+            &mut sink,
+        );
+
+        assert!(matches!(
+            evs.first(),
+            Some(StreamEvent::AudioHeader {
+                sample_rate: 22050,
+                channels: 1,
+                ..
+            })
+        ));
+        assert!(matches!(evs.get(1), Some(StreamEvent::AudioChunk { .. })));
+        assert!(matches!(evs.get(2), Some(StreamEvent::AudioEnd)));
+    }
+
+    #[test]
+    fn tts_mode_serializes_only_when_set() {
+        let messages: Vec<ChatMessage> = Vec::new();
+        let tools: Vec<Value> = Vec::new();
+        let on = ChatRequest {
+            model: "XT",
+            user: "c",
+            messages: &messages,
+            tools: &tools,
+            tools_choice: None,
+            stream: true,
+            temperature: 0.7,
+            max_tokens: None,
+            tts_mode: Some("interleaved"),
+            tts_voice: Some("DukeNukem"),
+        };
+        let v = serde_json::to_value(on).unwrap();
+        assert_eq!(v["tts_mode"].as_str(), Some("interleaved"));
+        assert_eq!(v["tts_voice"].as_str(), Some("DukeNukem"));
+
+        let off = ChatRequest {
+            model: "XT",
+            user: "c",
+            messages: &messages,
+            tools: &tools,
+            tools_choice: None,
+            stream: true,
+            temperature: 0.7,
+            max_tokens: None,
+            tts_mode: None,
+            tts_voice: None,
+        };
+        let v2 = serde_json::to_value(off).unwrap();
+        assert!(v2.get("tts_mode").is_none());
+        assert!(v2.get("tts_voice").is_none());
     }
 }
