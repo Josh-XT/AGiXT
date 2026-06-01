@@ -13,11 +13,18 @@ COPY ui/docker-entrypoint.d/00-write-web-config.sh /docker-entrypoint.d/00-write
 
 RUN set -eux; \
     ASSET_VERSION="${UI_ASSET_VERSION}"; \
+    if [ "$ASSET_VERSION" = "dev" ] || [ -z "$ASSET_VERSION" ]; then \
+      ASSET_VERSION="$(find /usr/share/nginx/html -type f \( -name '*.js' -o -name '*.css' \) -print0 \
+        | sort -z \
+        | xargs -0 sha256sum \
+        | sha256sum \
+        | cut -c1-12)"; \
+    fi; \
     chmod +x /docker-entrypoint.d/00-write-web-config.sh; \
     grep -q 'web-config.js' /usr/share/nginx/html/index.html || \
     sed -i '/<!-- Theme bootstrap/i\    <script src="web-config.js"></script>' /usr/share/nginx/html/index.html; \
     grep -q 'web-runtime.js' /usr/share/nginx/html/index.html || \
-    sed -i '/<script src="frontend-log.js"><\/script>/i\    <script src="web-runtime.js"></script>' /usr/share/nginx/html/index.html; \
+    sed -i '/frontend-log.js/i\    <script defer src="web-runtime.js"></script>' /usr/share/nginx/html/index.html; \
     sed -i -E "s#(href|src)=\"([^\"?]+\\.(js|css))(\\?v=[^\"]*)?\"#\\1=\"\\2?v=${ASSET_VERSION}\"#g" /usr/share/nginx/html/index.html
 
 EXPOSE 80

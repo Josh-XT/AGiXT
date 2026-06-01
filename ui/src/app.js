@@ -2012,8 +2012,21 @@
     return err.detail || err.message || err.error || String(err);
   }
 
+  function effectiveServerUrl(value) {
+    const configured = String(value || '').replace(/\/+$/, '');
+    if (!window.__AGIXT_WEB_RUNTIME) return configured;
+    const pageOrigin = window.location && window.location.origin
+      ? String(window.location.origin).replace(/\/+$/, '')
+      : '';
+    if (!pageOrigin) return configured;
+    // In the browser-hosted SPA, nginx owns the API proxy. Extension and
+    // app-internal relative calls should stay on the web origin even when
+    // persisted settings still name the backend container/port directly.
+    return pageOrigin;
+  }
+
   async function desktopJson(path, opts) {
-    const server = settings && settings.server_url;
+    const server = effectiveServerUrl(settings && settings.server_url);
     if (!server) throw new Error('Server URL is not configured.');
     if (window.AgixtSession && typeof window.AgixtSession.request === 'function') {
       return window.AgixtSession.request(path, {
@@ -3363,7 +3376,7 @@
   window.AgixtAppContext = function () {
     if (!settings || !settings.jwt) return null;
     return {
-      serverUrl: settings.server_url,
+      serverUrl: effectiveServerUrl(settings.server_url),
       webUrl: settings.web_url || null,
       jwt: settings.jwt,
       agentId: settings.agent_id || null,
@@ -3409,13 +3422,17 @@
     handleServerIssue,
     activateConversation: async (conv) => {
       if (!conv || !conv.id) return;
+      const showChat = () => {
+        try {
+          if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
+            window.AgixtSidenav.setActiveView('chat');
+          }
+        } catch (_) {}
+      };
+      showChat();
       await activateConversation(conv, { loadHistory: true });
       try { await refreshConversations(); } catch (_) {}
-      try {
-        if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
-          window.AgixtSidenav.setActiveView('chat');
-        }
-      } catch (_) {}
+      showChat();
     },
   };
 
@@ -3667,12 +3684,55 @@
     window.addEventListener('popstate', () => applyRoutedView());
   }
 
-  async function startDesktopExtensionsForRoute() {
-    if (!window.AgixtDesktopExtensions) return;
-    if (typeof window.AgixtDesktopExtensions.start === 'function') {
-      await Promise.resolve(window.AgixtDesktopExtensions.start());
-    } else if (typeof window.AgixtDesktopExtensions.refresh === 'function') {
-      await window.AgixtDesktopExtensions.refresh();
+  let desktopExtensionsStartPromise = null;
+
+  function startDesktopExtensionsForRoute() {
+    if (!window.AgixtDesktopExtensions) return Promise.resolve();
+    if (desktopExtensionsStartPromise) return desktopExtensionsStartPromise;
+    desktopExtensionsStartPromise = Promise.resolve()
+      .then(() => {
+        if (typeof window.AgixtDesktopExtensions.start === 'function') {
+          return Promise.resolve(window.AgixtDesktopExtensions.start());
+        }
+        if (typeof window.AgixtDesktopExtensions.refresh === 'function') {
+          return window.AgixtDesktopExtensions.refresh();
+        }
+        return null;
+      })
+      .then(() => {
+        if (isHostedWebRuntime()) applyRoutedView();
+      })
+      .catch((err) => {
+        console.warn('desktop extensions startup failed', err);
+      })
+      .finally(() => {
+        desktopExtensionsStartPromise = null;
+      });
+    return desktopExtensionsStartPromise;
+  }
+
+  window.addEventListener('agixt:optional-modules-ready', () => {
+    if (!settings || !settings.jwt) return;
+    if (isHostedWebRuntime()) {
+      try { applyRoutedView(); } catch (err) { console.warn('route reapply failed', err); }
+    }
+  });
+
+  async function prepareConversationForCurrentRoute() {
+    const routedConversationLoaded = await activateRoutedConversationIfPresent();
+    const shouldBlockForChatHistory = !isHostedWebRuntime() || routedViewId() === 'chat';
+    if (!routedConversationLoaded && (shouldBlockForChatHistory || !settings.conversation_id)) {
+      await ensureConversationForActiveAgent();
+    }
+    reconnectChat();
+    updateConvoLabel();
+    if (!routedConversationLoaded && settings.conversation_id) {
+      const historyLoad = window.AgixtChat.loadHistory(settings.conversation_id);
+      if (shouldBlockForChatHistory) {
+        await historyLoad;
+      } else {
+        historyLoad.catch((err) => console.warn('background chat history load failed', err));
+      }
     }
   }
 
@@ -3708,11 +3768,13 @@
       return;
     }
     showScreen('chat');
+    startDesktopExtensionsForRoute();
     await refreshAgentsAndCompanies();
+    startDesktopExtensionsForRoute();
     const trialBlocked = await maybeShowTrialLifecycle();
     if (trialBlocked) {
       scheduleDesktopAutoUpdateCheck();
-      await startDesktopExtensionsForRoute();
+      startDesktopExtensionsForRoute();
       return;
     }
     scheduleTrialLifecycleChecks();
@@ -3720,18 +3782,10 @@
     // against the latest server-side names (e.g. an auto-rename that
     // happened since the last save), not just the persisted snapshot.
     await refreshConversations();
-    const routedConversationLoaded = await activateRoutedConversationIfPresent();
-    if (!routedConversationLoaded) {
-      await ensureConversationForActiveAgent();
-    }
-    reconnectChat();
-    updateConvoLabel();
-    if (!routedConversationLoaded && settings.conversation_id) {
-      await window.AgixtChat.loadHistory(settings.conversation_id);
-    }
+    await prepareConversationForCurrentRoute();
     startNotifications();
     scheduleDesktopAutoUpdateCheck();
-    await startDesktopExtensionsForRoute();
+    startDesktopExtensionsForRoute();
     // Default landing surface = the agent AI chat, alone, filling the
     // whole content area (no with-content-pane split, no team chat
     // shown first). The user reaches team chat / other sections via the
@@ -3761,27 +3815,21 @@
       // Returning user — straight into chat. We still let the user fix
       // anything via the settings modal.
       showScreen('chat');
+      startDesktopExtensionsForRoute();
       await refreshAgentsAndCompanies();
+      startDesktopExtensionsForRoute();
       const trialBlocked = await maybeShowTrialLifecycle();
       if (trialBlocked) {
         scheduleDesktopAutoUpdateCheck();
-        await startDesktopExtensionsForRoute();
+        startDesktopExtensionsForRoute();
         return;
       }
       scheduleTrialLifecycleChecks();
       await refreshConversations();
-      const routedConversationLoaded = await activateRoutedConversationIfPresent();
-      if (!routedConversationLoaded) {
-        await ensureConversationForActiveAgent();
-      }
-      reconnectChat();
-      updateConvoLabel();
-      if (!routedConversationLoaded && settings.conversation_id) {
-        await window.AgixtChat.loadHistory(settings.conversation_id);
-      }
+      await prepareConversationForCurrentRoute();
       startNotifications();
       scheduleDesktopAutoUpdateCheck();
-      await startDesktopExtensionsForRoute();
+      startDesktopExtensionsForRoute();
       // Default landing surface = the agent AI chat, alone, filling the
       // whole content area (no split, no team chat shown first).
       if (isHostedWebRuntime()) {

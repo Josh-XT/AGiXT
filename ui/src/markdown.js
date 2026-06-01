@@ -12,6 +12,7 @@
   const GIF_HOST = /(tenor\.com|giphy\.com|media\.tenor\.|media\.giphy\.)/i;
   const TRUSTED_MEDIA_PREFIXES = ['/outputs/', '/workspace/', '/assets/'];
   const EXTERNAL_LINK_HREF = '#agixt-external-link';
+  const MODEL_CONTROL_MARKER_RE = /<\|(?:mark_start|mark_end|start|end|message|assistant|user|system|developer|analysis|commentary|final|endoftext|im_start|im_end|start_header_id|end_header_id|eot_id)\|>/g;
   const trustedMediaOriginPrefixes = new Set();
 
   function escapeHtml(s) {
@@ -892,7 +893,7 @@
 
   function renderFragment(src) {
     const fragment = document.createDocumentFragment();
-    appendBlocks(fragment, src);
+    appendBlocks(fragment, stripModelControlMarkers(src));
     return fragment;
   }
 
@@ -906,13 +907,17 @@
   function renderInline(text) {
     if (typeof document === 'undefined') return escapeHtml(text || '');
     const span = document.createElement('span');
-    appendInline(span, text);
+    appendInline(span, stripModelControlMarkers(text));
     return span.innerHTML;
   }
 
   function renderInto(target, src) {
     if (!target) return;
     target.replaceChildren(renderFragment(src));
+  }
+
+  function stripModelControlMarkers(src) {
+    return String(src || '').replace(MODEL_CONTROL_MARKER_RE, '');
   }
 
   window.AgixtMarkdown = {

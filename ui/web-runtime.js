@@ -487,6 +487,54 @@
     }
   }
 
+  function oauthStateParts(params) {
+    const raw = params && params.get ? params.get('state') : '';
+    return String(raw || '').split('|').filter(Boolean);
+  }
+
+  function oauthStateHas(params, key, value = '1') {
+    return oauthStateParts(params).some((part) => {
+      const eq = part.indexOf('=');
+      if (eq < 0) return part === key;
+      return part.slice(0, eq) === key && part.slice(eq + 1) === value;
+    });
+  }
+
+  function oauthStateValue(params, key) {
+    const part = oauthStateParts(params).find((item) => item.startsWith(`${key}=`));
+    if (!part) return null;
+    const value = part.slice(key.length + 1);
+    try { return decodeURIComponent(value); } catch (_) { return value; }
+  }
+
+  function openDesktopDeepLink(url) {
+    if (!url) return;
+    if (typeof window.__AGIXT_OPEN_DEEP_LINK === 'function') {
+      window.__AGIXT_OPEN_DEEP_LINK(url);
+      return;
+    }
+    try {
+      window.location.href = url;
+    } catch (_) {
+      try { window.open(url, '_self', 'noopener'); } catch (_) {}
+    }
+  }
+
+  function returnDesktopLogin(token) {
+    clearOAuthFlow();
+    renderOAuthStatus('done', 'Signed in', 'Returning to the desktop app...');
+    openDesktopDeepLink(`agixt://login?token=${encodeURIComponent(token)}`);
+  }
+
+  function returnDesktopConnect(provider, code) {
+    clearOAuthFlow();
+    renderOAuthStatus('done', 'Connected', 'Returning to the desktop app...');
+    const params = new URLSearchParams();
+    params.set('provider', provider || '');
+    params.set('code', code || '');
+    openDesktopDeepLink(`agixt://oauth-connect?${params.toString()}`);
+  }
+
   function consumeUrlToken() {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('jwt') || params.get('token') || params.get('auth');
@@ -1368,6 +1416,8 @@
     const error = params.get('error');
     const token = params.get('token') || params.get('jwt');
     const code = params.get('code');
+    const isDesktopLogin = oauthStateHas(params, 'desktop');
+    const isDesktopConnect = oauthStateHas(params, 'desktop_connect');
     if (error) {
       renderOAuthStatus('error', 'Authentication failed', error);
       redirectHomeWithToken('', 2500);
@@ -1382,6 +1432,10 @@
       service_brand: oauthFlow.service_brand || settings.service_brand,
     } : settings;
     if (token) {
+      if (isDesktopLogin) {
+        returnDesktopLogin(token);
+        return;
+      }
       const email = callbackSettings.user_email || decodeJwtEmail(token);
       rememberRuntimeAuth({ jwt: token, user_email: email });
       saveSettings({
@@ -1397,6 +1451,11 @@
     if (!code || !providerFromPath) {
       renderOAuthStatus('error', 'Missing OAuth response', 'No authorization code was returned.');
       redirectHomeWithToken('', 2500);
+      return;
+    }
+    if (isDesktopConnect) {
+      const provider = oauthStateValue(params, 'provider') || providerFromPath;
+      returnDesktopConnect(provider, code);
       return;
     }
     const connectStarted = Number(storageGet(CONNECT_FLOW_KEY) || '0');
@@ -1425,6 +1484,10 @@
       } else {
         const jwt = extractAuthToken(data);
         if (!jwt) throw toolError('OAuth succeeded, but AGiXT did not return a token.');
+        if (isDesktopLogin) {
+          returnDesktopLogin(jwt);
+          return;
+        }
         const email = data.email || callbackSettings.user_email || decodeJwtEmail(jwt);
         rememberRuntimeAuth({ jwt, user_email: email });
         saveSettings({

@@ -21,7 +21,21 @@
 
   function baseUrl() {
     const ctx = appContext();
-    return ctx && ctx.serverUrl ? String(ctx.serverUrl).replace(/\/+$/, '') : '';
+    return effectiveServerUrl(ctx && ctx.serverUrl);
+  }
+
+  function effectiveServerUrl(value) {
+    const configured = String(value || '').replace(/\/+$/, '');
+    if (!window.__AGIXT_WEB_RUNTIME) return configured;
+    const pageOrigin = window.location && window.location.origin
+      ? String(window.location.origin).replace(/\/+$/, '')
+      : '';
+    if (!pageOrigin) return configured;
+    // The browser-hosted client is served by nginx, which proxies /v1,
+    // /workspace, and /outputs to the configured backend. Keeping relative
+    // API traffic same-origin avoids CORS/preflight failures on local and
+    // branded web deployments while leaving desktop/Tauri untouched.
+    return pageOrigin;
   }
 
   function authHeader() {
@@ -43,7 +57,15 @@
         try { return JSON.stringify(detail); } catch (_) { return String(detail); }
       }
     }
-    if (typeof body === 'string' && body.trim()) return body.trim();
+    if (typeof body === 'string' && body.trim()) {
+      const text = body.trim();
+      if (/^\s*<!doctype html/i.test(text) || /^\s*<html[\s>]/i.test(text)) {
+        return status === 502
+          ? 'Bad gateway from the AGiXT API proxy.'
+          : `HTTP ${status} returned an HTML error page.`;
+      }
+      return text.length > 500 ? text.slice(0, 500) + '…' : text;
+    }
     return 'HTTP ' + status;
   }
 

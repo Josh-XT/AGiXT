@@ -429,6 +429,21 @@ function loadCompaniesExtensionPage() {
   return { window, registrations };
 }
 
+function loadReposExtensionPage() {
+  const dom = new JSDOM(
+    '<!doctype html><body><div class="chat-screen-main"><div class="view-pane view-pane-extension" data-view="repos"></div></div></body>',
+    { runScripts: 'outside-only', url: 'http://localhost/' },
+  );
+  const { window } = dom;
+  trackDom(dom);
+  const registrations = new Map();
+  window.AgixtRegisterExtension = (id, ctrl) => registrations.set(id, ctrl);
+  window.alert = () => {};
+  const code = fs.readFileSync(path.join(WEB, 'extensions', 'desktop', 'repos', 'main.js'), 'utf8');
+  vm.runInContext(code, dom.getInternalVMContext(), { filename: 'repos-main.js' });
+  return { window, registrations };
+}
+
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -553,6 +568,12 @@ test('markdown: paragraph and inline formatting', () => {
   const { window } = loadFrontend();
   const html = window.AgixtMarkdown.render('Hello **bold** and *italic*.');
   assert.match(html, /<p>Hello <strong>bold<\/strong> and <em>italic<\/em>\.<\/p>/);
+});
+
+test('markdown: model control markers are hidden', () => {
+  const { window } = loadFrontend();
+  const html = window.AgixtMarkdown.render('<|mark_start|>Hello **there**<|mark_end|>');
+  assert.equal(html, '<p>Hello <strong>there</strong></p>');
 });
 
 test('markdown: code fence preserves whitespace + adds copy/download toolbar', () => {
@@ -812,6 +833,89 @@ test('web runtime: hosted brand origin owns title, favicon, and service selectio
   assert.equal(stored.service_brand, 'boltremote');
 });
 
+test('web app context: hosted browser routes loopback API settings through page origin', async () => {
+  const { window } = loadFullApp({
+    webRuntime: true,
+    url: 'https://josh.devxt.com/repos',
+  });
+  await waitFor(30);
+
+  const ctx = window.AgixtAppContext();
+  assert.ok(ctx, 'app context is available after boot');
+  assert.equal(ctx.serverUrl, 'https://josh.devxt.com');
+});
+
+test('web app context: local browser routes backend settings through web origin proxy', async () => {
+  const { window } = loadFullApp({
+    webRuntime: true,
+    url: 'http://localhost:3437/repos',
+  });
+  await waitFor(30);
+
+  const ctx = window.AgixtAppContext();
+  assert.ok(ctx, 'app context is available after boot');
+  assert.equal(ctx.serverUrl, 'http://localhost:3437');
+});
+
+test('desktop session: web runtime uses page origin for relative API calls when configured URL is loopback', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', {
+    runScripts: 'outside-only',
+    url: 'http://localhost:3437/repos',
+  });
+  const { window } = dom;
+  trackDom(dom);
+  let requestedUrl = '';
+  window.__AGIXT_WEB_RUNTIME = true;
+  window.__TAURI__ = { core: { invoke: async () => null } };
+  window.AgixtAppContext = () => ({
+    serverUrl: 'http://localhost:7437',
+    jwt: 'jwt',
+    companyId: 'company-id',
+  });
+  window.fetch = async (url, init = {}) => {
+    requestedUrl = String(url);
+    assert.equal(init.headers.Authorization, 'Bearer jwt');
+    assert.equal(init.headers['X-Company-ID'], 'company-id');
+    return jsonResponse({ ok: true });
+  };
+  const code = fs.readFileSync(path.join(SRC, 'desktop-session.js'), 'utf8');
+  vm.runInContext(code, dom.getInternalVMContext(), { filename: 'desktop-session.js' });
+
+  const data = await window.AgixtSession.request('/v1/github/repos');
+  assert.equal(data.ok, true);
+  assert.equal(requestedUrl, 'http://localhost:3437/v1/github/repos');
+});
+
+test('desktop session: HTML proxy errors are summarized instead of dumped into alerts', async () => {
+  const dom = new JSDOM('<!doctype html><body></body>', {
+    runScripts: 'outside-only',
+    url: 'https://josh.devxt.com/repos',
+  });
+  const { window } = dom;
+  trackDom(dom);
+  window.__AGIXT_WEB_RUNTIME = true;
+  window.__TAURI__ = { core: { invoke: async () => null } };
+  window.AgixtAppContext = () => ({
+    serverUrl: 'https://josh.devxt.com',
+    jwt: 'jwt',
+  });
+  window.fetch = async () => new Response(
+    '<!DOCTYPE html><html class="no-js ie8 oldie"><body>Bad gateway</body></html>',
+    { status: 502, headers: { 'Content-Type': 'text/html' } },
+  );
+  const code = fs.readFileSync(path.join(SRC, 'desktop-session.js'), 'utf8');
+  vm.runInContext(code, dom.getInternalVMContext(), { filename: 'desktop-session.js' });
+
+  await assert.rejects(
+    () => window.AgixtSession.request('/v1/github/repos/dev/repo/fix-vulns', { method: 'POST', json: {} }),
+    (err) => {
+      assert.equal(err.message, 'Bad gateway from the AGiXT API proxy.');
+      assert.ok(!String(err.message).includes('<!DOCTYPE html>'));
+      return true;
+    },
+  );
+});
+
 test('web runtime: OAuth flow storage keeps only callback state', async () => {
   const { window } = loadWebRuntime('https://rust.workconductor.com/user');
   assert.equal(window.__AGIXT_WEB_RUNTIME, true);
@@ -844,6 +948,53 @@ test('web runtime: OAuth flow storage keeps only callback state', async () => {
   assert.equal(stored.provider, undefined);
   assert.equal(stored.redirect_uri, undefined);
   assert.equal(stored.client_id, undefined);
+});
+
+test('web runtime: desktop OAuth login returns token to app deep link', async () => {
+  const jwt = 'header.payload.signature';
+  const opened = [];
+  const requests = [];
+  const state = encodeURIComponent('desktop=1');
+  const { window } = loadWebRuntime(`https://josh.devxt.com/user/close/microsoft?code=auth-code&state=${state}`);
+  window.__AGIXT_OPEN_DEEP_LINK = (url) => opened.push(url);
+  window.fetch = async (url, opts = {}) => {
+    requests.push({ url, opts });
+    return new Response(JSON.stringify({ token: jwt, email: 'josh@devxt.com' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  await window.AgixtWebRuntime.handleOAuthClose();
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, 'https://josh.devxt.com/v1/oauth2/microsoft');
+  assert.equal(requests[0].opts.method, 'POST');
+  const body = JSON.parse(requests[0].opts.body);
+  assert.equal(body.code, 'auth-code');
+  assert.equal(body.state, 'desktop=1');
+  assert.equal(body.referrer, 'https://josh.devxt.com/user/close/microsoft');
+  assert.deepEqual(opened, [`agixt://login?token=${encodeURIComponent(jwt)}`]);
+  assert.equal(JSON.parse(window.localStorage.getItem('agixt.web.settings.v1') || '{}').jwt, undefined);
+  assert.match(window.document.querySelector('#oauth-status p').textContent, /desktop app/i);
+});
+
+test('web runtime: desktop extension OAuth returns code to app deep link', async () => {
+  const opened = [];
+  let fetchCalled = false;
+  const state = encodeURIComponent('desktop_connect=1|provider=microsoft_365');
+  const { window } = loadWebRuntime(`https://josh.devxt.com/user/close/microsoft?code=connect-code&state=${state}`);
+  window.__AGIXT_OPEN_DEEP_LINK = (url) => opened.push(url);
+  window.fetch = async () => {
+    fetchCalled = true;
+    throw new Error('desktop extension connect should not post from web callback');
+  };
+
+  await window.AgixtWebRuntime.handleOAuthClose();
+
+  assert.equal(fetchCalled, false);
+  assert.deepEqual(opened, ['agixt://oauth-connect?provider=microsoft_365&code=connect-code']);
+  assert.match(window.document.querySelector('#oauth-status p').textContent, /desktop app/i);
 });
 
 test('web runtime: opener preserves signed Stripe checkout fragments', async () => {
@@ -2898,6 +3049,242 @@ test('companies extension: admins can edit child mandatory context and timers', 
   assert.ok(overrideCall, 'temporary overrides should POST to the core endpoint');
   assert.equal(overrideCall.body.feature, 'chat');
   assert.ok(overrideCall.body.until);
+  ctrl.unmount();
+});
+
+test('repos extension: fix all vulnerabilities opens the returned chat conversation', async () => {
+  const calls = [];
+  const activations = [];
+  const alerts = [{
+    type: 'dependabot',
+    severity: 'high',
+    summary: 'lodash vulnerable',
+    package: 'lodash',
+    patched_version: '4.17.21',
+    html_url: 'https://github.com/dev/repo/security/dependabot/1',
+  }];
+  const repo = {
+    owner: 'dev',
+    name: 'repo',
+    full_name: 'dev/repo',
+    html_url: 'https://github.com/dev/repo',
+    description: 'security fixture',
+    language: 'JavaScript',
+    visibility: 'private',
+    fork: false,
+    open_issues: 0,
+    open_prs: 0,
+    total_vulns: 1,
+    dependabot_count: 1,
+    code_scanning_count: 0,
+    advisory_count: 0,
+    severity: { critical: 0, high: 1, medium: 0, low: 0 },
+    dependabot_enabled: true,
+    code_scanning_enabled: true,
+    stars: 0,
+    updated_at_display: 'now',
+  };
+  const { window, registrations } = loadReposExtensionPage();
+  const ctrl = registrations.get('repos');
+  assert.ok(ctrl, 'repos extension should register itself');
+
+  window.AgixtSession = {
+    routeFailureStatus: async () => {
+      throw new Error('routeFailureStatus should not be called for successful launch');
+    },
+  };
+  window.AgixtApp = {
+    activateConversation: async (conversation) => {
+      activations.push(conversation);
+    },
+  };
+
+  const panel = window.document.querySelector('.view-pane[data-view="repos"]');
+  ctrl.mount(panel, {
+    serverUrl: 'http://localhost:7437',
+    jwt: 'jwt',
+    agentId: 'agent-id',
+    companyId: 'company-id',
+    registerContextProvider: () => () => {},
+    fetchJson: async (path, opts = {}) => {
+      calls.push({ path, method: opts.method || 'GET', body: opts.json || null });
+      if (path === '/v1/github/repos') {
+        return { repos: [repo], last_updated: '2026-06-01T12:00:00Z' };
+      }
+      if (path === '/v1/github/repos/dev/repo/alerts') {
+        return { alerts };
+      }
+      if (path === '/v1/github/repos/dev/repo/fix-vulns' && opts.method === 'POST') {
+        return {
+          conversation_id: 'conversation-123',
+          conversation_name: 'Fix Vulnerabilities - dev/repo',
+          status: 'started',
+        };
+      }
+      throw new Error('unexpected fetchJson path: ' + path);
+    },
+  });
+
+  await waitFor(20);
+  const alertToggle = panel.querySelector('[data-toggle="alerts"]');
+  assert.ok(alertToggle, 'security alert row can be expanded');
+  alertToggle.click();
+  await waitFor(20);
+
+  const fixButton = panel.querySelector('[data-action="fix-vulns"]');
+  assert.ok(fixButton, 'expanded alert details include Fix All Vulns action');
+  fixButton.click();
+  await waitFor(20);
+
+  assert.ok(
+    calls.some((call) => call.path === '/v1/github/repos/dev/repo/fix-vulns' && call.method === 'POST'),
+    'fix-vulns endpoint is posted',
+  );
+  assert.equal(activations.length, 1);
+  assert.equal(activations[0].id, 'conversation-123');
+  assert.equal(activations[0].name, 'Fix Vulnerabilities - dev/repo');
+  assert.equal(fixButton.disabled, true, 'button stays disabled after chat handoff to prevent duplicate runs');
+  assert.match(fixButton.textContent, /Opened in chat/);
+  ctrl.unmount();
+});
+
+test('repos extension: failed browser launch reports API reachability without hunting for chat', async () => {
+  const calls = [];
+  const activations = [];
+  const alerts = [{
+    type: 'dependabot',
+    severity: 'critical',
+    summary: 'express vulnerable',
+    package: 'express',
+    patched_version: '4.19.2',
+    html_url: 'https://github.com/dev/repo/security/dependabot/2',
+  }];
+  const repo = {
+    owner: 'dev',
+    name: 'repo',
+    full_name: 'dev/repo',
+    html_url: 'https://github.com/dev/repo',
+    description: 'security fixture',
+    language: 'JavaScript',
+    visibility: 'private',
+    fork: false,
+    open_issues: 0,
+    open_prs: 0,
+    total_vulns: 1,
+    dependabot_count: 1,
+    code_scanning_count: 0,
+    advisory_count: 0,
+    severity: { critical: 1, high: 0, medium: 0, low: 0 },
+    dependabot_enabled: true,
+    code_scanning_enabled: true,
+    stars: 0,
+    updated_at_display: 'now',
+  };
+  const { window, registrations } = loadReposExtensionPage();
+  const ctrl = registrations.get('repos');
+  assert.ok(ctrl, 'repos extension should register itself');
+
+  const alertsShown = [];
+  window.alert = (message) => alertsShown.push(message);
+  window.AgixtApp = {
+    activateConversation: async (conversation) => {
+      activations.push(conversation);
+    },
+  };
+
+  const panel = window.document.querySelector('.view-pane[data-view="repos"]');
+  ctrl.mount(panel, {
+    serverUrl: 'http://localhost:7437',
+    jwt: 'jwt',
+    agentId: 'agent-id',
+    companyId: 'company-id',
+    registerContextProvider: () => () => {},
+    fetchJson: async (path, opts = {}) => {
+      calls.push({ path, method: opts.method || 'GET', body: opts.json || null });
+      if (path === '/v1/github/repos') {
+        return { repos: [repo], last_updated: '2026-06-01T12:00:00Z' };
+      }
+      if (path === '/v1/github/repos/dev/repo/alerts') {
+        return { alerts };
+      }
+      if (path === '/v1/github/repos/dev/repo/fix-vulns' && opts.method === 'POST') {
+        throw new TypeError('Failed to fetch');
+      }
+      if (path === '/v1/conversations?limit=500&include_counts=false') {
+        throw new Error('conversation recovery should not run for browser fetch failures');
+      }
+      throw new Error('unexpected fetchJson path: ' + path);
+    },
+  });
+
+  await waitFor(20);
+  panel.querySelector('[data-toggle="alerts"]').click();
+  await waitFor(20);
+
+  const fixButton = panel.querySelector('[data-action="fix-vulns"]');
+  fixButton.click();
+  await waitFor(50);
+
+  assert.ok(
+    calls.some((call) => call.path === '/v1/github/repos/dev/repo/fix-vulns' && call.method === 'POST'),
+    'fix-vulns endpoint is posted once',
+  );
+  assert.equal(
+    calls.some((call) => call.path === '/v1/conversations?limit=500&include_counts=false'),
+    false,
+    'conversation list is not polled after a browser-level fetch failure',
+  );
+  assert.equal(activations.length, 0);
+  assert.equal(alertsShown.length, 1);
+  assert.match(alertsShown[0], /Could not reach the AGiXT API/);
+  assert.equal(fixButton.disabled, false, 'button is restored after failed launch');
+  ctrl.unmount();
+});
+
+test('repos extension: pending security refresh is labeled as loading details', async () => {
+  const repo = {
+    owner: 'dev',
+    name: 'pending',
+    full_name: 'dev/pending',
+    html_url: 'https://github.com/dev/pending',
+    description: '',
+    language: 'Rust',
+    visibility: 'public',
+    fork: false,
+    open_issues: 0,
+    open_prs: 0,
+    total_vulns: 1,
+    dependabot_count: 0,
+    code_scanning_count: 0,
+    advisory_count: 0,
+    severity: { critical: 0, high: 0, medium: 0, low: 0 },
+    dependabot_enabled: true,
+    code_scanning_enabled: true,
+    security_refreshing: true,
+    stars: 0,
+    updated_at_display: 'now',
+  };
+  const { window, registrations } = loadReposExtensionPage();
+  const ctrl = registrations.get('repos');
+  assert.ok(ctrl, 'repos extension should register itself');
+  const panel = window.document.querySelector('.view-pane[data-view="repos"]');
+  ctrl.mount(panel, {
+    serverUrl: 'http://localhost:7437',
+    jwt: 'jwt',
+    agentId: 'agent-id',
+    companyId: 'company-id',
+    registerContextProvider: () => () => {},
+    fetchJson: async (path) => {
+      if (path === '/v1/github/repos') {
+        return { repos: [repo], last_updated: null };
+      }
+      throw new Error('unexpected fetchJson path: ' + path);
+    },
+  });
+
+  await waitFor(20);
+  assert.match(panel.textContent, /Loading details/);
+  assert.doesNotMatch(panel.textContent, /Refreshing…/);
   ctrl.unmount();
 });
 

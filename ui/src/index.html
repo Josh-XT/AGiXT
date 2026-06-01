@@ -1110,57 +1110,60 @@
 
     <audio id="tts-audio" preload="auto"></audio>
 
-    <script src="frontend-log.js"></script>
-    <script src="markdown.js"></script>
-    <script src="audio.js"></script>
-    <script src="client-actions.js"></script>
-    <script src="context-menu.js"></script>
-    <script src="chat.js"></script>
-    <script src="notifications.js"></script>
-    <script src="g1.js"></script>
-    <script src="auth.js"></script>
-    <script src="dock.js"></script>
-    <script src="desktop-session.js"></script>
-    <!-- Workspace editor (vanilla JS port of web/.../workspace) -->
-    <script src="vendor/papaparse.min.js"></script>
-    <script src="vendor/xlsx.full.min.js"></script>
-    <script src="vendor/mammoth.browser.min.js"></script>
-    <script src="workspace-api.js"></script>
-    <script src="workspace-preview.js"></script>
-    <script src="workspace-models.js"></script>
-    <script src="workspace.js"></script>
-    <script src="desktop-crud.js"></script>
-    <script src="desktop-extensions.js"></script>
+    <script defer src="frontend-log.js"></script>
+    <script defer src="markdown.js"></script>
+    <script defer src="audio.js"></script>
+    <script defer src="client-actions.js"></script>
+    <script defer src="context-menu.js"></script>
+    <script defer src="chat.js"></script>
+    <script defer src="notifications.js"></script>
+    <script defer src="g1.js"></script>
+    <script defer src="auth.js"></script>
+    <script defer src="dock.js"></script>
+    <script defer src="desktop-session.js"></script>
+    <script defer src="desktop-extensions.js"></script>
     <!-- Agent settings — embedded as a side pane (data-view="agent-settings"). -->
-    <script src="agixt-api.js"></script>
-    <script src="settings-extensions.js"></script>
-    <script src="settings-connections.js"></script>
-    <script src="settings-training.js"></script>
-    <script src="agent-settings.js"></script>
+    <script defer src="agixt-api.js"></script>
+    <script defer src="app.js"></script>
+    <!-- Workspace editor (vanilla JS port of web/.../workspace). These modules
+         are intentionally loaded after app.js so hard-refresh routes can paint
+         the shell before large document-preview libraries parse. -->
+    <script defer src="workspace-api.js"></script>
+    <script defer src="workspace-preview.js"></script>
+    <script defer src="workspace-models.js"></script>
+    <script defer src="workspace.js"></script>
+    <script defer src="desktop-crud.js"></script>
+    <script defer src="vendor/papaparse.min.js"></script>
+    <script defer src="vendor/xlsx.full.min.js"></script>
+    <script defer src="vendor/mammoth.browser.min.js"></script>
+    <script defer src="settings-extensions.js"></script>
+    <script defer src="settings-connections.js"></script>
+    <script defer src="settings-training.js"></script>
+    <script defer src="agent-settings.js"></script>
     <!-- User settings — replaces the legacy gear-button modal with a side
          pane that mirrors the web's /user/manage, /user/settings,
          /user/developer, /billing, /companies, /team pages. -->
-    <script src="user-settings.js"></script>
+    <script defer src="user-settings.js"></script>
     <!-- Automation Chains pane — vanilla-JS port of the web's
          /settings/chains route. Lazy-mounted by app.js. -->
-    <script src="chains.js"></script>
+    <script defer src="chains.js"></script>
     <!-- Prompt Library pane — vanilla-JS port of the web's
          /settings/prompts route. Lazy-mounted by app.js. -->
-    <script src="prompts.js"></script>
+    <script defer src="prompts.js"></script>
     <!-- Team chat pane — port of the web's Discord-style group chat
          (web/components/layout/GroupRail.tsx, ChannelList.tsx,
          ChannelMemberList.tsx + web/app/chat). Lazy-mounted by app.js
          the first time the user opens the Chat sidenav button. The
          helpers module (md5/gravatar/emoji shortcodes/reply parsing)
          loads first so team-chat.js can reach for them on mount. -->
-    <script src="team-chat-helpers.js"></script>
-    <script src="team-chat.js"></script>
-    <script src="app.js"></script>
+    <script defer src="team-chat-helpers.js"></script>
+    <script defer src="team-chat.js"></script>
+    <script defer src="optional-modules-ready.js"></script>
     <!-- Prompt Guidance bar — per-page suggestions / mini prompt-builders
          ported from the web's ResourceGuidanceCard. Data first, then the
          module; loaded after app.js so window.AgixtSidenav exists when
          the bar first renders. -->
-    <script src="prompt-guidance-data.js"></script>
-    <script src="prompt-guidance.js"></script>
+    <script defer src="prompt-guidance-data.js"></script>
+    <script defer src="prompt-guidance.js"></script>
   </body>
 </html>

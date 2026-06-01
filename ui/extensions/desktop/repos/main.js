@@ -195,6 +195,10 @@ class ReposView {
     this.expandedRepos = new Set();
     this.expandedIssues = new Set();
     this.expandedPRs = new Set();
+    this.cacheKey = this.buildCacheKey();
+    this.usingCachedData = false;
+    this.isLoading = false;
+    this.securityRefreshTimer = null;
   }
 
   start() {
@@ -208,10 +212,22 @@ class ReposView {
       document.head.appendChild(style);
     }
     this.render();
+    const cached = this.readCachedData();
+    if (cached && cached.repos.length) {
+      this.allRepos = cached.repos;
+      this.lastUpdated = cached.last_updated || cached.cached_at || null;
+      this.usingCachedData = true;
+      this.renderBody();
+      this.scheduleSecurityRefreshPoll();
+    }
     this.loadData(false);
   }
 
   stop() {
+    if (this.securityRefreshTimer) {
+      clearTimeout(this.securityRefreshTimer);
+      this.securityRefreshTimer = null;
+    }
     if (typeof this.unregisterContextProvider === 'function') {
       try { this.unregisterContextProvider(); } catch (_) {}
       this.unregisterContextProvider = null;
@@ -403,6 +419,54 @@ class ReposView {
     return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
   }
 
+  buildCacheKey() {
+    const server = String((this.ctx && this.ctx.serverUrl) || window.location.origin || '')
+      .replace(/\/+$/, '');
+    const company = String((this.ctx && this.ctx.companyId) || 'no-company');
+    const agent = String((this.ctx && this.ctx.agentId) || 'no-agent');
+    const tokenHash = this.hashString((this.ctx && this.ctx.jwt) || '');
+    return `agixt.repos.cache.v1:${server}:${company}:${agent}:${tokenHash}`;
+  }
+
+  hashString(value) {
+    let hash = 0;
+    const text = String(value || '');
+    for (let i = 0; i < text.length; i += 1) {
+      hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash).toString(36);
+  }
+
+  readCachedData() {
+    try {
+      const raw = window.localStorage && window.localStorage.getItem(this.cacheKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const repos = Array.isArray(parsed.repos) ? parsed.repos : [];
+      if (!repos.length) return null;
+      return {
+        repos,
+        last_updated: parsed.last_updated || null,
+        cached_at: parsed.cached_at || null,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  writeCachedData(data) {
+    try {
+      if (!window.localStorage || !data || !Array.isArray(data.repos)) return;
+      window.localStorage.setItem(this.cacheKey, JSON.stringify({
+        repos: data.repos,
+        last_updated: data.last_updated || null,
+        cached_at: new Date().toISOString(),
+      }));
+    } catch (_) {
+      // Ignore quota/private-mode failures; the live request still rendered.
+    }
+  }
+
   async loadData(forceRefresh) {
     this.setLoading(true);
     try {
@@ -419,9 +483,16 @@ class ReposView {
       );
       this.allRepos = (data && data.repos) || [];
       this.lastUpdated = data && data.last_updated;
+      this.usingCachedData = false;
+      this.writeCachedData({ repos: this.allRepos, last_updated: this.lastUpdated });
       this.renderBody();
+      this.scheduleSecurityRefreshPoll();
     } catch (err) {
-      this.renderError(err);
+      if (this.allRepos.length) {
+        console.warn('repos refresh failed; keeping cached dashboard', err);
+      } else {
+        this.renderError(err);
+      }
     } finally {
       this.setLoading(false);
     }
@@ -504,9 +575,13 @@ class ReposView {
   }
 
   setLoading(loading) {
+    this.isLoading = !!loading;
     const content = this.container.querySelector('[data-role="content"]');
     if (loading) {
-      content.innerHTML = '<div class="repos-loading"><div class="spinner"></div>Loading repos from GitHub…</div>';
+      if (!this.allRepos.length) {
+        content.innerHTML = '<div class="repos-loading"><div class="spinner"></div>Loading repos from GitHub…</div>';
+      }
+      this.updateLastUpdatedLabel();
     }
     const btn = this._refreshBtn;
     if (!btn) return;
@@ -517,6 +592,7 @@ class ReposView {
     if (!btn.classList.contains('repos-iconbtn')) {
       btn.textContent = loading ? 'Refreshing…' : 'Refresh';
     }
+    if (!loading) this.updateLastUpdatedLabel();
   }
 
   renderError(err) {
@@ -535,13 +611,41 @@ class ReposView {
     root.querySelector('[data-role="summary"]').style.display = 'flex';
     root.querySelector('[data-role="filters"]').style.display = 'flex';
 
-    if (this.lastUpdated && this._lastUpdatedEl) {
-      const d = new Date(this.lastUpdated);
-      this._lastUpdatedEl.textContent = 'Updated: ' + d.toLocaleTimeString();
-    }
+    this.updateLastUpdatedLabel();
 
     this.buildOwnerFilters();
     this.renderTable();
+  }
+
+  updateLastUpdatedLabel() {
+    if (!this._lastUpdatedEl) return;
+    const pendingSecurityRefresh = this.allRepos.some((repo) => repo && repo.security_refreshing);
+    if (!this.lastUpdated) {
+      this._lastUpdatedEl.textContent = this.isLoading && this.allRepos.length
+        ? 'Refreshing…'
+        : (pendingSecurityRefresh ? 'Loading security details…' : '');
+      return;
+    }
+    const d = new Date(this.lastUpdated);
+    const prefix = this.usingCachedData ? 'Cached' : 'Updated';
+    const suffix = this.isLoading && this.allRepos.length
+      ? ' · refreshing…'
+      : (pendingSecurityRefresh ? ' · loading security details…' : '');
+    this._lastUpdatedEl.textContent = `${prefix}: ${d.toLocaleTimeString()}${suffix}`;
+  }
+
+  scheduleSecurityRefreshPoll() {
+    if (this.securityRefreshTimer) {
+      clearTimeout(this.securityRefreshTimer);
+      this.securityRefreshTimer = null;
+    }
+    if (!this.allRepos.some((repo) => repo && repo.security_refreshing)) return;
+    this.securityRefreshTimer = setTimeout(() => {
+      this.securityRefreshTimer = null;
+      if (document.body.contains(this.container)) {
+        this.loadData(false);
+      }
+    }, 15000);
   }
 
   buildOwnerFilters() {
@@ -682,6 +786,9 @@ class ReposView {
     if (r.advisory_count > 0) pills.push(`<span class="repos-badge neutral">${r.advisory_count} Advisory</span>`);
     if (pills.length === 0 && r.dependabot_count > 0) pills.push(`<span class="repos-badge medium">${r.dependabot_count} Dependabot</span>`);
     let vulnHtml = pills.length ? `<div class="repos-vuln-pills">${pills.join('')}</div>` : '<span class="zero">None</span>';
+    if (r.security_refreshing) {
+      vulnHtml = '<span class="repos-badge neutral">Loading details</span>';
+    }
 
     let warnings = [];
     if (!r.dependabot_enabled) warnings.push(`<button class="repos-badge-disabled" data-enable="dependabot">⚠ Dependabot off</button>`);
@@ -861,13 +968,15 @@ class ReposView {
     container.querySelector('[data-action="fix-vulns"]').addEventListener('click', (e) =>
       this.launchInChat({
         path: `/v1/github/repos/${enc(r.owner)}/${enc(r.name)}/fix-vulns`,
-        host: e.target, label: 'Fixing vulnerabilities',
+        host: e.target,
+        label: 'Fixing vulnerabilities',
       }),
     );
     container.querySelector('[data-action="audit"]').addEventListener('click', (e) =>
       this.launchInChat({
         path: `/v1/github/repos/${enc(r.owner)}/${enc(r.name)}/security-audit`,
-        host: e.target, label: 'Security audit',
+        host: e.target,
+        label: 'Security audit',
       }),
     );
   }
@@ -963,7 +1072,8 @@ class ReposView {
     card.querySelector('[data-action="fix-issue"]').addEventListener('click', (e) =>
       this.launchInChat({
         path: `/v1/github/repos/${enc(r.owner)}/${enc(r.name)}/issues/${issue.number}/fix`,
-        host: e.target, label: `Fix issue #${issue.number}`,
+        host: e.target,
+        label: `Fix issue #${issue.number}`,
       }),
     );
     return card;
@@ -1027,7 +1137,8 @@ class ReposView {
     card.querySelector('[data-action="review"]').addEventListener('click', (e) =>
       this.launchInChat({
         path: `/v1/github/repos/${enc(r.owner)}/${enc(r.name)}/pulls/${pr.number}/review`,
-        host: e.target, label: `Review PR #${pr.number}`,
+        host: e.target,
+        label: `Review PR #${pr.number}`,
       }),
     );
     card.querySelector('[data-action="merge"]').addEventListener('click', () =>
@@ -1146,38 +1257,24 @@ class ReposView {
       host.textContent = originalText;
     };
 
-    // Use the session-aware fetch helper so 401/402/5xx route through
-    // the desktop session handlers, then fall back to the raw fetch
-    // path with explicit routeFailureStatus on error.
-    let resp;
     let data = {};
     try {
-      if (window.AgixtSession && typeof window.AgixtSession.fetch === 'function') {
-        resp = await window.AgixtSession.fetch(path, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: '{}',
-        });
-      } else {
-        resp = await fetch(this.url(path), {
-          method: 'POST',
-          headers: this.authHeaders({ 'Content-Type': 'application/json', Accept: 'application/json' }),
-          body: '{}',
-        });
-      }
+      data = await this.apiPost(path, {});
     } catch (err) {
       restoreButton();
-      alert(`Failed to start: ${err && err.message ? err.message : err}`);
+      logFrontend('error', 'repos launch failed', {
+        path,
+        error: errorToString(err),
+        serverUrl: this.ctx && this.ctx.serverUrl,
+        origin: window.location && window.location.origin,
+      });
+      alert(`Failed to start: ${launchErrorMessage(err)}`);
       return;
     }
-    try { data = await resp.json(); } catch (_) {}
 
-    if (!resp.ok || data.error) {
-      if (window.AgixtSession && typeof window.AgixtSession.routeFailureStatus === 'function') {
-        try { await window.AgixtSession.routeFailureStatus(resp.status, data); } catch (_) {}
-      }
+    if (data && data.error) {
       restoreButton();
-      const msg = data.error || `HTTP ${resp.status}`;
+      const msg = data.error || 'Unknown error';
       alert(`Failed to start: ${msg}`);
       return;
     }
@@ -1190,22 +1287,27 @@ class ReposView {
       return;
     }
 
+    await this.openLaunchedConversation({ id: convId, name: convName }, host);
+  }
+
+  async openLaunchedConversation(conversation, host) {
     host.textContent = '↗ Opened in chat';
     const app = window.AgixtApp;
     if (app && typeof app.activateConversation === 'function') {
       try {
-        await app.activateConversation({ id: convId, name: convName });
+        await app.activateConversation({ id: conversation.id, name: conversation.name });
       } catch (err) {
         console.warn('activateConversation failed', err);
       }
     } else {
       // Out-of-desktop fallback: just tell the user where the work went.
-      alert(`Started "${convName || convId}". Open it from the chat list to view progress.`);
+      alert(`Started "${conversation.name || conversation.id}". Open it from the chat list to view progress.`);
     }
     // Leave the button disabled with the "Opened in chat" label so the
     // user doesn't double-fire the same action while the chat is taking
     // over the view.
   }
+
 }
 
 // ---- helpers --------------------------------------------------------------
@@ -1221,6 +1323,26 @@ function escapeHtml(s) {
 function escapeAttr(s) { return escapeHtml(s); }
 function enc(s) { return encodeURIComponent(s); }
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+function errorToString(err) {
+  if (!err) return 'Unknown error';
+  if (typeof err === 'string') return err;
+  return err.stack || err.message || err.error || String(err);
+}
+
+function launchErrorMessage(err) {
+  const text = errorToString(err);
+  if (/failed to fetch/i.test(text)) {
+    return 'Could not reach the AGiXT API from this page. Refresh and try again; if it persists, the web API proxy is not reachable.';
+  }
+  return text;
+}
+
+function logFrontend(level, message, detail) {
+  if (window.AgixtFrontendLog && typeof window.AgixtFrontendLog === 'function') {
+    try { window.AgixtFrontendLog(level, message, detail); } catch (_) {}
+  }
+}
 
 function labelHtml(l) {
   const color = l.color || 'ccc';
