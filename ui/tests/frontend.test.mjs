@@ -3063,7 +3063,7 @@ test('companies extension: admins can edit child mandatory context and timers', 
   ctrl.unmount();
 });
 
-test('repos extension: fix all vulnerabilities opens the returned chat conversation', async () => {
+test('repos extension: fix all vulnerabilities keeps repos open and activates returned chat conversation', async () => {
   const calls = [];
   const activations = [];
   const alerts = [{
@@ -3105,8 +3105,8 @@ test('repos extension: fix all vulnerabilities opens the returned chat conversat
     },
   };
   window.AgixtApp = {
-    activateConversation: async (conversation) => {
-      activations.push(conversation);
+    activateConversation: async (conversation, options) => {
+      activations.push({ conversation, options });
     },
   };
 
@@ -3152,10 +3152,11 @@ test('repos extension: fix all vulnerabilities opens the returned chat conversat
     'fix-vulns endpoint is posted',
   );
   assert.equal(activations.length, 1);
-  assert.equal(activations[0].id, 'conversation-123');
-  assert.equal(activations[0].name, 'Fix Vulnerabilities - dev/repo');
-  assert.equal(fixButton.disabled, true, 'button stays disabled after chat handoff to prevent duplicate runs');
-  assert.match(fixButton.textContent, /Opened in chat/);
+  assert.equal(activations[0].conversation.id, 'conversation-123');
+  assert.equal(activations[0].conversation.name, 'Fix Vulnerabilities - dev/repo');
+  assert.equal(activations[0].options?.focusChat, false);
+  assert.equal(fixButton.disabled, true, 'button stays disabled after chat launch to prevent duplicate runs');
+  assert.match(fixButton.textContent, /Started in chat/);
   ctrl.unmount();
 });
 

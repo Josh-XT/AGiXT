@@ -14,9 +14,9 @@
  *   POST   /v1/github/repos/{owner}/{repo}/pulls/{n}/merge      body: {merge_method}
  *
  * Agent-action endpoints (start a new conversation in AGiXT and return
- * `{conversation_id, conversation_name}`; the extension hands the user
- * off to the desktop chat view via window.AgixtApp.activateConversation
- * so progress streams in the existing chat UI instead of inline):
+ * `{conversation_id, conversation_name}`; the extension activates that
+ * conversation in the chat pane while leaving the repo dashboard open so
+ * progress streams without closing the user's current work surface):
  *   POST   /v1/github/repos/{owner}/{repo}/issues/{n}/fix
  *   POST   /v1/github/repos/{owner}/{repo}/pulls/{n}/review
  *   POST   /v1/github/repos/{owner}/{repo}/fix-vulns
@@ -1239,10 +1239,11 @@ class ReposView {
   // ------------------------------------------------------------------
 
   /** POST to an agent-action endpoint that creates a new AGiXT
-   *  conversation server-side, then switch the desktop chat view to
-   *  that conversation. The chat UI already renders agent activity
-   *  (subactivities, tool calls, response) via the conversation
-   *  WebSocket, so the user watches progress there instead of inline. */
+   *  conversation server-side, then activate that conversation in the
+   *  chat pane without navigating away from this dashboard. The chat UI
+   *  already renders agent activity (subactivities, tool calls, response)
+   *  via the conversation WebSocket, so the user can watch progress while
+   *  keeping the repo content area open. */
   async launchInChat({ path, host, label }) {
     if (!host) return;
     if (host.dataset.agentBusy) return;
@@ -1291,11 +1292,14 @@ class ReposView {
   }
 
   async openLaunchedConversation(conversation, host) {
-    host.textContent = '↗ Opened in chat';
+    host.textContent = '↗ Started in chat';
     const app = window.AgixtApp;
     if (app && typeof app.activateConversation === 'function') {
       try {
-        await app.activateConversation({ id: conversation.id, name: conversation.name });
+        await app.activateConversation(
+          { id: conversation.id, name: conversation.name },
+          { focusChat: false },
+        );
       } catch (err) {
         console.warn('activateConversation failed', err);
       }
@@ -1303,9 +1307,9 @@ class ReposView {
       // Out-of-desktop fallback: just tell the user where the work went.
       alert(`Started "${conversation.name || conversation.id}". Open it from the chat list to view progress.`);
     }
-    // Leave the button disabled with the "Opened in chat" label so the
-    // user doesn't double-fire the same action while the chat is taking
-    // over the view.
+    // Leave the button disabled with the "Started in chat" label so the
+    // user doesn't double-fire the same action while the chat stream
+    // follows the new conversation.
   }
 
 }

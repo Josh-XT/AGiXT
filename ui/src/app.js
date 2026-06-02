@@ -3420,9 +3420,11 @@
     handleAuthExpired,
     handlePaymentRequired,
     handleServerIssue,
-    activateConversation: async (conv) => {
+    activateConversation: async (conv, options = {}) => {
       if (!conv || !conv.id) return;
+      const focusChat = options.focusChat !== false;
       const showChat = () => {
+        if (!focusChat) return;
         try {
           if (window.AgixtSidenav && typeof window.AgixtSidenav.setActiveView === 'function') {
             window.AgixtSidenav.setActiveView('chat');
