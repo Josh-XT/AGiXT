@@ -4254,54 +4254,36 @@ async fn og_fetch(args: OgFetchArgs) -> ToolResult<OgFetchResult> {
 // --------------------------------------------------------------------------
 
 #[cfg(target_os = "linux")]
+fn linux_user_data_roots(home: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut roots = vec![home.join(".local/share")];
+    if let Some(value) = std::env::var_os("XDG_DATA_HOME") {
+        let path = std::path::PathBuf::from(value);
+        if path.is_absolute() && !roots.iter().any(|root| root == &path) {
+            roots.push(path);
+        }
+    }
+    roots
+}
+
+#[cfg(target_os = "linux")]
 fn cleanup_legacy_linux_launchers() {
     let home = match std::env::var_os("HOME") {
         Some(home) => std::path::PathBuf::from(home),
         None => return,
     };
-    let current_exe = std::env::current_exe().ok();
-    let legacy_bin = home.join(".local/bin/agixt-desktop");
-    let current_is_legacy_bin = current_exe.as_ref().is_some_and(|path| path == &legacy_bin);
-
-    let apps_dir = home.join(".local/share/applications");
-    // Old launcher and URL-scheme handler from when the binary was named
-    // `agixt-desktop` and the deb package was `a-gi-xt-desktop`. The
-    // unified `agixt.desktop` we ship now supersedes both.
-    for name in [
-        "agixt-desktop.desktop",
-        "agixt-desktop-handler.desktop",
-        "agixt-handler.desktop",
-    ] {
-        let path = apps_dir.join(name);
-        if path.exists() {
-            match std::fs::remove_file(&path) {
-                Ok(_) => tracing::info!("removed legacy desktop launcher {}", path.display()),
-                Err(e) => {
-                    tracing::warn!("failed to remove legacy launcher {}: {e}", path.display())
-                }
-            }
+    for data_root in linux_user_data_roots(&home) {
+        // Legacy hicolor icon written under the old name.
+        let legacy_icon = data_root.join("icons/hicolor/128x128/apps/agixt-desktop.png");
+        if legacy_icon.exists() {
+            let _ = std::fs::remove_file(&legacy_icon);
         }
+
+        let apps_dir = data_root.join("applications");
+        let _ = std::process::Command::new("update-desktop-database")
+            .arg(apps_dir)
+            .status();
     }
 
-    // Legacy hicolor icon written under the old name.
-    let legacy_icon = home.join(".local/share/icons/hicolor/128x128/apps/agixt-desktop.png");
-    if legacy_icon.exists() {
-        let _ = std::fs::remove_file(&legacy_icon);
-    }
-
-    if !current_is_legacy_bin && legacy_bin.exists() {
-        match std::fs::remove_file(&legacy_bin) {
-            Ok(_) => tracing::info!("removed legacy desktop binary {}", legacy_bin.display()),
-            Err(e) => tracing::warn!(
-                "failed to remove legacy desktop binary {}: {e}",
-                legacy_bin.display()
-            ),
-        }
-    }
-
-    let _ = std::process::Command::new("update-desktop-database")
-        .arg(apps_dir)
-        .status();
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -4328,123 +4310,198 @@ fn install_linux_launcher() {
         }
     };
     let exe_str = current_exe.display().to_string();
+    let env_unsets = "-u SNAP -u SNAP_NAME -u SNAP_INSTANCE_NAME -u SNAP_DATA -u SNAP_COMMON \
+        -u SNAP_USER_DATA -u SNAP_USER_COMMON -u SNAP_LIBRARY_PATH \
+        -u GTK_PATH -u GIO_MODULE_DIR -u LOCPATH -u GTK_EXE_PREFIX \
+        -u GDK_PIXBUF_MODULE_FILE -u GDK_PIXBUF_MODULEDIR \
+        -u GTK_IM_MODULE_FILE -u GSETTINGS_SCHEMA_DIR \
+        -u XDG_DATA_HOME -u XDG_CONFIG_HOME -u XDG_CACHE_HOME";
+    let legacy_bin = home.join(".local/bin/agixt-desktop");
+    let legacy_bin_str = legacy_bin.display().to_string();
+    if current_exe != legacy_bin {
+        if let Some(bin_dir) = legacy_bin.parent() {
+            if let Err(e) = std::fs::create_dir_all(bin_dir) {
+                tracing::warn!(
+                    "install_linux_launcher: mkdir {} failed: {e}",
+                    bin_dir.display()
+                );
+            } else {
+                let wrapper = format!(
+                    "#!/bin/sh\n\
+                    setsid -f /usr/bin/env {env_unsets} \"{exe}\" \"$@\" > /tmp/agixt-desktop-url-handler.log 2>&1\n\
+                    exit 0\n",
+                    env_unsets = env_unsets,
+                    exe = exe_str
+                );
+                let needs_wrapper_write = match std::fs::read_to_string(&legacy_bin) {
+                    Ok(existing) => existing != wrapper,
+                    Err(_) => true,
+                };
+                if needs_wrapper_write {
+                    match std::fs::write(&legacy_bin, wrapper) {
+                        Ok(_) => {
+                            #[cfg(unix)]
+                            {
+                                use std::os::unix::fs::PermissionsExt;
+                                let _ = std::fs::set_permissions(
+                                    &legacy_bin,
+                                    std::fs::Permissions::from_mode(0o755),
+                                );
+                            }
+                            tracing::info!(
+                                "installed compatibility launcher {}",
+                                legacy_bin.display()
+                            );
+                        }
+                        Err(e) => tracing::warn!(
+                            "install_linux_launcher: write compatibility launcher {} failed: {e}",
+                            legacy_bin.display()
+                        ),
+                    }
+                }
+            }
+        }
+    }
+    let exec_command = if current_exe != legacy_bin {
+        format!("\"{legacy}\" %u", legacy = legacy_bin_str)
+    } else {
+        format!(
+            "/usr/bin/env {env_unsets} \"{exe}\" %u",
+            env_unsets = env_unsets,
+            exe = exe_str
+        )
+    };
 
-    // Install icons under the user's hicolor theme so `Icon=agixt`
-    // resolves in launchers, taskbars, and search menus at common sizes.
-    let icons_root = home.join(".local/share/icons/hicolor");
-    let mut icon_updated = false;
-    for (size, bytes) in [
-        ("32x32", include_bytes!("../icons/32x32.png").as_slice()),
-        ("128x128", APP_ICON_BYTES),
-        (
-            "256x256",
-            include_bytes!("../icons/128x128@2x.png").as_slice(),
-        ),
-    ] {
-        let icons_dir = icons_root.join(size).join("apps");
-        if let Err(e) = std::fs::create_dir_all(&icons_dir) {
+    let data_roots = linux_user_data_roots(&home);
+    for data_root in data_roots {
+        // Install icons under the user's hicolor theme so `Icon=agixt`
+        // resolves in launchers, taskbars, and search menus at common sizes.
+        let icons_root = data_root.join("icons/hicolor");
+        let mut icon_updated = false;
+        for (size, bytes) in [
+            ("32x32", include_bytes!("../icons/32x32.png").as_slice()),
+            ("128x128", APP_ICON_BYTES),
+            (
+                "256x256",
+                include_bytes!("../icons/128x128@2x.png").as_slice(),
+            ),
+        ] {
+            let icons_dir = icons_root.join(size).join("apps");
+            if let Err(e) = std::fs::create_dir_all(&icons_dir) {
+                tracing::warn!(
+                    "install_linux_launcher: mkdir {} failed: {e}",
+                    icons_dir.display()
+                );
+                continue;
+            }
+            let icon_path = icons_dir.join("agixt.png");
+            let needs_icon_write = match std::fs::read(&icon_path) {
+                Ok(existing) => existing != bytes,
+                Err(_) => true,
+            };
+            if needs_icon_write {
+                if let Err(e) = std::fs::write(&icon_path, bytes) {
+                    tracing::warn!(
+                        "install_linux_launcher: write icon {} failed: {e}",
+                        icon_path.display()
+                    );
+                } else {
+                    icon_updated = true;
+                    tracing::info!("installed desktop icon {}", icon_path.display());
+                }
+            }
+        }
+
+        let apps_dir = data_root.join("applications");
+        if let Err(e) = std::fs::create_dir_all(&apps_dir) {
             tracing::warn!(
                 "install_linux_launcher: mkdir {} failed: {e}",
-                icons_dir.display()
+                apps_dir.display()
             );
             continue;
         }
-        let icon_path = icons_dir.join("agixt.png");
-        let needs_icon_write = match std::fs::read(&icon_path) {
-            Ok(existing) => existing != bytes,
-            Err(_) => true,
-        };
-        if needs_icon_write {
-            if let Err(e) = std::fs::write(&icon_path, bytes) {
-                tracing::warn!(
-                    "install_linux_launcher: write icon {} failed: {e}",
-                    icon_path.display()
-                );
-            } else {
-                icon_updated = true;
-                tracing::info!("installed desktop icon {}", icon_path.display());
-            }
-        }
-    }
-
-    let apps_dir = home.join(".local/share/applications");
-    if let Err(e) = std::fs::create_dir_all(&apps_dir) {
-        tracing::warn!(
-            "install_linux_launcher: mkdir {} failed: {e}",
-            apps_dir.display()
-        );
-        return;
-    }
-    let desktop_path = apps_dir.join("agixt.desktop");
-    let contents = format!(
-        "[Desktop Entry]\n\
-        Type=Application\n\
-        Name=AGiXT Desktop\n\
-        Comment=AGiXT chat, workspace, and machine console\n\
-        Exec=\"{exe}\" %u\n\
-        Icon=agixt\n\
-        Terminal=false\n\
-        StartupNotify=true\n\
-        StartupWMClass=agixt\n\
-        Categories=Network;\n\
-        MimeType=x-scheme-handler/agixt;\n",
-        exe = exe_str
-    );
-
-    let needs_write = match std::fs::read_to_string(&desktop_path) {
-        Ok(existing) => existing != contents,
-        Err(_) => true,
-    };
-    if needs_write {
-        if let Err(e) = std::fs::write(&desktop_path, &contents) {
-            tracing::warn!(
-                "install_linux_launcher: write {} failed: {e}",
-                desktop_path.display()
-            );
-            return;
-        }
-        tracing::info!("installed desktop launcher {}", desktop_path.display());
-    }
-
-    if needs_write || icon_updated {
-        refresh_linux_desktop_caches(&home, &apps_dir);
-    }
-
-    // Mask any leftover deb-installed system launcher
-    // (`/usr/share/applications/AGiXT Desktop.desktop` from older
-    // `a-gi-xt-desktop` package installs). Per the freedesktop spec, a
-    // user-local `.desktop` with the same basename and `Hidden=true`
-    // causes GIO to skip the system file entirely.
-    let mask_path = apps_dir.join("AGiXT Desktop.desktop");
-    let system_target = std::path::Path::new("/usr/share/applications/AGiXT Desktop.desktop");
-    if system_target.exists() {
-        let mask = "[Desktop Entry]\n\
+        let desktop_path = apps_dir.join("agixt.desktop");
+        let contents = format!(
+            "[Desktop Entry]\n\
             Type=Application\n\
-            Name=AGiXT Desktop (legacy)\n\
-            NoDisplay=true\n\
-            Hidden=true\n\
-            Exec=true\n";
-        let needs_mask_write = match std::fs::read_to_string(&mask_path) {
-            Ok(existing) => existing != mask,
+            Name=AGiXT Desktop\n\
+            Comment=AGiXT chat, workspace, and machine console\n\
+            Exec={exec}\n\
+            Icon=agixt\n\
+            Terminal=false\n\
+            StartupNotify=true\n\
+            StartupWMClass=agixt\n\
+            Categories=Network;\n\
+            MimeType=x-scheme-handler/agixt;\n",
+            exec = exec_command
+        );
+
+        let needs_write = match std::fs::read_to_string(&desktop_path) {
+            Ok(existing) => existing != contents,
             Err(_) => true,
         };
-        if needs_mask_write {
-            if let Err(e) = std::fs::write(&mask_path, mask) {
+        if needs_write {
+            if let Err(e) = std::fs::write(&desktop_path, &contents) {
                 tracing::warn!(
-                    "install_linux_launcher: write mask {} failed: {e}",
-                    mask_path.display()
+                    "install_linux_launcher: write {} failed: {e}",
+                    desktop_path.display()
                 );
-            } else {
-                tracing::info!("masked legacy system launcher via {}", mask_path.display());
-                let _ = std::process::Command::new("update-desktop-database")
-                    .arg(&apps_dir)
-                    .status();
+                continue;
+            }
+            tracing::info!("installed desktop launcher {}", desktop_path.display());
+        }
+
+        let mut desktop_cache_needs_refresh = needs_write || icon_updated;
+
+        // Keep compatibility handlers for old package/build IDs. Some Linux
+        // desktops and browsers cache the previous default handler by desktop
+        // file ID, and a hidden mask can still leave that stale ID selected.
+        // Writing no-display aliases makes every known historical agixt://
+        // handler launch the current executable.
+        let compat_contents = format!(
+            "[Desktop Entry]\n\
+            Type=Application\n\
+            Name=AGiXT Desktop\n\
+            Comment=Open AGiXT Desktop links\n\
+            Exec={exec}\n\
+            Icon=agixt\n\
+            Terminal=false\n\
+            NoDisplay=true\n\
+            StartupNotify=false\n\
+            StartupWMClass=agixt\n\
+            MimeType=x-scheme-handler/agixt;\n",
+            exec = exec_command
+        );
+        for name in [
+            "AGiXT Desktop.desktop",
+            "agixt-desktop.desktop",
+            "agixt-desktop-handler.desktop",
+            "agixt-handler.desktop",
+        ] {
+            let compat_path = apps_dir.join(name);
+            let needs_compat_write = match std::fs::read_to_string(&compat_path) {
+                Ok(existing) => existing != compat_contents,
+                Err(_) => true,
+            };
+            if needs_compat_write {
+                if let Err(e) = std::fs::write(&compat_path, &compat_contents) {
+                    tracing::warn!(
+                        "install_linux_launcher: write compatibility handler {} failed: {e}",
+                        compat_path.display()
+                    );
+                } else {
+                    tracing::info!(
+                        "installed compatibility URL handler {}",
+                        compat_path.display()
+                    );
+                    desktop_cache_needs_refresh = true;
+                }
             }
         }
-    } else if mask_path.exists() {
-        // System file is gone; the mask is no longer needed and would
-        // just clutter the user's app dir.
-        let _ = std::fs::remove_file(&mask_path);
+
+        if desktop_cache_needs_refresh {
+            refresh_linux_desktop_caches(&data_root, &apps_dir);
+        }
     }
 
     // Re-point the agixt:// URL scheme to the unified launcher. xdg-mime
@@ -4468,13 +4525,13 @@ fn install_linux_launcher() {
 }
 
 #[cfg(target_os = "linux")]
-fn refresh_linux_desktop_caches(home: &std::path::Path, apps_dir: &std::path::Path) {
+fn refresh_linux_desktop_caches(data_root: &std::path::Path, apps_dir: &std::path::Path) {
     let _ = std::process::Command::new("update-desktop-database")
         .arg(apps_dir)
         .status();
     let _ = std::process::Command::new("gtk-update-icon-cache")
         .args(["-f", "-t"])
-        .arg(home.join(".local/share/icons/hicolor"))
+        .arg(data_root.join("icons/hicolor"))
         .status();
 }
 
@@ -4697,11 +4754,14 @@ pub fn run() {
             });
             // On Linux we may be invoked via xdg-open before the runtime
             // is ready; the plugin queues those URLs and replays them
-            // once we've subscribed.
-            #[cfg(any(not(target_os = "linux"), debug_assertions))]
+            // once we've subscribed. Register on every desktop platform
+            // as a second line of defense against stale xdg-mime entries
+            // from older AGiXT Desktop installs.
             if let Err(e) = handle.deep_link().register("agixt") {
                 tracing::warn!("could not register agixt:// scheme: {e}");
             }
+            #[cfg(target_os = "linux")]
+            install_linux_launcher();
 
             // Register Ctrl+Shift+Space as a global "open AGiXT" shortcut
             // so the user always has a way in even if their DE hides the

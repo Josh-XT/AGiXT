@@ -507,23 +507,63 @@
     try { return decodeURIComponent(value); } catch (_) { return value; }
   }
 
-  function openDesktopDeepLink(url) {
+  function ensureDesktopReturnLink(url, label) {
+    const root = document.getElementById('oauth-status');
+    if (!root || !url) return;
+    let actions = root.querySelector('[data-oauth-desktop-actions]');
+    if (!actions) {
+      actions = document.createElement('div');
+      actions.className = 'oauth-actions';
+      actions.setAttribute('data-oauth-desktop-actions', 'true');
+      root.appendChild(actions);
+    }
+    actions.innerHTML = '';
+    const link = document.createElement('a');
+    link.className = 'oauth-action';
+    link.href = url;
+    link.textContent = label || 'Open AGiXT desktop';
+    link.rel = 'noopener';
+    actions.appendChild(link);
+    const hint = document.createElement('p');
+    hint.className = 'oauth-action-hint';
+    hint.textContent = 'If the desktop app did not open automatically, click the button above.';
+    actions.appendChild(hint);
+  }
+
+  function openDesktopDeepLink(url, label) {
     if (!url) return;
+    ensureDesktopReturnLink(url, label);
     if (typeof window.__AGIXT_OPEN_DEEP_LINK === 'function') {
       window.__AGIXT_OPEN_DEEP_LINK(url);
       return;
     }
     try {
-      window.location.href = url;
-    } catch (_) {
-      try { window.open(url, '_self', 'noopener'); } catch (_) {}
-    }
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.style.display = 'none';
+      document.body.appendChild(anchor);
+      anchor.click();
+      setTimeout(() => { try { anchor.remove(); } catch (_) {} }, 1000);
+    } catch (_) {}
+    try {
+      const iframe = document.createElement('iframe');
+      iframe.setAttribute('aria-hidden', 'true');
+      iframe.style.display = 'none';
+      iframe.src = url;
+      document.body.appendChild(iframe);
+      setTimeout(() => { try { iframe.remove(); } catch (_) {} }, 1000);
+    } catch (_) {}
+    setTimeout(() => {
+      try { window.location.assign(url); } catch (_) {
+        try { window.open(url, '_self', 'noopener'); } catch (_) {}
+      }
+    }, 75);
   }
 
   function returnDesktopLogin(token) {
     clearOAuthFlow();
     renderOAuthStatus('done', 'Signed in', 'Returning to the desktop app...');
-    openDesktopDeepLink(`agixt://login?token=${encodeURIComponent(token)}`);
+    openDesktopDeepLink(`agixt://login?token=${encodeURIComponent(token)}`, 'Open AGiXT desktop');
   }
 
   function returnDesktopConnect(provider, code) {
@@ -532,7 +572,7 @@
     const params = new URLSearchParams();
     params.set('provider', provider || '');
     params.set('code', code || '');
-    openDesktopDeepLink(`agixt://oauth-connect?${params.toString()}`);
+    openDesktopDeepLink(`agixt://oauth-connect?${params.toString()}`, 'Return to AGiXT desktop');
   }
 
   function consumeUrlToken() {

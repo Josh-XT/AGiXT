@@ -977,6 +977,9 @@ test('web runtime: desktop OAuth login returns token to app deep link', async ()
   assert.deepEqual(opened, [`agixt://login?token=${encodeURIComponent(jwt)}`]);
   assert.equal(JSON.parse(window.localStorage.getItem('agixt.web.settings.v1') || '{}').jwt, undefined);
   assert.match(window.document.querySelector('#oauth-status p').textContent, /desktop app/i);
+  const link = window.document.querySelector('[data-oauth-desktop-actions] a');
+  assert.equal(link.getAttribute('href'), `agixt://login?token=${encodeURIComponent(jwt)}`);
+  assert.match(link.textContent, /open agixt desktop/i);
 });
 
 test('web runtime: desktop extension OAuth returns code to app deep link', async () => {
@@ -995,6 +998,14 @@ test('web runtime: desktop extension OAuth returns code to app deep link', async
   assert.equal(fetchCalled, false);
   assert.deepEqual(opened, ['agixt://oauth-connect?provider=microsoft_365&code=connect-code']);
   assert.match(window.document.querySelector('#oauth-status p').textContent, /desktop app/i);
+  const link = window.document.querySelector('[data-oauth-desktop-actions] a');
+  assert.equal(link.getAttribute('href'), 'agixt://oauth-connect?provider=microsoft_365&code=connect-code');
+  assert.match(link.textContent, /return to agixt desktop/i);
+});
+
+test('web runtime: OAuth close page loads deployment config before runtime', () => {
+  const html = fs.readFileSync(path.join(WEB, 'oauth-close.html'), 'utf8');
+  assert.match(html, /<script src="\/web-config\.js"><\/script>\s*<script src="\/web-runtime\.js"><\/script>/);
 });
 
 test('web runtime: opener preserves signed Stripe checkout fragments', async () => {

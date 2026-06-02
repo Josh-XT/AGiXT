@@ -58,6 +58,35 @@
         line-height: 1.5;
       }
 
+      .oauth-actions {
+        display: grid;
+        gap: 10px;
+        justify-items: center;
+        margin-top: 10px;
+      }
+
+      .oauth-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        padding: 0 16px;
+        border-radius: 8px;
+        background: #38bdf8;
+        color: #06111d;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .oauth-action:focus-visible {
+        outline: 2px solid #e5eefc;
+        outline-offset: 3px;
+      }
+
+      .oauth-action-hint {
+        font-size: 13px;
+      }
+
       @keyframes spin {
         to { transform: rotate(360deg); }
       }
@@ -69,6 +98,7 @@
       <h1>Completing sign in</h1>
       <p>Please wait while AGiXT finishes the OAuth flow.</p>
     </main>
+    <script src="/web-config.js"></script>
     <script src="/web-runtime.js"></script>
     <script>
       window.AgixtWebRuntime.handleOAuthClose();
