@@ -7270,6 +7270,34 @@ SERVER_CONFIG_DEFINITIONS = [
         "is_sensitive": False,
         "is_required": False,
     },
+    # Atlas Cloud
+    {
+        "name": "ATLASCLOUD_API_KEY",
+        "category": "ai_providers",
+        "description": "Atlas Cloud API Key (OpenAI-compatible). Get at https://www.atlascloud.ai/",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "ATLASCLOUD_MODEL",
+        "category": "ai_providers",
+        "description": "Default Atlas Cloud model to use",
+        "value_type": "string",
+        "default_value": "deepseek-ai/deepseek-v4-pro",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "ATLASCLOUD_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for Atlas Cloud responses",
+        "value_type": "integer",
+        "default_value": "64000",
+        "is_sensitive": False,
+        "is_required": False,
+    },
     # Azure OpenAI
     {
         "name": "AZURE_API_KEY",
