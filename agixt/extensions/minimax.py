@@ -1,10 +1,11 @@
 """
 MiniMax AI provider extension for AGiXT.
 
-This extension uses the MiniMax chat completions API for text, image, and video
-inference. Set MINIMAX_API_URI to global_en, cn_zh, or a custom compatible base
-URL. API keys are available from https://platform.minimax.io/ and
-https://platform.minimaxi.com/.
+This extension supports MiniMax text, image, and video inference through the
+OpenAI-compatible Chat Completions API and the Anthropic-compatible Messages
+API. Set MINIMAX_API_URI to global_en or cn_zh for Chat Completions, or to
+global_en_anthropic or cn_zh_anthropic for Messages. Custom Anthropic base URLs
+must end in /anthropic; the adapter appends /v1/messages.
 """
 
 import base64
@@ -22,10 +23,16 @@ from Globals import getenv
 API_URIS = {
     "global_en": "https://api.minimax.io/v1",
     "cn_zh": "https://api.minimaxi.com/v1",
+    "global_en_anthropic": "https://api.minimax.io/anthropic",
+    "cn_zh_anthropic": "https://api.minimaxi.com/anthropic",
 }
 MODEL_CONTEXT_WINDOWS = {
     "MiniMax-M3": 1_000_000,
     "MiniMax-M2.7": 204_800,
+}
+MODEL_OUTPUT_TOKEN_DEFAULTS = {
+    "MiniMax-M3": 131_072,
+    "MiniMax-M2.7": 65_536,
 }
 MODEL_TOP_P_DEFAULTS = {
     "MiniMax-M3": 0.95,
@@ -70,8 +77,8 @@ class StreamDelta:
         self.role = delta_data.get("role")
 
 
-def parse_sse_stream(response):
-    """Parse a server-sent event response into AGiXT stream chunks."""
+def _sse_payloads(response):
+    """Yield JSON payloads from a server-sent event response."""
     for line in response.iter_lines():
         if not line:
             continue
@@ -82,9 +89,38 @@ def parse_sse_stream(response):
         if data_text == "[DONE]":
             break
         try:
-            yield StreamChunk(json.loads(data_text))
+            yield json.loads(data_text)
         except json.JSONDecodeError:
             continue
+
+
+def parse_sse_stream(response):
+    """Parse an OpenAI-compatible stream into AGiXT stream chunks."""
+    for data in _sse_payloads(response):
+        yield StreamChunk(data)
+
+
+def parse_anthropic_sse_stream(response):
+    """Parse an Anthropic-compatible stream into AGiXT stream chunks."""
+    for data in _sse_payloads(response):
+        event_type = data.get("type")
+        if event_type == "content_block_delta":
+            delta = data.get("delta", {})
+            if delta.get("type") == "text_delta":
+                chunk_delta = {"content": delta.get("text")}
+            elif delta.get("type") == "thinking_delta":
+                chunk_delta = {"reasoning_content": delta.get("thinking")}
+            else:
+                continue
+            yield StreamChunk(
+                {"choices": [{"delta": chunk_delta, "finish_reason": None}]}
+            )
+        elif event_type == "message_delta":
+            finish_reason = data.get("delta", {}).get("stop_reason")
+            if finish_reason:
+                yield StreamChunk(
+                    {"choices": [{"delta": {}, "finish_reason": finish_reason}]}
+                )
 
 
 def _media_type(media: str):
@@ -102,7 +138,7 @@ def _media_type(media: str):
     raise ValueError(f"Unsupported MiniMax media type: {media}")
 
 
-def _media_content_part(media: str):
+def _media_content_part(media: str, protocol: str):
     content_type, mime_type = _media_type(media)
     if media.startswith(("http://", "https://", "data:", "mm_file://")):
         media_url = media
@@ -110,11 +146,32 @@ def _media_content_part(media: str):
         with open(media, "rb") as media_file:
             encoded_media = base64.b64encode(media_file.read()).decode("utf-8")
         media_url = f"data:{mime_type};base64,{encoded_media}"
+
+    if protocol == "anthropic":
+        block_type = "image" if content_type == "image_url" else "video"
+        if media_url.startswith("data:"):
+            header, encoded_media = media_url.split(",", 1)
+            if not header.endswith(";base64"):
+                raise ValueError("MiniMax data URLs must use base64 encoding")
+            source = {
+                "type": "base64",
+                "media_type": header.removeprefix("data:").removesuffix(";base64"),
+                "data": encoded_media,
+            }
+        else:
+            source = {"type": "url", "url": media_url}
+        return {"type": block_type, "source": source}
+
     return {"type": content_type, content_type: {"url": media_url}}
 
 
 class minimax(Extensions):
-    """MiniMax provider for language and multimodal inference."""
+    """MiniMax provider with regional Chat Completions and Messages endpoints.
+
+    Use global_en or cn_zh for the OpenAI-compatible protocol. Use
+    global_en_anthropic or cn_zh_anthropic for the Anthropic-compatible
+    protocol. A blank thinking setting keeps each protocol's native default.
+    """
 
     CATEGORY = "AI Provider"
     friendly_name = "MiniMax"
@@ -126,10 +183,10 @@ class minimax(Extensions):
         MINIMAX_MODEL: str = "MiniMax-M3",
         MINIMAX_API_URI: str = API_URIS["global_en"],
         MINIMAX_MAX_TOKENS: int = 0,
-        MINIMAX_MAX_OUTPUT_TOKENS: int = 4096,
+        MINIMAX_MAX_OUTPUT_TOKENS: int = 0,
         MINIMAX_TEMPERATURE: float = 1.0,
         MINIMAX_TOP_P: float = None,
-        MINIMAX_THINKING: str = "adaptive",
+        MINIMAX_THINKING: str = "",
         MINIMAX_SERVICE_TIER: str = "standard",
         MINIMAX_WAIT_BETWEEN_REQUESTS: int = 0,
         MINIMAX_WAIT_AFTER_FAILURE: int = 3,
@@ -152,6 +209,12 @@ class minimax(Extensions):
             .strip()
             .rstrip("/")
         )
+        api_path = urlsplit(self.API_URI).path.rstrip("/")
+        if api_path.endswith(("/anthropic/v1", "/anthropic/v1/messages")):
+            raise ValueError(
+                "MINIMAX_API_URI Anthropic base URLs must end in /anthropic"
+            )
+        self.API_PROTOCOL = "anthropic" if api_path.endswith("/anthropic") else "openai"
         self.MAX_TOKENS = (
             int(MINIMAX_MAX_TOKENS)
             if MINIMAX_MAX_TOKENS
@@ -165,7 +228,9 @@ class minimax(Extensions):
                 f"MINIMAX_MAX_TOKENS exceeds the {self.AI_MODEL} context window"
             )
         self.MAX_OUTPUT_TOKENS = (
-            int(MINIMAX_MAX_OUTPUT_TOKENS) if MINIMAX_MAX_OUTPUT_TOKENS else 4096
+            int(MINIMAX_MAX_OUTPUT_TOKENS)
+            if MINIMAX_MAX_OUTPUT_TOKENS
+            else MODEL_OUTPUT_TOKEN_DEFAULTS.get(self.AI_MODEL, 4096)
         )
         self.AI_TEMPERATURE = float(MINIMAX_TEMPERATURE)
         if not 0 <= self.AI_TEMPERATURE <= 2:
@@ -182,15 +247,13 @@ class minimax(Extensions):
                 "MINIMAX_MAX_OUTPUT_TOKENS must be positive and fit the context window"
             )
 
-        requested_thinking = str(MINIMAX_THINKING or "adaptive").strip().lower()
-        if requested_thinking not in ("adaptive", "disabled"):
-            raise ValueError("MINIMAX_THINKING must be adaptive or disabled")
+        requested_thinking = str(MINIMAX_THINKING or "").strip().lower()
+        if requested_thinking not in ("", "adaptive", "disabled"):
+            raise ValueError("MINIMAX_THINKING must be blank, adaptive, or disabled")
         if self.AI_MODEL == "MiniMax-M2.7":
-            if requested_thinking == "disabled":
-                raise ValueError("MiniMax-M2.7 thinking cannot be disabled")
             self.THINKING = "always_on"
         else:
-            self.THINKING = requested_thinking
+            self.THINKING = requested_thinking or None
         self.SERVICE_TIER = str(MINIMAX_SERVICE_TIER or "standard").strip().lower()
         if self.SERVICE_TIER not in ("standard", "priority"):
             raise ValueError("MINIMAX_SERVICE_TIER must be standard or priority")
@@ -217,10 +280,9 @@ class minimax(Extensions):
         if self.configured:
             self.ApiClient = kwargs.get("ApiClient")
 
-    def services(self):
-        if self.AI_MODEL == "MiniMax-M3":
-            return ["llm", "vision"]
-        return ["llm"]
+    @staticmethod
+    def services():
+        return ["llm", "vision"]
 
     def get_max_tokens(self):
         return self.MAX_TOKENS
@@ -244,8 +306,14 @@ class minimax(Extensions):
         messages = []
         if images:
             content = [{"type": "text", "text": prompt}]
-            content.extend(_media_content_part(media) for media in images)
+            content.extend(
+                _media_content_part(media, self.API_PROTOCOL) for media in images
+            )
             messages.append({"role": "user", "content": content})
+        elif self.API_PROTOCOL == "anthropic":
+            messages.append(
+                {"role": "user", "content": [{"type": "text", "text": prompt}]}
+            )
         else:
             messages.append({"role": "user", "content": prompt})
 
@@ -256,19 +324,26 @@ class minimax(Extensions):
             "model": self.AI_MODEL,
             "messages": messages,
             "temperature": self.AI_TEMPERATURE,
-            "max_completion_tokens": self.MAX_OUTPUT_TOKENS,
             "top_p": self.AI_TOP_P,
-            "n": 1,
             "stream": stream,
-            "stop": ["</execute>"],
         }
+        if self.API_PROTOCOL == "anthropic":
+            payload["max_tokens"] = self.MAX_OUTPUT_TOKENS
+            payload["stop_sequences"] = ["</execute>"]
+            api_url = f"{self.API_URI}/v1/messages"
+        else:
+            payload["max_completion_tokens"] = self.MAX_OUTPUT_TOKENS
+            payload["n"] = 1
+            payload["stop"] = ["</execute>"]
+            api_url = f"{self.API_URI}/chat/completions"
         if self.AI_MODEL == "MiniMax-M3":
-            payload["thinking"] = {"type": self.THINKING}
+            if self.THINKING:
+                payload["thinking"] = {"type": self.THINKING}
             payload["service_tier"] = self.SERVICE_TIER
 
         try:
             response = requests.post(
-                f"{self.API_URI}/chat/completions",
+                api_url,
                 headers={
                     "Authorization": f"Bearer {self.MINIMAX_API_KEY}",
                     "Content-Type": "application/json",
@@ -280,8 +355,17 @@ class minimax(Extensions):
             response.raise_for_status()
             self.failures = 0
             if stream:
+                if self.API_PROTOCOL == "anthropic":
+                    return parse_anthropic_sse_stream(response)
                 return parse_sse_stream(response)
-            return response.json()["choices"][0]["message"]["content"]
+            response_data = response.json()
+            if self.API_PROTOCOL == "anthropic":
+                return "".join(
+                    block.get("text", "")
+                    for block in response_data.get("content", [])
+                    if block.get("type") == "text"
+                )
+            return response_data["choices"][0]["message"]["content"]
         except Exception as error:
             self.failures += 1
             logging.info(f"MiniMax API error: {error}")
