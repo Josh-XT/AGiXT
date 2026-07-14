@@ -97,14 +97,19 @@ def test_routes_requests_to_each_regional_protocol(api_uri, expected_url, protoc
     assert result == "ready"
     assert request.call_args.args[0] == expected_url
     payload = request.call_args.kwargs["json"]
-    assert request.call_args.kwargs["headers"]["Authorization"] == "Bearer test-key"
+    headers = request.call_args.kwargs["headers"]
     assert payload["service_tier"] == "standard"
     assert "thinking" not in payload
     if protocol == "anthropic":
+        assert headers["x-api-key"] == "test-key"
+        assert headers["anthropic-version"] == "2023-06-01"
+        assert "Authorization" not in headers
         assert payload["max_tokens"] == 32
         assert "max_completion_tokens" not in payload
         assert payload["messages"][0]["content"][0]["type"] == "text"
     else:
+        assert headers["Authorization"] == "Bearer test-key"
+        assert "x-api-key" not in headers
         assert payload["max_completion_tokens"] == 32
         assert "max_tokens" not in payload
 

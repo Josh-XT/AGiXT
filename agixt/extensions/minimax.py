@@ -26,6 +26,7 @@ API_URIS = {
     "global_en_anthropic": "https://api.minimax.io/anthropic",
     "cn_zh_anthropic": "https://api.minimaxi.com/anthropic",
 }
+ANTHROPIC_API_VERSION = "2023-06-01"
 MODEL_CONTEXT_WINDOWS = {
     "MiniMax-M3": 1_000_000,
     "MiniMax-M2.7": 204_800,
@@ -331,11 +332,20 @@ class minimax(Extensions):
             payload["max_tokens"] = self.MAX_OUTPUT_TOKENS
             payload["stop_sequences"] = ["</execute>"]
             api_url = f"{self.API_URI}/v1/messages"
+            headers = {
+                "x-api-key": self.MINIMAX_API_KEY,
+                "anthropic-version": ANTHROPIC_API_VERSION,
+                "Content-Type": "application/json",
+            }
         else:
             payload["max_completion_tokens"] = self.MAX_OUTPUT_TOKENS
             payload["n"] = 1
             payload["stop"] = ["</execute>"]
             api_url = f"{self.API_URI}/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {self.MINIMAX_API_KEY}",
+                "Content-Type": "application/json",
+            }
         if self.AI_MODEL == "MiniMax-M3":
             if self.THINKING:
                 payload["thinking"] = {"type": self.THINKING}
@@ -344,10 +354,7 @@ class minimax(Extensions):
         try:
             response = requests.post(
                 api_url,
-                headers={
-                    "Authorization": f"Bearer {self.MINIMAX_API_KEY}",
-                    "Content-Type": "application/json",
-                },
+                headers=headers,
                 json=payload,
                 stream=stream,
                 timeout=300,
