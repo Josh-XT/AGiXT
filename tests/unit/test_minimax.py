@@ -152,6 +152,29 @@ def test_anthropic_requests_use_native_multimodal_blocks():
     }
 
 
+@pytest.mark.parametrize("protocol", ["openai", "anthropic"])
+def test_local_mov_files_use_the_documented_base64_media_type(tmp_path, protocol):
+    media_file = tmp_path / "clip.mov"
+    media_file.write_bytes(b"video")
+
+    content = minimax_module._media_content_part(str(media_file), protocol)
+
+    if protocol == "anthropic":
+        assert content == {
+            "type": "video",
+            "source": {
+                "type": "base64",
+                "media_type": "video/mov",
+                "data": "dmlkZW8=",
+            },
+        }
+    else:
+        assert content == {
+            "type": "video_url",
+            "video_url": {"url": "data:video/mov;base64,dmlkZW8="},
+        }
+
+
 def test_anthropic_stream_maps_text_reasoning_and_finish_chunks():
     response = FakeResponse(
         lines=[
@@ -188,6 +211,19 @@ def test_target_model_defaults_preserve_context_and_output_semantics():
     )
     assert m3.THINKING is None
     assert m27.THINKING == "always_on"
+
+
+@pytest.mark.parametrize(
+    ("model", "max_output_tokens"),
+    [("MiniMax-M3", 524_289), ("MiniMax-M2.7", 204_801)],
+)
+def test_rejects_output_tokens_above_model_limits(model, max_output_tokens):
+    with pytest.raises(ValueError, match=f"{model} output limit"):
+        minimax_module.minimax(
+            MINIMAX_API_KEY="test-key",
+            MINIMAX_MODEL=model,
+            MINIMAX_MAX_OUTPUT_TOKENS=max_output_tokens,
+        )
 
 
 def test_provider_services_can_be_discovered_from_the_class():

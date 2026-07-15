@@ -35,6 +35,10 @@ MODEL_OUTPUT_TOKEN_DEFAULTS = {
     "MiniMax-M3": 131_072,
     "MiniMax-M2.7": 65_536,
 }
+MODEL_OUTPUT_TOKEN_LIMITS = {
+    "MiniMax-M3": 524_288,
+    "MiniMax-M2.7": 204_800,
+}
 MODEL_TOP_P_DEFAULTS = {
     "MiniMax-M3": 0.95,
     "MiniMax-M2.7": 0.9,
@@ -47,7 +51,7 @@ MEDIA_TYPES = {
     ".webp": ("image_url", "image/webp"),
     ".mp4": ("video_url", "video/mp4"),
     ".avi": ("video_url", "video/x-msvideo"),
-    ".mov": ("video_url", "video/quicktime"),
+    ".mov": ("video_url", "video/mov"),
     ".mkv": ("video_url", "video/x-matroska"),
 }
 
@@ -233,6 +237,14 @@ class minimax(Extensions):
             if MINIMAX_MAX_OUTPUT_TOKENS
             else MODEL_OUTPUT_TOKEN_DEFAULTS.get(self.AI_MODEL, 4096)
         )
+        model_output_token_limit = MODEL_OUTPUT_TOKEN_LIMITS.get(self.AI_MODEL)
+        if (
+            model_output_token_limit
+            and self.MAX_OUTPUT_TOKENS > model_output_token_limit
+        ):
+            raise ValueError(
+                f"MINIMAX_MAX_OUTPUT_TOKENS exceeds the {self.AI_MODEL} output limit"
+            )
         self.AI_TEMPERATURE = float(MINIMAX_TEMPERATURE)
         if not 0 <= self.AI_TEMPERATURE <= 2:
             raise ValueError("MINIMAX_TEMPERATURE must be between 0 and 2")
