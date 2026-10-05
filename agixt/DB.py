@@ -7335,6 +7335,34 @@ SERVER_CONFIG_DEFINITIONS = [
         "is_sensitive": False,
         "is_required": False,
     },
+    # Atlas Cloud
+    {
+        "name": "ATLASCLOUD_API_KEY",
+        "category": "ai_providers",
+        "description": "Atlas Cloud API Key for multi-model access. Get at https://atlascloud.ai/docs/api-keys",
+        "value_type": "secret",
+        "default_value": "",
+        "is_sensitive": True,
+        "is_required": False,
+    },
+    {
+        "name": "ATLASCLOUD_MODEL",
+        "category": "ai_providers",
+        "description": "Default Atlas Cloud model to use",
+        "value_type": "string",
+        "default_value": "deepseek-ai/DeepSeek-V3.1-Terminus",
+        "is_sensitive": False,
+        "is_required": False,
+    },
+    {
+        "name": "ATLASCLOUD_MAX_TOKENS",
+        "category": "ai_providers",
+        "description": "Maximum tokens for Atlas Cloud responses",
+        "value_type": "integer",
+        "default_value": "16384",
+        "is_sensitive": False,
+        "is_required": False,
+    },
     # DeepInfra
     {
         "name": "DEEPINFRA_API_KEY",
