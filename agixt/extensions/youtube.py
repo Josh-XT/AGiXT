@@ -29,6 +29,7 @@ Required APIs:
 Required scopes:
 - youtube.readonly: View YouTube account
 - youtube: Manage YouTube account (for playlist management)
+- youtube.force-ssl: Read and post comments (the only scope commentThreads accepts)
 """
 
 SCOPES = [
@@ -36,6 +37,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/youtube.readonly",
     "https://www.googleapis.com/auth/youtube",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
 ]
 AUTHORIZE = "https://accounts.google.com/o/oauth2/v2/auth"
 PKCE_REQUIRED = False
@@ -65,7 +67,6 @@ class YoutubeSSO:
                 "client_secret": self.client_secret,
                 "refresh_token": self.refresh_token,
                 "grant_type": "refresh_token",
-                "scope": " ".join(SCOPES),
             },
         )
         if response.status_code != 200:
