@@ -61,20 +61,29 @@ class JSONRPCMessage:
 
 
 class HTTPTransport:
-    """HTTP transport with Server-Sent Events support for MCP"""
+    """HTTP transport with Server-Sent Events support for MCP.
+
+    Set trust_env=True to opt into aiohttp's environment proxy and netrc support.
+    """
 
     def __init__(
-        self, endpoint_url: str, auth_headers: Optional[Dict[str, str]] = None
+        self,
+        endpoint_url: str,
+        auth_headers: Optional[Dict[str, str]] = None,
+        trust_env: bool = False,
     ):
         self.endpoint_url = endpoint_url
         self.auth_headers = auth_headers or {}
+        self.trust_env = trust_env
         self.session: Optional[aiohttp.ClientSession] = None
         self.sse_task: Optional[asyncio.Task] = None
         self.notification_handlers = {}
 
     async def connect(self):
         """Establish HTTP connection"""
-        self.session = aiohttp.ClientSession(headers=self.auth_headers)
+        self.session = aiohttp.ClientSession(
+            headers=self.auth_headers, trust_env=self.trust_env
+        )
 
     async def disconnect(self):
         """Close HTTP connection"""
@@ -233,6 +242,7 @@ class MCPClient:
             return HTTPTransport(
                 endpoint_url=params.get("endpoint_url"),
                 auth_headers=params.get("auth_headers", {}),
+                trust_env=params.get("trust_env", False),
             )
         elif transport_type == TransportType.STDIO:
             return StdioTransport(
