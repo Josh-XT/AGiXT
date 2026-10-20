@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -11,11 +12,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = PROJECT_ROOT / "agixt" / "extensions" / "minimax.py"
 
 
-def _load_minimax_module():
+def _load_minimax_module(settings=None):
     extensions_stub = types.ModuleType("Extensions")
     extensions_stub.Extensions = type("Extensions", (), {})
     globals_stub = types.ModuleType("Globals")
-    globals_stub.getenv = lambda _name, default="": default
+    globals_stub.getenv = lambda name, default="": (settings or {}).get(name, default)
 
     previous_extensions = sys.modules.get("Extensions")
     previous_globals = sys.modules.get("Globals")
@@ -98,7 +99,8 @@ def test_routes_requests_to_each_regional_protocol(api_uri, expected_url, protoc
     assert request.call_args.args[0] == expected_url
     payload = request.call_args.kwargs["json"]
     headers = request.call_args.kwargs["headers"]
-    assert payload["service_tier"] == "standard"
+    assert payload["model"] == "MiniMax-M3.1-Flash"
+    assert "service_tier" not in payload
     assert "thinking" not in payload
     if protocol == "anthropic":
         assert headers["x-api-key"] == "test-key"
@@ -192,7 +194,14 @@ def test_anthropic_stream_maps_text_reasoning_and_finish_chunks():
 
 
 def test_target_model_defaults_preserve_context_and_output_semantics():
-    m3 = minimax_module.minimax(MINIMAX_API_KEY="test-key")
+    flash = minimax_module.minimax(MINIMAX_API_KEY="test-key")
+    m3 = minimax_module.minimax(MINIMAX_API_KEY="test-key", MINIMAX_MODEL="MiniMax-M3")
+    assert flash.AI_MODEL == "MiniMax-M3.1-Flash"
+    assert (flash.MAX_TOKENS, flash.MAX_OUTPUT_TOKENS, flash.AI_TOP_P) == (
+        1_000_000,
+        131_072,
+        0.95,
+    )
     m27 = minimax_module.minimax(
         MINIMAX_API_KEY="test-key",
         MINIMAX_MODEL="MiniMax-M2.7",
@@ -215,7 +224,11 @@ def test_target_model_defaults_preserve_context_and_output_semantics():
 
 @pytest.mark.parametrize(
     ("model", "max_output_tokens"),
-    [("MiniMax-M3", 524_289), ("MiniMax-M2.7", 204_801)],
+    [
+        ("MiniMax-M3.1-Flash", 524_289),
+        ("MiniMax-M3", 524_289),
+        ("MiniMax-M2.7", 204_801),
+    ],
 )
 def test_rejects_output_tokens_above_model_limits(model, max_output_tokens):
     with pytest.raises(ValueError, match=f"{model} output limit"):
@@ -228,6 +241,227 @@ def test_rejects_output_tokens_above_model_limits(model, max_output_tokens):
 
 def test_provider_services_can_be_discovered_from_the_class():
     assert minimax_module.minimax.services() == ["llm", "vision"]
+
+
+@pytest.fixture
+def http_requests(monkeypatch):
+    """Capture the serialized request after Requests prepares the HTTP body."""
+    captured = []
+
+    def send(_adapter, request, **kwargs):
+        captured.append(request)
+        response = minimax_module.requests.Response()
+        response.status_code = 200
+        response.request = request
+        if request.url.endswith("/messages"):
+            data = {"content": [{"type": "text", "text": "ready"}]}
+        else:
+            data = {"choices": [{"message": {"content": "ready"}}]}
+        response._content = json.dumps(data).encode()
+        response.headers["Content-Type"] = "application/json"
+        if json.loads(request.body).get("stream"):
+            if request.url.endswith("/messages"):
+                events = [
+                    {
+                        "type": "content_block_delta",
+                        "delta": {"type": "thinking_delta", "thinking": "plan"},
+                    },
+                    {
+                        "type": "content_block_delta",
+                        "delta": {"type": "text_delta", "text": "ready"},
+                    },
+                ]
+            else:
+                events = [
+                    {"choices": [{"delta": {"reasoning_content": "plan"}}]},
+                    {"choices": [{"delta": {"content": "ready"}}]},
+                ]
+            response._content = "".join(
+                f"data: {json.dumps(event)}\n\n" for event in events
+            ).encode()
+            response._content_consumed = True
+            response.headers["Content-Type"] = "text/event-stream"
+        return response
+
+    monkeypatch.setattr(minimax_module.requests.adapters.HTTPAdapter, "send", send)
+    return captured
+
+
+@pytest.mark.parametrize("api_uri", list(minimax_module.API_URIS))
+@pytest.mark.parametrize("effort", ["", "low", "medium", "high", "xhigh", "max"])
+def test_flash_serialized_request(api_uri, effort, http_requests):
+    provider = minimax_module.minimax(
+        MINIMAX_API_KEY="test-key",
+        MINIMAX_API_URI=api_uri,
+        MINIMAX_REASONING_EFFORT=effort,
+        MINIMAX_THINKING="adaptive",
+        MINIMAX_MAX_OUTPUT_TOKENS=524_288,
+    )
+    assert asyncio.run(provider.generate_response_command("Hello")) == "ready"
+    request = http_requests[0]
+    payload = json.loads(request.body)
+    assert payload["model"] == "MiniMax-M3.1-Flash"
+    assert payload["thinking"] == {"type": "adaptive"}
+    assert "service_tier" not in payload
+    assert "reasoning_split" not in payload
+    assert request.method == "POST"
+    anthropic = api_uri.endswith("anthropic")
+    assert request.url == minimax_module.API_URIS[api_uri] + (
+        "/v1/messages" if anthropic else "/chat/completions"
+    )
+    if anthropic:
+        assert payload["max_tokens"] == 524_288
+        assert "reasoning_effort" not in payload
+        assert payload.get("output_config") == ({"effort": effort} if effort else None)
+        assert request.headers["x-api-key"] == "test-key"
+    else:
+        assert payload["max_completion_tokens"] == 524_288
+        assert "output_config" not in payload
+        assert payload.get("reasoning_effort") == (effort or None)
+        assert request.headers["Authorization"] == "Bearer test-key"
+
+
+@pytest.mark.parametrize("api_uri", list(minimax_module.API_URIS))
+@pytest.mark.parametrize("thinking", ["", "adaptive", "disabled"])
+def test_saved_m3_preserves_thinking_and_tier(api_uri, thinking, http_requests):
+    with patch.object(minimax_module, "getenv", return_value="MiniMax-M3.1-Flash"):
+        provider = minimax_module.minimax(
+            MINIMAX_API_KEY="test-key",
+            MINIMAX_API_URI=api_uri,
+            MINIMAX_MODEL="MiniMax-M3",
+            MINIMAX_THINKING=thinking,
+            MINIMAX_SERVICE_TIER="priority",
+            MINIMAX_REASONING_EFFORT="high",
+        )
+    asyncio.run(provider.inference("Hello"))
+    payload = json.loads(http_requests[0].body)
+    assert payload["model"] == "MiniMax-M3"
+    assert payload["service_tier"] == "priority"
+    assert payload.get("thinking") == ({"type": thinking} if thinking else None)
+    assert "reasoning_effort" not in payload
+    assert "output_config" not in payload
+
+
+@pytest.mark.parametrize(
+    "model", ["MiniMax-M2.7", "custom-model", "MiniMax-M3.1-Flash"]
+)
+@pytest.mark.parametrize(
+    "base", ["https://custom.example/v1", "https://custom.example/anthropic"]
+)
+def test_explicit_models_and_custom_endpoints_are_preserved(model, base, http_requests):
+    with patch.object(minimax_module, "getenv", return_value="another-model"):
+        provider = minimax_module.minimax(
+            MINIMAX_API_KEY="test-key", MINIMAX_MODEL=model, MINIMAX_API_URI=base
+        )
+    asyncio.run(provider.inference("Hello"))
+    payload = json.loads(http_requests[0].body)
+    assert payload["model"] == model
+    assert http_requests[0].url.startswith(base + "/")
+    assert "thinking" not in payload
+    assert "service_tier" not in payload
+
+
+@pytest.mark.parametrize("api_uri", list(minimax_module.API_URIS))
+@pytest.mark.parametrize("model", ["MiniMax-M3.1-Flash", "MiniMax-M3"])
+def test_serialized_multimodal_payload_is_preserved(api_uri, model, http_requests):
+    provider = minimax_module.minimax(
+        MINIMAX_API_KEY="test-key", MINIMAX_API_URI=api_uri, MINIMAX_MODEL=model
+    )
+    asyncio.run(
+        provider.inference(
+            "Inspect", images=["data:image/png;base64,AA==", "mm_file://video-id"]
+        )
+    )
+    content = json.loads(http_requests[0].body)["messages"][0]["content"]
+    assert content[0] == {"type": "text", "text": "Inspect"}
+    if api_uri.endswith("anthropic"):
+        assert content[1] == {
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": "AA=="},
+        }
+        assert content[2] == {
+            "type": "video",
+            "source": {"type": "url", "url": "mm_file://video-id"},
+        }
+    else:
+        assert content[1] == {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,AA=="},
+        }
+        assert content[2] == {
+            "type": "video_url",
+            "video_url": {"url": "mm_file://video-id"},
+        }
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"MINIMAX_THINKING": "disabled"},
+        {"MINIMAX_REASONING_EFFORT": "none"},
+        {"MINIMAX_REASONING_EFFORT": "invalid"},
+        {"MINIMAX_SERVICE_TIER": "priority"},
+    ],
+)
+def test_invalid_flash_options_fail_before_http(settings, http_requests):
+    with pytest.raises(ValueError):
+        minimax_module.minimax(MINIMAX_API_KEY="test-key", **settings)
+    assert not http_requests
+
+
+def test_provider_discovery_default_reaches_http(http_requests):
+    globals_stub = types.ModuleType("Globals")
+    globals_stub.getenv = lambda name: {
+        "LOG_LEVEL": "INFO",
+        "LOG_FORMAT": "%(message)s",
+        "DISABLED_PROVIDERS": "",
+    }[name]
+    with patch.dict(sys.modules, {"Globals": globals_stub}):
+        spec = importlib.util.spec_from_file_location(
+            "provider_discovery", PROJECT_ROOT / "agixt" / "Providers.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    with patch.object(
+        module,
+        "_get_ai_provider_extensions",
+        return_value={"minimax": {"class": minimax_module.minimax}},
+    ):
+        options = module.get_provider_options("minimax")
+    assert options["MINIMAX_MODEL"] == "MiniMax-M3.1-Flash"
+    options["MINIMAX_API_KEY"] = "test-key"
+    provider = minimax_module.minimax(**options)
+    asyncio.run(provider.inference("Hello"))
+    payload = json.loads(http_requests[0].body)
+    assert payload["model"] == "MiniMax-M3.1-Flash"
+    assert "thinking" not in payload
+    assert "reasoning_effort" not in payload
+    assert "output_config" not in payload
+    assert "service_tier" not in payload
+
+
+@pytest.mark.parametrize("api_uri", list(minimax_module.API_URIS))
+def test_flash_stream_preserves_reasoning_and_text(api_uri, http_requests):
+    provider = minimax_module.minimax(
+        MINIMAX_API_KEY="test-key", MINIMAX_API_URI=api_uri
+    )
+    chunks = list(asyncio.run(provider.inference("Hello", stream=True)))
+    assert chunks[0].choices[0].delta.reasoning_content == "plan"
+    assert chunks[1].choices[0].delta.content == "ready"
+    assert json.loads(http_requests[0].body)["stream"] is True
+
+
+@pytest.mark.parametrize("model", ["MiniMax-M3", "MiniMax-M2.7", "custom-model"])
+def test_environment_default_and_explicit_selection_are_preserved(model, http_requests):
+    module = _load_minimax_module({"MINIMAX_MODEL": model})
+    provider = module.minimax(MINIMAX_API_KEY="test-key")
+    asyncio.run(provider.inference("Hello"))
+    assert json.loads(http_requests[-1].body)["model"] == model
+    provider = module.minimax(
+        MINIMAX_API_KEY="test-key", MINIMAX_MODEL="MiniMax-M3.1-Flash"
+    )
+    asyncio.run(provider.inference("Hello"))
+    assert json.loads(http_requests[-1].body)["model"] == "MiniMax-M3.1-Flash"
 
 
 def test_rejects_versioned_anthropic_base_urls():

@@ -27,19 +27,24 @@ API_URIS = {
     "cn_zh_anthropic": "https://api.minimaxi.com/anthropic",
 }
 ANTHROPIC_API_VERSION = "2023-06-01"
+# Legacy metadata remains available for explicitly configured models.
 MODEL_CONTEXT_WINDOWS = {
+    "MiniMax-M3.1-Flash": 1_000_000,
     "MiniMax-M3": 1_000_000,
     "MiniMax-M2.7": 204_800,
 }
 MODEL_OUTPUT_TOKEN_DEFAULTS = {
+    "MiniMax-M3.1-Flash": 131_072,
     "MiniMax-M3": 131_072,
     "MiniMax-M2.7": 65_536,
 }
 MODEL_OUTPUT_TOKEN_LIMITS = {
+    "MiniMax-M3.1-Flash": 524_288,
     "MiniMax-M3": 524_288,
     "MiniMax-M2.7": 204_800,
 }
 MODEL_TOP_P_DEFAULTS = {
+    "MiniMax-M3.1-Flash": 0.95,
     "MiniMax-M3": 0.95,
     "MiniMax-M2.7": 0.9,
 }
@@ -175,7 +180,11 @@ class minimax(Extensions):
 
     Use global_en or cn_zh for the OpenAI-compatible protocol. Use
     global_en_anthropic or cn_zh_anthropic for the Anthropic-compatible
-    protocol. A blank thinking setting keeps each protocol's native default.
+    protocol. MiniMax-M3.1-Flash is the default; MiniMax-M3 is also supported.
+    Explicit legacy and custom model IDs are preserved. A blank thinking setting
+    keeps each protocol's native default. Flash requires adaptive thinking and
+    supports MINIMAX_REASONING_EFFORT (low, medium, high, xhigh, max); blank uses
+    the API default of max. Service tier applies only to MiniMax-M3.
     """
 
     CATEGORY = "AI Provider"
@@ -185,7 +194,7 @@ class minimax(Extensions):
     def __init__(
         self,
         MINIMAX_API_KEY: str = "",
-        MINIMAX_MODEL: str = "MiniMax-M3",
+        MINIMAX_MODEL: str = getenv("MINIMAX_MODEL", "MiniMax-M3.1-Flash"),
         MINIMAX_API_URI: str = API_URIS["global_en"],
         MINIMAX_MAX_TOKENS: int = 0,
         MINIMAX_MAX_OUTPUT_TOKENS: int = 0,
@@ -195,12 +204,13 @@ class minimax(Extensions):
         MINIMAX_SERVICE_TIER: str = "standard",
         MINIMAX_WAIT_BETWEEN_REQUESTS: int = 0,
         MINIMAX_WAIT_AFTER_FAILURE: int = 3,
+        MINIMAX_REASONING_EFFORT: str = "",
         **kwargs,
     ):
         if not MINIMAX_API_KEY:
             MINIMAX_API_KEY = getenv("MINIMAX_API_KEY", "")
-        if not MINIMAX_MODEL or MINIMAX_MODEL == "MiniMax-M3":
-            MINIMAX_MODEL = getenv("MINIMAX_MODEL", "MiniMax-M3")
+        if not MINIMAX_MODEL:
+            MINIMAX_MODEL = getenv("MINIMAX_MODEL", "MiniMax-M3.1-Flash")
         if not MINIMAX_API_URI or MINIMAX_API_URI == API_URIS["global_en"]:
             MINIMAX_API_URI = getenv(
                 "MINIMAX_API_URI",
@@ -208,7 +218,7 @@ class minimax(Extensions):
             )
 
         self.MINIMAX_API_KEY = MINIMAX_API_KEY
-        self.AI_MODEL = MINIMAX_MODEL or "MiniMax-M3"
+        self.AI_MODEL = MINIMAX_MODEL or "MiniMax-M3.1-Flash"
         self.API_URI = (
             API_URIS.get(MINIMAX_API_URI, MINIMAX_API_URI or API_URIS["global_en"])
             .strip()
@@ -263,10 +273,24 @@ class minimax(Extensions):
         requested_thinking = str(MINIMAX_THINKING or "").strip().lower()
         if requested_thinking not in ("", "adaptive", "disabled"):
             raise ValueError("MINIMAX_THINKING must be blank, adaptive, or disabled")
+        if self.AI_MODEL == "MiniMax-M3.1-Flash" and requested_thinking == "disabled":
+            raise ValueError("MiniMax-M3.1-Flash requires adaptive thinking")
         if self.AI_MODEL == "MiniMax-M2.7":
             self.THINKING = "always_on"
         else:
             self.THINKING = requested_thinking or None
+        self.REASONING_EFFORT = str(MINIMAX_REASONING_EFFORT or "").strip().lower()
+        if self.AI_MODEL == "MiniMax-M3.1-Flash" and self.REASONING_EFFORT not in (
+            "",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+        ):
+            raise ValueError(
+                "MINIMAX_REASONING_EFFORT must be blank, low, medium, high, xhigh, or max"
+            )
         self.SERVICE_TIER = str(MINIMAX_SERVICE_TIER or "standard").strip().lower()
         if self.SERVICE_TIER not in ("standard", "priority"):
             raise ValueError("MINIMAX_SERVICE_TIER must be standard or priority")
@@ -313,7 +337,7 @@ class minimax(Extensions):
     ) -> str:
         if not self.configured:
             raise Exception("MiniMax provider not configured")
-        if images and self.AI_MODEL != "MiniMax-M3":
+        if images and self.AI_MODEL not in ("MiniMax-M3.1-Flash", "MiniMax-M3"):
             raise ValueError(f"{self.AI_MODEL} does not support multimodal input")
 
         messages = []
@@ -358,10 +382,15 @@ class minimax(Extensions):
                 "Authorization": f"Bearer {self.MINIMAX_API_KEY}",
                 "Content-Type": "application/json",
             }
+        if self.AI_MODEL in ("MiniMax-M3.1-Flash", "MiniMax-M3") and self.THINKING:
+            payload["thinking"] = {"type": self.THINKING}
         if self.AI_MODEL == "MiniMax-M3":
-            if self.THINKING:
-                payload["thinking"] = {"type": self.THINKING}
             payload["service_tier"] = self.SERVICE_TIER
+        elif self.AI_MODEL == "MiniMax-M3.1-Flash" and self.REASONING_EFFORT:
+            if self.API_PROTOCOL == "anthropic":
+                payload["output_config"] = {"effort": self.REASONING_EFFORT}
+            else:
+                payload["reasoning_effort"] = self.REASONING_EFFORT
 
         try:
             response = requests.post(
